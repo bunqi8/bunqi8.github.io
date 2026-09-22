@@ -66,7 +66,9 @@ function setupCustomIndicatorsDialog(widget) {
                     }
 
                     const srcBtn = iframeDoc.createElement('div');
-                    srcBtn.className = 'tv-custom-source-btn';
+                    // Inherit TradingView's native classes so it hides/shows exactly like the delete/settings buttons
+                    srcBtn.className = btn.className; 
+                    srcBtn.classList.add('tv-custom-source-btn');
                     srcBtn.innerHTML = '{ }';
                     srcBtn.title = 'Open Local Code Editor';
                     srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; width:22px; height:22px; margin:0 2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; line-height:1; color:#131722; border-radius:4px; transition:0.2s;';
