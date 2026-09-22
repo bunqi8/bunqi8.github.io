@@ -283,17 +283,17 @@ function bootWidget() {
         
         window.tvWidget.headerReady().then(function() {
             var button = window.tvWidget.createButton();
-            button.setAttribute('title', 'Open Options Chain');
             button.classList.add('apply-common-tooltip');
             button.addEventListener('click', function() {
                 if (window.openOptionsChainModal) window.openOptionsChainModal();
             });
             // Match TradingView Indicators button style precisely using the exact classes provided by the user
             button.innerHTML = `
-                <div class="button-OhqNVIYA button-ptpAHg8E withText-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" tabindex="-1" type="button">
+                <div class="button-OhqNVIYA button-ptpAHg8E withText-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" tabindex="-1" type="button" aria-label="Open Options Chain" data-tooltip="Open Options Chain">
                     <span role="img" class="icon-GwQQdU8S" aria-hidden="true">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
-                            <path stroke="currentColor" d="M20 17l-5 5M15 17l5 5M9 11.5h7M17.5 8a2.5 2.5 0 0 0-5 0v11a2.5 2.5 0 0 1-5 0"></path>
+                            <rect x="5.5" y="7.5" width="17" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"></rect>
+                            <path stroke="currentColor" stroke-width="1.2" d="M5.5 12.5h17M14 7.5v13"></path>
                         </svg>
                     </span>
                     <div class="js-button-text text-GwQQdU8S">Option Chain</div>
