@@ -69,7 +69,7 @@ function setupCustomIndicatorsDialog(widget) {
                     srcBtn.className = 'tv-custom-source-btn';
                     srcBtn.innerHTML = '{ }';
                     srcBtn.title = 'Open Local Code Editor';
-                    srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin:0 2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; color:#131722; border-radius:4px; transition:0.2s;';
+                    srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; width:22px; height:22px; margin:0 2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; line-height:1; color:#131722; border-radius:4px; transition:0.2s;';
                     srcBtn.onmouseover = () => { srcBtn.style.background = '#f0f3fa'; srcBtn.style.color = '#2962FF'; };
                     srcBtn.onmouseout = () => { srcBtn.style.background = 'transparent'; srcBtn.style.color = '#131722'; };
                     
