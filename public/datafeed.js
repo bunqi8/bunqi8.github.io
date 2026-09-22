@@ -78,20 +78,42 @@ const Datafeed = {
             // Note: The parquet file might have columns like: datetime, open, high, low, close, volume
             // We need to fetch rows where epoch time is between `from` and `to`
             // DuckDB automatically reads remote parquet files over HTTP using range requests!
-            const query = `
-                SELECT 
-                    epoch(datetime) * 1000 as time,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                FROM read_parquet('${fileUrl}')
-                WHERE epoch(datetime) >= ${from} AND epoch(datetime) <= ${to}
-                ORDER BY datetime ASC
-            `;
-            
-            const results = await conn.query(query);
+            let results;
+            try {
+                // Try assuming 'time' is a TIMESTAMP or DATE
+                const query = `
+                    SELECT 
+                        epoch(time) * 1000 as time,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume
+                    FROM read_parquet('${fileUrl}')
+                    WHERE epoch(time) >= ${from} AND epoch(time) <= ${to}
+                    ORDER BY time ASC
+                `;
+                results = await conn.query(query);
+            } catch (err) {
+                if (err.message && err.message.includes('epoch')) {
+                    // Fallback: 'time' is likely already a UNIX epoch in seconds (INT/BIGINT)
+                    const query2 = `
+                        SELECT 
+                            (time::BIGINT) * 1000 as time,
+                            open,
+                            high,
+                            low,
+                            close,
+                            volume
+                        FROM read_parquet('${fileUrl}')
+                        WHERE time >= ${from} AND time <= ${to}
+                        ORDER BY time ASC
+                    `;
+                    results = await conn.query(query2);
+                } else {
+                    throw err; // re-throw if it's a different error
+                }
+            }
             await conn.close();
 
             const bars = [];
