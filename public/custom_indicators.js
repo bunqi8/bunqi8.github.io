@@ -187,8 +187,8 @@ window.getCustomIndicators = function (PineJS) {
                             plot_ema3: { plottype: 0, linewidth: 1, color: "#F44336" }, // Red
                             plot_ema4: { plottype: 0, linewidth: 1, color: "#FF9800" }, // Orange
                             plot_ema5: { plottype: 0, linewidth: 1, color: "#2196F3" }, // Blue
-                            plot_cross_up: { plottype: 3, linewidth: 6, color: "#2962FF" }, // Blue Cross (thickness 6)
-                            plot_cross_dn: { plottype: 3, linewidth: 6, color: "#E040FB" }  // Magenta Cross (thickness 6)
+                            plot_cross_up: { plottype: 3, linewidth: 4, color: "#2962FF" }, // Blue Cross (thickness 4 - max allowed)
+                            plot_cross_dn: { plottype: 3, linewidth: 4, color: "#E040FB" }  // Magenta Cross (thickness 4 - max allowed)
                         },
                         inputs: {
                             len1: 3,
