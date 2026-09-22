@@ -8,53 +8,10 @@
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #ffffff; }
         #tv_chart_container { width: 100%; height: 100vh; }
     </style>
-    <!-- We do not load the charting library statically anymore!
-         The Service Worker will decode it dynamically to prevent DMCA bots. -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').then((reg) => {
-                if (navigator.serviceWorker.controller) {
-                    loadEngine();
-                } else {
-                    let claimed = false;
-                    navigator.serviceWorker.addEventListener('controllerchange', () => {
-                        claimed = true;
-                        loadEngine();
-                    });
-                    
-                    // HARD REFRESH FIX:
-                    // If a user hard-refreshes (Cmd+Shift+R), the browser intentionally bypasses the Service Worker.
-                    // Since our site *requires* the SW to decrypt the engine, a hard refresh leaves the screen white.
-                    // We detect this by waiting 500ms. If the SW hasn't claimed the page, we force a normal reload!
-                    setTimeout(() => {
-                        if (!claimed) {
-                            console.warn("Hard Refresh detected (Service Worker bypassed). Forcing normal reload to restore decryption engine...");
-                            window.location.reload();
-                        }
-                    }, 500);
-                }
-            }).catch(err => console.error("SW Registration failed:", err));
-        }
-
-        function loadEngine() {
-            // VIRTUAL PATH: The repo doesn't have a 'charting_library' folder anymore.
-            // But we request it anyway! The Service Worker intercepts it and maps it to the obfuscated 'data_pack/*.txt'!
-            const script = document.createElement('script');
-            script.src = 'charting_library/charting_library.standalone.js';
-            script.onload = () => {
-                const df = document.createElement('script');
-                df.src = 'datafeed.js';
-                document.head.appendChild(df);
-
-                df.onload = () => {
-                    const main = document.createElement('script');
-                    main.src = 'main.js';
-                    document.head.appendChild(main);
-                };
-            };
-            document.head.appendChild(script);
-        }
-    </script>
+    <!-- Load the lightly obfuscated core engine -->
+    <script src="chart_engine/core.standalone.js"></script>
+    <script src="datafeed.js"></script>
+    <script src="main.js"></script>
 </head>
 <body>
     <div id="tv_chart_container"></div>
