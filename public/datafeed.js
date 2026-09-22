@@ -60,7 +60,7 @@ const Datafeed = {
         setTimeout(() => onSymbolResolvedCallback(symbolInfo));
     },
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
-        const { from, to, firstDataRequest } = periodParams;
+        const { from, to, countBack, firstDataRequest } = periodParams;
         console.log(`[getBars] Requesting ${symbolInfo.name} at ${resolution} from ${from} to ${to}`);
         
         if (!window.db) {
@@ -141,19 +141,42 @@ const Datafeed = {
             if (bars.length === 0) {
                 if (firstDataRequest) {
                     try {
-                        // Find the most recent timestamp in the file so the chart can jump back to it
-                        const maxQuery = `SELECT MAX(time) as max_time FROM read_parquet('${fileUrl}')`;
-                        const maxResult = await conn.query(maxQuery);
-                        if (maxResult.length > 0 && maxResult[0].max_time) {
-                            const maxTime = Number(maxResult[0].max_time);
-                            if (maxTime < from) {
-                                console.log(`[getBars] No data in current window. Instructing chart to jump to older data at ${maxTime}`);
-                                onHistoryCallback([], { noData: true, nextTime: maxTime });
-                                return;
+                        console.log(`[getBars] No data found between ${from} and ${to}. Forcefully fetching the latest ${countBack || 300} bars to snap the chart to the data!`);
+                        const forceQuery = `
+                            SELECT 
+                                time * 1000 as time,
+                                open,
+                                high,
+                                low,
+                                close,
+                                volume
+                            FROM read_parquet('${fileUrl}')
+                            WHERE time <= ${to}
+                            ORDER BY time DESC
+                            LIMIT ${countBack || 300}
+                        `;
+                        const forceResults = await conn.query(forceQuery);
+                        
+                        if (forceResults.length > 0) {
+                            const forceBars = [];
+                            for (const row of forceResults) {
+                                forceBars.push({
+                                    time: Number(row.time),
+                                    open: Number(row.open),
+                                    high: Number(row.high),
+                                    low: Number(row.low),
+                                    close: Number(row.close),
+                                    volume: Number(row.volume)
+                                });
                             }
+                            // DuckDB returned them DESC, TradingView expects ASC
+                            forceBars.reverse();
+                            console.log(`[getBars] Successfully fetched ${forceBars.length} older bars. Injecting directly into chart!`);
+                            onHistoryCallback(forceBars, { noData: false });
+                            return;
                         }
                     } catch (e) {
-                        console.warn("[getBars] Failed to fetch max_time for nextTime fallback", e);
+                        console.warn("[getBars] Failed to forcefully fetch older bars", e);
                     }
                 }
                 onHistoryCallback([], { noData: true });
