@@ -322,4 +322,13 @@ window.onload = function() {
         // Push initial state
         updateUrl();
     });
+}
+
+window.onload = function() {
+    if (window.db) {
+        bootWidget();
+    } else {
+        console.log("Waiting for DuckDB-WASM...");
+        window.addEventListener('DuckDBReady', bootWidget);
+    }
 };
