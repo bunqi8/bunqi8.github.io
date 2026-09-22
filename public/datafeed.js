@@ -38,6 +38,7 @@ const Datafeed = {
             full_name: symbolName,
             description: symbolName,
             type: symbolName.includes('INDEX') ? 'index' : 'option',
+            exchange: 'NSE',
             session: '24x7', // Crypto/24x7 for testing
             timezone: 'Asia/Kolkata',
             minmov: 1,
