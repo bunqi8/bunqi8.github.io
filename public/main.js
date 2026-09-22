@@ -195,7 +195,7 @@ const localSaveLoadAdapter = {
 // -----------------------------------------------------------------------
 // Widget Initialization
 // -----------------------------------------------------------------------
-window.onload = function() {
+function bootWidget() {
     // 1. Read Multi-Tab URL Parameters
     const urlParams = new URLSearchParams(window.location.search);
     const urlSymbol = urlParams.get('symbol') || 'BTC/USD';
