@@ -160,8 +160,6 @@ const Datafeed = {
                 }
             }
             
-            await conn.close();
-
             const bars = [];
             for (const row of results) {
                 bars.push({
@@ -252,6 +250,7 @@ const Datafeed = {
                                 forceBars = forceBars.slice(forceBars.length - limitBars);
                             }
                             DFLogger.log('getBars', `Force fetch success! Injecting ${forceBars.length} older bars into chart.`);
+                            await conn.close();
                             onHistoryCallback(forceBars, { noData: false });
                             return;
                         }
@@ -259,12 +258,15 @@ const Datafeed = {
                         DFLogger.error('getBars', `Failed to forcefully fetch older bars`, e);
                     }
                 }
+                await conn.close();
                 onHistoryCallback([], { noData: true });
                 return;
             }
 
+            await conn.close();
             onHistoryCallback(bars, { noData: false });
         } catch (error) {
+            if (typeof conn !== 'undefined') { try { await conn.close(); } catch(e){} }
             DFLogger.error('getBars', `DuckDB Parquet Error for ${symbolInfo.name}: File likely doesn't exist for this timeframe.`, error);
             // Instead of crashing the chart engine with onErrorCallback, we tell it there's simply no data.
             onHistoryCallback([], { noData: true });
