@@ -244,11 +244,14 @@ async function selectExpiry(expiry) {
         btnFutures.style.display = 'none';
     }
     
-    // 1. Instant render from cache (no ATM highlighting yet)
-    renderTable(sortedStrikes, symbols, null);
+    // 1. Instant render from cache (with cached ATM price if available)
+    renderTable(sortedStrikes, symbols, expiry.atmPrice || null);
     
     // 2. Background ATM price fetch
-    if (indexFile) {
+    // We fetch if we don't have a cached price, or if it's the absolute nearest expiry (which could still be actively trading)
+    const isNearest = expiries.length > 0 && expiries[0].dateStr === expiry.dateStr;
+    
+    if (indexFile && (!expiry.atmPrice || isNearest)) {
         (async () => {
             try {
                 while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
@@ -258,10 +261,19 @@ async function selectExpiry(expiry) {
                 const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
                 const rows = result.toArray();
                 if (rows.length > 0) {
-                    const atmPrice = rows[0].close;
-                    // Re-render with ATM highlighting
-                    if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
-                        renderTable(sortedStrikes, symbols, atmPrice);
+                    const newAtmPrice = rows[0].close;
+                    
+                    // Cache it permanently to IndexedDB
+                    if (expiry.atmPrice !== newAtmPrice) {
+                        expiry.atmPrice = newAtmPrice;
+                        if (window.SyncManager) {
+                            await window.SyncManager.saveExpiry(expiry);
+                        }
+                        
+                        // Re-render with updated ATM highlighting if they are still viewing this tab
+                        if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+                            renderTable(sortedStrikes, symbols, newAtmPrice);
+                        }
                     }
                 }
                 await conn.close();
