@@ -112,11 +112,21 @@ function resolutionToSuffix(resolution) {
 // Convert DuckDB Arrow result rows to TradingView bar objects
 // DuckDB-WASM returns Apache Arrow Tables. int64 columns come as BigInt.
 // -----------------------------------------------------------------------
-function arrowToTVBars(arrowResult) {
+function arrowToTVBars(arrowResult, resolution = '') {
     const bars = [];
     for (const row of arrowResult) {
+        let t = Number(row.time);
+        
+        // TradingView requires Daily (1D, 1W) bars to be aligned exactly to 00:00:00 UTC
+        // The HuggingFace daily parquets have timestamps at 09:15 IST (03:45 UTC).
+        if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
+            const d = new Date(t);
+            d.setUTCHours(0, 0, 0, 0);
+            t = d.getTime();
+        }
+        
         bars.push({
-            time:   Number(row.time),
+            time:   t,
             open:   Number(row.open),
             high:   Number(row.high),
             low:    Number(row.low),
@@ -480,7 +490,7 @@ const Datafeed = {
             `;
             DFLog.debug('getBars', `SQL: WHERE time >= ${from} AND time < ${to}`);
             const rangeResult = await conn.query(rangeSQL);
-            let bars = arrowToTVBars(rangeResult);
+            let bars = arrowToTVBars(rangeResult, resolution);
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
             // 4. If we got bars in range, return them
@@ -517,7 +527,7 @@ const Datafeed = {
                         LIMIT ${countBack}
                     `;
                     const latestResult = await conn.query(latestSQL);
-                    latestBars = arrowToTVBars(latestResult);
+                    latestBars = arrowToTVBars(latestResult, resolution);
                 } catch (wasmErr) {
                     // DuckDB-WASM may crash on ORDER BY DESC + LIMIT.
                     // Fallback: fetch ALL rows and sort/slice in JavaScript.
@@ -529,7 +539,7 @@ const Datafeed = {
                         )
                     `;
                     const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult);
+                    const allBars = arrowToTVBars(allResult, resolution);
                     DFLog.info('getBars', `Fetched all ${allBars.length} bars, sorting in JS...`);
                     allBars.sort((a, b) => b.time - a.time);
                     latestBars = allBars.slice(0, countBack);
@@ -576,7 +586,7 @@ const Datafeed = {
                         WHERE time < ${from}
                     `;
                     const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult);
+                    const allBars = arrowToTVBars(allResult, resolution);
                     allBars.sort((a, b) => b.time - a.time);
                     olderBars = allBars.slice(0, countBack);
                 }
