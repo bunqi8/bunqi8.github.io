@@ -3,17 +3,19 @@ function setupCustomIndicatorsDialog(widget) {
         const iframe = document.querySelector('#tv_chart_container iframe');
         const iframeDoc = iframe.contentWindow.document;
         
-        // --- PRELOAD MONACO EDITOR ---
+        // --- PRELOAD MONACO EDITOR (Delayed to prevent lag) ---
         let monacoEditorInstance = null;
-        if (window.require && !window.monaco) {
-            require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
-            require(['vs/editor/editor.main'], function() {
-                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-                    noSemanticValidation: true,
-                    noSyntaxValidation: true
+        setTimeout(() => {
+            if (window.require && !window.monaco) {
+                require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
+                require(['vs/editor/editor.main'], function() {
+                    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                        noSemanticValidation: true,
+                        noSyntaxValidation: true
+                    });
                 });
-            });
-        }
+            }
+        }, 3000);
 
         // --- 1. AUTO REMOVE & RE-ADD (Hot Reload Workflow) ---
         const autoLoad = sessionStorage.getItem('tv_auto_reload_study');
@@ -60,7 +62,7 @@ function setupCustomIndicatorsDialog(widget) {
                     const legendItem = container.closest('[data-name="legend-item"], [data-qa-id="legend-item"], tr, [class*="legend-item"]');
                     if (legendItem) {
                         const titleEl = legendItem.querySelector('[data-name="legend-source-title"], [data-qa-id="legend-source-title"], [class*="title"]');
-                        if (titleEl) studyTitle = titleEl.textContent.trim();
+                        if (titleEl) studyTitle = titleEl.textContent.trim().toLowerCase();
                     }
 
                     const srcBtn = iframeDoc.createElement('div');
@@ -80,27 +82,34 @@ function setupCustomIndicatorsDialog(widget) {
                         
                         let matchedKey = null;
                         for (const [key, code] of Object.entries(stored)) {
-                            // First, try a robust runtime evaluation to accurately read the object's properties
                             try {
                                 const factory = new Function('PineJS', 'return (' + code + ');');
                                 const obj = factory({ Std: {} });
-                                if (key === studyTitle || obj.name === studyTitle || 
-                                   (obj.metainfo && obj.metainfo.shortDescription === studyTitle) || 
-                                   (obj.metainfo && obj.metainfo.description === studyTitle)) {
+                                
+                                const k = key.toLowerCase();
+                                const n = (obj.name || "").toLowerCase();
+                                const sd = (obj.metainfo && obj.metainfo.shortDescription) ? obj.metainfo.shortDescription.toLowerCase() : "";
+                                const d = (obj.metainfo && obj.metainfo.description) ? obj.metainfo.description.toLowerCase() : "";
+                                
+                                // Super-resilient fuzzy matching to handle appended inputs (e.g., "Supertrend 10 hl2 3")
+                                if (
+                                    (k && studyTitle.includes(k)) || (k && k.includes(studyTitle)) ||
+                                    (n && studyTitle.includes(n)) || (n && n.includes(studyTitle)) ||
+                                    (sd && studyTitle.includes(sd)) || (sd && sd.includes(studyTitle)) ||
+                                    (d && studyTitle.includes(d)) || (d && d.includes(studyTitle))
+                                ) {
                                     matchedKey = key;
                                     break;
                                 }
                             } catch(err) {
-                                // Fallback to raw string matching
-                                if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
+                                if (studyTitle.includes(key.toLowerCase()) || code.toLowerCase().includes(studyTitle)) {
                                     matchedKey = key;
                                     break;
                                 }
                             }
                         }
                         
-                        // Fallback for custom SuperTrend built-in
-                        if (!matchedKey && studyTitle === "SuperTrend") {
+                        if (!matchedKey && studyTitle.includes("supertrend")) {
                             matchedKey = "SuperTrend Custom";
                         }
                         
@@ -145,21 +154,21 @@ function setupCustomIndicatorsDialog(widget) {
         const style = document.createElement('style');
         style.textContent = `
             .tv-custom-modal-overlay {
-                display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); z-index: 99999; align-items: center; justify-content: center;
+                display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.4); z-index: 99999; align-items: center; justify-content: center;
                 font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
-                opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
             }
             .tv-custom-modal-overlay.visible {
-                opacity: 1; pointer-events: auto;
+                display: flex;
+                animation: tvModalFadeIn 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            }
+            @keyframes tvModalFadeIn {
+                from { opacity: 0; transform: scale(0.97) translateY(10px); }
+                to { opacity: 1; transform: scale(1) translateY(0); }
             }
             .tv-custom-modal {
                 background: #ffffff; width: 850px; height: 650px; max-width: 95%; max-height: 95%;
-                border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.15); overflow: hidden;
-                transform: scale(0.97) translateY(10px); transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
-            }
-            .tv-custom-modal-overlay.visible .tv-custom-modal {
-                transform: scale(1) translateY(0);
+                border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0,0,0,0.2); overflow: hidden;
             }
             .tv-custom-modal-body {
                 display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb;
@@ -169,7 +178,7 @@ function setupCustomIndicatorsDialog(widget) {
             }
             .tv-custom-modal-tab {
                 padding: 12px 16px; margin-bottom: 4px; font-size: 14px; cursor: pointer; color: #131722; font-weight: 500;
-                border-radius: 8px; transition: all 0.2s ease; display: flex; align-items: center; gap: 12px; border: 1px solid transparent;
+                border-radius: 8px; transition: background 0.1s ease; display: flex; align-items: center; gap: 12px; border: 1px solid transparent;
             }
             .tv-custom-modal-tab:hover {
                 background: #f0f3fa;
@@ -185,7 +194,7 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-list-container::-webkit-scrollbar-thumb { background: #d1d4dc; border-radius: 3px; }
             .tv-list-container::-webkit-scrollbar-track { background: transparent; }
 
-            .tv-star-icon { color: #b2b5be; transition: all 0.2s ease; margin-right: 12px; flex-shrink: 0; }
+            .tv-star-icon { color: #b2b5be; transition: color 0.1s ease; margin-right: 12px; flex-shrink: 0; }
             .tv-star-icon:hover { color: #FFB300; }
             .tv-star-icon.active { color: #FFB300; fill: #FFB300; }
 
@@ -216,7 +225,7 @@ function setupCustomIndicatorsDialog(widget) {
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.placeholder = 'Search';
-        searchInput.style.cssText = 'width:100%; padding:10px 14px 10px 38px; border:1px solid #e0e3eb; border-radius:8px; font-size:15px; color:#131722; outline:none; box-sizing:border-box; background:url("data:image/svg+xml;utf8,<svg width=\'18\' height=\'18\' viewBox=\'0 0 18 18\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M12.5 12.5L15 15M14 8.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z\' stroke=\'%23787b86\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>") no-repeat 12px center; background-color: #f8fafe; transition: all 0.2s ease;';
+        searchInput.style.cssText = 'width:100%; padding:10px 14px 10px 38px; border:1px solid #e0e3eb; border-radius:8px; font-size:15px; color:#131722; outline:none; box-sizing:border-box; background:url("data:image/svg+xml;utf8,<svg width=\'18\' height=\'18\' viewBox=\'0 0 18 18\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M12.5 12.5L15 15M14 8.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z\' stroke=\'%23787b86\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>") no-repeat 12px center; background-color: #f8fafe; transition: border-color 0.1s ease;';
         searchInput.onfocus = () => { searchInput.style.borderColor = '#2962FF'; searchInput.style.backgroundColor = '#ffffff'; searchInput.style.boxShadow = '0 0 0 3px rgba(41,98,255,0.1)'; };
         searchInput.onblur = () => { searchInput.style.borderColor = '#e0e3eb'; searchInput.style.backgroundColor = '#f8fafe'; searchInput.style.boxShadow = 'none'; };
         searchContainer.appendChild(searchInput);
@@ -427,7 +436,7 @@ function setupCustomIndicatorsDialog(widget) {
             
             if (activeTab === 'custom' && !searchQuery) {
                 const addBtn = document.createElement('div');
-                addBtn.style.cssText = 'padding:14px; margin:8px 0 16px 0; cursor:pointer; font-size:14px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafe; transition:all 0.2s ease;';
+                addBtn.style.cssText = 'padding:14px; margin:8px 0 16px 0; cursor:pointer; font-size:14px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafe; transition:all 0.1s ease;';
                 addBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" style="margin-right:8px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Create Local Indicator';
                 addBtn.onmouseover = () => { addBtn.style.background = '#2962FF'; addBtn.style.color = '#fff'; };
                 addBtn.onmouseout = () => { addBtn.style.background = '#f8fafe'; addBtn.style.color = '#2962FF'; };
@@ -444,7 +453,7 @@ function setupCustomIndicatorsDialog(widget) {
                 const displayName = (study === "SuperTrend Custom") ? "SuperTrend" : study;
                 
                 const item = document.createElement('div');
-                item.style.cssText = 'padding:12px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; border-radius:8px; transition:background-color 0.2s; margin-bottom:4px; border:1px solid transparent;';
+                item.style.cssText = 'padding:12px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; border-radius:8px; margin-bottom:4px; border:1px solid transparent;';
                 
                 // Star Icon
                 const star = document.createElement('div');
@@ -467,14 +476,14 @@ function setupCustomIndicatorsDialog(widget) {
                     
                     const editBtn = document.createElement('div');
                     editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-                    editBtn.style.cssText = 'cursor:pointer; color:#b2b5be; transition:0.2s; display:flex; align-items:center; padding:6px; border-radius:4px;';
+                    editBtn.style.cssText = 'cursor:pointer; color:#b2b5be; display:flex; align-items:center; padding:6px; border-radius:4px;';
                     editBtn.onmouseover = () => { editBtn.style.color = '#2962FF'; editBtn.style.background = '#f0f3fa'; };
                     editBtn.onmouseout = () => { editBtn.style.color = '#b2b5be'; editBtn.style.background = 'transparent'; };
                     editBtn.onclick = (e) => { e.stopPropagation(); showEditor(stored[study], study); };
                     
                     const delBtn = document.createElement('div');
                     delBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-                    delBtn.style.cssText = 'cursor:pointer; color:#b2b5be; transition:0.2s; display:flex; align-items:center; padding:6px; border-radius:4px;';
+                    delBtn.style.cssText = 'cursor:pointer; color:#b2b5be; display:flex; align-items:center; padding:6px; border-radius:4px;';
                     delBtn.onmouseover = () => { delBtn.style.color = '#f23645'; delBtn.style.background = '#ffebec'; };
                     delBtn.onmouseout = () => { delBtn.style.color = '#b2b5be'; delBtn.style.background = 'transparent'; };
                     delBtn.onclick = (e) => { 
@@ -482,7 +491,6 @@ function setupCustomIndicatorsDialog(widget) {
                         if(confirm("Delete local indicator '" + study + "'?")) {
                             delete stored[study];
                             localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
-                            // Also remove from favorites if it exists
                             let fs = getFavorites();
                             if(fs.includes(study)) {
                                 localStorage.setItem('tv_favorite_indicators', JSON.stringify(fs.filter(f => f !== study)));
@@ -514,7 +522,11 @@ function setupCustomIndicatorsDialog(widget) {
         
         function openModal() {
             if (allStudies.length === 0) {
-                try { allStudies = widget.getStudiesList(); } catch(e) {}
+                try { 
+                    const rawStudies = widget.getStudiesList() || [];
+                    // Extract exact string names from TV's objects to prevent [object Object] lag/errors
+                    allStudies = rawStudies.map(s => (typeof s === 'string' ? s : (s.name || s.description || ""))).filter(Boolean);
+                } catch(e) {}
             }
             modalOverlay.classList.add('visible');
             searchInput.value = '';
