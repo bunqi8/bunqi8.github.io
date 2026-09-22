@@ -1,7 +1,7 @@
 window.getCustomIndicators = function(PineJS) {
     return Promise.resolve([
         {
-            name: "Supertrend Custom",
+            name: "SuperTrend",
             metainfo: {
                 _metainfoVersion: 52,
                 isTVScript: false,
@@ -9,44 +9,64 @@ window.getCustomIndicators = function(PineJS) {
                 is_hidden_study: false,
                 defaults: {
                     styles: {
-                        plot_up: { linestyle: 0, linewidth: 2, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#089981" },
-                        plot_down: { linestyle: 0, linewidth: 2, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#f23645" },
-                        plot_mid: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: false, color: "#000000" }
+                        plot_up: { linestyle: 0, linewidth: 1, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#089981" },
+                        plot_down: { linestyle: 0, linewidth: 1, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#f23645" },
+                        plot_mid: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: false, color: "#000000" },
+                        plot_buy_circle: { plottype: "shape_circle", location: "Absolute", visible: true, color: "#089981", transparency: 0 },
+                        plot_buy_label: { plottype: "shape_label_up", location: "Absolute", visible: true, color: "#089981", textColor: "#FFFFFF", transparency: 0 },
+                        plot_sell_circle: { plottype: "shape_circle", location: "Absolute", visible: true, color: "#f23645", transparency: 0 },
+                        plot_sell_label: { plottype: "shape_label_down", location: "Absolute", visible: true, color: "#f23645", textColor: "#FFFFFF", transparency: 0 }
                     },
                     inputs: {
-                        atrPeriod: 10,
-                        factor: 3.0
+                        in_period: 10,
+                        in_source: "hl2",
+                        in_multiplier: 3.0,
+                        in_changeATR: true,
+                        in_showSignals: true,
+                        in_highlighting: true
                     },
                     filledAreasStyle: {
-                        fill_up: { color: "#089981", transparency: 90, visible: true },
-                        fill_down: { color: "#f23645", transparency: 90, visible: true }
+                        fill_up: { color: "#089981", transparency: 95, visible: true },
+                        fill_down: { color: "#f23645", transparency: 95, visible: true }
                     }
                 },
                 plots: [
                     { id: "plot_up", type: "line" },
                     { id: "plot_down", type: "line" },
-                    { id: "plot_mid", type: "line" }
+                    { id: "plot_mid", type: "line" },
+                    { id: "plot_buy_circle", type: "shapes" },
+                    { id: "plot_buy_label", type: "shapes" },
+                    { id: "plot_sell_circle", type: "shapes" },
+                    { id: "plot_sell_label", type: "shapes" }
                 ],
                 styles: {
                     plot_up: { title: "Up Trend", histogramBase: 0, joinPoints: false },
                     plot_down: { title: "Down Trend", histogramBase: 0, joinPoints: false },
-                    plot_mid: { title: "Body Middle", isHidden: true, display: 0 }
+                    plot_mid: { title: "Body Middle", isHidden: true, display: 0 },
+                    plot_buy_circle: { title: "UpTrend Begins", isHidden: false },
+                    plot_buy_label: { title: "Buy Label", isHidden: false, text: "Buy" },
+                    plot_sell_circle: { title: "DownTrend Begins", isHidden: false },
+                    plot_sell_label: { title: "Sell Label", isHidden: false, text: "Sell" }
                 },
-                description: "Supertrend Custom",
-                shortDescription: "Supertrend",
+                description: "SuperTrend",
+                shortDescription: "SuperTrend",
                 is_price_study: true,
                 inputs: [
-                    { id: "atrPeriod", name: "ATR Length", defval: 10, type: "integer", min: 1, max: 2000 },
-                    { id: "factor", name: "Factor", defval: 3.0, type: "float", min: 0.01, step: 0.01, max: 100 }
+                    { id: "in_period", name: "ATR Period", defval: 10, type: "integer", min: 1 },
+                    { id: "in_source", name: "Source", defval: "hl2", type: "source", options: ["open", "high", "low", "close", "hl2", "hlc3", "ohlc4"] },
+                    { id: "in_multiplier", name: "ATR Multiplier", defval: 3.0, type: "float", min: 0.1, step: 0.1 },
+                    { id: "in_changeATR", name: "Change ATR Calculation Method ?", defval: true, type: "bool" },
+                    { id: "in_showSignals", name: "Show Buy/Sell Signals ?", defval: true, type: "bool" },
+                    { id: "in_highlighting", name: "Highlighter On/Off ?", defval: true, type: "bool" }
                 ],
                 filledAreas: [
-                    { id: "fill_up", objAId: "plot_up", objBId: "plot_mid", type: "plot_plot", title: "Uptrend background" },
-                    { id: "fill_down", objAId: "plot_down", objBId: "plot_mid", type: "plot_plot", title: "Downtrend background" }
+                    { id: "fill_up", objAId: "plot_up", objBId: "plot_mid", type: "plot_plot", title: "UpTrend Highlighter" },
+                    { id: "fill_down", objAId: "plot_down", objBId: "plot_mid", type: "plot_plot", title: "DownTrend Highlighter" }
                 ],
-                id: "Supertrend_Custom@tv-basicstudies-1",
+                id: "SuperTrend_Custom@tv-basicstudies-1",
                 scriptIdPart: "",
-                name: "Supertrend Custom",
-                format: { precision: 2, type: "price" },
+                name: "SuperTrend",
+                format: { precision: 2, type: "price" }
             },
             constructor: function () {
                 this.init = function(ctx, get_input) {
@@ -57,22 +77,34 @@ window.getCustomIndicators = function(PineJS) {
                 this.main = function (ctx, get_input) {
                     this._context = ctx || this._context;
                     this._input = get_input || this._input;
-
-                    var atrPeriod = this._input(0);
-                    var factor = this._input(1);
+                    
+                    var periods = this._input(0);
+                    var sourceStr = this._input(1);
+                    var multiplier = this._input(2);
+                    var changeATR = this._input(3);
+                    var showSignals = this._input(4);
+                    var highlighting = this._input(5);
 
                     var high = PineJS.Std.high(this._context);
                     var low = PineJS.Std.low(this._context);
                     var close = PineJS.Std.close(this._context);
                     var open = PineJS.Std.open(this._context);
-
-                    var hl2 = (high + low) / 2.0;
                     
-                    var closeSeries = this._context.new_var(close);
-                    var prev_close = closeSeries.get(1);
+                    var hl2 = (high + low) / 2.0;
+                    var hlc3 = (high + low + close) / 3.0;
+                    var ohlc4 = (open + high + low + close) / 4.0;
+                    
+                    var srcVal = hl2;
+                    if (sourceStr === "open") srcVal = open;
+                    else if (sourceStr === "high") srcVal = high;
+                    else if (sourceStr === "low") srcVal = low;
+                    else if (sourceStr === "close") srcVal = close;
+                    else if (sourceStr === "hlc3") srcVal = hlc3;
+                    else if (sourceStr === "ohlc4") srcVal = ohlc4;
+
+                    var prev_close = this._context.new_var(close).get(1);
                     if (isNaN(prev_close)) prev_close = close;
 
-                    // Manual TR calculation just in case PineJS.Std.tr isn't exposed properly
                     var tr = Math.max(
                         high - low,
                         Math.abs(high - prev_close),
@@ -80,62 +112,65 @@ window.getCustomIndicators = function(PineJS) {
                     );
 
                     var trSeries = this._context.new_var(tr);
-                    // Fallback RMA calculation in case PineJS.Std.rma fails
-                    var atr = PineJS.Std.rma(trSeries, atrPeriod, this._context);
+                    
+                    var atrVal;
+                    if (changeATR) {
+                        atrVal = PineJS.Std.rma(trSeries, periods, this._context);
+                    } else {
+                        atrVal = PineJS.Std.sma(trSeries, periods, this._context);
+                    }
 
-                    var basic_upper = hl2 + (factor * atr);
-                    var basic_lower = hl2 - (factor * atr);
-
+                    var upVal = srcVal - (multiplier * atrVal);
+                    var dnVal = srcVal + (multiplier * atrVal);
+                    
                     var final_upper = this._context.new_var();
                     var final_lower = this._context.new_var();
-                    var trend = this._context.new_var(); // 1 for UP, -1 for DOWN
-                    var supertrend = this._context.new_var();
-
+                    var trend = this._context.new_var();
+                    
                     var prev_final_upper = final_upper.get(1);
                     var prev_final_lower = final_lower.get(1);
                     var prev_trend = trend.get(1);
 
-                    if (isNaN(prev_final_upper)) prev_final_upper = 0;
-                    if (isNaN(prev_final_lower)) prev_final_lower = 0;
+                    if (isNaN(prev_final_upper)) prev_final_upper = upVal;
+                    if (isNaN(prev_final_lower)) prev_final_lower = dnVal;
                     if (isNaN(prev_trend)) prev_trend = 1;
 
-                    var curr_final_upper = basic_upper;
-                    if (!isNaN(prev_final_upper) && !isNaN(prev_close) && basic_upper >= prev_final_upper) {
-                        if (prev_close <= prev_final_upper) {
-                            curr_final_upper = prev_final_upper;
-                        }
-                    }
-                    final_upper.set(curr_final_upper);
+                    var curr_up = (prev_close > prev_final_upper) ? Math.max(upVal, prev_final_upper) : upVal;
+                    var curr_dn = (prev_close < prev_final_lower) ? Math.min(dnVal, prev_final_lower) : dnVal;
 
-                    var curr_final_lower = basic_lower;
-                    if (!isNaN(prev_final_lower) && !isNaN(prev_close) && basic_lower <= prev_final_lower) {
-                        if (prev_close >= prev_final_lower) {
-                            curr_final_lower = prev_final_lower;
-                        }
-                    }
-                    final_lower.set(curr_final_lower);
+                    final_upper.set(curr_up);
+                    final_lower.set(curr_dn);
 
                     var curr_trend = prev_trend;
-                    if (isNaN(atr)) {
+                    if (curr_trend === -1 && close > prev_final_lower) {
                         curr_trend = 1;
-                    } else {
-                        if (curr_trend === 1 && close < curr_final_lower) {
-                            curr_trend = -1;
-                        } else if (curr_trend === -1 && close > curr_final_upper) {
-                            curr_trend = 1;
-                        }
+                    } else if (curr_trend === 1 && close < prev_final_upper) {
+                        curr_trend = -1;
                     }
                     trend.set(curr_trend);
 
-                    var curr_st = (curr_trend === 1) ? curr_final_lower : curr_final_upper;
-                    supertrend.set(curr_st);
+                    var buySignal = (curr_trend === 1 && prev_trend === -1);
+                    var sellSignal = (curr_trend === -1 && prev_trend === 1);
 
-                    var upTrendVal = curr_trend === 1 ? curr_st : NaN;
-                    var downTrendVal = curr_trend === -1 ? curr_st : NaN;
+                    var upPlot = curr_trend === 1 ? curr_up : NaN;
+                    var dnPlot = curr_trend === 1 ? NaN : curr_dn;
+                    var mPlot = highlighting ? ohlc4 : NaN;
+
+                    var buyCircle = buySignal ? curr_up : NaN;
+                    var buyLabel = (buySignal && showSignals) ? curr_up : NaN;
                     
-                    var midVal = (open + close) / 2.0;
+                    var sellCircle = sellSignal ? curr_dn : NaN;
+                    var sellLabel = (sellSignal && showSignals) ? curr_dn : NaN;
 
-                    return [{ value: upTrendVal }, { value: downTrendVal }, { value: midVal }];
+                    return [
+                        { value: upPlot },
+                        { value: dnPlot },
+                        { value: mPlot },
+                        { value: buyCircle },
+                        { value: buyLabel },
+                        { value: sellCircle },
+                        { value: sellLabel }
+                    ];
                 };
             }
         }
