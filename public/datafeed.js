@@ -118,10 +118,19 @@ const Datafeed = {
     },
 
     searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
-        const query = userInput.toUpperCase();
+        let query = userInput.toUpperCase();
         const results = [];
         
         try {
+            // If the search box is pre-filled with the exact current chart symbol (which happens when clicking the top-left symbol button),
+            // treat it as an empty search so we can display all available Base Indices for easy switching!
+            try {
+                const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
+                if (query === chartSym) {
+                    query = '';
+                }
+            } catch(e) {}
+
             const expiries = await window.SyncManager.getAllExpiries();
             
             // Default listing when search box is empty
