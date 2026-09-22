@@ -141,11 +141,11 @@ function setupCustomIndicatorsDialog(widget) {
                 nativeBtnFound = true;
                 clearInterval(checkInterval);
                 
-                ['click', 'mousedown', 'mouseup'].forEach(evt => {
+                ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(evt => {
                     nativeBtn.addEventListener(evt, (e) => {
                         e.stopPropagation();
-                        e.preventDefault();
-                        if (evt === 'click') {
+                        if (e.cancelable) e.preventDefault();
+                        if (evt === 'click' || (evt === 'touchend' && !e.defaultPrevented)) {
                             openModal();
                         }
                     }, true);
@@ -543,12 +543,24 @@ function setupCustomIndicatorsDialog(widget) {
             setTimeout(() => searchInput.focus(), 100);
         }
         
-        function closeModal() {
+        function closeModal(e) {
+            if (e) {
+                e.stopPropagation();
+                if (e.type === 'touchend' && e.cancelable) e.preventDefault();
+            }
             modalOverlay.classList.remove('visible');
         }
         
-        header.querySelector('#tv-close-modal').addEventListener('click', closeModal);
-        modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) closeModal(); });
+        const closeBtn = header.querySelector('#tv-close-modal');
+        closeBtn.addEventListener('click', closeModal);
+        closeBtn.addEventListener('touchend', closeModal);
+        
+        modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) closeModal(e); });
+        modalOverlay.addEventListener('touchend', e => { if(e.target === modalOverlay) closeModal(e); });
+        
+        // Prevent TradingView from swallowing touch events, which breaks mobile scrolling
+        modalOverlay.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+        modalOverlay.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
         
         tabFavorites.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') searchInput.value = '';
