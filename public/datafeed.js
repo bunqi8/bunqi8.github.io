@@ -83,30 +83,47 @@ const Datafeed = {
             
             // Construct the Parquet URL
             const fileName = `${symbolInfo.name}_${fileSuffix}_2026-06-07_to_2026-09-15.parquet`;
-            const fileUrl = HF_BASE_URL + fileName;
+            let fileUrl = HF_BASE_URL + fileName;
 
             console.log(`[getBars] Querying DuckDB: ${fileUrl}`);
             
-            // Execute SQL query via DuckDB WASM
             const conn = await window.db.connect();
+            let results;
             
-            // Note: The parquet file might have columns like: datetime, open, high, low, close, volume
-            // We need to fetch rows where epoch time is between `from` and `to`
-            // DuckDB automatically reads remote parquet files over HTTP using range requests!
-            const query = `
-                SELECT 
-                    time * 1000 as time,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                FROM read_parquet('${fileUrl}')
-                WHERE time >= ${from} AND time <= ${to}
-                ORDER BY time ASC
-            `;
+            const executeQuery = async (url) => {
+                return await conn.query(`
+                    SELECT 
+                        time * 1000 as time,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume
+                    FROM read_parquet('${url}')
+                    WHERE time >= ${from} AND time <= ${to}
+                    ORDER BY time ASC
+                `);
+            };
+
+            try {
+                results = await executeQuery(fileUrl);
+            } catch (err) {
+                // If it fails, check if we can fallback between 'D' and '1D' naming conventions
+                if (fileSuffix === 'D') {
+                    console.log(`[getBars] _D_ failed, attempting fallback to _1D_...`);
+                    const fallbackName = `${symbolInfo.name}_1D_2026-06-07_to_2026-09-15.parquet`;
+                    fileUrl = HF_BASE_URL + fallbackName;
+                    results = await executeQuery(fileUrl);
+                } else if (fileSuffix === '1D') {
+                    console.log(`[getBars] _1D_ failed, attempting fallback to _D_...`);
+                    const fallbackName = `${symbolInfo.name}_D_2026-06-07_to_2026-09-15.parquet`;
+                    fileUrl = HF_BASE_URL + fallbackName;
+                    results = await executeQuery(fileUrl);
+                } else {
+                    throw err; // Not a daily timeframe, or no fallback available
+                }
+            }
             
-            const results = await conn.query(query);
             await conn.close();
 
             const bars = [];
