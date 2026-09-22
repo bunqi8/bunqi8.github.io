@@ -314,21 +314,20 @@ function bootWidget() {
                     if (!targetEl) {
                         // Ultimate fallback using API
                         const fb = window.tvWidget.createButton();
-                        fb.innerHTML = '<div style="color: #2962FF; font-weight: bold;">Option Chain</div>';
+                        fb.innerHTML = '<div style="color: #2962FF; display: flex; align-items: center;" title="Option Chain"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none"><rect x="5.5" y="7.5" width="17" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"></rect><path stroke="currentColor" stroke-width="1.2" d="M5.5 12.5h17M14 7.5v13"></path></svg></div>';
                         fb.addEventListener('click', () => { if (window.openOptionsChainModal) window.openOptionsChainModal(); });
                         return;
                     }
                     
                     const ocBtnHtml = `
                         <div class="group-MBOVGQRI" id="header-toolbar-option-chain" style="margin: 0 4px;">
-                            <button aria-label="Options Chain" data-role="button" data-tooltip-hotkey='{"keys":["O"],"text":"{0}"}' data-tooltip="Options Chain" tabindex="-1" type="button" class="button-OhqNVIYA button-ptpAHg8E withText-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" id="btn-option-chain-real">
+                            <button aria-label="Options Chain" data-role="button" data-tooltip-hotkey='{"keys":["O"],"text":"{0}"}' data-tooltip="Options Chain" tabindex="-1" type="button" class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" id="btn-option-chain-real">
                                 <span role="img" class="icon-GwQQdU8S" aria-hidden="true">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
                                         <rect x="5.5" y="7.5" width="17" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"></rect>
                                         <path stroke="currentColor" stroke-width="1.2" d="M5.5 12.5h17M14 7.5v13"></path>
                                     </svg>
                                 </span>
-                                <div class="js-button-text text-GwQQdU8S">Option Chain</div>
                             </button>
                         </div>
                     `;
