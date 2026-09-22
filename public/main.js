@@ -288,7 +288,28 @@ function bootWidget() {
             button.addEventListener('click', function() {
                 if (window.openOptionsChainModal) window.openOptionsChainModal();
             });
-            button.innerHTML = '<div style="color: #2962FF; font-weight: 600;">Option Chain</div>';
+            // Match TradingView Indicators button style precisely using the exact classes provided by the user
+            button.innerHTML = `
+                <div class="button-OhqNVIYA button-ptpAHg8E withText-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" tabindex="-1" type="button">
+                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
+                            <path stroke="currentColor" d="M20 17l-5 5M15 17l5 5M9 11.5h7M17.5 8a2.5 2.5 0 0 0-5 0v11a2.5 2.5 0 0 1-5 0"></path>
+                        </svg>
+                    </span>
+                    <div class="js-button-text text-GwQQdU8S">Option Chain</div>
+                </div>
+            `;
+            
+            // Try to find the button's wrapper and add the native TV class if possible to perfectly match hover states
+            try {
+                // Add the native separator as requested by the user
+                if (button.parentElement) {
+                    const sep = document.createElement('div');
+                    sep.className = 'separatorWrap-MBOVGQRI';
+                    sep.innerHTML = '<div class="separator-xVhBjD5m separator-MBOVGQRI"></div>';
+                    button.parentElement.insertBefore(sep, button);
+                }
+            } catch (e) {}
         });
 
         // GUARANTEED INITIAL SAVE: If the engine booted up without finding a valid saved layout,

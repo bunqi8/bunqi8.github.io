@@ -37,8 +37,11 @@ style.innerHTML = `
     .strike-cell { font-weight: 500; cursor: default; background: #fafafc; }
     .strike-cell:hover { color: #131722; }
     
-    .atm-row { text-align: center; margin: 4px 0; position: relative; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid #131722;}
-    .atm-marker { background: #131722; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 600; z-index: 2; position: relative; top: 12px; }
+    .oc-cell.active { background-color: #e3f2fd; color: #2962FF; }
+    
+    .atm-row { position: relative; width: 100%; height: 0; display: flex; justify-content: center; align-items: center; z-index: 2; }
+    .atm-line { position: absolute; width: 100%; height: 1px; background-color: #131722; top: 0; left: 0; }
+    .atm-marker { background: #131722; color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; font-weight: 600; z-index: 3; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
 `;
 document.head.appendChild(style);
 
@@ -83,7 +86,11 @@ function buildModal() {
 window.openOptionsChainModal = function() {
     if (!modalOverlay) buildModal();
     modalOverlay.style.display = 'flex';
-    if (expiries.length === 0) fetchExpiries();
+    if (expiries.length === 0) {
+        fetchExpiries();
+    } else if (currentExpiry) {
+        selectExpiry(currentExpiry); // Re-render to update the active symbol highlight
+    }
 };
 
 window.closeOptionsChainModal = function() {
@@ -227,6 +234,9 @@ function renderTable(strikes, symbols, atmPrice) {
     const tbody = document.getElementById('oc_table_body');
     tbody.innerHTML = '';
     
+    let currentSymbol = null;
+    try { currentSymbol = window.tvWidget.activeChart().symbol(); } catch(e) {}
+    
     let atmIndex = -1;
     let minDiff = Infinity;
     
@@ -250,20 +260,26 @@ function renderTable(strikes, symbols, atmPrice) {
             const atmRow = document.createElement('div');
             atmRow.className = 'atm-row';
             atmRow.id = 'atm-marker-row';
-            atmRow.innerHTML = `<div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div>`;
+            atmRow.innerHTML = `
+                <div class="atm-line"></div>
+                <div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div>
+            `;
             tbody.appendChild(atmRow);
         }
         
         const ceSymbol = symbols[`${strike}_CE`];
         const peSymbol = symbols[`${strike}_PE`];
         
+        const isCeActive = ceSymbol === currentSymbol;
+        const isPeActive = peSymbol === currentSymbol;
+        
         const row = document.createElement('div');
         row.className = `oc-row`;
         
         row.innerHTML = `
-            <div class="oc-cell call-cell" onclick="window.loadSymbol('${ceSymbol}')">${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
+            <div class="oc-cell call-cell ${isCeActive ? 'active' : ''}" onclick="window.loadSymbol('${ceSymbol}')">${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
             <div class="oc-cell strike-cell">${strike.toLocaleString()}</div>
-            <div class="oc-cell put-cell" onclick="window.loadSymbol('${peSymbol}')">${peSymbol ? 'Put '+strike.toLocaleString() : '-'}</div>
+            <div class="oc-cell put-cell ${isPeActive ? 'active' : ''}" onclick="window.loadSymbol('${peSymbol}')">${peSymbol ? 'Put '+strike.toLocaleString() : '-'}</div>
         `;
         tbody.appendChild(row);
     });
