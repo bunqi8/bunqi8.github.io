@@ -118,6 +118,7 @@ const Datafeed = {
     },
 
     searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
+        const popMap = { 'NIFTY50':1, 'NIFTY':1, 'BANKNIFTY':2, 'SENSEX':3, 'FINNIFTY':4, 'BANKEX':5, 'MIDCPNIFTY':6, 'NIFTYNXT50':7, 'SX50':8 };
         let query = userInput.toUpperCase();
         const results = [];
         
@@ -132,8 +133,6 @@ const Datafeed = {
             } catch(e) {}
 
             const expiries = await window.SyncManager.getAllExpiries();
-            
-            const popMap = { 'NIFTY50':1, 'NIFTY':1, 'BANKNIFTY':2, 'SENSEX':3, 'FINNIFTY':4, 'BANKEX':5, 'MIDCPNIFTY':6, 'NIFTYNXT50':7, 'SX50':8 };
             
             // Default listing when search box is empty
             if (!query) {
