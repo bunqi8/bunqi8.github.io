@@ -48,9 +48,9 @@ const Datafeed = {
             has_weekly_and_monthly: true,
             supported_resolutions: ['5S', '15S', '30S', '1', '5', '15', '30', '60', '120', '240', '1D', '1W', '1M'],
             
-            // Only provide the absolute base timeframes! 
-            // TradingView will automatically request these base timeframes and aggregate them to build everything else perfectly.
-            intraday_multipliers: ['1'], 
+            // Provide exact multipliers for the Parquet files we actually have on the server!
+            // TV will request these exactly. For anything else (like 15m), TV will request 5m and aggregate it.
+            intraday_multipliers: ['1', '5', '60'], 
             has_seconds: true,
             seconds_multipliers: ['5'],
             
@@ -68,17 +68,19 @@ const Datafeed = {
         }
 
         try {
-            // Because we configured multipliers to only expose the raw bases ('1', '5S', '1D'), 
-            // TradingView will ONLY request these specific resolutions from getBars.
-            // But just in case, we route them robustly:
+            // Route the exact resolution to its corresponding Parquet file on Hugging Face
             let fileSuffix = "1"; 
             
-            if (resolution.includes('S')) {
-                fileSuffix = "5S"; // All seconds fallback to 5S parquet
+            if (resolution === '5') {
+                fileSuffix = "5";
+            } else if (resolution === '60') {
+                fileSuffix = "60";
+            } else if (resolution === '1') {
+                fileSuffix = "1";
+            } else if (resolution.includes('S')) {
+                fileSuffix = "5S";
             } else if (resolution.includes('D') || resolution.includes('W') || resolution.includes('M')) {
-                fileSuffix = "D"; // All daily+ fallback to D parquet
-            } else {
-                fileSuffix = "1"; // All intraday fallback to 1m parquet
+                fileSuffix = "D";
             }
             
             // Construct the Parquet URL
