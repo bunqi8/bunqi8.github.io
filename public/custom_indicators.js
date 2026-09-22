@@ -9,8 +9,8 @@ window.getCustomIndicators = function(PineJS) {
                 is_hidden_study: false,
                 defaults: {
                     styles: {
-                        plot_up: { linestyle: 0, linewidth: 2, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#089981" },
-                        plot_down: { linestyle: 0, linewidth: 2, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#f23645" },
+                        plot_up: { linestyle: 0, linewidth: 2, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#089981" },
+                        plot_down: { linestyle: 0, linewidth: 2, plottype: 7, trackPrice: false, transparency: 0, visible: true, color: "#f23645" },
                         plot_mid: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: false, color: "#000000" }
                     },
                     inputs: {
