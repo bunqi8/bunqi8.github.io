@@ -1,5 +1,5 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
 
 const SyncManager = {
@@ -309,3 +309,6 @@ const SyncManager = {
 };
 
 window.SyncManager = SyncManager;
+
+// Start syncing immediately on page load — don't wait for Options Chain or TradingView
+SyncManager._syncPromise = SyncManager.init().then(() => SyncManager.syncRoot());
