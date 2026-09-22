@@ -139,6 +139,23 @@ const Datafeed = {
             }
 
             if (bars.length === 0) {
+                if (firstDataRequest) {
+                    try {
+                        // Find the most recent timestamp in the file so the chart can jump back to it
+                        const maxQuery = `SELECT MAX(time) as max_time FROM read_parquet('${fileUrl}')`;
+                        const maxResult = await conn.query(maxQuery);
+                        if (maxResult.length > 0 && maxResult[0].max_time) {
+                            const maxTime = Number(maxResult[0].max_time);
+                            if (maxTime < from) {
+                                console.log(`[getBars] No data in current window. Instructing chart to jump to older data at ${maxTime}`);
+                                onHistoryCallback([], { noData: true, nextTime: maxTime });
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("[getBars] Failed to fetch max_time for nextTime fallback", e);
+                    }
+                }
                 onHistoryCallback([], { noData: true });
                 return;
             }
