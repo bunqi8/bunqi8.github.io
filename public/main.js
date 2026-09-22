@@ -222,6 +222,7 @@ function bootWidget() {
         locale: 'en',
         theme: 'Light',
         autosize: true,
+        debug: true,
         
         // Let the engine natively pull the chart from the adapter without manual JSON parsing!
         load_last_chart: true,
