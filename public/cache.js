@@ -250,29 +250,42 @@ const SyncManager = {
             }
             
             if (outdated.length > 0) {
-                console.log(`[SyncManager] Found ${outdated.length} outdated folders. Starting prioritized background sync...`);
+                console.log(`[SyncManager] Found ${outdated.length} outdated folders. Starting prioritized sync...`);
                 
+                // Determine the active symbol to prioritize
                 let activeBase = window.ACTIVE_BASE_TICKER;
                 if (!activeBase) {
                     try {
-                        let chartSym = 'NIFTY50-INDEX';
+                        // Check URL params for the requested symbol
+                        const urlParams = new URLSearchParams(window.location.search);
+                        let chartSym = urlParams.get('symbol') || 'NIFTY50-INDEX';
                         try { if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol(); } catch(e) {}
                         const possible = [...new Set(outdated.map(o => o.remote.baseTicker))];
                         activeBase = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
+                        if (!activeBase) activeBase = possible.find(p => p.includes('NIFTY50'));
                     } catch(e) {}
                 }
                 
-                outdated.sort((a, b) => {
-                    const aIsActive = a.remote.baseTicker === activeBase;
-                    const bIsActive = b.remote.baseTicker === activeBase;
-                    
-                    if (aIsActive && !bIsActive) return -1;
-                    if (!aIsActive && bIsActive) return 1;
-                    
-                    return b.remote.dateStr.localeCompare(a.remote.dateStr);
-                });
+                // Split into active (must load now) vs background (load later)
+                const activeEntries = outdated.filter(o => o.remote.baseTicker === activeBase);
+                const backgroundEntries = outdated.filter(o => o.remote.baseTicker !== activeBase);
                 
-                this._processQueue(outdated);
+                // Phase 1: Synchronously download the active symbol's file lists (blocks syncRoot resolution)
+                if (activeEntries.length > 0) {
+                    console.log(`[SyncManager] Phase 1: Downloading ${activeEntries.length} entries for active symbol ${activeBase}...`);
+                    // Sort by newest first within the active symbol
+                    activeEntries.sort((a, b) => b.remote.dateStr.localeCompare(a.remote.dateStr));
+                    for (const task of activeEntries) {
+                        await this._fetchAndSaveExpiry(task.id, task.remote);
+                    }
+                    console.log(`[SyncManager] Phase 1 complete — chart data is ready!`);
+                }
+                
+                // Phase 2: Download remaining symbols in the background (fire-and-forget)
+                if (backgroundEntries.length > 0) {
+                    backgroundEntries.sort((a, b) => b.remote.dateStr.localeCompare(a.remote.dateStr));
+                    this._processQueue(backgroundEntries);
+                }
             } else {
                 console.log("[SyncManager] Cache is completely up to date!");
             }
