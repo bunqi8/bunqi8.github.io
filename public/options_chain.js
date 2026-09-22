@@ -1,43 +1,48 @@
 const HF_BASE = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/NSE_NIFTY50_INDEX/option_data/parquet";
 
-let expiries = []; // { dateStr, folderPath, dateObj, label }
+let expiries = []; // { dateStr, folderPath, dateObj, month, day, year }
 let currentExpiry = null;
 let modalOverlay = null;
 
-// Inject CSS
 const style = document.createElement('style');
 style.innerHTML = `
     .oc-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 1000; display: none; align-items: center; justify-content: center; }
     .oc-modal { background: #ffffff; width: 800px; max-height: 85vh; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     
     .oc-header { padding: 16px 24px; border-bottom: 1px solid #e0e3eb; display: flex; justify-content: space-between; align-items: center; }
-    .oc-title { font-size: 18px; font-weight: 600; color: #131722; display: flex; align-items: center; gap: 8px; }
+    .oc-title { font-size: 20px; font-weight: 600; color: #131722; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: color 0.2s; }
+    .oc-title:hover { color: #2962FF; }
     .oc-close { cursor: pointer; color: #787b86; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
     .oc-close:hover { color: #131722; }
     
-    .oc-expiries-strip { display: flex; overflow-x: auto; gap: 8px; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; }
+    .oc-expiries-strip { display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: flex-end; gap: 16px; }
     .oc-expiries-strip::-webkit-scrollbar { display: none; }
-    .oc-expiry { padding: 6px 14px; border-radius: 16px; border: none; background: #f0f3fa; cursor: pointer; white-space: nowrap; font-size: 13px; color: #131722; font-weight: 500; transition: all 0.2s; line-height: 1.2;}
+    
+    .oc-month-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .oc-month-label { font-size: 12px; color: #131722; font-weight: 500; }
+    .oc-days-row { display: flex; gap: 4px; }
+    
+    .oc-expiry { padding: 4px 10px; border-radius: 6px; border: none; background: #f0f3fa; cursor: pointer; font-size: 13px; color: #131722; font-weight: 500; transition: background 0.2s; }
     .oc-expiry:hover { background: #e0e3eb; }
-    .oc-expiry.active { background: #131722; color: white; }
+    .oc-expiry.active { background: #2a2e39; color: white; }
     
-    .oc-actions { display: flex; gap: 8px; margin-left: auto; }
-    .oc-btn { padding: 6px 12px; border-radius: 4px; border: 1px solid #e0e3eb; background: #fff; cursor: pointer; font-size: 12px; font-weight: 500; color: #2962FF; }
-    .oc-btn:hover { background: #f0f3fa; }
-    
-    .oc-table-header { display: flex; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; font-size: 12px; font-weight: 600; color: #787b86; }
+    .oc-table-top-header { display: flex; padding: 12px 24px 4px 24px; font-size: 13px; font-weight: 600; color: #131722; }
+    .oc-table-header { display: flex; padding: 4px 24px 12px 24px; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
     .oc-col { flex: 1; text-align: center; }
     
     .oc-table-body { flex-grow: 1; overflow-y: auto; font-size: 13px; color: #131722; position: relative; padding-bottom: 40px;}
     .oc-row { display: flex; padding: 0 24px; border-bottom: 1px solid #f0f3fa; }
-    .oc-row:hover { background: #f8f9fd; }
     
-    .oc-cell { flex: 1; padding: 12px 0; text-align: center; cursor: pointer; transition: background 0.1s; }
-    .oc-cell:hover { color: #2962FF; }
+    .oc-cell { flex: 1; padding: 14px 0; text-align: center; cursor: pointer; transition: background 0.1s; position: relative; }
+    
+    .call-cell:hover, .put-cell:hover { background: #f0f3fa; }
+    .call-cell:hover::after { content: ''; position: absolute; right: 0; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 5px solid #d1d4dc; }
+    .put-cell:hover::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 5px solid #d1d4dc; }
+    
     .strike-cell { font-weight: 500; cursor: default; background: #fafafc; }
     .strike-cell:hover { color: #131722; }
     
-    .oc-cell.active { background-color: #e3f2fd; color: #2962FF; }
+    .oc-cell.active { background-color: #e3f2fd; color: #131722; }
     
     .atm-row { position: relative; width: 100%; height: 0; display: flex; justify-content: center; align-items: center; z-index: 2; }
     .atm-line { position: absolute; width: 100%; height: 1px; background-color: #131722; top: 0; left: 0; }
@@ -51,13 +56,12 @@ function buildModal() {
     modalOverlay.innerHTML = `
         <div class="oc-modal">
             <div class="oc-header">
-                <div class="oc-title">
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 4L6 9l6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <div class="oc-title" onclick="window.loadSymbol('NIFTY50-INDEX')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
                     NIFTY Options
                 </div>
-                <div class="oc-actions">
-                    <button class="oc-btn" onclick="window.loadSymbol('NIFTY50-INDEX')">NIFTY Index</button>
-                    <button class="oc-btn" id="btn_futures" style="display:none;">Futures</button>
+                <div style="display:flex; align-items:center; gap: 16px; margin-left: auto; margin-right: 24px;">
+                    <span id="btn_futures" style="display:none; cursor: pointer; color: #2962FF; font-size: 14px; font-weight: 500;">Futures</span>
                 </div>
                 <div class="oc-close" onclick="window.closeOptionsChainModal()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -66,16 +70,21 @@ function buildModal() {
             <div class="oc-expiries-strip" id="oc_expiries_strip">
                 <span style="font-size:13px; color:#787b86;">Loading expiries...</span>
             </div>
-            <div class="oc-table-header">
+            <div class="oc-table-top-header">
                 <div class="oc-col">Calls</div>
-                <div class="oc-col">Strike</div>
+                <div class="oc-col"></div>
                 <div class="oc-col">Puts</div>
+            </div>
+            <div class="oc-table-header">
+                <div class="oc-col">Symbol</div>
+                <div class="oc-col">↑ Strike</div>
+                <div class="oc-col">Symbol</div>
             </div>
             <div class="oc-table-body" id="oc_table_body">
                 <!-- Rows injected here -->
             </div>
         </div>
-    `;
+`;
     document.body.appendChild(modalOverlay);
     
     modalOverlay.addEventListener('click', (e) => {
@@ -89,7 +98,7 @@ window.openOptionsChainModal = function() {
     if (expiries.length === 0) {
         fetchExpiries();
     } else if (currentExpiry) {
-        selectExpiry(currentExpiry); // Re-render to update the active symbol highlight
+        selectExpiry(currentExpiry);
     }
 };
 
@@ -112,16 +121,16 @@ async function fetchExpiries() {
                     const timeStr = match[2];
                     
                     const year = dateStr.slice(0,4);
-                    const month = dateStr.slice(4,6);
-                    const day = dateStr.slice(6,8);
-                    const dateObj = new Date(`${year}-${month}-${day}`);
+                    const monthNum = dateStr.slice(4,6);
+                    const day = parseInt(dateStr.slice(6,8));
+                    const dateObj = new Date(`${year}-${monthNum}-${day}`);
                     
                     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const label = `${monthNames[dateObj.getMonth()]} ${parseInt(day)}`;
-
+                    const month = monthNames[dateObj.getMonth()];
+                    
                     if (!expiryMap[dateStr] || timeStr > expiryMap[dateStr].timeStr) {
                         expiryMap[dateStr] = {
-                            dateStr, timeStr, folderPath: item.path, dateObj, label
+                            dateStr, timeStr, folderPath: item.path, dateObj, month, day, year
                         };
                     }
                 }
@@ -144,13 +153,35 @@ function updateExpiryStrip() {
     if (!strip) return;
     strip.innerHTML = '';
     
+    const groups = {}; // month -> array of expiries
     expiries.forEach(exp => {
-        const btn = document.createElement('button');
-        btn.className = `oc-expiry ${currentExpiry && currentExpiry.dateStr === exp.dateStr ? 'active' : ''}`;
-        btn.innerText = exp.label;
-        btn.onclick = () => selectExpiry(exp);
-        strip.appendChild(btn);
+        if (!groups[exp.month]) groups[exp.month] = [];
+        groups[exp.month].push(exp);
     });
+    
+    for (const [month, exps] of Object.entries(groups)) {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'oc-month-group';
+        
+        const label = document.createElement('div');
+        label.className = 'oc-month-label';
+        label.innerText = month;
+        groupDiv.appendChild(label);
+        
+        const daysRow = document.createElement('div');
+        daysRow.className = 'oc-days-row';
+        
+        exps.forEach(exp => {
+            const btn = document.createElement('button');
+            btn.className = `oc-expiry ${currentExpiry && currentExpiry.dateStr === exp.dateStr ? 'active' : ''}`;
+            btn.innerText = exp.day;
+            btn.onclick = () => selectExpiry(exp);
+            daysRow.appendChild(btn);
+        });
+        
+        groupDiv.appendChild(daysRow);
+        strip.appendChild(groupDiv);
+    }
 }
 
 async function selectExpiry(expiry) {
@@ -245,7 +276,6 @@ function renderTable(strikes, symbols, atmPrice) {
             const diff = Math.abs(strike - atmPrice);
             if (diff < minDiff) {
                 minDiff = diff;
-                // Place ATM line AFTER the strike if atmPrice > strike, or BEFORE if atmPrice < strike
                 if (atmPrice > strike) {
                     atmIndex = i + 1;
                 } else {
@@ -277,9 +307,13 @@ function renderTable(strikes, symbols, atmPrice) {
         row.className = `oc-row`;
         
         row.innerHTML = `
-            <div class="oc-cell call-cell ${isCeActive ? 'active' : ''}" onclick="window.loadSymbol('${ceSymbol}')">${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
+            <div class="oc-cell call-cell ${isCeActive ? 'active' : ''}" onclick="window.loadSymbol('${ceSymbol || ''}')">
+                ${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}
+            </div>
             <div class="oc-cell strike-cell">${strike.toLocaleString()}</div>
-            <div class="oc-cell put-cell ${isPeActive ? 'active' : ''}" onclick="window.loadSymbol('${peSymbol}')">${peSymbol ? 'Put '+strike.toLocaleString() : '-'}</div>
+            <div class="oc-cell put-cell ${isPeActive ? 'active' : ''}" onclick="window.loadSymbol('${peSymbol || ''}')">
+                ${peSymbol ? 'Put '+strike.toLocaleString() : '-'}
+            </div>
         `;
         tbody.appendChild(row);
     });
