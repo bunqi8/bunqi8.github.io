@@ -104,11 +104,18 @@ window.openOptionsChainModal = function() {
     // Auto-detect expiry from current chart symbol
     try {
         const symbol = window.tvWidget.activeChart().symbol();
-        const match = symbol.match(/NIFTY\d+?(\d{2})(\d{2})(\d{2})\d{5}[CP]E/);
+        const match = symbol.match(/NIFTY(\d{2})([1-9OND])(\d{2})\d{5}[CP]E/);
         if (match) {
             let y = match[1];
-            let m = match[2];
+            let mStr = match[2];
             let d = match[3];
+            
+            let m = mStr;
+            if (mStr === 'O') m = '10';
+            else if (mStr === 'N') m = '11';
+            else if (mStr === 'D') m = '12';
+            else m = mStr.padStart(2, '0');
+            
             // Format to match dateStr (e.g. "20260915")
             let symDateStr = `20${y}${m}${d}`;
             const found = expiries.find(e => e.dateStr === symDateStr);
@@ -224,7 +231,7 @@ async function selectExpiry(expiry) {
             futSymbol = filename.split('_')[0];
         }
         
-        const match = filename.match(/NIFTY\d+?(\d{5})([CP]E)_/);
+        const match = filename.match(/NIFTY.+?(\d{5})([CP]E)_/);
         if (match) {
             const strike = parseInt(match[1], 10);
             const type = match[2];

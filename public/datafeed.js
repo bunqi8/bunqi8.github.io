@@ -148,7 +148,7 @@ const Datafeed = {
                         }
                     }
                     
-                    const match = filename.match(/NIFTY\d+?(\d{5})([CP]E)_/);
+                    const match = filename.match(/NIFTY.+?(\d{5})([CP]E)_/);
                     if (match) {
                         const symbol = filename.split('_')[0];
                         if (symbol.includes(query) && !results.find(r => r.symbol === symbol)) {
