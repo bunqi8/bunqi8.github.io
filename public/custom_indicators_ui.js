@@ -1,41 +1,70 @@
 function setupCustomIndicatorsDialog(widget) {
     widget.headerReady().then(function() {
-        const button = widget.createButton({ align: "left" });
-        button.setAttribute('title', 'Indicators');
-        button.innerHTML = `<div style="display:flex;align-items:center;gap:4px;color:var(--tv-color-toolbar-button-text, #131722);"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 9C13.8807 9 15 10.1193 15 11.5V12H13.5V11.5C13.5 10.9477 13.0523 10.5 12.5 10.5C11.9477 10.5 11.5 10.9477 11.5 11.5V20H10V13.5H8.5V12H10V11.5C10 10.1193 11.1193 9 12.5 9Z" fill="currentColor"/><path d="M21.5 12L19 16L21.5 20H19.5L18 17.5L16.5 20H14.5L17 16L14.5 12H16.5L18 14.5L19.5 12H21.5Z" fill="currentColor"/></svg> Indicators</div>`;
+        const iframe = document.querySelector('#tv_chart_container iframe');
+        const iframeDoc = iframe.contentWindow.document;
+        
+        let nativeBtnFound = false;
+        const checkInterval = setInterval(() => {
+            const nativeBtn = iframeDoc.getElementById('header-toolbar-indicators');
+            if (nativeBtn && !nativeBtnFound) {
+                nativeBtnFound = true;
+                clearInterval(checkInterval);
+                
+                // Intercept clicks before React synthetic event system sees them
+                ['click', 'mousedown', 'mouseup'].forEach(evt => {
+                    nativeBtn.addEventListener(evt, (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (evt === 'click') {
+                            openModal();
+                        }
+                    }, true);
+                });
+            }
+        }, 100);
 
-        // Modal container
+        // Modal container matching TradingView's newer interface closely
         const modalOverlay = document.createElement('div');
-        modalOverlay.style.cssText = 'display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); z-index:99999; align-items:center; justify-content:center; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;';
+        modalOverlay.style.cssText = 'display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0, 0, 0, 0.4); z-index:99999; align-items:center; justify-content:center; font-family:-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;';
         
         const modal = document.createElement('div');
-        modal.style.cssText = 'background:#fff; width:480px; height:600px; max-width:90%; max-height:90%; border-radius:8px; display:flex; flex-direction:column; box-shadow:0 2px 6px rgba(0,0,0,0.2); overflow:hidden;';
+        modal.style.cssText = 'background:#ffffff; width:640px; height:600px; max-width:90%; max-height:90%; border-radius:8px; display:flex; flex-direction:column; box-shadow:0 2px 12px rgba(0,0,0,0.15); overflow:hidden;';
         
         // Header
         const header = document.createElement('div');
-        header.style.cssText = 'padding:16px 20px; border-bottom:1px solid #e0e3eb; display:flex; justify-content:space-between; align-items:center;';
-        header.innerHTML = '<div style="font-size:18px; font-weight:700; color:#131722;">Indicators</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 1.5l15 15m0-15l-15 15" stroke="currentColor" stroke-width="2"/></svg></div>';
+        header.style.cssText = 'padding:20px 24px 16px 24px; display:flex; justify-content:space-between; align-items:center;';
+        header.innerHTML = '<div style="font-size:20px; font-weight:700; color:#131722; line-height:28px;">Indicators, metrics, and strategies</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86; padding:4px; margin:-4px;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 1.5l15 15m0-15l-15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>';
         
         // Search
         const searchContainer = document.createElement('div');
-        searchContainer.style.cssText = 'padding:12px 20px; border-bottom:1px solid #e0e3eb;';
+        searchContainer.style.cssText = 'padding:0 24px 12px 24px;';
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.placeholder = 'Search';
-        searchInput.style.cssText = 'width:100%; padding:8px 30px; border:1px solid #e0e3eb; border-radius:4px; font-size:14px; outline:none; box-sizing:border-box; background:url("data:image/svg+xml;utf8,<svg width=\'16\' height=\'16\' viewBox=\'0 0 16 16\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M11.5 11.5L14 14M13 7.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z\' stroke=\'%23787b86\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>") no-repeat 8px center; background-size: 16px;';
+        searchInput.style.cssText = 'width:100%; padding:10px 10px 10px 40px; border:1px solid #e0e3eb; border-radius:24px; font-size:16px; color:#131722; outline:none; box-sizing:border-box; background:url("data:image/svg+xml;utf8,<svg width=\'18\' height=\'18\' viewBox=\'0 0 18 18\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M12.5 12.5L15 15M14 8.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z\' stroke=\'%23787b86\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>") no-repeat 14px center; background-size: 18px; transition: border-color 0.2s ease;';
+        searchInput.onfocus = () => searchInput.style.borderColor = '#2962FF';
+        searchInput.onblur = () => searchInput.style.borderColor = '#e0e3eb';
         searchContainer.appendChild(searchInput);
 
+        // Tabs Layout
+        const bodyContainer = document.createElement('div');
+        bodyContainer.style.cssText = 'display:flex; flex:1; overflow:hidden; border-top:1px solid #e0e3eb;';
+        
         // Tabs
         const tabsContainer = document.createElement('div');
-        tabsContainer.style.cssText = 'display:flex; border-bottom:1px solid #e0e3eb; background:#f8f9fd;';
+        tabsContainer.style.cssText = 'width:200px; display:flex; flex-direction:column; padding:16px 12px; border-right:1px solid #e0e3eb; background:#ffffff;';
         
         const tabCustom = document.createElement('div');
-        tabCustom.textContent = 'Custom';
         const tabBuiltin = document.createElement('div');
-        tabBuiltin.textContent = 'Built-in';
         
-        const tabStyle = 'flex:1; text-align:center; padding:12px 0; font-size:14px; cursor:pointer; color:#787b86; font-weight:500; transition:0.2s;';
-        const activeTabStyle = 'flex:1; text-align:center; padding:12px 0; font-size:14px; cursor:pointer; color:#2962FF; font-weight:600; border-bottom:2px solid #2962FF; transition:0.2s;';
+        const tabStyle = 'padding:10px 16px; margin-bottom:4px; font-size:15px; cursor:pointer; color:#131722; font-weight:400; border-radius:6px; transition:0.2s; display:flex; align-items:center; gap:12px;';
+        const activeTabStyle = 'padding:10px 16px; margin-bottom:4px; font-size:15px; cursor:pointer; color:#131722; font-weight:500; border-radius:6px; background:#f0f3fa; transition:0.2s; display:flex; align-items:center; gap:12px;';
+        
+        const userIcon = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 10a4 4 0 100-8 4 4 0 000 8zm-6 8a6 6 0 0112 0H4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        const builtinIcon = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 17V9m5 8V5m5 12v-5m5 5V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+        tabCustom.innerHTML = userIcon + 'Custom scripts';
+        tabBuiltin.innerHTML = builtinIcon + 'Technicals';
         
         tabCustom.style.cssText = activeTabStyle;
         tabBuiltin.style.cssText = tabStyle;
@@ -44,18 +73,30 @@ function setupCustomIndicatorsDialog(widget) {
         tabsContainer.appendChild(tabBuiltin);
         
         // Lists
-        const listContainer = document.createElement('div');
-        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:8px 0;';
+        const listWrapper = document.createElement('div');
+        listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column;';
         
+        const listHeader = document.createElement('div');
+        listHeader.style.cssText = 'padding:16px 24px 8px 24px; font-size:11px; font-weight:500; color:#787b86; text-transform:uppercase; letter-spacing:0.4px;';
+        listHeader.textContent = 'Script name';
+
+        const listContainer = document.createElement('div');
+        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:0 12px 12px 12px;';
+        
+        listWrapper.appendChild(listHeader);
+        listWrapper.appendChild(listContainer);
+
+        bodyContainer.appendChild(tabsContainer);
+        bodyContainer.appendChild(listWrapper);
+
         modal.appendChild(header);
         modal.appendChild(searchContainer);
-        modal.appendChild(tabsContainer);
-        modal.appendChild(listContainer);
+        modal.appendChild(bodyContainer);
         modalOverlay.appendChild(modal);
         document.body.appendChild(modalOverlay);
         
         let allStudies = [];
-        let customStudies = ["SuperTrend"]; // Update manually or dynamically later
+        let customStudies = ["SuperTrend"];
         let activeTab = 'custom';
         
         function renderList(searchQuery = "") {
@@ -64,9 +105,6 @@ function setupCustomIndicatorsDialog(widget) {
             
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
-                // If searching, show matching from BOTH tabs just visually grouped, or just strictly current tab?
-                // Request said: "inbuilt search bard will searrch them all".
-                // So if search is active, ignore tabs and show all!
                 if (query.trim() !== '') {
                     items = allStudies.filter(s => s.toLowerCase().includes(query));
                 }
@@ -74,7 +112,7 @@ function setupCustomIndicatorsDialog(widget) {
             
             items.forEach(study => {
                 const item = document.createElement('div');
-                item.style.cssText = 'padding:10px 20px; cursor:pointer; font-size:14px; color:#131722; display:flex; align-items:center;';
+                item.style.cssText = 'padding:12px; cursor:pointer; font-size:15px; color:#131722; display:flex; align-items:center; border-radius:6px; transition:background-color 0.1s;';
                 item.textContent = study;
                 item.onmouseover = () => item.style.background = '#f0f3fa';
                 item.onmouseout = () => item.style.background = 'transparent';
@@ -85,7 +123,7 @@ function setupCustomIndicatorsDialog(widget) {
                 listContainer.appendChild(item);
             });
             if(items.length === 0) {
-                listContainer.innerHTML = '<div style="padding:20px; color:#787b86; text-align:center; font-size:14px;">No indicators found</div>';
+                listContainer.innerHTML = '<div style="padding:40px; color:#787b86; text-align:center; font-size:15px;">No indicators found</div>';
             }
         }
         
@@ -108,12 +146,11 @@ function setupCustomIndicatorsDialog(widget) {
             modalOverlay.style.display = 'none';
         }
         
-        button.addEventListener('click', openModal);
         header.querySelector('#tv-close-modal').addEventListener('click', closeModal);
         modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) closeModal(); });
         
         tabCustom.addEventListener('click', () => {
-            if (searchInput.value.trim() !== '') { searchInput.value = ''; } // clear search to respect tab
+            if (searchInput.value.trim() !== '') { searchInput.value = ''; }
             activeTab = 'custom';
             tabCustom.style.cssText = activeTabStyle;
             tabBuiltin.style.cssText = tabStyle;
@@ -131,7 +168,6 @@ function setupCustomIndicatorsDialog(widget) {
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim();
             if (query !== '') {
-                // Dim tabs when global search is active
                 tabCustom.style.cssText = tabStyle + ' opacity: 0.5;';
                 tabBuiltin.style.cssText = tabStyle + ' opacity: 0.5;';
             } else {
