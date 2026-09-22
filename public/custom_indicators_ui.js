@@ -141,15 +141,23 @@ function setupCustomIndicatorsDialog(widget) {
                 nativeBtnFound = true;
                 clearInterval(checkInterval);
                 
+                // 1. Stop TradingView from seeing any of these events
                 ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(evt => {
                     nativeBtn.addEventListener(evt, (e) => {
                         e.stopPropagation();
-                        if (e.cancelable) e.preventDefault();
-                        if (evt === 'click' || (evt === 'touchend' && !e.defaultPrevented)) {
-                            openModal();
-                        }
                     }, true);
                 });
+                
+                // 2. Trigger our modal cleanly
+                nativeBtn.addEventListener('click', (e) => {
+                    if (e.cancelable) e.preventDefault();
+                    openModal();
+                }, true);
+                
+                nativeBtn.addEventListener('touchend', (e) => {
+                    if (e.cancelable) e.preventDefault(); // Stop ghost click
+                    openModal();
+                }, true);
             }
         }, 100);
 
