@@ -175,17 +175,6 @@ const Datafeed = {
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
                         // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
-                        console.log(`[getBars] Downloading Parquet file into memory buffer for forceful fetch...`);
-                        const response = await fetch(fileUrl);
-                        if (!response.ok) throw new Error("HTTP " + response.status);
-                        const buffer = await response.arrayBuffer();
-                        const virtualFileName = 'mem_force_' + Date.now() + '.parquet';
-                        await window.db.registerFileBuffer(virtualFileName, new Uint8Array(buffer));
-
-                        // To prevent the DuckDB-WASM Arrow-to-JS bridge from crashing via out-of-bounds memory,
-                        // we MUST strictly limit the amount of rows we return in this fallback query!
-                        // TradingView only needs `countBack` bars. 
-                        
                         // Parse resolution to seconds (default 5m = 300s)
                         let resSeconds = 300;
                         if (resolution === '1') resSeconds = 60;
@@ -200,6 +189,17 @@ const Datafeed = {
                         const lookbackSeconds = (countBack || 300) * resSeconds * 3;
                         const safeMinTime = maxTime - lookbackSeconds;
 
+                        const virtualFileName = 'mem_' + btoa(fileUrl).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15) + '.parquet';
+                        
+                        if (!window.fileBufferCache[fileUrl]) {
+                            console.log(`[getBars] Downloading Parquet file into memory buffer for forceful fetch...`);
+                            const response = await fetch(fileUrl);
+                            if (!response.ok) throw new Error("HTTP " + response.status);
+                            const buffer = await response.arrayBuffer();
+                            window.fileBufferCache[fileUrl] = new Uint8Array(buffer);
+                            await window.db.registerFileBuffer(virtualFileName, window.fileBufferCache[fileUrl]);
+                        }
+
                         const forceQuery = `
                             SELECT 
                                 time * 1000 as time,
@@ -212,7 +212,6 @@ const Datafeed = {
                             WHERE time <= ${maxTime} AND time >= ${safeMinTime}
                         `;
                         const forceResults = await conn.query(forceQuery);
-                        await window.db.dropFile(virtualFileName);
                         
                         if (forceResults.length > 0) {
                             let forceBars = [];
