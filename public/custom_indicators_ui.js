@@ -3,11 +3,22 @@ function setupCustomIndicatorsDialog(widget) {
         const iframe = document.querySelector('#tv_chart_container iframe');
         const iframeDoc = iframe.contentWindow.document;
         
+        // --- PRELOAD MONACO EDITOR ---
+        let monacoEditorInstance = null;
+        if (window.require && !window.monaco) {
+            require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
+            require(['vs/editor/editor.main'], function() {
+                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                    noSemanticValidation: true,
+                    noSyntaxValidation: true
+                });
+            });
+        }
+
         // --- 1. AUTO REMOVE & RE-ADD (Hot Reload Workflow) ---
         const autoLoad = sessionStorage.getItem('tv_auto_reload_study');
         if (autoLoad) {
             sessionStorage.removeItem('tv_auto_reload_study');
-            // Wait for chart layout to fully restore, then hot-swap the indicator
             setTimeout(() => {
                 try {
                     const chart = widget.chart();
@@ -26,15 +37,12 @@ function setupCustomIndicatorsDialog(widget) {
         }
 
         // --- 2. INJECT "{ }" BUTTON INTO LEGEND (Robust Polling) ---
-        // We use setInterval because TradingView's SPA aggressively destroys and recreates DOM elements, 
-        // which often unhooks MutationObservers attached too early.
         setInterval(() => {
             try {
                 const iframe = document.querySelector('#tv_chart_container iframe');
                 if (!iframe) return;
                 const iframeDoc = iframe.contentWindow.document;
                 
-                // Hook into 'delete' or 'settings' buttons (TV uses data-name or data-qa-id depending on version)
                 const actionButtons = iframeDoc.querySelectorAll([
                     '[data-name="legend-delete-action"]', 
                     '[data-qa-id="legend-delete-action"]',
@@ -46,11 +54,8 @@ function setupCustomIndicatorsDialog(widget) {
                     const container = btn.parentNode;
                     if (!container) return;
                     
-                    // Critical React Fix: React might reuse the container but wipe our injected child.
-                    // We must check if our button physically exists, not just rely on a dataset flag.
                     if (container.querySelector('.tv-custom-source-btn')) return;
                     
-                    // Get the study title to map it to our local indicators
                     let studyTitle = "";
                     const legendItem = container.closest('[data-name="legend-item"], [data-qa-id="legend-item"], tr, [class*="legend-item"]');
                     if (legendItem) {
@@ -58,7 +63,6 @@ function setupCustomIndicatorsDialog(widget) {
                         if (titleEl) studyTitle = titleEl.textContent.trim();
                     }
 
-                    // Create the {} button
                     const srcBtn = iframeDoc.createElement('div');
                     srcBtn.className = 'tv-custom-source-btn';
                     srcBtn.innerHTML = '{ }';
@@ -71,20 +75,35 @@ function setupCustomIndicatorsDialog(widget) {
                         e.stopPropagation();
                         openModal();
                         
-                        // Try to automatically open the editor for this specific script
                         let stored = {};
                         try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
                         
-                        // Search stored scripts for a matching name or shortDescription
                         let matchedKey = null;
                         for (const [key, code] of Object.entries(stored)) {
-                            if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
-                                matchedKey = key;
-                                break;
+                            // First, try a robust runtime evaluation to accurately read the object's properties
+                            try {
+                                const factory = new Function('PineJS', 'return (' + code + ');');
+                                const obj = factory({ Std: {} });
+                                if (key === studyTitle || obj.name === studyTitle || 
+                                   (obj.metainfo && obj.metainfo.shortDescription === studyTitle) || 
+                                   (obj.metainfo && obj.metainfo.description === studyTitle)) {
+                                    matchedKey = key;
+                                    break;
+                                }
+                            } catch(err) {
+                                // Fallback to raw string matching
+                                if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
+                                    matchedKey = key;
+                                    break;
+                                }
                             }
                         }
                         
-                        // Small timeout to allow modal UI to build
+                        // Fallback for custom SuperTrend built-in
+                        if (!matchedKey && studyTitle === "SuperTrend") {
+                            matchedKey = "SuperTrend Custom";
+                        }
+                        
                         setTimeout(() => {
                             if (matchedKey) {
                                 showEditor(stored[matchedKey], matchedKey);
@@ -92,7 +111,6 @@ function setupCustomIndicatorsDialog(widget) {
                         }, 50);
                     };
                     
-                    // Insert right BEFORE the delete button or AT THE END of the container
                     if (btn.getAttribute('data-name') === 'legend-delete-action' || btn.getAttribute('data-qa-id') === 'legend-delete-action') {
                         container.insertBefore(srcBtn, btn);
                     } else if (btn.nextSibling) {
@@ -127,13 +145,21 @@ function setupCustomIndicatorsDialog(widget) {
         const style = document.createElement('style');
         style.textContent = `
             .tv-custom-modal-overlay {
-                display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); z-index: 99999; align-items: center; justify-content: center;
                 font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
+                opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+            }
+            .tv-custom-modal-overlay.visible {
+                opacity: 1; pointer-events: auto;
             }
             .tv-custom-modal {
                 background: #ffffff; width: 850px; height: 650px; max-width: 95%; max-height: 95%;
                 border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.15); overflow: hidden;
+                transform: scale(0.97) translateY(10px); transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+            }
+            .tv-custom-modal-overlay.visible .tv-custom-modal {
+                transform: scale(1) translateY(0);
             }
             .tv-custom-modal-body {
                 display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb;
@@ -159,11 +185,15 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-list-container::-webkit-scrollbar-thumb { background: #d1d4dc; border-radius: 3px; }
             .tv-list-container::-webkit-scrollbar-track { background: transparent; }
 
+            .tv-star-icon { color: #b2b5be; transition: all 0.2s ease; margin-right: 12px; flex-shrink: 0; }
+            .tv-star-icon:hover { color: #FFB300; }
+            .tv-star-icon.active { color: #FFB300; fill: #FFB300; }
+
             @media (max-width: 768px) {
                 .tv-custom-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
                 .tv-custom-modal-body { flex-direction: column; }
-                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; }
-                .tv-custom-modal-tab { flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px; }
+                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; overflow-x: auto; }
+                .tv-custom-modal-tab { flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px; white-space: nowrap; }
                 .tv-editor-header { padding: 12px; }
             }
         `;
@@ -197,18 +227,23 @@ function setupCustomIndicatorsDialog(widget) {
         const tabsContainer = document.createElement('div');
         tabsContainer.className = 'tv-custom-modal-tabs';
         
+        const tabFavorites = document.createElement('div');
         const tabCustom = document.createElement('div');
         const tabBuiltin = document.createElement('div');
         
+        const favIcon = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round"/></svg>';
         const userIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 10a4 4 0 100-8 4 4 0 000 8zm-6 8a6 6 0 0112 0H4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
         const builtinIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 17V9m5 8V5m5 12v-5m5 5V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+        tabFavorites.innerHTML = favIcon + 'Favorites';
         tabCustom.innerHTML = userIcon + 'Custom scripts';
         tabBuiltin.innerHTML = builtinIcon + 'Technicals';
         
+        tabFavorites.className = 'tv-custom-modal-tab';
         tabCustom.className = 'tv-custom-modal-tab active';
         tabBuiltin.className = 'tv-custom-modal-tab';
         
+        tabsContainer.appendChild(tabFavorites);
         tabsContainer.appendChild(tabCustom);
         tabsContainer.appendChild(tabBuiltin);
         
@@ -239,8 +274,17 @@ function setupCustomIndicatorsDialog(widget) {
         let activeTab = 'custom';
         let isEditing = false;
         
-        // Editor Instance
-        let monacoEditorInstance = null;
+        function getFavorites() {
+            try { return JSON.parse(localStorage.getItem('tv_favorite_indicators') || '[]'); } 
+            catch(e) { return []; }
+        }
+        function toggleFavorite(study) {
+            let favs = getFavorites();
+            if (favs.includes(study)) favs = favs.filter(f => f !== study);
+            else favs.push(study);
+            localStorage.setItem('tv_favorite_indicators', JSON.stringify(favs));
+            renderList(searchInput.value);
+        }
         
         function showEditor(existingCode = '', existingName = null) {
             isEditing = true;
@@ -279,7 +323,7 @@ function setupCustomIndicatorsDialog(widget) {
                     errorDiv.style.display = 'none';
                     const code = monacoEditorInstance.getValue();
                     const factory = new Function('PineJS', 'return (' + code + ');');
-                    const obj = factory({ Std: {} }); // Mock validation
+                    const obj = factory({ Std: {} }); 
                     
                     if (!obj || !obj.name) throw new Error("Exported script object must have a 'name' property.");
                     
@@ -290,7 +334,6 @@ function setupCustomIndicatorsDialog(widget) {
                     stored[obj.name] = code;
                     localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                     
-                    // Set flag for auto-reloading
                     sessionStorage.setItem('tv_auto_reload_study', obj.name);
                     location.reload();
                 } catch (err) {
@@ -313,45 +356,22 @@ function setupCustomIndicatorsDialog(widget) {
             
             const defaultCode = `{\n    name: "My Script",\n    metainfo: {\n        _metainfoVersion: 52,\n        isTVScript: false,\n        is_hidden_study: false,\n        defaults: {\n            styles: { plot_0: { plottype: 0, linewidth: 2, color: "#2962FF" } },\n            inputs: {}\n        },\n        plots: [{ id: "plot_0", type: "line" }],\n        styles: { plot_0: { title: "Plot" } },\n        description: "My Script",\n        shortDescription: "My Script",\n        is_price_study: true,\n        inputs: [],\n        id: "My_Script@tv-basicstudies-1",\n        scriptIdPart: "",\n        name: "My Script"\n    },\n    constructor: function() {\n        this.init = function(ctx, input) { this._context = ctx; };\n        this.main = function(ctx, input) {\n            this._context = ctx || this._context;\n            return [{ value: PineJS.Std.close(this._context) }];\n        };\n    }\n}`;
             
-            // Initialize Monaco
             if (window.require && !window.monaco) {
                 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
                 require(['vs/editor/editor.main'], function() {
-                    // Disable syntax errors for naked JS objects
-                    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-                        noSemanticValidation: true,
-                        noSyntaxValidation: true
-                    });
-                    
+                    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
                     monacoEditorInstance = monaco.editor.create(editorContainer, {
-                        value: existingCode || defaultCode,
-                        language: 'javascript',
-                        theme: 'vs-light',
-                        minimap: { enabled: true, scale: 0.75 },
-                        automaticLayout: true,
-                        fontSize: 13,
-                        fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-                        scrollBeyondLastLine: false,
-                        roundedSelection: false,
-                        padding: { top: 16 }
+                        value: existingCode || defaultCode, language: 'javascript', theme: 'vs-light',
+                        minimap: { enabled: true, scale: 0.75 }, automaticLayout: true, fontSize: 13,
+                        fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", scrollBeyondLastLine: false,
+                        roundedSelection: false, padding: { top: 16 }
                     });
                 });
             } else if (window.monaco) {
-                // Disable syntax errors for naked JS objects
-                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-                    noSemanticValidation: true,
-                    noSyntaxValidation: true
-                });
-                
                 monacoEditorInstance = monaco.editor.create(editorContainer, {
-                    value: existingCode || defaultCode,
-                    language: 'javascript',
-                    theme: 'vs-light',
-                    minimap: { enabled: true, scale: 0.75 },
-                    automaticLayout: true,
-                    fontSize: 13,
-                    scrollBeyondLastLine: false,
-                    padding: { top: 16 }
+                    value: existingCode || defaultCode, language: 'javascript', theme: 'vs-light',
+                    minimap: { enabled: true, scale: 0.75 }, automaticLayout: true, fontSize: 13,
+                    scrollBeyondLastLine: false, padding: { top: 16 }
                 });
             }
         }
@@ -364,6 +384,19 @@ function setupCustomIndicatorsDialog(widget) {
 
         function renderList(searchQuery = "") {
             if (isEditing) return;
+            
+            const favs = getFavorites();
+            if (favs.length > 0 || activeTab === 'favorites') {
+                tabFavorites.style.display = 'flex';
+            } else {
+                tabFavorites.style.display = 'none';
+                if (activeTab === 'favorites') {
+                    activeTab = 'custom';
+                    tabCustom.className = 'tv-custom-modal-tab active';
+                    tabFavorites.className = 'tv-custom-modal-tab';
+                }
+            }
+
             listContainer.innerHTML = '';
             
             let stored = {};
@@ -371,11 +404,20 @@ function setupCustomIndicatorsDialog(widget) {
             let localNames = Object.keys(stored);
             
             let allCustomNames = ["SuperTrend Custom", ...localNames];
-            let items = activeTab === 'custom' ? allCustomNames : allStudies.filter(s => !allCustomNames.includes(s));
+            
+            let items = [];
+            if (activeTab === 'favorites') {
+                items = favs;
+            } else if (activeTab === 'custom') {
+                items = allCustomNames;
+            } else {
+                items = allStudies.filter(s => !allCustomNames.includes(s));
+            }
             
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 if (query.trim() !== '') {
+                    // Search across all studies regardless of tab
                     items = allStudies.filter(s => {
                         const displayName = (s === "SuperTrend Custom") ? "SuperTrend" : s;
                         return displayName.toLowerCase().includes(query);
@@ -393,15 +435,30 @@ function setupCustomIndicatorsDialog(widget) {
                 listContainer.appendChild(addBtn);
             }
             
+            // Fragment for faster DOM injection
+            const fragment = document.createDocumentFragment();
+            
             items.forEach(study => {
                 const isLocal = localNames.includes(study);
+                const isFav = favs.includes(study);
                 const displayName = (study === "SuperTrend Custom") ? "SuperTrend" : study;
                 
                 const item = document.createElement('div');
-                item.style.cssText = 'padding:12px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; justify-content:space-between; border-radius:8px; transition:background-color 0.2s; margin-bottom:4px; border:1px solid transparent;';
+                item.style.cssText = 'padding:12px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; border-radius:8px; transition:background-color 0.2s; margin-bottom:4px; border:1px solid transparent;';
+                
+                // Star Icon
+                const star = document.createElement('div');
+                star.className = isFav ? 'tv-star-icon active' : 'tv-star-icon';
+                star.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" fill="currentColor" /></svg>';
+                if (!isFav) {
+                     star.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" /></svg>';
+                }
+                star.onclick = (e) => { e.stopPropagation(); toggleFavorite(study); };
+                item.appendChild(star);
                 
                 const titleSpan = document.createElement('span');
                 titleSpan.textContent = displayName;
+                titleSpan.style.flex = "1";
                 item.appendChild(titleSpan);
                 
                 if (isLocal) {
@@ -425,6 +482,11 @@ function setupCustomIndicatorsDialog(widget) {
                         if(confirm("Delete local indicator '" + study + "'?")) {
                             delete stored[study];
                             localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
+                            // Also remove from favorites if it exists
+                            let fs = getFavorites();
+                            if(fs.includes(study)) {
+                                localStorage.setItem('tv_favorite_indicators', JSON.stringify(fs.filter(f => f !== study)));
+                            }
                             location.reload();
                         }
                     };
@@ -440,8 +502,11 @@ function setupCustomIndicatorsDialog(widget) {
                     widget.chart().createStudy(study, false, false);
                     closeModal();
                 };
-                listContainer.appendChild(item);
+                fragment.appendChild(item);
             });
+            
+            listContainer.appendChild(fragment);
+            
             if(items.length === 0) {
                 listContainer.innerHTML = '<div style="padding:40px; color:#b2b5be; text-align:center; font-size:14px; font-weight:500;">No indicators found</div>';
             }
@@ -449,44 +514,56 @@ function setupCustomIndicatorsDialog(widget) {
         
         function openModal() {
             if (allStudies.length === 0) {
-                try {
-                    allStudies = widget.getStudiesList();
-                } catch(e) {}
+                try { allStudies = widget.getStudiesList(); } catch(e) {}
             }
-            modalOverlay.style.display = 'flex';
+            modalOverlay.classList.add('visible');
             searchInput.value = '';
             isEditing = false;
             restoreListWrapper();
-            activeTab = 'custom';
-            tabCustom.className = 'tv-custom-modal-tab active';
+            activeTab = getFavorites().length > 0 ? 'favorites' : 'custom';
+            tabFavorites.className = activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
+            tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
             renderList();
             setTimeout(() => searchInput.focus(), 100);
         }
         
         function closeModal() {
-            modalOverlay.style.display = 'none';
+            modalOverlay.classList.remove('visible');
         }
         
         header.querySelector('#tv-close-modal').addEventListener('click', closeModal);
         modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) closeModal(); });
         
+        tabFavorites.addEventListener('click', () => {
+            if (searchInput.value.trim() !== '') searchInput.value = '';
+            activeTab = 'favorites';
+            if (!isEditing) restoreListWrapper();
+            isEditing = false;
+            tabFavorites.className = 'tv-custom-modal-tab active';
+            tabCustom.className = 'tv-custom-modal-tab';
+            tabBuiltin.className = 'tv-custom-modal-tab';
+            renderList();
+        });
+
         tabCustom.addEventListener('click', () => {
-            if (searchInput.value.trim() !== '') { searchInput.value = ''; }
+            if (searchInput.value.trim() !== '') searchInput.value = '';
             activeTab = 'custom';
             if (!isEditing) restoreListWrapper();
             isEditing = false;
             tabCustom.className = 'tv-custom-modal-tab active';
+            tabFavorites.className = 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
             renderList();
         });
         
         tabBuiltin.addEventListener('click', () => {
-            if (searchInput.value.trim() !== '') { searchInput.value = ''; }
+            if (searchInput.value.trim() !== '') searchInput.value = '';
             activeTab = 'builtin';
             if (!isEditing) restoreListWrapper();
             isEditing = false;
             tabBuiltin.className = 'tv-custom-modal-tab active';
+            tabFavorites.className = 'tv-custom-modal-tab';
             tabCustom.className = 'tv-custom-modal-tab';
             renderList();
         });
@@ -498,13 +575,12 @@ function setupCustomIndicatorsDialog(widget) {
                 restoreListWrapper();
             }
             if (query !== '') {
-                tabCustom.className = 'tv-custom-modal-tab';
-                tabCustom.style.opacity = '0.5';
-                tabBuiltin.className = 'tv-custom-modal-tab';
-                tabBuiltin.style.opacity = '0.5';
+                tabFavorites.className = 'tv-custom-modal-tab'; tabFavorites.style.opacity = '0.5';
+                tabCustom.className = 'tv-custom-modal-tab'; tabCustom.style.opacity = '0.5';
+                tabBuiltin.className = 'tv-custom-modal-tab'; tabBuiltin.style.opacity = '0.5';
             } else {
-                tabCustom.style.opacity = '1';
-                tabBuiltin.style.opacity = '1';
+                tabFavorites.style.opacity = '1'; tabCustom.style.opacity = '1'; tabBuiltin.style.opacity = '1';
+                tabFavorites.className = activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
                 tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
                 tabBuiltin.className = activeTab === 'builtin' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
             }
