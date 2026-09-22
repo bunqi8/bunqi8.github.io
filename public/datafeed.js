@@ -4,12 +4,6 @@
 // -----------------------------------------------------------------------
 
 const configurationData = {
-    supported_resolutions: [
-        '5S', '15S', '30S',
-        '1', '5', '15', '30',
-        '60', '120', '240',
-        '1D', '1W', '1M'
-    ],
     exchanges: [{ value: 'CUSTOM', name: 'Custom', desc: 'Custom Datafeed' }],
     symbols_types: [{ name: 'Crypto', value: 'crypto'}],
 };
@@ -68,12 +62,16 @@ function simpleHash(str) {
 // Resolution → Parquet file suffix mapping
 // -----------------------------------------------------------------------
 function resolutionToSuffix(resolution) {
-    if (resolution === '1')  return '1';
-    if (resolution === '5')  return '5';
-    if (resolution === '60') return '60';
+    // 1. If exact parquet is available, use it (5S, 1, 5, 60, D)
+    if (['1', '5', '60', 'D', '5S'].includes(resolution)) return resolution;
+    
+    // 2. For seconds, use smallest second available (5S)
     if (resolution.includes('S')) return '5S';
+    
+    // 3. For daily and higher, use daily (D)
     if (resolution.includes('D') || resolution.includes('W') || resolution.includes('M')) return 'D';
-    // For 15, 30 etc. — TV will aggregate from intraday_multipliers (5m or 1m)
+    
+    // 4. For minutes, use smallest minute available (1)
     return '1';
 }
 
@@ -102,7 +100,6 @@ function arrowToTVBars(arrowResult) {
 const Datafeed = {
     onReady: (callback) => {
         setTimeout(() => callback({
-            supported_resolutions: configurationData.supported_resolutions,
             supports_marks: false,
             supports_timescale_marks: false,
             supports_time: true,
@@ -127,7 +124,6 @@ const Datafeed = {
             has_intraday: true,
             has_daily: true,
             has_weekly_and_monthly: false,
-            supported_resolutions: configurationData.supported_resolutions,
             intraday_multipliers: ['1', '5', '60'],
             has_seconds: true,
             seconds_multipliers: ['5'],
