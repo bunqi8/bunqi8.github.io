@@ -22,7 +22,6 @@ function setupCustomIndicatorsDialog(widget) {
             }
         }, 100);
 
-        // Inject responsive CSS
         const style = document.createElement('style');
         style.textContent = `
             .tv-custom-modal-overlay {
@@ -64,19 +63,16 @@ function setupCustomIndicatorsDialog(widget) {
         `;
         document.head.appendChild(style);
 
-        // Modal container
         const modalOverlay = document.createElement('div');
         modalOverlay.className = 'tv-custom-modal-overlay';
         
         const modal = document.createElement('div');
         modal.className = 'tv-custom-modal';
         
-        // Header
         const header = document.createElement('div');
         header.style.cssText = 'padding:20px 24px 16px 24px; display:flex; justify-content:space-between; align-items:center;';
         header.innerHTML = '<div style="font-size:20px; font-weight:700; color:#131722; line-height:28px;">Indicators, metrics, and strategies</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86; padding:4px; margin:-4px;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 1.5l15 15m0-15l-15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>';
         
-        // Search
         const searchContainer = document.createElement('div');
         searchContainer.style.cssText = 'padding:0 24px 12px 24px;';
         const searchInput = document.createElement('input');
@@ -87,11 +83,9 @@ function setupCustomIndicatorsDialog(widget) {
         searchInput.onblur = () => searchInput.style.borderColor = '#e0e3eb';
         searchContainer.appendChild(searchInput);
 
-        // Tabs Layout
         const bodyContainer = document.createElement('div');
         bodyContainer.className = 'tv-custom-modal-body';
         
-        // Tabs
         const tabsContainer = document.createElement('div');
         tabsContainer.className = 'tv-custom-modal-tabs';
         
@@ -110,7 +104,6 @@ function setupCustomIndicatorsDialog(widget) {
         tabsContainer.appendChild(tabCustom);
         tabsContainer.appendChild(tabBuiltin);
         
-        // Lists
         const listWrapper = document.createElement('div');
         listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column;';
         
@@ -134,17 +127,98 @@ function setupCustomIndicatorsDialog(widget) {
         document.body.appendChild(modalOverlay);
         
         let allStudies = [];
-        let customStudies = ["SuperTrend Custom"]; // The true engine internal names
         let activeTab = 'custom';
+        let isEditing = false;
         
-        function renderList(searchQuery = "") {
+        function showEditor(existingCode = '', existingName = null) {
+            isEditing = true;
             listContainer.innerHTML = '';
-            let items = activeTab === 'custom' ? customStudies : allStudies.filter(s => !customStudies.includes(s));
+            
+            const edHeader = document.createElement('div');
+            edHeader.style.cssText = 'font-size:16px; font-weight:600; margin:12px 0; color:#131722;';
+            edHeader.textContent = existingName ? 'Edit Local Indicator' : 'New Local Indicator';
+            
+            const help = document.createElement('div');
+            help.style.cssText = 'font-size:12px; color:#787b86; margin-bottom:12px; line-height:1.4;';
+            help.innerHTML = 'Paste a valid JS object containing <code>name</code>, <code>metainfo</code>, and <code>constructor</code>.';
+            
+            const textarea = document.createElement('textarea');
+            textarea.style.cssText = 'width:100%; height:320px; font-family:monospace; font-size:12px; padding:12px; border:1px solid #e0e3eb; border-radius:6px; outline:none; resize:none; margin-bottom:12px; box-sizing:border-box; color:#131722;';
+            
+            if (existingCode) {
+                textarea.value = existingCode;
+            } else {
+                textarea.value = `{\n    name: "My Script",\n    metainfo: {\n        _metainfoVersion: 52,\n        isTVScript: false,\n        is_hidden_study: false,\n        defaults: {\n            styles: { plot_0: { plottype: 0, linewidth: 2, color: "#2962FF" } },\n            inputs: {}\n        },\n        plots: [{ id: "plot_0", type: "line" }],\n        styles: { plot_0: { title: "Plot" } },\n        description: "My Script",\n        shortDescription: "My Script",\n        is_price_study: true,\n        inputs: [],\n        id: "My_Script@tv-basicstudies-1",\n        scriptIdPart: "",\n        name: "My Script"\n    },\n    constructor: function() {\n        this.init = function(ctx, input) { this._context = ctx; };\n        this.main = function(ctx, input) {\n            this._context = ctx || this._context;\n            return [{ value: PineJS.Std.close(this._context) }];\n        };\n    }\n}`;
+            }
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'color:#f23645; font-size:12px; margin-bottom:12px; display:none; padding:8px; background:#ffebec; border-radius:4px;';
+            
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; justify-content:flex-end; gap:8px;';
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.cssText = 'padding:8px 16px; border:1px solid #e0e3eb; background:#fff; border-radius:6px; cursor:pointer; font-size:14px; font-weight:500; color:#131722; transition:0.2s;';
+            cancelBtn.onmouseover = () => cancelBtn.style.background = '#f0f3fa';
+            cancelBtn.onmouseout = () => cancelBtn.style.background = '#fff';
+            cancelBtn.onclick = () => { isEditing = false; renderList(searchInput.value); };
+            
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save & Reload Chart';
+            saveBtn.style.cssText = 'padding:8px 16px; border:none; background:#2962FF; color:#fff; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600; transition:0.2s;';
+            saveBtn.onmouseover = () => saveBtn.style.background = '#1E53E5';
+            saveBtn.onmouseout = () => saveBtn.style.background = '#2962FF';
+            
+            saveBtn.onclick = () => {
+                try {
+                    errorDiv.style.display = 'none';
+                    const code = textarea.value;
+                    const factory = new Function('PineJS', 'return (' + code + ');');
+                    const obj = factory({ Std: {} }); // simple mock to verify it doesn't immediately crash syntax
+                    
+                    if (!obj || !obj.name) throw new Error("Object must have a 'name' property.");
+                    
+                    let stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
+                    if (existingName && existingName !== obj.name) {
+                        delete stored[existingName];
+                    }
+                    stored[obj.name] = code;
+                    localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
+                    
+                    // Reload the window to re-init TradingView with the new local script
+                    location.reload();
+                } catch (err) {
+                    errorDiv.textContent = 'Error: ' + err.message;
+                    errorDiv.style.display = 'block';
+                }
+            };
+            
+            row.appendChild(cancelBtn);
+            row.appendChild(saveBtn);
+            
+            listContainer.appendChild(edHeader);
+            listContainer.appendChild(help);
+            listContainer.appendChild(textarea);
+            listContainer.appendChild(errorDiv);
+            listContainer.appendChild(row);
+        }
+
+        function renderList(searchQuery = "") {
+            if (isEditing) return;
+            listContainer.innerHTML = '';
+            
+            let stored = {};
+            try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
+            let localNames = Object.keys(stored);
+            
+            let allCustomNames = ["SuperTrend Custom", ...localNames];
+            
+            let items = activeTab === 'custom' ? allCustomNames : allStudies.filter(s => !allCustomNames.includes(s));
             
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 if (query.trim() !== '') {
-                    // search based on mapped names!
                     items = allStudies.filter(s => {
                         const displayName = (s === "SuperTrend Custom") ? "SuperTrend" : s;
                         return displayName.toLowerCase().includes(query);
@@ -152,12 +226,59 @@ function setupCustomIndicatorsDialog(widget) {
                 }
             }
             
+            if (activeTab === 'custom' && !searchQuery) {
+                const addBtn = document.createElement('div');
+                addBtn.style.cssText = 'padding:12px; margin:8px 0 16px 0; cursor:pointer; font-size:15px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:6px; font-weight:600; justify-content:center; background:#f8fafe; transition:0.2s;';
+                addBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" style="margin-right:8px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Create Local Indicator';
+                addBtn.onmouseover = () => addBtn.style.background = '#f0f3fa';
+                addBtn.onmouseout = () => addBtn.style.background = '#f8fafe';
+                addBtn.onclick = () => showEditor();
+                listContainer.appendChild(addBtn);
+            }
+            
             items.forEach(study => {
+                const isLocal = localNames.includes(study);
                 const displayName = (study === "SuperTrend Custom") ? "SuperTrend" : study;
                 
                 const item = document.createElement('div');
-                item.style.cssText = 'padding:12px; cursor:pointer; font-size:15px; color:#131722; display:flex; align-items:center; border-radius:6px; transition:background-color 0.1s;';
-                item.textContent = displayName;
+                item.style.cssText = 'padding:12px; cursor:pointer; font-size:15px; color:#131722; display:flex; align-items:center; justify-content:space-between; border-radius:6px; transition:background-color 0.1s; margin-bottom:2px;';
+                
+                const titleSpan = document.createElement('span');
+                titleSpan.textContent = displayName;
+                item.appendChild(titleSpan);
+                
+                if (isLocal) {
+                    const actions = document.createElement('div');
+                    actions.style.cssText = 'display:flex; gap:12px; align-items:center;';
+                    
+                    const editBtn = document.createElement('div');
+                    editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+                    editBtn.style.cssText = 'cursor:pointer; color:#787b86; transition:0.2s; display:flex; align-items:center;';
+                    editBtn.onmouseover = () => editBtn.style.color = '#2962FF';
+                    editBtn.onmouseout = () => editBtn.style.color = '#787b86';
+                    editBtn.onclick = (e) => { e.stopPropagation(); showEditor(stored[study], study); };
+                    
+                    const delBtn = document.createElement('div');
+                    delBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+                    delBtn.style.cssText = 'cursor:pointer; color:#787b86; transition:0.2s; display:flex; align-items:center;';
+                    delBtn.onmouseover = () => delBtn.style.color = '#f23645';
+                    delBtn.onmouseout = () => delBtn.style.color = '#787b86';
+                    delBtn.onclick = (e) => { 
+                        e.stopPropagation(); 
+                        if(confirm("Delete local indicator '" + study + "'?")) {
+                            delete stored[study];
+                            localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
+                            
+                            // Let's remove it from chart if it's there? Too complex. Just reload page for complete sync.
+                            location.reload();
+                        }
+                    };
+                    
+                    actions.appendChild(editBtn);
+                    actions.appendChild(delBtn);
+                    item.appendChild(actions);
+                }
+                
                 item.onmouseover = () => item.style.background = '#f0f3fa';
                 item.onmouseout = () => item.style.background = 'transparent';
                 item.onclick = () => {
@@ -179,6 +300,7 @@ function setupCustomIndicatorsDialog(widget) {
             }
             modalOverlay.style.display = 'flex';
             searchInput.value = '';
+            isEditing = false;
             activeTab = 'custom';
             tabCustom.className = 'tv-custom-modal-tab active';
             tabBuiltin.className = 'tv-custom-modal-tab';
@@ -196,6 +318,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabCustom.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') { searchInput.value = ''; }
             activeTab = 'custom';
+            isEditing = false;
             tabCustom.className = 'tv-custom-modal-tab active';
             tabBuiltin.className = 'tv-custom-modal-tab';
             renderList();
@@ -204,6 +327,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabBuiltin.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') { searchInput.value = ''; }
             activeTab = 'builtin';
+            isEditing = false;
             tabBuiltin.className = 'tv-custom-modal-tab active';
             tabCustom.className = 'tv-custom-modal-tab';
             renderList();
@@ -211,6 +335,7 @@ function setupCustomIndicatorsDialog(widget) {
         
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim();
+            isEditing = false;
             if (query !== '') {
                 tabCustom.className = 'tv-custom-modal-tab';
                 tabCustom.style.opacity = '0.5';
