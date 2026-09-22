@@ -143,17 +143,21 @@ const Datafeed = {
             if (bars.length === 0) {
                 if (firstDataRequest) {
                     try {
-                        console.log(`[getBars] No data found. Extracting MAX(time) via Parquet metadata to avoid WASM OOM...`);
-                        const maxResult = await conn.query(`SELECT MAX(time) as max_time FROM read_parquet('${fileUrl}')`);
-                        if (!maxResult || maxResult.length === 0 || !maxResult[0].max_time) {
-                            throw new Error("Could not determine max_time from Parquet");
-                        }
-                        const maxTime = Number(maxResult[0].max_time);
+                        console.log(`[getBars] No data found. Parsing max time directly from filename to avoid DuckDB MAX() WASM OOM panics!`);
                         
-                        console.log(`[getBars] Max time is ${maxTime}. Forcefully fetching the latest ${countBack || 300} bars!`);
+                        // Extract "2026-09-15" from "NIFTY50-INDEX_5_2026-06-07_to_2026-09-15.parquet"
+                        const dateMatch = fileUrl.match(/to_(\d{4}-\d{2}-\d{2})\.parquet/);
+                        let maxTime = Math.floor(Date.now() / 1000); // fallback to today
+                        
+                        if (dateMatch && dateMatch[1]) {
+                            // Parse 2026-09-15 as UTC midnight and convert to seconds
+                            maxTime = Math.floor(new Date(dateMatch[1] + "T23:59:59Z").getTime() / 1000);
+                        }
+                        
+                        console.log(`[getBars] Parsed Max time is ${maxTime} (${dateMatch[1]}). Forcefully fetching the latest ${countBack || 300} bars!`);
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
-                        // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory (which causes Out-Of-Bounds Memory panics)!
+                        // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
                         const limitBars = countBack || 300;
                         const forceQuery = `
                             SELECT 
