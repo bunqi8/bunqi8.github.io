@@ -158,7 +158,6 @@ const Datafeed = {
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
                         // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
-                        const limitBars = countBack || 300;
                         const forceQuery = `
                             SELECT 
                                 time * 1000 as time,
@@ -169,13 +168,12 @@ const Datafeed = {
                                 volume
                             FROM read_parquet('${fileUrl}')
                             WHERE time <= ${maxTime} AND time >= ${maxTime - 2592000}
-                            ORDER BY time DESC
-                            LIMIT ${limitBars}
                         `;
+                        // WE REMOVED "ORDER BY DESC LIMIT" FROM SQL to bypass a known DuckDB WASM bug!
                         const forceResults = await conn.query(forceQuery);
                         
                         if (forceResults.length > 0) {
-                            const forceBars = [];
+                            let forceBars = [];
                             for (const row of forceResults) {
                                 forceBars.push({
                                     time: Number(row.time),
@@ -186,8 +184,15 @@ const Datafeed = {
                                     volume: Number(row.volume)
                                 });
                             }
-                            // DuckDB returned them DESC, TradingView expects ASC
-                            forceBars.reverse();
+                            
+                            // Sort in JS to guarantee correctness
+                            forceBars.sort((a, b) => a.time - b.time);
+                            
+                            // Keep only the latest 'countBack' bars
+                            const limitBars = countBack || 300;
+                            if (forceBars.length > limitBars) {
+                                forceBars = forceBars.slice(forceBars.length - limitBars);
+                            }
                             console.log(`[getBars] Successfully fetched ${forceBars.length} older bars. Injecting directly into chart!`);
                             onHistoryCallback(forceBars, { noData: false });
                             return;
