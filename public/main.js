@@ -276,10 +276,21 @@ function bootWidget() {
     };
 
     const widget = new TradingView.widget(widgetOptions);
+    window.tvWidget = widget;
 
     widget.chartReady().then(() => {
         console.log("[App] Chart is fully ready and fluid.");
         
+        window.tvWidget.headerReady().then(function() {
+            var button = window.tvWidget.createButton();
+            button.setAttribute('title', 'Open Options Chain');
+            button.classList.add('apply-common-tooltip');
+            button.addEventListener('click', function() {
+                if (window.openOptionsChainModal) window.openOptionsChainModal();
+            });
+            button.innerHTML = '<div style="color: #2962FF; font-weight: 600;">Option Chain</div>';
+        });
+
         // GUARANTEED INITIAL SAVE: If the engine booted up without finding a valid saved layout,
         // it means this is a fresh chart. We instantly jumpstart the save engine to create the "Unnamed" ID.
         // We can detect this by checking if the adapter fed the widget a valid layout ID during boot.
