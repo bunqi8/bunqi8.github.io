@@ -119,12 +119,12 @@ const Datafeed = {
             const bars = [];
             for (const row of results) {
                 bars.push({
-                    time: row.time,
-                    open: row.open,
-                    high: row.high,
-                    low: row.low,
-                    close: row.close,
-                    volume: row.volume
+                    time: Number(row.time),
+                    open: Number(row.open),
+                    high: Number(row.high),
+                    low: Number(row.low),
+                    close: Number(row.close),
+                    volume: Number(row.volume)
                 });
             }
 
