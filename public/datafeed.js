@@ -18,8 +18,6 @@ const configurationData = {
     symbols_types: [{ name: 'Crypto', value: 'crypto'}],
 };
 
-const HF_BASE_URL = "https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/NSE_NIFTY50_INDEX/option_data/parquet/NSE_NIFTY50_INDEX_20260915_121432/";
-
 // -----------------------------------------------------------------------
 // Structured Logger with color-coded output
 // -----------------------------------------------------------------------
@@ -59,6 +57,8 @@ async function ensureParquetLoaded(url) {
     DFLog.info('cache', `Registered in DuckDB VFS as: ${vfsName}`);
     return vfsName;
 }
+
+window.ensureParquetLoaded = ensureParquetLoaded;
 
 function simpleHash(str) {
     let h = 0;
@@ -172,29 +172,36 @@ const Datafeed = {
 
         let conn;
         try {
+            // Wait for Options Chain to populate files
+            while (!window.ACTIVE_EXPIRY_FILES) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+            
             // 1. Determine which Parquet file to query
             const fileSuffix = resolutionToSuffix(resolution);
-            const fileName = `${symbolInfo.name}_${fileSuffix}_2026-06-07_to_2026-09-15.parquet`;
-            let fileUrl = HF_BASE_URL + fileName;
+            
+            // Search the global active expiry folder files
+            let targetFileName = `${symbolInfo.name}_${fileSuffix}_`;
+            let fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(targetFileName));
+            
+            // Try D ↔ 1D fallback
+            if (!fileObj && fileSuffix === 'D') {
+                targetFileName = `${symbolInfo.name}_1D_`;
+                fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(targetFileName));
+            } else if (!fileObj && fileSuffix === '1D') {
+                targetFileName = `${symbolInfo.name}_D_`;
+                fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(targetFileName));
+            }
+            
+            if (!fileObj) {
+                DFLog.warn('getBars', `No Parquet file found for ${targetFileName}`);
+                return onHistoryCallback([], { noData: true });
+            }
+            
+            const fileUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${fileObj.path}`;
 
             // 2. Ensure the Parquet file is downloaded & registered in DuckDB VFS
-            let vfsName;
-            try {
-                vfsName = await ensureParquetLoaded(fileUrl);
-            } catch (err) {
-                // Try D ↔ 1D fallback for daily files
-                if (fileSuffix === 'D') {
-                    DFLog.warn('getBars', `_D_ not found, trying _1D_...`);
-                    fileUrl = HF_BASE_URL + `${symbolInfo.name}_1D_2026-06-07_to_2026-09-15.parquet`;
-                    vfsName = await ensureParquetLoaded(fileUrl);
-                } else if (fileSuffix === '1D') {
-                    DFLog.warn('getBars', `_1D_ not found, trying _D_...`);
-                    fileUrl = HF_BASE_URL + `${symbolInfo.name}_D_2026-06-07_to_2026-09-15.parquet`;
-                    vfsName = await ensureParquetLoaded(fileUrl);
-                } else {
-                    throw err;
-                }
-            }
+            let vfsName = await ensureParquetLoaded(fileUrl);
 
             // 3. Open a connection and run the range query
             conn = await window.db.connect();
