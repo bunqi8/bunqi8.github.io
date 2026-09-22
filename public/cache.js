@@ -1,6 +1,6 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 1;
-const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/NSE_NIFTY50_INDEX/option_data/parquet";
+const DB_VERSION = 2;
+const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
 
 const SyncManager = {
     db: null,
@@ -11,8 +11,11 @@ const SyncManager = {
             const req = indexedDB.open(DB_NAME, DB_VERSION);
             req.onupgradeneeded = (e) => {
                 const db = e.target.result;
+                if (e.oldVersion < 2 && db.objectStoreNames.contains('expiries')) {
+                    db.deleteObjectStore('expiries');
+                }
                 if (!db.objectStoreNames.contains('expiries')) {
-                    db.createObjectStore('expiries', { keyPath: 'dateStr' });
+                    db.createObjectStore('expiries', { keyPath: 'id' });
                 }
             };
             req.onsuccess = (e) => {
@@ -45,38 +48,37 @@ const SyncManager = {
         });
     },
 
-    async forceSyncExpiry(dateStr) {
-        // Force-sync a single expiry immediately (used when user clicks a tab)
-        const remote = this.latestFolders && this.latestFolders[dateStr];
+    async forceSyncExpiry(id) {
+        const remote = this.latestFolders && this.latestFolders[id];
         if (!remote) return false;
         
-        const local = await this.getExpiry(dateStr);
+        const local = await this.getExpiry(id);
         if (!local || remote.timeStr > local.timeStr) {
-            console.log(`[SyncManager] Force syncing clicked expiry: ${dateStr}`);
-            await this._fetchAndSaveExpiry(dateStr, remote);
-            return true; // Indicates it was updated
+            console.log(`[SyncManager] Force syncing clicked expiry: ${id}`);
+            await this._fetchAndSaveExpiry(id, remote);
+            return true;
         }
         return false;
     },
     
-    async getExpiry(dateStr) {
+    async getExpiry(id) {
         await this.init();
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction('expiries', 'readonly');
-            const req = tx.objectStore('expiries').get(dateStr);
+            const req = tx.objectStore('expiries').get(id);
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error);
         });
     },
     
-    async _fetchAndSaveExpiry(dateStr, remote) {
+    async _fetchAndSaveExpiry(id, remote) {
         try {
             const res = await fetch(`https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${remote.folderPath}`);
             const files = await res.json();
             
-            const year = parseInt(dateStr.slice(0,4), 10);
-            const monthNum = parseInt(dateStr.slice(4,6), 10);
-            const day = parseInt(dateStr.slice(6,8), 10);
+            const year = parseInt(remote.dateStr.slice(0,4), 10);
+            const monthNum = parseInt(remote.dateStr.slice(4,6), 10);
+            const day = parseInt(remote.dateStr.slice(6,8), 10);
             
             const dateObj = new Date(year, monthNum - 1, day);
             const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -88,7 +90,9 @@ const SyncManager = {
             }
             
             const expiryData = {
-                dateStr: dateStr,
+                id: id,
+                baseTicker: remote.baseTicker,
+                dateStr: remote.dateStr,
                 timeStr: remote.timeStr,
                 folderPath: remote.folderPath,
                 files: files,
@@ -101,7 +105,7 @@ const SyncManager = {
             await this.saveExpiry(expiryData);
             return expiryData;
         } catch(e) {
-            console.error(`Failed to fetch files for ${dateStr}`, e);
+            console.error(`Failed to fetch files for ${id}`, e);
         }
     },
 
@@ -109,41 +113,60 @@ const SyncManager = {
         try {
             console.log("[SyncManager] Fetching root HF directory...");
             const res = await fetch(ROOT_URL);
+            if (!res.ok) throw new Error("Fetch failed");
             const data = await res.json();
             
             this.latestFolders = {};
+            const baseTickers = [];
+            
             for (let item of data) {
-                if (item.type === 'directory') {
-                    const folderName = item.path.split('/').pop();
-                    const match = folderName.match(/_(\d{8})_(\d{6})$/);
-                    if (match) {
-                        const dateStr = match[1];
-                        const timeStr = match[2];
-                        if (!this.latestFolders[dateStr] || timeStr > this.latestFolders[dateStr].timeStr) {
-                            this.latestFolders[dateStr] = {
-                                dateStr, timeStr, folderPath: item.path
-                            };
+                if (item.type === 'directory' && (item.path.startsWith('NSE_') || item.path.startsWith('BSE_') || item.path.startsWith('MCX_'))) {
+                    baseTickers.push(item.path);
+                }
+            }
+            
+            for (let baseTicker of baseTickers) {
+                try {
+                    const exRes = await fetch(`${ROOT_URL}/${baseTicker}/option_data/parquet`);
+                    if (!exRes.ok) continue;
+                    const exData = await exRes.json();
+                    
+                    for (let item of exData) {
+                        if (item.type === 'directory') {
+                            const folderName = item.path.split('/').pop();
+                            const match = folderName.match(/_(\d{8})_(\d{6})$/);
+                            if (match) {
+                                const dateStr = match[1];
+                                const timeStr = match[2];
+                                const id = `${baseTicker}_${dateStr}`;
+                                if (!this.latestFolders[id] || timeStr > this.latestFolders[id].timeStr) {
+                                    this.latestFolders[id] = {
+                                        id, baseTicker, dateStr, timeStr, folderPath: item.path
+                                    };
+                                }
+                            }
                         }
                     }
+                } catch (e) {
+                    console.error("Failed to fetch expiries for", baseTicker, e);
                 }
             }
 
             const cachedExpiries = await this.getAllExpiries();
             const cacheMap = {};
-            cachedExpiries.forEach(e => cacheMap[e.dateStr] = e);
+            cachedExpiries.forEach(e => cacheMap[e.id] = e);
 
             const outdated = [];
-            for (const dateStr in this.latestFolders) {
-                const remote = this.latestFolders[dateStr];
-                const local = cacheMap[dateStr];
+            for (const id in this.latestFolders) {
+                const remote = this.latestFolders[id];
+                const local = cacheMap[id];
                 if (!local || remote.timeStr > local.timeStr) {
-                    outdated.push({dateStr, remote});
+                    outdated.push({id, remote});
                 }
             }
             
             if (outdated.length > 0) {
                 console.log(`[SyncManager] Found ${outdated.length} outdated folders. Starting slow background sync...`);
-                // Do NOT block UI. Slowly fetch one by one in the background.
                 this._processQueue(outdated);
             } else {
                 console.log("[SyncManager] Cache is completely up to date!");
@@ -163,11 +186,9 @@ const SyncManager = {
         this._isProcessingQueue = true;
         
         for (let task of outdatedQueue) {
-            // Check if it was already force-synced by the user clicking a tab
-            const local = await this.getExpiry(task.dateStr);
+            const local = await this.getExpiry(task.id);
             if (!local || task.remote.timeStr > local.timeStr) {
-                await this._fetchAndSaveExpiry(task.dateStr, task.remote);
-                // Sleep for 500ms to avoid slamming Hugging Face API
+                await this._fetchAndSaveExpiry(task.id, task.remote);
                 await new Promise(r => setTimeout(r, 500));
             }
         }
