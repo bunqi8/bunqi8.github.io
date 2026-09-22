@@ -3,6 +3,85 @@ function setupCustomIndicatorsDialog(widget) {
         const iframe = document.querySelector('#tv_chart_container iframe');
         const iframeDoc = iframe.contentWindow.document;
         
+        // --- 1. AUTO REMOVE & RE-ADD (Hot Reload Workflow) ---
+        const autoLoad = sessionStorage.getItem('tv_auto_reload_study');
+        if (autoLoad) {
+            sessionStorage.removeItem('tv_auto_reload_study');
+            // Wait for chart layout to fully restore, then hot-swap the indicator
+            setTimeout(() => {
+                try {
+                    const chart = widget.chart();
+                    const studies = chart.getAllStudies();
+                    const exists = studies.find(s => s.name === autoLoad);
+                    if (exists) {
+                        chart.removeEntity(exists.id);
+                    }
+                    setTimeout(() => {
+                        chart.createStudy(autoLoad, false, false);
+                    }, 200);
+                } catch (e) {
+                    console.error("Hot-swap failed", e);
+                }
+            }, 1500);
+        }
+
+        // --- 2. INJECT "{ }" BUTTON INTO LEGEND ---
+        const observer = new MutationObserver(() => {
+            const settingsButtons = iframeDoc.querySelectorAll('[data-name="legend-settings-action"]');
+            settingsButtons.forEach(btn => {
+                const container = btn.parentNode;
+                if (!container || container.dataset.injectedSourceBtn) return;
+                
+                // Get the study title to map it to our local indicators
+                let studyTitle = "";
+                const legendItem = container.closest('[data-name="legend-item"]') || container.parentElement.parentElement;
+                if (legendItem) {
+                    const titleEl = legendItem.querySelector('[data-name="legend-source-title"]');
+                    if (titleEl) studyTitle = titleEl.textContent;
+                }
+
+                // Create the {} button
+                const srcBtn = iframeDoc.createElement('div');
+                srcBtn.innerHTML = '{ }';
+                srcBtn.title = 'Open Local Code Editor';
+                srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; color:#131722; border-radius:4px; transition:0.2s;';
+                srcBtn.onmouseover = () => { srcBtn.style.background = '#f0f3fa'; srcBtn.style.color = '#2962FF'; };
+                srcBtn.onmouseout = () => { srcBtn.style.background = 'transparent'; srcBtn.style.color = '#131722'; };
+                
+                srcBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    openModal();
+                    
+                    // Try to automatically open the editor for this specific script
+                    let stored = {};
+                    try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
+                    
+                    // Search stored scripts for a matching name or shortDescription
+                    let matchedKey = null;
+                    for (const [key, code] of Object.entries(stored)) {
+                        if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
+                            matchedKey = key;
+                            break;
+                        }
+                    }
+                    
+                    if (matchedKey) {
+                        setTimeout(() => showEditor(stored[matchedKey], matchedKey), 50);
+                    }
+                };
+                
+                // Insert right after the settings button
+                if (btn.nextSibling) {
+                    container.insertBefore(srcBtn, btn.nextSibling);
+                } else {
+                    container.appendChild(srcBtn);
+                }
+                container.dataset.injectedSourceBtn = "true";
+            });
+        });
+        observer.observe(iframeDoc.body, { childList: true, subtree: true });
+
+        // --- NATIVE MODAL HIJACK ---
         let nativeBtnFound = false;
         const checkInterval = setInterval(() => {
             const nativeBtn = iframeDoc.getElementById('header-toolbar-indicators');
@@ -53,22 +132,15 @@ function setupCustomIndicatorsDialog(widget) {
                 display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff;
             }
             
-            /* Scrollbar styling for lists */
             .tv-list-container::-webkit-scrollbar { width: 6px; }
             .tv-list-container::-webkit-scrollbar-thumb { background: #d1d4dc; border-radius: 3px; }
             .tv-list-container::-webkit-scrollbar-track { background: transparent; }
 
             @media (max-width: 768px) {
-                .tv-custom-modal {
-                    width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0;
-                }
+                .tv-custom-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
                 .tv-custom-modal-body { flex-direction: column; }
-                .tv-custom-modal-tabs {
-                    width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff;
-                }
-                .tv-custom-modal-tab {
-                    flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px;
-                }
+                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; }
+                .tv-custom-modal-tab { flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px; }
                 .tv-editor-header { padding: 12px; }
             }
         `;
@@ -195,6 +267,8 @@ function setupCustomIndicatorsDialog(widget) {
                     stored[obj.name] = code;
                     localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                     
+                    // Set flag for auto-reloading
+                    sessionStorage.setItem('tv_auto_reload_study', obj.name);
                     location.reload();
                 } catch (err) {
                     errorDiv.textContent = 'Syntax Error: ' + err.message;
@@ -220,6 +294,12 @@ function setupCustomIndicatorsDialog(widget) {
             if (window.require && !window.monaco) {
                 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
                 require(['vs/editor/editor.main'], function() {
+                    // Disable syntax errors for naked JS objects
+                    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                        noSemanticValidation: true,
+                        noSyntaxValidation: true
+                    });
+                    
                     monacoEditorInstance = monaco.editor.create(editorContainer, {
                         value: existingCode || defaultCode,
                         language: 'javascript',
@@ -234,6 +314,12 @@ function setupCustomIndicatorsDialog(widget) {
                     });
                 });
             } else if (window.monaco) {
+                // Disable syntax errors for naked JS objects
+                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                    noSemanticValidation: true,
+                    noSyntaxValidation: true
+                });
+                
                 monacoEditorInstance = monaco.editor.create(editorContainer, {
                     value: existingCode || defaultCode,
                     language: 'javascript',
@@ -244,8 +330,6 @@ function setupCustomIndicatorsDialog(widget) {
                     scrollBeyondLastLine: false,
                     padding: { top: 16 }
                 });
-            } else {
-                editorContainer.innerHTML = '<div style="padding:20px; color:red;">Monaco Editor failed to load. Please check your internet connection.</div>';
             }
         }
         
