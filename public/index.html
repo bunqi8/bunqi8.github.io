@@ -13,15 +13,27 @@
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then((reg) => {
-                // Ensure the SW is active and controlling the page before loading the library
                 if (navigator.serviceWorker.controller) {
                     loadEngine();
                 } else {
+                    let claimed = false;
                     navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        claimed = true;
                         loadEngine();
                     });
+                    
+                    // HARD REFRESH FIX:
+                    // If a user hard-refreshes (Cmd+Shift+R), the browser intentionally bypasses the Service Worker.
+                    // Since our site *requires* the SW to decrypt the engine, a hard refresh leaves the screen white.
+                    // We detect this by waiting 500ms. If the SW hasn't claimed the page, we force a normal reload!
+                    setTimeout(() => {
+                        if (!claimed) {
+                            console.warn("Hard Refresh detected (Service Worker bypassed). Forcing normal reload to restore decryption engine...");
+                            window.location.reload();
+                        }
+                    }, 500);
                 }
-            });
+            }).catch(err => console.error("SW Registration failed:", err));
         }
 
         function loadEngine() {

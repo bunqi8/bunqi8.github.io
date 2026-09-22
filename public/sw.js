@@ -11,8 +11,9 @@ self.addEventListener('fetch', (event) => {
 
     // Intercept requests to /data_pack/*.js
     if (url.pathname.includes('/data_pack/') && url.pathname.endsWith('.js')) {
-        // Change the request to the obfuscated .txt file
-        const txtUrl = url.href.replace(/\.js$/, '.txt');
+        // Change the request to the obfuscated .txt file, safely preserving query params
+        const newPath = url.pathname.replace(/\.js$/, '.txt');
+        const txtUrl = url.origin + newPath + url.search;
         
         event.respondWith(
             fetch(txtUrl)
