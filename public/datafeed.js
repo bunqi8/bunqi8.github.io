@@ -123,9 +123,7 @@ const Datafeed = {
         
         const results = [];
         
-        if ("NIFTY50-INDEX".includes(query)) {
-            results.push({ symbol: "NIFTY50-INDEX", full_name: "NIFTY50-INDEX", description: "Nifty 50 Index", exchange: "NSE", type: "index" });
-        }
+
         
         try {
             const expiries = await window.SyncManager.getAllExpiries();
@@ -134,40 +132,55 @@ const Datafeed = {
                 for (let f of exp.files) {
                     const filename = f.path.split('/').pop();
                     
+                    // Check for Index
+                    if (filename.includes('-INDEX_')) {
+                        const idxSymbol = filename.split('_')[0];
+                        if (idxSymbol.includes(query) && !results.find(r => r.symbol === idxSymbol)) {
+                            results.push({
+                                symbol: idxSymbol,
+                                full_name: idxSymbol,
+                                description: `${idxSymbol.replace('-INDEX', '')} Index`,
+                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
+                                type: "index"
+                            });
+                        }
+                    }
+                    
                     if (filename.includes('FUT_')) {
                         const futSymbol = filename.split('_')[0];
                         if (futSymbol.includes(query) && !results.find(r => r.symbol === futSymbol)) {
-                            // Extract year and month from future ticker e.g. NIFTY26SEPFUT
-                            let desc = `NIFTY Futures`;
-                            const futMatch = futSymbol.match(/NIFTY(\d{2})([A-Z]{3})FUT/);
+                            const baseName = futSymbol.replace(/\d{2}[A-Z]{3}FUT/, '');
+                            let desc = `${baseName} Futures`;
+                            const futMatch = futSymbol.match(/[A-Z]+(\d{2})([A-Z]{3})FUT/);
                             if (futMatch) {
-                                desc = `NIFTY Futures (${futMatch[2]} 20${futMatch[1]})`;
+                                desc = `${baseName} Futures (${futMatch[2]} 20${futMatch[1]})`;
                             }
                             
                             results.push({
                                 symbol: futSymbol,
                                 full_name: futSymbol,
                                 description: desc,
-                                exchange: "NSE",
+                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
                                 type: "futures"
                             });
                         }
                     }
                     
-                    const match = filename.match(/NIFTY.+?(\d{5})([CP]E)_/);
+                    const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
                     if (match) {
                         const symbol = filename.split('_')[0];
                         if (symbol.includes(query) && !results.find(r => r.symbol === symbol)) {
                             const strike = parseInt(match[1], 10);
                             const type = match[2];
                             const typeDesc = type === 'CE' ? 'CALL' : 'PUT';
-                            const desc = `NIFTY ${strike} ${typeDesc} (${exp.day} ${exp.monthLabel} ${exp.year})`;
+                            const baseName = symbol.replace(/\d.*/, '');
+                            const desc = `${baseName} ${strike} ${typeDesc} (${exp.day} ${exp.monthLabel} ${exp.year})`;
                             
                             results.push({
                                 symbol: symbol,
                                 full_name: symbol,
                                 description: desc,
-                                exchange: "NSE",
+                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
                                 type: "option"
                             });
                         }
@@ -251,10 +264,13 @@ const Datafeed = {
                         if (filename.startsWith(symbolInfo.name)) {
                             isMatch = true; priority = 10;
                         } else if (filename.includes('FUT_')) {
-                            isMatch = true; priority = 1;
+                            const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
+                            if (filename.startsWith(prefix)) {
+                                isMatch = true; priority = 1;
+                            }
                         }
                     } else if (symbolInfo.type === 'index') {
-                        if (filename.startsWith('NIFTY50-INDEX')) {
+                        if (filename.startsWith(symbolInfo.name)) {
                             isMatch = true; priority = 10;
                         }
                     } else { // Option

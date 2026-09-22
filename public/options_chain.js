@@ -16,6 +16,11 @@ style.innerHTML = `
     
     .oc-expiries-strip { display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; }
     .oc-expiries-strip::-webkit-scrollbar { display: none; }
+    .oc-base-strip { display: flex; overflow-x: auto; padding: 12px 24px 0 24px; gap: 8px; border-bottom: 1px solid #f0f3fa; }
+    .oc-base-strip::-webkit-scrollbar { display: none; }
+    .oc-base-btn { padding: 6px 12px; font-size: 14px; font-weight: 500; color: #787b86; cursor: pointer; border-radius: 4px; transition: 0.1s; border: none; background: transparent; }
+    .oc-base-btn:hover { background: #f0f3fa; color: #131722; }
+    .oc-base-btn.active { color: #2962FF; background: #e3f2fd; }
     
     .oc-month-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
     .oc-month-label { font-size: 12px; color: #131722; font-weight: 500; min-height: 14px; margin-bottom: 2px; }
@@ -70,6 +75,7 @@ function buildModal() {
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </div>
             </div>
+            <div class="oc-base-strip" id="oc_base_strip"></div>
             <div class="oc-expiries-strip" id="oc_expiries_strip">
                 <span style="font-size:13px; color:#787b86;">Loading expiries...</span>
             </div>
@@ -124,7 +130,7 @@ window.openOptionsChainModal = function() {
             
             // Format to match dateStr (e.g. "20260915")
             let symDateStr = `20${y}${m}${d}`;
-            const found = expiries.find(e => e.dateStr === symDateStr);
+            const found = filteredExpiries.find(e => e.dateStr === symDateStr);
             if (found) targetExpiry = found;
         }
     } catch(e) {}
@@ -161,10 +167,18 @@ async function fetchExpiries() {
         const fresh = await window.SyncManager.getAllExpiries();
         expiries = fresh.sort((a,b) => a.dateObjValue - b.dateObjValue);
         window.HF_EXPIRIES = expiries;
+        
+        const possible = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
+        if (!window.ACTIVE_BASE_TICKER && possible.length > 0) {
+            const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
+            let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
+            window.ACTIVE_BASE_TICKER = found || possible[0];
+        }
+        
         updateExpiryStrip();
         
         if (currentExpiry) {
-            const updated = expiries.find(e => e.dateStr === currentExpiry.dateStr);
+            const updated = expiries.find(e => e.id === currentExpiry.id);
             if (updated && updated.timeStr !== currentExpiry.timeStr) {
                 selectExpiry(updated);
             }
@@ -177,16 +191,41 @@ async function fetchExpiries() {
 }
 
 function updateExpiryStrip() {
+    const baseStrip = document.getElementById('oc_base_strip');
     const strip = document.getElementById('oc_expiries_strip');
-    if (!strip) return;
+    if (!strip || !baseStrip) return;
     strip.innerHTML = '';
+    baseStrip.innerHTML = '';
     
+    const possibleBaseTickers = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
+    possibleBaseTickers.forEach(bt => {
+        const btn = document.createElement('button');
+        btn.className = `oc-base-btn ${window.ACTIVE_BASE_TICKER === bt ? 'active' : ''}`;
+        btn.innerText = bt.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '');
+        btn.onclick = () => {
+            window.ACTIVE_BASE_TICKER = bt;
+            const filtered = window.HF_EXPIRIES.filter(e => e.baseTicker === bt);
+            updateExpiryStrip();
+            if (filtered.length > 0) selectExpiry(filtered[0]);
+        };
+        baseStrip.appendChild(btn);
+    });
+
+    const filteredExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
+    
+    // Update Title
+    const titleEl = document.querySelector('.oc-title');
+    if (titleEl) {
+        const prettyName = window.ACTIVE_BASE_TICKER ? window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') : 'Options';
+        titleEl.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: -4px;"><path d="M15 18l-6-6 6-6"/></svg> ${prettyName} Options`;
+    }
+
     let lastMonthLabel = null;
     let currentGroupDiv = null;
     let currentDaysRow = null;
     
     // Maintain chronological order but group by monthLabel
-    expiries.forEach(exp => {
+    filteredExpiries.forEach(exp => {
         if (exp.monthLabel !== lastMonthLabel) {
             currentGroupDiv = document.createElement('div');
             currentGroupDiv.className = 'oc-month-group';
@@ -205,7 +244,7 @@ function updateExpiryStrip() {
         }
         
         const btn = document.createElement('button');
-        btn.className = `oc-expiry ${currentExpiry && currentExpiry.dateStr === exp.dateStr ? 'active' : ''}`;
+        btn.className = `oc-expiry ${currentExpiry && currentExpiry.id === exp.id ? 'active' : ''}`;
         btn.innerText = exp.day;
         btn.onclick = () => selectExpiry(exp);
         currentDaysRow.appendChild(btn);
@@ -218,10 +257,10 @@ async function selectExpiry(expiry) {
     
     // In background, instantly check if this specific tab has newer data on HF. If so, it will sync and re-render.
     if (window.SyncManager) {
-        window.SyncManager.forceSyncExpiry(expiry.dateStr).then(updated => {
-            if (updated && currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+        window.SyncManager.forceSyncExpiry(expiry.id).then(updated => {
+            if (updated && currentExpiry && currentExpiry.id === expiry.id) {
                 // If it updated, fetch the freshest copy from DB and re-render
-                window.SyncManager.getExpiry(expiry.dateStr).then(fresh => {
+                window.SyncManager.getExpiry(expiry.id).then(fresh => {
                     if (fresh) selectExpiry(fresh);
                 });
             }
@@ -246,7 +285,7 @@ async function selectExpiry(expiry) {
     for (let f of expiry.files) {
         const filename = f.path.split('/').pop();
         
-        if (filename.includes('NIFTY50-INDEX_D_') || filename.includes('NIFTY50-INDEX_1_')) {
+        if (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_')) {
             if (!indexFile || filename.includes('_D_')) {
                 indexFile = f;
             }
@@ -255,7 +294,7 @@ async function selectExpiry(expiry) {
             futSymbol = filename.split('_')[0];
         }
         
-        const match = filename.match(/NIFTY.+?(\d{5})([CP]E)_/);
+        const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
         if (match) {
             const strike = parseInt(match[1], 10);
             const type = match[2];
@@ -270,7 +309,10 @@ async function selectExpiry(expiry) {
     const btnFutures = document.getElementById('btn_futures');
     if (futSymbol) {
         btnFutures.style.display = 'block';
-        btnFutures.onclick = () => window.loadSymbol(futSymbol);
+        btnFutures.onclick = () => {
+            window.loadSymbol(futSymbol);
+            window.closeOptionsChainModal();
+        };
     } else {
         btnFutures.style.display = 'none';
     }
