@@ -40,7 +40,7 @@ document.head.appendChild(style);
 function buildModal() {
     modalOverlay = document.createElement('div');
     modalOverlay.className = 'oc-backdrop';
-    modalOverlay.innerHTML = \`
+    modalOverlay.innerHTML = `
         <div class="oc-modal">
             <div class="oc-header">
                 <div class="oc-title">
@@ -63,7 +63,7 @@ function buildModal() {
                 <!-- Rows injected here -->
             </div>
         </div>
-    \`;
+    `;
     document.body.appendChild(modalOverlay);
     
     modalOverlay.addEventListener('click', (e) => {
@@ -98,10 +98,10 @@ async function fetchExpiries() {
                     const year = dateStr.slice(0,4);
                     const month = dateStr.slice(4,6);
                     const day = dateStr.slice(6,8);
-                    const dateObj = new Date(\`\${year}-\${month}-\${day}\`);
+                    const dateObj = new Date(`${year}-${month}-${day}`);
                     
                     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const label = \`\${monthNames[dateObj.getMonth()]} \${parseInt(day)}\`;
+                    const label = `${monthNames[dateObj.getMonth()]} ${parseInt(day)}`;
 
                     if (!expiryMap[dateStr] || timeStr > expiryMap[dateStr].timeStr) {
                         expiryMap[dateStr] = {
@@ -130,7 +130,7 @@ function updateExpiryStrip() {
     
     expiries.forEach(exp => {
         const btn = document.createElement('button');
-        btn.className = \`oc-expiry \${currentExpiry && currentExpiry.dateStr === exp.dateStr ? 'active' : ''}\`;
+        btn.className = `oc-expiry ${currentExpiry && currentExpiry.dateStr === exp.dateStr ? 'active' : ''}`;
         btn.innerText = exp.label;
         btn.onclick = () => selectExpiry(exp);
         strip.appendChild(btn);
@@ -148,7 +148,7 @@ async function selectExpiry(expiry) {
     document.getElementById('atm_header').innerHTML = 'Strike';
     
     try {
-        const res = await fetch(\`https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/\${expiry.folderPath}\`);
+        const res = await fetch(`https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${expiry.folderPath}`);
         const files = await res.json();
         
         window.ACTIVE_EXPIRY_FILES = files;
@@ -167,13 +167,13 @@ async function selectExpiry(expiry) {
                 }
             }
             
-            const match = filename.match(/NIFTY\\d+?(\\d{5})([CP]E)_/);
+            const match = filename.match(/NIFTY\d+?(\d{5})([CP]E)_/);
             if (match) {
                 const strike = parseInt(match[1]);
                 const type = match[2];
                 strikes.add(strike);
                 const symbol = filename.split('_')[0]; 
-                symbols[\`\${strike}_\${type}\`] = symbol;
+                symbols[`${strike}_${type}`] = symbol;
             }
         }
         
@@ -185,10 +185,10 @@ async function selectExpiry(expiry) {
                 // Wait for duckdb if opening right on load
                 while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
                 
-                const indexUrl = \`https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/\${indexFile.path}\`;
+                const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexFile.path}`;
                 const vfsName = await window.ensureParquetLoaded(indexUrl);
                 const conn = await window.db.connect();
-                const result = await conn.query(\`SELECT close FROM read_parquet('\${vfsName}') ORDER BY time DESC LIMIT 1\`);
+                const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
                 const rows = result.toArray();
                 if (rows.length > 0) atmPrice = rows[0].close;
                 await conn.close();
@@ -221,32 +221,32 @@ function renderTable(strikes, symbols, atmPrice) {
             }
         });
         
-        document.getElementById('atm_header').innerHTML = \`
-            <div class="atm-marker">NIFTY \${atmPrice.toFixed(2)}</div><br>
+        document.getElementById('atm_header').innerHTML = `
+            <div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div><br>
             Strike
-        \`;
+        `;
     }
     
     strikes.forEach(strike => {
-        const ceSymbol = symbols[\`\${strike}_CE\`];
-        const peSymbol = symbols[\`\${strike}_PE\`];
+        const ceSymbol = symbols[`${strike}_CE`];
+        const peSymbol = symbols[`${strike}_PE`];
         
         const row = document.createElement('div');
-        row.className = \`oc-row\`;
+        row.className = `oc-row`;
         if (strike === closestStrike) row.style.borderTop = row.style.borderBottom = '1px solid #e0e3eb'; // ATM split line
-        row.id = \`strike-\${strike}\`;
+        row.id = `strike-${strike}`;
         
-        row.innerHTML = \`
-            <div class="oc-cell call-cell" onclick="window.loadSymbol('\${ceSymbol}')">\${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
-            <div class="oc-cell strike-cell">\${strike.toLocaleString()}</div>
-            <div class="oc-cell put-cell" onclick="window.loadSymbol('\${peSymbol}')">\${peSymbol ? 'Put '+strike.toLocaleString() : '-'}</div>
-        \`;
+        row.innerHTML = `
+            <div class="oc-cell call-cell" onclick="window.loadSymbol('${ceSymbol}')">${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
+            <div class="oc-cell strike-cell">${strike.toLocaleString()}</div>
+            <div class="oc-cell put-cell" onclick="window.loadSymbol('${peSymbol}')">${peSymbol ? 'Put '+strike.toLocaleString() : '-'}</div>
+        `;
         tbody.appendChild(row);
     });
     
     if (closestStrike) {
         setTimeout(() => {
-            const el = document.getElementById(\`strike-\${closestStrike}\`);
+            const el = document.getElementById(`strike-${closestStrike}`);
             if (el) {
                 el.scrollIntoView({ behavior: 'auto', block: 'center' });
             }
