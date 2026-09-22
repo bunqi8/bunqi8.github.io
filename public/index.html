@@ -8,14 +8,43 @@
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #ffffff; }
         #tv_chart_container { width: 100%; height: 100vh; }
     </style>
-    <!-- Load the official charting library from our local public folder -->
-    <script src="charting_library/charting_library.standalone.js"></script>
+    <!-- We do not load the charting library statically anymore!
+         The Service Worker will decode it dynamically to prevent DMCA bots. -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').then((reg) => {
+                // Ensure the SW is active and controlling the page before loading the library
+                if (navigator.serviceWorker.controller) {
+                    loadEngine();
+                } else {
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        loadEngine();
+                    });
+                }
+            });
+        }
+
+        function loadEngine() {
+            // Because the SW is intercepting .js requests, it will fetch charting_library.standalone.txt, decode it, and serve it!
+            const script = document.createElement('script');
+            script.src = 'data_pack/charting_library.standalone.js';
+            script.onload = () => {
+                // Load datafeed and main
+                const df = document.createElement('script');
+                df.src = 'datafeed.js';
+                document.head.appendChild(df);
+
+                df.onload = () => {
+                    const main = document.createElement('script');
+                    main.src = 'main.js';
+                    document.head.appendChild(main);
+                };
+            };
+            document.head.appendChild(script);
+        }
+    </script>
 </head>
 <body>
     <div id="tv_chart_container"></div>
-    
-    <!-- Load our custom scripts -->
-    <script src="datafeed.js"></script>
-    <script src="main.js"></script>
 </body>
 </html>
