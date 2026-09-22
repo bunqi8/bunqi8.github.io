@@ -202,60 +202,112 @@ const Datafeed = {
             let bars = arrowToTVBars(rangeResult);
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
-            // 4. If we got enough bars, we're done
-            if (bars.length >= countBack || bars.length > 0) {
+            // 4. If we got bars in range, return them
+            if (bars.length > 0) {
                 await conn.close();
                 DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
                 onHistoryCallback(bars, { noData: false });
                 return;
             }
 
-            // 5. Range returned 0 bars. We need to find where data actually exists.
-            //    Per TV docs: "countBack has higher priority than from" — so we
-            //    return the latest `countBack` bars from the entire file.
-            DFLog.warn('getBars', `0 bars in requested range. Querying latest ${countBack} bars from entire file...`);
+            // 5. Range returned 0 bars — two different strategies:
+            //
+            //    A) firstDataRequest=true (initial chart load):
+            //       TV needs SOMETHING to display. Return the latest countBack
+            //       bars from wherever they exist in the file.
+            //
+            //    B) firstDataRequest=false (user scrolling left):
+            //       TV is looking for data BEFORE `from`. Return older bars
+            //       that come before the requested range. If none exist,
+            //       return noData:true to stop further backward requests.
 
-            const latestSQL = `
-                SELECT time * 1000 AS time, open, high, low, close, volume
-                FROM read_parquet('${vfsName}')
-                ORDER BY time DESC
-                LIMIT ${countBack}
-            `;
-            DFLog.debug('getBars', `SQL: ORDER BY time DESC LIMIT ${countBack}`);
+            if (firstDataRequest) {
+                // Strategy A: Initial load — get the newest countBack bars
+                DFLog.warn('getBars', `First request, 0 bars in range. Getting latest ${countBack} bars from file...`);
 
-            let latestBars;
-            try {
-                const latestResult = await conn.query(latestSQL);
-                latestBars = arrowToTVBars(latestResult);
-            } catch (wasmErr) {
-                // DuckDB-WASM sometimes crashes on ORDER BY DESC + LIMIT with large files.
-                // Fallback: fetch ALL rows and sort/slice in JavaScript.
-                DFLog.warn('getBars', `ORDER BY DESC LIMIT crashed in WASM, falling back to JS sort...`, wasmErr);
-                const allSQL = `
-                    SELECT time * 1000 AS time, open, high, low, close, volume
-                    FROM read_parquet('${vfsName}')
-                `;
-                const allResult = await conn.query(allSQL);
-                const allBars = arrowToTVBars(allResult);
-                DFLog.info('getBars', `Fetched all ${allBars.length} bars, sorting in JS...`);
-                allBars.sort((a, b) => b.time - a.time);
-                latestBars = allBars.slice(0, countBack);
-            }
+                let latestBars;
+                try {
+                    const latestSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM read_parquet('${vfsName}')
+                        ORDER BY time DESC
+                        LIMIT ${countBack}
+                    `;
+                    const latestResult = await conn.query(latestSQL);
+                    latestBars = arrowToTVBars(latestResult);
+                } catch (wasmErr) {
+                    // DuckDB-WASM may crash on ORDER BY DESC + LIMIT.
+                    // Fallback: fetch ALL rows and sort/slice in JavaScript.
+                    DFLog.warn('getBars', `WASM ORDER BY crashed, falling back to JS sort...`);
+                    const allSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM read_parquet('${vfsName}')
+                    `;
+                    const allResult = await conn.query(allSQL);
+                    const allBars = arrowToTVBars(allResult);
+                    DFLog.info('getBars', `Fetched all ${allBars.length} bars, sorting in JS...`);
+                    allBars.sort((a, b) => b.time - a.time);
+                    latestBars = allBars.slice(0, countBack);
+                }
 
-            await conn.close();
-            conn = null;
+                await conn.close();
+                conn = null;
 
-            if (latestBars.length > 0) {
-                // Reverse to ascending order (TV requires ASC)
-                latestBars.reverse();
-                DFLog.info('getBars', `Returning ${latestBars.length} bars (latest available data). Time range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
-                onHistoryCallback(latestBars, { noData: false });
+                if (latestBars.length > 0) {
+                    latestBars.reverse(); // TV requires ascending order
+                    DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
+                    onHistoryCallback(latestBars, { noData: false });
+                    return;
+                }
+
+                await conn.close();
+                DFLog.warn('getBars', `File has no data at all.`);
+                onHistoryCallback([], { noData: true });
+                return;
+
+            } else {
+                // Strategy B: Scroll-back — get bars BEFORE `from`
+                DFLog.info('getBars', `Scroll-back, 0 bars in range. Querying ${countBack} bars before timestamp ${from}...`);
+
+                let olderBars;
+                try {
+                    const olderSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM read_parquet('${vfsName}')
+                        WHERE time < ${from}
+                        ORDER BY time DESC
+                        LIMIT ${countBack}
+                    `;
+                    const olderResult = await conn.query(olderSQL);
+                    olderBars = arrowToTVBars(olderResult);
+                } catch (wasmErr) {
+                    DFLog.warn('getBars', `WASM ORDER BY crashed on scroll-back, falling back to JS...`);
+                    const allSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM read_parquet('${vfsName}')
+                        WHERE time < ${from}
+                    `;
+                    const allResult = await conn.query(allSQL);
+                    const allBars = arrowToTVBars(allResult);
+                    allBars.sort((a, b) => b.time - a.time);
+                    olderBars = allBars.slice(0, countBack);
+                }
+
+                await conn.close();
+                conn = null;
+
+                if (olderBars.length > 0) {
+                    olderBars.reverse(); // TV requires ascending order
+                    DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
+                    onHistoryCallback(olderBars, { noData: false });
+                    return;
+                }
+
+                // No more older data exists in the file
+                DFLog.info('getBars', `No older data exists. Returning noData:true to stop backward requests.`);
+                onHistoryCallback([], { noData: true });
                 return;
             }
-
-            // 6. Truly no data in the file at all
-            DFLog.warn('getBars', `File has no data at all. Returning noData:true`);
-            onHistoryCallback([], { noData: true });
 
         } catch (error) {
             if (conn) { try { await conn.close(); } catch (_) {} }
