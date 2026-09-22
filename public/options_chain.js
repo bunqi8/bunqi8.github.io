@@ -263,4 +263,7 @@ window.loadSymbol = function(symbol) {
 };
 
 // Start background fetch immediately, but don't show modal until button clicked
-window.addEventListener('DOMContentLoaded', fetchExpiries);
+window.addEventListener('DOMContentLoaded', () => {
+    buildModal();
+    fetchExpiries();
+});
