@@ -254,7 +254,8 @@ const Datafeed = {
     resolveParquetFiles: async (symbolInfo, resolution, qFrom, qTo) => {
         const fileSuffix = resolutionToSuffix(resolution);
         let allFiles = [];
-        
+        try {
+            const expiries = await window.SyncManager.getAllExpiries();
             for (let exp of expiries) {
                 for (let f of exp.files) {
                     const filename = f.path.split('/').pop();
