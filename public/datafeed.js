@@ -61,7 +61,9 @@ async function ensureParquetLoaded(url) {
         
         // Save to IndexedDB asynchronously
         if (window.SyncManager) {
-            window.SyncManager.saveParquetFile(url, buffer).catch(e => console.error("Failed to save parquet cache", e));
+            // We MUST create a copy using slice(0) because DuckDB's registerFileBuffer 
+            // will detach the original ArrayBuffer by transferring it to WASM memory.
+            window.SyncManager.saveParquetFile(url, buffer.slice(0)).catch(e => console.error("Failed to save parquet cache", e));
         }
     }
 
