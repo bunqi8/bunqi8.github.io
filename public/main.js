@@ -216,7 +216,7 @@ window.onload = function() {
         symbol: urlLayoutId ? undefined : urlSymbol,
         interval: urlLayoutId ? undefined : urlInterval,
         container: 'tv_chart_container',
-        library_path: 'data_pack/',
+        library_path: 'charting_library/',
         datafeed: Datafeed,
         save_load_adapter: localSaveLoadAdapter,
         locale: 'en',

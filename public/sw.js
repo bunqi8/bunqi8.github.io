@@ -8,11 +8,11 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
-
-    // Intercept requests to /data_pack/*.js
-    if (url.pathname.includes('/data_pack/') && url.pathname.endsWith('.js')) {
-        // Change the request to the obfuscated .txt file, safely preserving query params
-        const newPath = url.pathname.replace(/\.js$/, '.txt');
+    // VIRTUAL FILE SYSTEM ROUTING:
+    // Intercept requests to the virtual /charting_library/*.js
+    if (url.pathname.includes('/charting_library/') && url.pathname.endsWith('.js')) {
+        // Change the request to the physical obfuscated /data_pack/*.txt file
+        const newPath = url.pathname.replace('/charting_library/', '/data_pack/').replace(/\.js$/, '.txt');
         const txtUrl = url.origin + newPath + url.search;
         
         event.respondWith(

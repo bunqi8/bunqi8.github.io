@@ -37,11 +37,11 @@
         }
 
         function loadEngine() {
-            // Because the SW is intercepting .js requests, it will fetch charting_library.standalone.txt, decode it, and serve it!
+            // VIRTUAL PATH: The repo doesn't have a 'charting_library' folder anymore.
+            // But we request it anyway! The Service Worker intercepts it and maps it to the obfuscated 'data_pack/*.txt'!
             const script = document.createElement('script');
-            script.src = 'data_pack/charting_library.standalone.js';
+            script.src = 'charting_library/charting_library.standalone.js';
             script.onload = () => {
-                // Load datafeed and main
                 const df = document.createElement('script');
                 df.src = 'datafeed.js';
                 document.head.appendChild(df);
