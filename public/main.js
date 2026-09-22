@@ -198,7 +198,7 @@ const localSaveLoadAdapter = {
 function bootWidget() {
     // 1. Read Multi-Tab URL Parameters
     const urlParams = new URLSearchParams(window.location.search);
-    const urlSymbol = urlParams.get('symbol') || 'BTC/USD';
+    const urlSymbol = urlParams.get('symbol') || 'NIFTY50-INDEX';
     const urlInterval = urlParams.get('interval') || '1D';
     const urlLayoutId = urlParams.get('layout');
 
@@ -267,7 +267,8 @@ function bootWidget() {
             "show_chart_property_page",
             "show_symbol_logos",
             "show_exchange_logos",
-            "show_symbol_logo_in_legend"
+            "show_symbol_logo_in_legend",
+            "header_symbol_search"
         ],
         disabled_features: []
     };
@@ -303,6 +304,9 @@ function bootWidget() {
         
         if (urlParams.has('symbol') && currentSymbol !== urlSymbol) {
             activeChart.setSymbol(urlSymbol, () => {});
+        } else if (currentSymbol === 'BTC/USD' || currentSymbol === 'XAUUSD') {
+            // Force break out of old crypto memory if url has no symbol
+            activeChart.setSymbol('NIFTY50-INDEX', () => {});
         }
         if (urlParams.has('interval') && currentInterval !== urlInterval) {
             activeChart.setResolution(urlInterval, () => {});
