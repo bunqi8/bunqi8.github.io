@@ -14,83 +14,88 @@ const configurationData = {
     symbols_types: [{ name: 'Crypto', value: 'crypto'}],
 };
 
+const HF_BASE_URL = "https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/NSE_NIFTY50_INDEX/option_data/parquet/NSE_NIFTY50_INDEX_20260915_121432/";
+
 const Datafeed = {
     onReady: (callback) => {
-        console.log('[onReady]: Method call');
-        setTimeout(() => callback(configurationData));
+        setTimeout(() => callback({
+            supported_resolutions: ['1', '5', '15', '30', '60', '1D'],
+            supports_marks: false,
+            supports_timescale_marks: false,
+            supports_time: true
+        }));
     },
-
     searchSymbols: (userInput, exchange, symbolType, onResultReadyCallback) => {
-        console.log('[searchSymbols]: Method call');
-        // For now, return a dummy search result
-        onResultReadyCallback([
-            {
-                symbol: 'XAUUSD',
-                full_name: 'XAUUSD',
-                description: 'Gold Spot / U.S. Dollar',
-                exchange: 'OANDA',
-                type: 'crypto'
-            }
-        ]);
+        // We will implement dynamic options chain scanning here later.
+        // For now, return a default mock.
+        onResultReadyCallback([]);
     },
-
     resolveSymbol: (symbolName, onSymbolResolvedCallback, onResolveErrorCallback) => {
-        console.log('[resolveSymbol]: Method call', symbolName);
+        // Define the symbol metadata based on the name
+        // Example symbol: "NIFTY50-INDEX" or "NIFTY2691524100CE"
         const symbolInfo = {
-            ticker: symbolName,
             name: symbolName,
-            description: 'Gold Spot / U.S. Dollar',
-            type: 'crypto',
-            session: '24x7',
-            timezone: 'Etc/UTC',
-            exchange: 'OANDA',
+            full_name: symbolName,
+            description: symbolName,
+            type: symbolName.includes('INDEX') ? 'index' : 'option',
+            session: '24x7', // Crypto/24x7 for testing
+            timezone: 'Asia/Kolkata',
             minmov: 1,
-            pricescale: 1000,
+            pricescale: 100,
             has_intraday: true,
-            has_seconds: true,
-            has_ticks: true,
-            tick_multipliers: ['1', '10', '100', '1000'],
-            seconds_multipliers: ['1', '5', '10', '15', '30', '45'],
-            intraday_multipliers: ['1', '2', '3', '5', '10', '15', '30', '45', '60', '120', '180', '240'],
             has_daily: true,
-            has_weekly_and_monthly: true,
-            supported_resolutions: configurationData.supported_resolutions,
-            volume_precision: 2,
-            data_status: 'streaming',
+            has_weekly_and_monthly: false,
+            supported_resolutions: ['1', '5', '15', '30', '60', '1D'],
+            volume_precision: 0,
+            data_status: 'streaming'
         };
         setTimeout(() => onSymbolResolvedCallback(symbolInfo));
     },
-
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
         const { from, to, firstDataRequest } = periodParams;
-        console.log('[getBars]: Method call', symbolInfo, resolution, from, to);
+        console.log(`[getBars] Requesting ${symbolInfo.name} at ${resolution} from ${from} to ${to}`);
         
+        if (!window.db) {
+            return onErrorCallback("DuckDB not initialized yet");
+        }
+
         try {
-            // =================================================================
-            // FALLBACK LOGIC HERE
-            // 1. Try to fetch from Hugging Face (Parquet parser needed)
-            // 2. If fail, fetch from GitHub (CSV)
-            // =================================================================
+            // Determine the timeframe suffix based on resolution
+            let fileSuffix = "1"; // Default to 1-minute
+            if (resolution === '1D') fileSuffix = "D";
+            else if (resolution === '60') fileSuffix = "60";
             
-            // Generate 100 days of realistic-looking dummy data ending today
+            // Construct the Parquet URL
+            const fileName = `${symbolInfo.name}_${fileSuffix}_2026-06-07_to_2026-09-15.parquet`;
+            const fileUrl = HF_BASE_URL + fileName;
+
+            console.log(`[getBars] Querying DuckDB: ${fileUrl}`);
+            
+            // Execute SQL query via DuckDB WASM
+            const conn = await window.db.connect();
+            
+            // Note: The parquet file might have columns like: datetime, open, high, low, close, volume
+            // We need to fetch rows where epoch time is between `from` and `to`
+            // DuckDB automatically reads remote parquet files over HTTP using range requests!
+            const query = `
+                SELECT 
+                    epoch(datetime) * 1000 as time,
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume
+                FROM read_parquet('${fileUrl}')
+                WHERE epoch(datetime) >= ${from} AND epoch(datetime) <= ${to}
+                ORDER BY datetime ASC
+            `;
+            
+            const results = await conn.query(query);
+            await conn.close();
+
             const bars = [];
-            const endDate = new Date();
-            let currentPrice = 60000;
-            
-            for (let i = 100; i >= 0; i--) {
-                const date = new Date(endDate);
-                date.setDate(date.getDate() - i);
-                
-                // Random walk
-                const open = currentPrice;
-                const close = open + (Math.random() - 0.48) * 1000; 
-                const high = Math.max(open, close) + Math.random() * 500;
-                const low = Math.min(open, close) - Math.random() * 500;
-                
+            for (const row of results) {
                 bars.push({
-                    time: date.getTime(),
-                    open: open,
-                    high: high,
                     low: low,
                     close: close,
                     volume: Math.random() * 1000
