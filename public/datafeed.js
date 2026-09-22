@@ -275,7 +275,6 @@ const Datafeed = {
                     return;
                 }
 
-                await conn.close();
                 DFLog.warn('getBars', `File has no data at all.`);
                 onHistoryCallback([], { noData: true });
                 return;

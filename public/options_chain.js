@@ -15,16 +15,20 @@ style.innerHTML = `
     .oc-close { cursor: pointer; color: #787b86; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
     .oc-close:hover { color: #131722; }
     
-    .oc-expiries-strip { display: flex; overflow-x: auto; gap: 8px; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; }
-    .oc-expiries-strip::-webkit-scrollbar { height: 0px; }
-    .oc-expiry { padding: 6px 14px; border-radius: 6px; border: none; background: #f0f3fa; cursor: pointer; white-space: nowrap; font-size: 13px; color: #131722; font-weight: 500; transition: all 0.2s; }
+    .oc-expiries-strip { display: flex; overflow-x: auto; gap: 8px; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; }
+    .oc-expiries-strip::-webkit-scrollbar { display: none; }
+    .oc-expiry { padding: 6px 14px; border-radius: 16px; border: none; background: #f0f3fa; cursor: pointer; white-space: nowrap; font-size: 13px; color: #131722; font-weight: 500; transition: all 0.2s; line-height: 1.2;}
     .oc-expiry:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #131722; color: white; }
     
-    .oc-table-header { display: flex; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; font-size: 12px; font-weight: 600; color: #787b86; align-items: flex-end; }
-    .oc-col { flex: 1; text-align: center; position: relative; }
+    .oc-actions { display: flex; gap: 8px; margin-left: auto; }
+    .oc-btn { padding: 6px 12px; border-radius: 4px; border: 1px solid #e0e3eb; background: #fff; cursor: pointer; font-size: 12px; font-weight: 500; color: #2962FF; }
+    .oc-btn:hover { background: #f0f3fa; }
     
-    .oc-table-body { flex-grow: 1; overflow-y: auto; font-size: 13px; color: #131722; position: relative; }
+    .oc-table-header { display: flex; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; font-size: 12px; font-weight: 600; color: #787b86; }
+    .oc-col { flex: 1; text-align: center; }
+    
+    .oc-table-body { flex-grow: 1; overflow-y: auto; font-size: 13px; color: #131722; position: relative; padding-bottom: 40px;}
     .oc-row { display: flex; padding: 0 24px; border-bottom: 1px solid #f0f3fa; }
     .oc-row:hover { background: #f8f9fd; }
     
@@ -33,7 +37,8 @@ style.innerHTML = `
     .strike-cell { font-weight: 500; cursor: default; background: #fafafc; }
     .strike-cell:hover { color: #131722; }
     
-    .atm-marker { background: #131722; color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 4px; font-weight: 600;}
+    .atm-row { text-align: center; margin: 4px 0; position: relative; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid #131722;}
+    .atm-marker { background: #131722; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: 600; z-index: 2; position: relative; top: 12px; }
 `;
 document.head.appendChild(style);
 
@@ -47,6 +52,10 @@ function buildModal() {
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 4L6 9l6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     NIFTY Options
                 </div>
+                <div class="oc-actions">
+                    <button class="oc-btn" onclick="window.loadSymbol('NIFTY50-INDEX')">NIFTY Index</button>
+                    <button class="oc-btn" id="btn_futures" style="display:none;">Futures</button>
+                </div>
                 <div class="oc-close" onclick="window.closeOptionsChainModal()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </div>
@@ -56,7 +65,7 @@ function buildModal() {
             </div>
             <div class="oc-table-header">
                 <div class="oc-col">Calls</div>
-                <div class="oc-col" id="atm_header">Strike</div>
+                <div class="oc-col">Strike</div>
                 <div class="oc-col">Puts</div>
             </div>
             <div class="oc-table-body" id="oc_table_body">
@@ -145,7 +154,6 @@ async function selectExpiry(expiry) {
     
     const tbody = document.getElementById('oc_table_body');
     tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: #787b86;">Loading strikes...</div>';
-    document.getElementById('atm_header').innerHTML = 'Strike';
     
     try {
         const res = await fetch(`https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${expiry.folderPath}`);
@@ -157,6 +165,7 @@ async function selectExpiry(expiry) {
         const symbols = {}; 
         
         let indexFile = null;
+        let futSymbol = null;
 
         for (let f of files) {
             const filename = f.path.split('/').pop();
@@ -165,6 +174,9 @@ async function selectExpiry(expiry) {
                 if (!indexFile || filename.includes('_D_')) {
                     indexFile = f;
                 }
+            }
+            if (filename.includes('FUT_')) {
+                futSymbol = filename.split('_')[0];
             }
             
             const match = filename.match(/NIFTY\d+?(\d{5})([CP]E)_/);
@@ -179,12 +191,18 @@ async function selectExpiry(expiry) {
         
         const sortedStrikes = Array.from(strikes).sort((a,b) => a - b);
         
+        const btnFutures = document.getElementById('btn_futures');
+        if (futSymbol) {
+            btnFutures.style.display = 'block';
+            btnFutures.onclick = () => window.loadSymbol(futSymbol);
+        } else {
+            btnFutures.style.display = 'none';
+        }
+        
         let atmPrice = null;
         if (indexFile) {
             try {
-                // Wait for duckdb if opening right on load
                 while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-                
                 const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexFile.path}`;
                 const vfsName = await window.ensureParquetLoaded(indexUrl);
                 const conn = await window.db.connect();
@@ -209,32 +227,38 @@ function renderTable(strikes, symbols, atmPrice) {
     const tbody = document.getElementById('oc_table_body');
     tbody.innerHTML = '';
     
-    let closestStrike = null;
+    let atmIndex = -1;
     let minDiff = Infinity;
     
     if (atmPrice) {
-        strikes.forEach(strike => {
+        strikes.forEach((strike, i) => {
             const diff = Math.abs(strike - atmPrice);
             if (diff < minDiff) {
                 minDiff = diff;
-                closestStrike = strike;
+                // Place ATM line AFTER the strike if atmPrice > strike, or BEFORE if atmPrice < strike
+                if (atmPrice > strike) {
+                    atmIndex = i + 1;
+                } else {
+                    atmIndex = i;
+                }
             }
         });
-        
-        document.getElementById('atm_header').innerHTML = `
-            <div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div><br>
-            Strike
-        `;
     }
     
-    strikes.forEach(strike => {
+    strikes.forEach((strike, i) => {
+        if (i === atmIndex && atmPrice) {
+            const atmRow = document.createElement('div');
+            atmRow.className = 'atm-row';
+            atmRow.id = 'atm-marker-row';
+            atmRow.innerHTML = `<div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div>`;
+            tbody.appendChild(atmRow);
+        }
+        
         const ceSymbol = symbols[`${strike}_CE`];
         const peSymbol = symbols[`${strike}_PE`];
         
         const row = document.createElement('div');
         row.className = `oc-row`;
-        if (strike === closestStrike) row.style.borderTop = row.style.borderBottom = '1px solid #e0e3eb'; // ATM split line
-        row.id = `strike-${strike}`;
         
         row.innerHTML = `
             <div class="oc-cell call-cell" onclick="window.loadSymbol('${ceSymbol}')">${ceSymbol ? 'Call '+strike.toLocaleString() : '-'}</div>
@@ -244,9 +268,9 @@ function renderTable(strikes, symbols, atmPrice) {
         tbody.appendChild(row);
     });
     
-    if (closestStrike) {
+    if (atmPrice && atmIndex >= 0) {
         setTimeout(() => {
-            const el = document.getElementById(`strike-${closestStrike}`);
+            const el = document.getElementById(`atm-marker-row`);
             if (el) {
                 el.scrollIntoView({ behavior: 'auto', block: 'center' });
             }
@@ -262,7 +286,6 @@ window.loadSymbol = function(symbol) {
     }
 };
 
-// Start background fetch immediately, but don't show modal until button clicked
 window.addEventListener('DOMContentLoaded', () => {
     buildModal();
     fetchExpiries();
