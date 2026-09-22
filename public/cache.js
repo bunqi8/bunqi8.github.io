@@ -11,15 +11,15 @@ const SyncManager = {
             const req = indexedDB.open(DB_NAME, DB_VERSION);
             req.onupgradeneeded = (e) => {
                 const db = e.target.result;
-                if (e.oldVersion < 5 && db.objectStoreNames.contains('expiries')) {
+                // Wipe all stores on any version upgrade to ensure clean state
+                if (db.objectStoreNames.contains('expiries')) {
                     db.deleteObjectStore('expiries');
                 }
-                if (!db.objectStoreNames.contains('expiries')) {
-                    db.createObjectStore('expiries', { keyPath: 'id' });
+                if (db.objectStoreNames.contains('parquetFiles')) {
+                    db.deleteObjectStore('parquetFiles');
                 }
-                if (!db.objectStoreNames.contains('parquetFiles')) {
-                    db.createObjectStore('parquetFiles', { keyPath: 'url' });
-                }
+                db.createObjectStore('expiries', { keyPath: 'id' });
+                db.createObjectStore('parquetFiles', { keyPath: 'url' });
             };
             req.onsuccess = (e) => {
                 this.db = e.target.result;
