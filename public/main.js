@@ -251,7 +251,7 @@ function bootWidget() {
             "header_chart_type",
             "header_compare",
             "header_fullscreen_button",
-            "header_indicators",
+            // "header_indicators", // Disabled to use our custom dual-tab UI
             "header_resolutions",
             "header_saveload",
             "header_screenshot",
@@ -281,6 +281,11 @@ function bootWidget() {
 
     const widget = new TradingView.widget(widgetOptions);
     window.tvWidget = widget;
+    
+    // Set up our custom two-tab Indicators dialog
+    if (typeof setupCustomIndicatorsDialog === 'function') {
+        setupCustomIndicatorsDialog(widget);
+    }
 
     widget.chartReady().then(() => {
         console.log("[App] Chart is fully ready and fluid.");
