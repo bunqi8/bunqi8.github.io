@@ -137,7 +137,13 @@ const Datafeed = {
                     if (filename.includes('FUT_')) {
                         const futSymbol = filename.split('_')[0];
                         if (futSymbol.includes(query) && !results.find(r => r.symbol === futSymbol)) {
-                            const desc = `NIFTY Futures (${exp.day} ${exp.monthLabel} ${exp.year})`;
+                            // Extract year and month from future ticker e.g. NIFTY26SEPFUT
+                            let desc = `NIFTY Futures`;
+                            const futMatch = futSymbol.match(/NIFTY(\d{2})([A-Z]{3})FUT/);
+                            if (futMatch) {
+                                desc = `NIFTY Futures (${futMatch[2]} 20${futMatch[1]})`;
+                            }
+                            
                             results.push({
                                 symbol: futSymbol,
                                 full_name: futSymbol,
