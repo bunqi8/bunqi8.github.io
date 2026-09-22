@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate TradingView Frontend</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #ffffff; }
+        #tv_chart_container { width: 100%; height: 100vh; }
+    </style>
+    <!-- Load the official charting library from our local public folder -->
+    <script src="charting_library/charting_library.standalone.js"></script>
+</head>
+<body>
+    <div id="tv_chart_container"></div>
+    
+    <!-- Load our custom scripts -->
+    <script src="datafeed.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
