@@ -1,5 +1,5 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
 
 const SyncManager = {
@@ -17,11 +17,37 @@ const SyncManager = {
                 if (!db.objectStoreNames.contains('expiries')) {
                     db.createObjectStore('expiries', { keyPath: 'id' });
                 }
+                if (!db.objectStoreNames.contains('parquetFiles')) {
+                    db.createObjectStore('parquetFiles', { keyPath: 'url' });
+                }
             };
             req.onsuccess = (e) => {
                 this.db = e.target.result;
                 resolve(this.db);
             };
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    
+    async getParquetFile(url) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('parquetFiles', 'readonly');
+            const store = tx.objectStore('parquetFiles');
+            const req = store.get(url);
+            req.onsuccess = () => resolve(req.result ? req.result.buffer : null);
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    async saveParquetFile(url, buffer) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('parquetFiles', 'readwrite');
+            const store = tx.objectStore('parquetFiles');
+            const req = store.put({ url: url, buffer: buffer });
+            req.onsuccess = () => resolve();
             req.onerror = () => reject(req.error);
         });
     },
