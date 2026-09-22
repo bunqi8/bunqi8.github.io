@@ -141,7 +141,18 @@ const Datafeed = {
             if (bars.length === 0) {
                 if (firstDataRequest) {
                     try {
-                        console.log(`[getBars] No data found between ${from} and ${to}. Forcefully fetching the latest ${countBack || 300} bars to snap the chart to the data!`);
+                        console.log(`[getBars] No data found. Extracting MAX(time) via Parquet metadata to avoid WASM OOM...`);
+                        const maxResult = await conn.query(`SELECT MAX(time) as max_time FROM read_parquet('${fileUrl}')`);
+                        if (!maxResult || maxResult.length === 0 || !maxResult[0].max_time) {
+                            throw new Error("Could not determine max_time from Parquet");
+                        }
+                        const maxTime = Number(maxResult[0].max_time);
+                        
+                        console.log(`[getBars] Max time is ${maxTime}. Forcefully fetching the latest ${countBack || 300} bars!`);
+                        
+                        // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
+                        // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory (which causes Out-Of-Bounds Memory panics)!
+                        const limitBars = countBack || 300;
                         const forceQuery = `
                             SELECT 
                                 time * 1000 as time,
@@ -151,9 +162,9 @@ const Datafeed = {
                                 close,
                                 volume
                             FROM read_parquet('${fileUrl}')
-                            WHERE time <= ${to}
+                            WHERE time <= ${maxTime} AND time >= ${maxTime - 2592000}
                             ORDER BY time DESC
-                            LIMIT ${countBack || 300}
+                            LIMIT ${limitBars}
                         `;
                         const forceResults = await conn.query(forceQuery);
                         
