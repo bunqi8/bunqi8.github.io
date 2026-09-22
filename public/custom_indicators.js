@@ -187,8 +187,8 @@ window.getCustomIndicators = function (PineJS) {
                             plot_ema3: { plottype: 0, linewidth: 1, color: "#F44336" }, // Red
                             plot_ema4: { plottype: 0, linewidth: 1, color: "#FF9800" }, // Orange
                             plot_ema5: { plottype: 0, linewidth: 1, color: "#2196F3" }, // Blue
-                            plot_cross_up: { plottype: "shape_cross", location: "Absolute", color: "#2962FF", size: "large" },
-                            plot_cross_dn: { plottype: "shape_cross", location: "Absolute", color: "#E040FB", size: "large" }
+                            plot_cross_up: { char: "+", location: "Absolute", color: "#2962FF", size: "large" },
+                            plot_cross_dn: { char: "+", location: "Absolute", color: "#E040FB", size: "large" }
                         },
                         inputs: {
                             len1: 3,
@@ -204,8 +204,8 @@ window.getCustomIndicators = function (PineJS) {
                         { id: "plot_ema3", type: "line" },
                         { id: "plot_ema4", type: "line" },
                         { id: "plot_ema5", type: "line" },
-                        { id: "plot_cross_up", type: "shapes" },
-                        { id: "plot_cross_dn", type: "shapes" }
+                        { id: "plot_cross_up", type: "chars" },
+                        { id: "plot_cross_dn", type: "chars" }
                     ],
                     styles: {
                         plot_ema1: { title: "EMA 1 (3)", isHidden: false },
