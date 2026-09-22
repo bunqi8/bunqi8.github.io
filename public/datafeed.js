@@ -175,6 +175,12 @@ const Datafeed = {
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
                         // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
+                        console.log(`[getBars] Downloading Parquet file into memory buffer for forceful fetch...`);
+                        const response = await fetch(fileUrl);
+                        if (!response.ok) throw new Error("HTTP " + response.status);
+                        const buffer = await response.arrayBuffer();
+                        const virtualFileName = 'mem_force_' + Date.now() + '.parquet';
+                        await window.db.registerFileBuffer(virtualFileName, new Uint8Array(buffer));
 
                         // To prevent the DuckDB-WASM Arrow-to-JS bridge from crashing via out-of-bounds memory,
                         // we MUST strictly limit the amount of rows we return in this fallback query!
@@ -194,5 +200,81 @@ const Datafeed = {
                         const lookbackSeconds = (countBack || 300) * resSeconds * 3;
                         const safeMinTime = maxTime - lookbackSeconds;
 
-                        const virtualFileName = 'mem_' + btoa(fileUrl).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15) + '.parquet';
-                        if (!window.fileBufferCache[fileUrl]) {
+                        const forceQuery = `
+                            SELECT 
+                                time * 1000 as time,
+                                open,
+                                high,
+                                low,
+                                close,
+                                volume
+                            FROM read_parquet('${virtualFileName}')
+                            WHERE time <= ${maxTime} AND time >= ${safeMinTime}
+                        `;
+                        const forceResults = await conn.query(forceQuery);
+                        await window.db.dropFile(virtualFileName);
+                        
+                        if (forceResults.length > 0) {
+                            let forceBars = [];
+                            for (const row of forceResults) {
+                                forceBars.push({
+                                    time: Number(row.time),
+                                    open: Number(row.open),
+                                    high: Number(row.high),
+                                    low: Number(row.low),
+                                    close: Number(row.close),
+                                    volume: Number(row.volume)
+                                });
+                            }
+                            
+                            // Sort in JS to guarantee correctness
+                            forceBars.sort((a, b) => a.time - b.time);
+                            
+                            // Keep only the latest 'countBack' bars
+                            const limitBars = countBack || 300;
+                            if (forceBars.length > limitBars) {
+                                forceBars = forceBars.slice(forceBars.length - limitBars);
+                            }
+                            console.log(`[getBars] Successfully fetched ${forceBars.length} older bars. Injecting directly into chart!`);
+                            onHistoryCallback(forceBars, { noData: false });
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn("[getBars] Failed to forcefully fetch older bars", e);
+                    }
+                }
+                onHistoryCallback([], { noData: true });
+                return;
+            }
+
+            onHistoryCallback(bars, { noData: false });
+        } catch (error) {
+            console.warn(`[getBars] DuckDB Parquet Error for ${symbolInfo.name}: File likely doesn't exist for this timeframe.`, error);
+            // Instead of crashing the chart engine with onErrorCallback, we tell it there's simply no data.
+            onHistoryCallback([], { noData: true });
+        }
+    },
+
+    subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {
+        console.log('[subscribeBars]: Method call with subscriberUID:', subscriberUID);
+        
+        // =================================================================
+        // LIVE POLLING LOGIC HERE
+        // Set an interval to fetch the HF/GitHub file every 5 seconds.
+        // If the newest timestamp in the file is > the last drawn bar,
+        // we call onRealtimeCallback(newBar) to instantly update the chart!
+        // =================================================================
+        
+        /*
+        setInterval(async () => {
+            const newBar = await fetchLatestDataFromHF();
+            onRealtimeCallback(newBar);
+        }, 5000);
+        */
+    },
+
+    unsubscribeBars: (subscriberUID) => {
+        console.log('[unsubscribeBars]: Method call with subscriberUID:', subscriberUID);
+        // Clear the polling interval here when the user switches pairs
+    }
+};
