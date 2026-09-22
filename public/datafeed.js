@@ -96,26 +96,25 @@ const Datafeed = {
             const bars = [];
             for (const row of results) {
                 bars.push({
-                    low: low,
-                    close: close,
-                    volume: Math.random() * 1000
+                    time: row.time,
+                    open: row.open,
+                    high: row.high,
+                    low: row.low,
+                    close: row.close,
+                    volume: row.volume
                 });
-                
-                currentPrice = close;
             }
-            
-            // Filter by requested time period
-            const filteredBars = bars.filter(b => b.time >= from * 1000 && b.time <= to * 1000);
 
-            if (filteredBars.length === 0) {
+            if (bars.length === 0) {
                 onHistoryCallback([], { noData: true });
                 return;
             }
 
-            onHistoryCallback(filteredBars, { noData: false });
+            onHistoryCallback(bars, { noData: false });
         } catch (error) {
-            console.error('[getBars]: Get error', error);
-            onErrorCallback(error);
+            console.warn(`[getBars] DuckDB Parquet Error for ${symbolInfo.name}: File likely doesn't exist for this timeframe.`, error);
+            // Instead of crashing the chart engine with onErrorCallback, we tell it there's simply no data.
+            onHistoryCallback([], { noData: true });
         }
     },
 
