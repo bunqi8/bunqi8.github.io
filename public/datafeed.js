@@ -282,13 +282,23 @@ const Datafeed = {
     },
 
     resolveSymbol: (symbolName, onSymbolResolvedCallback, onResolveErrorCallback) => {
+        let exchange = 'NSE';
+        let session = '0915-1530'; // Standard NSE/BSE trading hours
+        
+        if (symbolName.includes('SENSEX') || symbolName.includes('BANKEX')) {
+            exchange = 'BSE';
+        } else if (symbolName.includes('CRUDE') || symbolName.includes('GOLD') || symbolName.includes('SILVER') || symbolName.includes('NATURALGAS')) {
+            exchange = 'MCX';
+            session = '0900-2330'; // Standard MCX trading hours
+        }
+
         const symbolInfo = {
             name: symbolName,
             full_name: symbolName,
-            description: symbolName,
-            type: symbolName.includes('INDEX') ? 'index' : 'option',
-            exchange: 'NSE',
-            session: '24x7',
+            description: symbolName + ' (Historical Data - Approx. Timings)',
+            type: symbolName.includes('INDEX') ? 'index' : (symbolName.includes('FUT') ? 'futures' : 'option'),
+            exchange: exchange,
+            session: session,
             timezone: 'Asia/Kolkata',
             minmov: 1,
             pricescale: 100,
