@@ -173,6 +173,119 @@ window.getCustomIndicators = function (PineJS) {
                         ];
                     };
                 }
+            },
+            {
+                name: "5 EMA Crossover",
+                metainfo: {
+                    _metainfoVersion: 52,
+                    isTVScript: false,
+                    is_hidden_study: false,
+                    defaults: {
+                        styles: {
+                            plot_ema1: { plottype: 0, linewidth: 1, color: "#000000" }, // Black
+                            plot_ema2: { plottype: 0, linewidth: 1, color: "#4CAF50" }, // Green
+                            plot_ema3: { plottype: 0, linewidth: 1, color: "#F44336" }, // Red
+                            plot_ema4: { plottype: 0, linewidth: 1, color: "#FF9800" }, // Orange
+                            plot_ema5: { plottype: 0, linewidth: 1, color: "#2196F3" }, // Blue
+                            plot_cross_up: { plottype: 3, linewidth: 3, color: "#4CAF50" }, // Green Cross
+                            plot_cross_dn: { plottype: 3, linewidth: 3, color: "#000000" }  // Black Cross matching EMA 3
+                        },
+                        inputs: {
+                            len1: 3,
+                            len2: 30,
+                            len3: 50,
+                            len4: 100,
+                            len5: 200
+                        }
+                    },
+                    plots: [
+                        { id: "plot_ema1", type: "line" },
+                        { id: "plot_ema2", type: "line" },
+                        { id: "plot_ema3", type: "line" },
+                        { id: "plot_ema4", type: "line" },
+                        { id: "plot_ema5", type: "line" },
+                        { id: "plot_cross_up", type: "line" },
+                        { id: "plot_cross_dn", type: "line" }
+                    ],
+                    styles: {
+                        plot_ema1: { title: "EMA 1 (3)", isHidden: false },
+                        plot_ema2: { title: "EMA 2 (30)", isHidden: false },
+                        plot_ema3: { title: "EMA 3 (50)", isHidden: false },
+                        plot_ema4: { title: "EMA 4 (100)", isHidden: false },
+                        plot_ema5: { title: "EMA 5 (200)", isHidden: false },
+                        plot_cross_up: { title: "Cross Up", isHidden: false },
+                        plot_cross_dn: { title: "Cross Down", isHidden: false }
+                    },
+                    description: "5 EMA Crossover",
+                    shortDescription: "5 EMAs",
+                    is_price_study: true,
+                    inputs: [
+                        { id: "len1", name: "EMA 1 Length", defval: 3, type: "integer", min: 1 },
+                        { id: "len2", name: "EMA 2 Length", defval: 30, type: "integer", min: 1 },
+                        { id: "len3", name: "EMA 3 Length", defval: 50, type: "integer", min: 1 },
+                        { id: "len4", name: "EMA 4 Length", defval: 100, type: "integer", min: 1 },
+                        { id: "len5", name: "EMA 5 Length", defval: 200, type: "integer", min: 1 }
+                    ],
+                    id: "5_EMA_Crossover@tv-basicstudies-1",
+                    scriptIdPart: "",
+                    name: "5 EMA Crossover",
+                    format: { type: "price", precision: 2 }
+                },
+                constructor: function() {
+                    this.init = function(ctx, get_input) {
+                        this._context = ctx;
+                        this._input = get_input;
+                    };
+                    this.main = function(ctx, get_input) {
+                        this._context = ctx || this._context;
+                        this._input = get_input || this._input;
+                        
+                        var len1 = this._input(0);
+                        var len2 = this._input(1);
+                        var len3 = this._input(2);
+                        var len4 = this._input(3);
+                        var len5 = this._input(4);
+                        
+                        var close = PineJS.Std.close(this._context);
+                        var closeSeries = this._context.new_var(close);
+                        
+                        var ema1 = PineJS.Std.ema(closeSeries, len1, this._context);
+                        var ema2 = PineJS.Std.ema(closeSeries, len2, this._context);
+                        var ema3 = PineJS.Std.ema(closeSeries, len3, this._context);
+                        var ema4 = PineJS.Std.ema(closeSeries, len4, this._context);
+                        var ema5 = PineJS.Std.ema(closeSeries, len5, this._context);
+                        
+                        var ema1Series = this._context.new_var(ema1);
+                        var ema2Series = this._context.new_var(ema2);
+                        
+                        var ema1_prev = ema1Series.get(1);
+                        var ema2_prev = ema2Series.get(1);
+                        
+                        var crossUp = false;
+                        var crossDn = false;
+                        
+                        if (!isNaN(ema1) && !isNaN(ema2) && !isNaN(ema1_prev) && !isNaN(ema2_prev)) {
+                            if (ema1_prev <= ema2_prev && ema1 > ema2) {
+                                crossUp = true;
+                            } else if (ema1_prev >= ema2_prev && ema1 < ema2) {
+                                crossDn = true;
+                            }
+                        }
+                        
+                        var plotUp = crossUp ? ema1 : NaN;
+                        var plotDn = crossDn ? ema1 : NaN;
+                        
+                        return [
+                            { value: ema1 },
+                            { value: ema2 },
+                            { value: ema3 },
+                            { value: ema4 },
+                            { value: ema5 },
+                            { value: plotUp },
+                            { value: plotDn }
+                        ];
+                    };
+                }
             }
         ];
 
