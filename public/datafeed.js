@@ -114,6 +114,8 @@ function resolutionToSuffix(resolution) {
 // -----------------------------------------------------------------------
 function arrowToTVBars(arrowResult, resolution = '') {
     const bars = [];
+    const seenTimes = new Set();
+    
     for (const row of arrowResult) {
         let t = Number(row.time);
         
@@ -124,6 +126,12 @@ function arrowToTVBars(arrowResult, resolution = '') {
             d.setUTCHours(0, 0, 0, 0);
             t = d.getTime();
         }
+        
+        // TradingView FATAL crashes if it receives duplicate timestamps.
+        // Overlapping parquet files might yield identical timestamps with slightly different volume ticks.
+        // We MUST enforce strict strict chronological deduplication.
+        if (seenTimes.has(t)) continue;
+        seenTimes.add(t);
         
         bars.push({
             time:   t,
