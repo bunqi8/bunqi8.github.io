@@ -96,6 +96,12 @@ function buildModal() {
 }
 
 window.openOptionsChainModal = function() {
+    const iframe = document.querySelector('iframe[id^="tradingview_"]');
+    if (iframe) {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        const btn = doc.getElementById('btn-option-chain-real');
+        if (btn) btn.classList.add('isActive-GwQQdU8S', 'isActive');
+    }
     if (!modalOverlay) buildModal();
     modalOverlay.style.display = 'flex';
     
@@ -131,6 +137,12 @@ window.openOptionsChainModal = function() {
 };
 
 window.closeOptionsChainModal = function() {
+    const iframe = document.querySelector('iframe[id^="tradingview_"]');
+    if (iframe) {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        const btn = doc.getElementById('btn-option-chain-real');
+        if (btn) btn.classList.remove('isActive-GwQQdU8S', 'isActive');
+    }
     if (modalOverlay) modalOverlay.style.display = 'none';
 };
 
