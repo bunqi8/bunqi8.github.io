@@ -137,10 +137,11 @@ const Datafeed = {
                     if (filename.includes('FUT_')) {
                         const futSymbol = filename.split('_')[0];
                         if (futSymbol.includes(query) && !results.find(r => r.symbol === futSymbol)) {
+                            const desc = `NIFTY Futures (${exp.day} ${exp.monthLabel} ${exp.year})`;
                             results.push({
                                 symbol: futSymbol,
                                 full_name: futSymbol,
-                                description: `NIFTY Futures`,
+                                description: desc,
                                 exchange: "NSE",
                                 type: "futures"
                             });
@@ -151,10 +152,15 @@ const Datafeed = {
                     if (match) {
                         const symbol = filename.split('_')[0];
                         if (symbol.includes(query) && !results.find(r => r.symbol === symbol)) {
+                            const strike = parseInt(match[1], 10);
+                            const type = match[2];
+                            const typeDesc = type === 'CE' ? 'CALL' : 'PUT';
+                            const desc = `NIFTY ${strike} ${typeDesc} (${exp.day} ${exp.monthLabel} ${exp.year})`;
+                            
                             results.push({
                                 symbol: symbol,
                                 full_name: symbol,
-                                description: `NIFTY Option ${symbol}`,
+                                description: desc,
                                 exchange: "NSE",
                                 type: "option"
                             });
