@@ -25,61 +25,68 @@ function setupCustomIndicatorsDialog(widget) {
             }, 1500);
         }
 
-        // --- 2. INJECT "{ }" BUTTON INTO LEGEND ---
-        const observer = new MutationObserver(() => {
-            const settingsButtons = iframeDoc.querySelectorAll('[data-name="legend-settings-action"]');
-            settingsButtons.forEach(btn => {
-                const container = btn.parentNode;
-                if (!container || container.dataset.injectedSourceBtn) return;
+        // --- 2. INJECT "{ }" BUTTON INTO LEGEND (Robust Polling) ---
+        // We use setInterval because TradingView's SPA aggressively destroys and recreates DOM elements, 
+        // which often unhooks MutationObservers attached too early.
+        setInterval(() => {
+            try {
+                const iframe = document.querySelector('#tv_chart_container iframe');
+                if (!iframe) return;
+                const iframeDoc = iframe.contentWindow.document;
                 
-                // Get the study title to map it to our local indicators
-                let studyTitle = "";
-                const legendItem = container.closest('[data-name="legend-item"]') || container.parentElement.parentElement;
-                if (legendItem) {
-                    const titleEl = legendItem.querySelector('[data-name="legend-source-title"]');
-                    if (titleEl) studyTitle = titleEl.textContent;
-                }
+                // Hook into the 'delete' (trash) button since it's present on all studies but NOT on the main chart series
+                const deleteButtons = iframeDoc.querySelectorAll('[data-name="legend-delete-action"]');
+                deleteButtons.forEach(btn => {
+                    const container = btn.parentNode;
+                    if (!container || container.dataset.injectedSourceBtn) return;
+                    
+                    // Get the study title to map it to our local indicators
+                    let studyTitle = "";
+                    const legendItem = container.closest('[data-name="legend-item"]') || container.parentElement.parentElement;
+                    if (legendItem) {
+                        const titleEl = legendItem.querySelector('[data-name="legend-source-title"]');
+                        if (titleEl) studyTitle = titleEl.textContent;
+                    }
 
-                // Create the {} button
-                const srcBtn = iframeDoc.createElement('div');
-                srcBtn.innerHTML = '{ }';
-                srcBtn.title = 'Open Local Code Editor';
-                srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-left:2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; color:#131722; border-radius:4px; transition:0.2s;';
-                srcBtn.onmouseover = () => { srcBtn.style.background = '#f0f3fa'; srcBtn.style.color = '#2962FF'; };
-                srcBtn.onmouseout = () => { srcBtn.style.background = 'transparent'; srcBtn.style.color = '#131722'; };
-                
-                srcBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    openModal();
+                    // Create the {} button
+                    const srcBtn = iframeDoc.createElement('div');
+                    srcBtn.innerHTML = '{ }';
+                    srcBtn.title = 'Open Local Code Editor';
+                    srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin:0 2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; color:#131722; border-radius:4px; transition:0.2s;';
+                    srcBtn.onmouseover = () => { srcBtn.style.background = '#f0f3fa'; srcBtn.style.color = '#2962FF'; };
+                    srcBtn.onmouseout = () => { srcBtn.style.background = 'transparent'; srcBtn.style.color = '#131722'; };
                     
-                    // Try to automatically open the editor for this specific script
-                    let stored = {};
-                    try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
-                    
-                    // Search stored scripts for a matching name or shortDescription
-                    let matchedKey = null;
-                    for (const [key, code] of Object.entries(stored)) {
-                        if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
-                            matchedKey = key;
-                            break;
+                    srcBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        openModal();
+                        
+                        // Try to automatically open the editor for this specific script
+                        let stored = {};
+                        try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
+                        
+                        // Search stored scripts for a matching name or shortDescription
+                        let matchedKey = null;
+                        for (const [key, code] of Object.entries(stored)) {
+                            if (key === studyTitle || code.includes(`shortDescription: "${studyTitle}"`) || code.includes(`shortDescription: '${studyTitle}'`)) {
+                                matchedKey = key;
+                                break;
+                            }
                         }
-                    }
+                        
+                        // Small timeout to allow modal UI to build
+                        setTimeout(() => {
+                            if (matchedKey) {
+                                showEditor(stored[matchedKey], matchedKey);
+                            }
+                        }, 50);
+                    };
                     
-                    if (matchedKey) {
-                        setTimeout(() => showEditor(stored[matchedKey], matchedKey), 50);
-                    }
-                };
-                
-                // Insert right after the settings button
-                if (btn.nextSibling) {
-                    container.insertBefore(srcBtn, btn.nextSibling);
-                } else {
-                    container.appendChild(srcBtn);
-                }
-                container.dataset.injectedSourceBtn = "true";
-            });
-        });
-        observer.observe(iframeDoc.body, { childList: true, subtree: true });
+                    // Insert right BEFORE the delete button
+                    container.insertBefore(srcBtn, btn);
+                    container.dataset.injectedSourceBtn = "true";
+                });
+            } catch (e) {}
+        }, 800);
 
         // --- NATIVE MODAL HIJACK ---
         let nativeBtnFound = false;
