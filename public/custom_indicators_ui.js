@@ -142,7 +142,7 @@ function setupCustomIndicatorsDialog(widget) {
                 clearInterval(checkInterval);
                 
                 // 1. Stop TradingView from seeing any of these events
-                ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(evt => {
+                ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(evt => {
                     nativeBtn.addEventListener(evt, (e) => {
                         e.stopPropagation();
                     }, true);
@@ -167,6 +167,7 @@ function setupCustomIndicatorsDialog(widget) {
                 display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(0, 0, 0, 0.4); z-index: 99999; align-items: center; justify-content: center;
                 font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
+                touch-action: auto !important;
             }
             .tv-custom-modal-overlay.visible {
                 display: flex;
@@ -179,6 +180,7 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-modal {
                 background: #ffffff; width: 850px; height: 650px; max-width: 95%; max-height: 95%;
                 border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0,0,0,0.2); overflow: hidden;
+                touch-action: auto !important;
             }
             .tv-custom-modal-body {
                 display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb;
@@ -200,6 +202,7 @@ function setupCustomIndicatorsDialog(widget) {
                 display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff;
             }
             
+            .tv-list-container { -webkit-overflow-scrolling: touch; touch-action: pan-y !important; }
             .tv-list-container::-webkit-scrollbar { width: 6px; }
             .tv-list-container::-webkit-scrollbar-thumb { background: #d1d4dc; border-radius: 3px; }
             .tv-list-container::-webkit-scrollbar-track { background: transparent; }
@@ -211,7 +214,7 @@ function setupCustomIndicatorsDialog(widget) {
             @media (max-width: 768px) {
                 .tv-custom-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
                 .tv-custom-modal-body { flex-direction: column; }
-                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; overflow-x: auto; }
+                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; overflow-x: auto; touch-action: pan-x !important; }
                 .tv-custom-modal-tab { flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px; white-space: nowrap; }
                 .tv-editor-header { padding: 12px; }
             }
@@ -226,7 +229,7 @@ function setupCustomIndicatorsDialog(widget) {
         
         const header = document.createElement('div');
         header.style.cssText = 'padding:16px 24px 12px 24px; display:flex; justify-content:space-between; align-items:center; background: #ffffff;';
-        header.innerHTML = '<div style="font-size:18px; font-weight:700; color:#131722; letter-spacing:-0.2px;">Indicators, metrics, and strategies</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86; padding:6px; border-radius:4px; transition:0.2s;"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l12 12m0-12L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>';
+        header.innerHTML = '<div style="font-size:18px; font-weight:700; color:#131722; letter-spacing:-0.2px;">Indicators, metrics, and strategies</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86; padding:16px; margin:-10px; border-radius:4px; transition:0.2s; display:flex; align-items:center; justify-content:center;"><svg width="18" height="18" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l12 12m0-12L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>';
         header.querySelector('#tv-close-modal').onmouseover = function() { this.style.background = '#f0f3fa'; this.style.color = '#131722'; };
         header.querySelector('#tv-close-modal').onmouseout = function() { this.style.background = 'transparent'; this.style.color = '#787b86'; };
 
