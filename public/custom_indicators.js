@@ -1,7 +1,7 @@
 window.getCustomIndicators = function(PineJS) {
     return Promise.resolve([
         {
-            name: "SuperTrend",
+            name: "SuperTrend Custom",
             metainfo: {
                 _metainfoVersion: 52,
                 isTVScript: false,
@@ -65,7 +65,7 @@ window.getCustomIndicators = function(PineJS) {
                 ],
                 id: "SuperTrend_Custom@tv-basicstudies-1",
                 scriptIdPart: "",
-                name: "SuperTrend",
+                name: "SuperTrend Custom",
                 format: { precision: 2, type: "price" }
             },
             constructor: function () {
