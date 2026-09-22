@@ -216,6 +216,100 @@ const Datafeed = {
     // 3. We use a SINGLE code path for both "data in range" and "data
     //    not in range" scenarios. No separate "forceful fetch" path.
     // ==================================================================
+    resolveParquetFiles: async (symbolInfo, resolution, qFrom, qTo) => {
+        const fileSuffix = resolutionToSuffix(resolution);
+        let allFiles = [];
+        
+        try {
+            const expiries = await window.SyncManager.getAllExpiries();
+            for (let exp of expiries) {
+                for (let f of exp.files) {
+                    const filename = f.path.split('/').pop();
+                    
+                    const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
+                    if (!dateMatch) continue;
+                    
+                    if (!filename.includes(`_${fileSuffix}_`)) {
+                        if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
+                        else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
+                        else continue;
+                    }
+                    
+                    const fStart = new Date(dateMatch[1]).getTime() / 1000;
+                    const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
+                    
+                    let isMatch = false;
+                    let priority = 0;
+                    
+                    if (symbolInfo.type === 'futures') {
+                        if (filename.startsWith(symbolInfo.name)) {
+                            isMatch = true; priority = 10;
+                        } else if (filename.includes('FUT_')) {
+                            isMatch = true; priority = 1;
+                        }
+                    } else if (symbolInfo.type === 'index') {
+                        if (filename.startsWith('NIFTY50-INDEX')) {
+                            isMatch = true; priority = 10;
+                        }
+                    } else { // Option
+                        if (filename.startsWith(symbolInfo.name)) {
+                            isMatch = true; priority = 10;
+                        }
+                    }
+                    
+                    if (isMatch) {
+                        if (!allFiles.find(x => x.path === f.path)) {
+                            allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                        }
+                    }
+                }
+            }
+            
+            // Files that intersect the requested range
+            let intersecting = allFiles.filter(f => f.fEnd >= qFrom && f.fStart <= qTo);
+            
+            // If no intersection (e.g. asking for today, but latest data is 1 month ago),
+            // find the newest files that are BEFORE qTo
+            if (intersecting.length === 0) {
+                let pastFiles = allFiles.filter(f => f.fStart <= qTo);
+                if (pastFiles.length > 0) {
+                    pastFiles.sort((a,b) => b.fEnd - a.fEnd); // Sort newest first
+                    // Take the most recent block of files
+                    const newestEnd = pastFiles[0].fEnd;
+                    intersecting = pastFiles.filter(f => f.fEnd === newestEnd);
+                }
+            }
+            
+            intersecting.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
+            
+            // Limit to top 4 files to prevent DuckDB OOM during UNION
+            let selected = intersecting.slice(0, 4);
+            
+            // If we are looking for Futures, and the exact match didn't fill the quota,
+            // we ALSO want to grab the next older future month so the user can scroll smoothly!
+            // To do this, if we have less than 4 files, we can grab files that ended just before our selected files started.
+            if (symbolInfo.type === 'futures' || symbolInfo.type === 'index') {
+                if (selected.length > 0) {
+                    let oldestStart = Math.min(...selected.map(f => f.fStart));
+                    let olderFiles = allFiles.filter(f => f.fEnd <= oldestStart);
+                    olderFiles.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
+                    for (let of of olderFiles) {
+                        if (selected.length >= 4) break;
+                        if (!selected.find(s => s.path === of.path)) {
+                            selected.push(of);
+                        }
+                    }
+                }
+            }
+            
+            return selected.map(f => `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${f.path}`);
+            
+        } catch(e) {
+            console.error("Resolve error", e);
+            return [];
+        }
+    },
+
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
         const { from, to, countBack, firstDataRequest } = periodParams;
         DFLog.info('getBars', `${symbolInfo.name} | res=${resolution} | from=${from} to=${to} | countBack=${countBack} | first=${firstDataRequest}`);
@@ -231,58 +325,33 @@ const Datafeed = {
                 await new Promise(r => setTimeout(r, 100));
             }
             
-            // 1. Determine which Parquet file to query
-            const fileSuffix = resolutionToSuffix(resolution);
+            // 1. Resolve Parquet files dynamically based on requested time range and symbol type
+            // This natively supports Index and Futures merging across rollover months!
+            const fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
             
-            // Search the global active expiry folder files
-            let targetFileName = `${symbolInfo.name}_${fileSuffix}_`;
-            let fileObj = null;
-            if (window.ACTIVE_EXPIRY_FILES) {
-                fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(targetFileName));
-                if (!fileObj && fileSuffix === 'D') {
-                    let tf = `${symbolInfo.name}_1D_`;
-                    fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(tf));
-                } else if (!fileObj && fileSuffix === '1D') {
-                    let tf = `${symbolInfo.name}_D_`;
-                    fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(tf));
-                }
-            }
-            
-            // Fallback: search IndexedDB cache if modal isn't open or active files don't have it
-            if (!fileObj && window.SyncManager) {
-                const expiries = await window.SyncManager.getAllExpiries();
-                for (let exp of expiries) {
-                    fileObj = exp.files.find(f => f.path.split('/').pop().startsWith(targetFileName));
-                    if (fileObj) break;
-                    
-                    if (fileSuffix === 'D') {
-                        let tf = `${symbolInfo.name}_1D_`;
-                        fileObj = exp.files.find(f => f.path.split('/').pop().startsWith(tf));
-                        if (fileObj) break;
-                    } else if (fileSuffix === '1D') {
-                        let tf = `${symbolInfo.name}_D_`;
-                        fileObj = exp.files.find(f => f.path.split('/').pop().startsWith(tf));
-                        if (fileObj) break;
-                    }
-                }
-            }
-            
-            if (!fileObj) {
-                DFLog.warn('getBars', `No Parquet file found for ${targetFileName}`);
+            if (fileUrls.length === 0) {
+                DFLog.warn('getBars', `No Parquet files found for ${symbolInfo.name} in range`);
                 return onHistoryCallback([], { noData: true });
             }
-            
-            const fileUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${fileObj.path}`;
 
-            // 2. Ensure the Parquet file is downloaded & registered in DuckDB VFS
-            let vfsName = await ensureParquetLoaded(fileUrl);
+            // 2. Ensure Parquet files are downloaded & registered in DuckDB VFS
+            let vfsNames = [];
+            for (let url of fileUrls) {
+                vfsNames.push(await window.ensureParquetLoaded(url));
+            }
+            
+            // Build UNION query
+            const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
+
 
             // 3. Open a connection and run the range query
             conn = await window.db.connect();
 
             const rangeSQL = `
                 SELECT time * 1000 AS time, open, high, low, close, volume
-                FROM read_parquet('${vfsName}')
+                FROM (
+                    ${unionStmts}
+                )
                 WHERE time >= ${from} AND time < ${to}
                 ORDER BY time ASC
             `;
@@ -318,7 +387,9 @@ const Datafeed = {
                 try {
                     const latestSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet('${vfsName}')
+                        FROM (
+                            ${unionStmts}
+                        )
                         ORDER BY time DESC
                         LIMIT ${countBack}
                     `;
@@ -330,7 +401,9 @@ const Datafeed = {
                     DFLog.warn('getBars', `WASM ORDER BY crashed, falling back to JS sort...`);
                     const allSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet('${vfsName}')
+                        FROM (
+                            ${unionStmts}
+                        )
                     `;
                     const allResult = await conn.query(allSQL);
                     const allBars = arrowToTVBars(allResult);
@@ -361,7 +434,9 @@ const Datafeed = {
                 try {
                     const olderSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet('${vfsName}')
+                        FROM (
+                            ${unionStmts}
+                        )
                         WHERE time < ${from}
                         ORDER BY time DESC
                         LIMIT ${countBack}
@@ -372,7 +447,9 @@ const Datafeed = {
                     DFLog.warn('getBars', `WASM ORDER BY crashed on scroll-back, falling back to JS...`);
                     const allSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet('${vfsName}')
+                        FROM (
+                            ${unionStmts}
+                        )
                         WHERE time < ${from}
                     `;
                     const allResult = await conn.query(allSQL);
