@@ -21,6 +21,10 @@ async function initDuckDB() {
     
     console.log("DuckDB-WASM Initialized Successfully!");
     window.db = db;
+    // Increase WASM memory limit to prevent out-of-bounds crashes on Parquet decoding
+    const conn = await db.connect();
+    await conn.query(`PRAGMA memory_limit='1GB'`);
+    await conn.close();
     
     // Let TradingView know the DB is ready
     window.dispatchEvent(new Event('DuckDBReady'));
