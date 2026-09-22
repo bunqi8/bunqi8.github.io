@@ -14,23 +14,23 @@ style.innerHTML = `
     .oc-close { cursor: pointer; color: #787b86; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
     .oc-close:hover { color: #131722; }
     
-    .oc-expiries-strip { display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: flex-end; gap: 16px; }
+    .oc-expiries-strip { display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; }
     .oc-expiries-strip::-webkit-scrollbar { display: none; }
     
     .oc-month-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-    .oc-month-label { font-size: 12px; color: #131722; font-weight: 500; }
+    .oc-month-label { font-size: 12px; color: #131722; font-weight: 500; min-height: 14px; margin-bottom: 2px; }
     .oc-days-row { display: flex; gap: 4px; }
     
     .oc-expiry, .oc-btn-native { padding: 4px 10px; border-radius: 6px; border: none; background: #f0f3fa; cursor: pointer; font-size: 13px; color: #131722; font-weight: 500; transition: background 0.2s; }
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
     
-    .oc-table-top-header { display: flex; padding: 12px 24px 4px 24px; font-size: 13px; font-weight: 600; color: #131722; }
-    .oc-table-header { display: flex; padding: 4px 24px 12px 24px; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
+    .oc-table-top-header { display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
+    .oc-table-header { display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
     .oc-col { flex: 1; text-align: center; }
     
     .oc-table-body { flex-grow: 1; overflow-y: auto; font-size: 13px; color: #131722; position: relative; padding-bottom: 40px;}
-    .oc-row { display: flex; padding: 0 24px; border-bottom: 1px solid #f0f3fa; }
+    .oc-row { display: flex; padding: 0; border-bottom: 1px solid #f0f3fa; }
     
     .oc-cell { flex: 1; padding: 14px 0; text-align: center; cursor: pointer; transition: background 0.1s; position: relative; }
     
@@ -41,8 +41,8 @@ style.innerHTML = `
     .strike-cell { font-weight: 500; cursor: default; background: #fafafc; }
     .strike-cell:hover { color: #131722; }
     
-    .oc-cell.itm { background-color: #fff9eb; }
-    .oc-cell.itm:hover { background-color: #f7f1e3; }
+    .oc-cell.itm { background-color: #fff4e6; }
+    .oc-cell.itm:hover { background-color: #f0e6d2; }
     
     .oc-cell.active { background-color: #e3f2fd; color: #131722; }
     
@@ -123,9 +123,9 @@ async function fetchExpiries() {
                     const dateStr = match[1];
                     const timeStr = match[2];
                     
-                    const year = parseInt(dateStr.slice(0,4));
-                    const monthNum = parseInt(dateStr.slice(4,6));
-                    const day = parseInt(dateStr.slice(6,8));
+                    const year = parseInt(dateStr.slice(0,4), 10);
+                    const monthNum = parseInt(dateStr.slice(4,6), 10);
+                    const day = parseInt(dateStr.slice(6,8), 10);
                     
                     const dateObj = new Date(year, monthNum - 1, day);
                     
