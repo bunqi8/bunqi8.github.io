@@ -1,5 +1,5 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
 
 const SyncManager = {
@@ -11,7 +11,7 @@ const SyncManager = {
             const req = indexedDB.open(DB_NAME, DB_VERSION);
             req.onupgradeneeded = (e) => {
                 const db = e.target.result;
-                if (e.oldVersion < 3 && db.objectStoreNames.contains('expiries')) {
+                if (e.oldVersion < 5 && db.objectStoreNames.contains('expiries')) {
                     db.deleteObjectStore('expiries');
                 }
                 if (!db.objectStoreNames.contains('expiries')) {
