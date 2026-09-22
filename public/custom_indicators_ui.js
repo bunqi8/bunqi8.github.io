@@ -2,7 +2,7 @@ function setupCustomIndicatorsDialog(widget) {
     widget.headerReady().then(function() {
         const button = widget.createButton({ align: "left" });
         button.setAttribute('title', 'Indicators');
-        button.innerHTML = '<div style="display:flex;align-items:center;font-weight:600;gap:4px;"><svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M11 11h6v2h-6v-2zm-5 4h16v2H6v-2zm5-8h6v2h-6V7z" fill="currentColor"/></svg> Indicators</div>';
+        button.innerHTML = `<div style="display:flex;align-items:center;gap:4px;color:var(--tv-color-toolbar-button-text, #131722);"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.5 9C13.8807 9 15 10.1193 15 11.5V12H13.5V11.5C13.5 10.9477 13.0523 10.5 12.5 10.5C11.9477 10.5 11.5 10.9477 11.5 11.5V20H10V13.5H8.5V12H10V11.5C10 10.1193 11.1193 9 12.5 9Z" fill="currentColor"/><path d="M21.5 12L19 16L21.5 20H19.5L18 17.5L16.5 20H14.5L17 16L14.5 12H16.5L18 14.5L19.5 12H21.5Z" fill="currentColor"/></svg> Indicators</div>`;
 
         // Modal container
         const modalOverlay = document.createElement('div');

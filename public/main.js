@@ -276,7 +276,7 @@ function bootWidget() {
             "show_symbol_logo_in_legend",
             "header_symbol_search"
         ],
-        disabled_features: []
+        disabled_features: ["header_indicators"]
     };
 
     const widget = new TradingView.widget(widgetOptions);
