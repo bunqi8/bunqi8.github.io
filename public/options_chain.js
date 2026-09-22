@@ -9,14 +9,14 @@ style.innerHTML = `
     .oc-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 1000; display: none; align-items: center; justify-content: center; }
     .oc-modal { background: #ffffff; width: 800px; max-height: 85vh; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     
-    .oc-header { padding: 16px 24px; border-bottom: 1px solid #e0e3eb; display: flex; justify-content: space-between; align-items: center; }
+    .oc-header { flex-shrink: 0; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; display: flex; justify-content: space-between; align-items: center; }
     .oc-title { font-size: 20px; font-weight: 600; color: #131722; display: flex; align-items: center; gap: 12px; }
     .oc-close { cursor: pointer; color: #787b86; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
     .oc-close:hover { color: #131722; }
     
-    .oc-expiries-strip { display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; }
+    .oc-expiries-strip { flex-shrink: 0; display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; }
     .oc-expiries-strip::-webkit-scrollbar { display: none; }
-    .oc-base-strip { display: flex; overflow-x: auto; padding: 12px 24px 0 24px; gap: 8px; border-bottom: 1px solid #f0f3fa; }
+    .oc-base-strip { flex-shrink: 0; display: flex; overflow-x: auto; padding: 12px 24px 0 24px; gap: 8px; border-bottom: 1px solid #f0f3fa; }
     .oc-base-strip::-webkit-scrollbar { display: none; }
     .oc-base-btn { padding: 6px 12px; font-size: 14px; font-weight: 500; color: #787b86; cursor: pointer; border-radius: 4px; transition: 0.1s; border: none; background: transparent; }
     .oc-base-btn:hover { background: #f0f3fa; color: #131722; }
@@ -30,8 +30,8 @@ style.innerHTML = `
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
     
-    .oc-table-top-header { display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
-    .oc-table-header { display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
+    .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
+    .oc-table-header { flex-shrink: 0; display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
     .oc-col { flex: 1; text-align: center; }
     
     .oc-table-body { flex-grow: 1; overflow-y: auto; font-size: 13px; color: #131722; position: relative; padding-bottom: 40px;}
