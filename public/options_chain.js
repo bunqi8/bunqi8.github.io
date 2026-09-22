@@ -137,48 +137,6 @@ async function fetchExpiries() {
     } catch(e) {
         console.error("Failed to init options chain", e);
     }
-};
-        for (let item of data) {
-            if (item.type === 'directory') {
-                const folderName = item.path.split('/').pop();
-                const match = folderName.match(/_(\d{8})_(\d{6})$/);
-                if (match) {
-                    const dateStr = match[1];
-                    const timeStr = match[2];
-                    
-                    const year = parseInt(dateStr.slice(0,4), 10);
-                    const monthNum = parseInt(dateStr.slice(4,6), 10);
-                    const day = parseInt(dateStr.slice(6,8), 10);
-                    
-                    const dateObj = new Date(year, monthNum - 1, day);
-                    
-                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    let monthLabel = monthNames[dateObj.getMonth()];
-                    if (!monthLabel) monthLabel = "Unk";
-                    
-                    const currentYear = new Date().getFullYear();
-                    if (year !== currentYear && year > 2000) {
-                        monthLabel += " '" + (year % 100).toString().padStart(2, '0');
-                    }
-
-                    if (!expiryMap[dateStr] || timeStr > expiryMap[dateStr].timeStr) {
-                        expiryMap[dateStr] = {
-                            dateStr, timeStr, folderPath: item.path, dateObj, monthLabel, day, year
-                        };
-                    }
-                }
-            }
-        }
-        expiries = Object.values(expiryMap).sort((a,b) => a.dateObj - b.dateObj);
-        window.HF_EXPIRIES = expiries;
-        
-        updateExpiryStrip();
-        if (expiries.length > 0) {
-            selectExpiry(expiries[0]);
-        }
-    } catch(e) {
-        console.error("Failed to init options chain", e);
-    }
 }
 
 function updateExpiryStrip() {

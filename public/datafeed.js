@@ -117,7 +117,7 @@ const Datafeed = {
         }));
     },
 
-        searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
+    searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
         const query = userInput.toUpperCase();
         if (!query) return onResultReadyCallback([]);
         
@@ -230,7 +230,7 @@ const Datafeed = {
             
             // Search the global active expiry folder files
             let targetFileName = `${symbolInfo.name}_${fileSuffix}_`;
-                        let fileObj = null;
+            let fileObj = null;
             if (window.ACTIVE_EXPIRY_FILES) {
                 fileObj = window.ACTIVE_EXPIRY_FILES.find(f => f.path.split('/').pop().startsWith(targetFileName));
                 if (!fileObj && fileSuffix === 'D') {
@@ -243,7 +243,7 @@ const Datafeed = {
             }
             
             // Fallback: search IndexedDB cache if modal isn't open or active files don't have it
-            if (!fileObj) {
+            if (!fileObj && window.SyncManager) {
                 const expiries = await window.SyncManager.getAllExpiries();
                 for (let exp of expiries) {
                     fileObj = exp.files.find(f => f.path.split('/').pop().startsWith(targetFileName));
@@ -260,6 +260,7 @@ const Datafeed = {
                     }
                 }
             }
+            
             if (!fileObj) {
                 DFLog.warn('getBars', `No Parquet file found for ${targetFileName}`);
                 return onHistoryCallback([], { noData: true });
