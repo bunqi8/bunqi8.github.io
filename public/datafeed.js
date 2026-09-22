@@ -47,6 +47,9 @@ const Datafeed = {
             has_daily: true,
             has_weekly_and_monthly: false,
             supported_resolutions: ['1', '5', '15', '30', '60', '1D'],
+            intraday_multipliers: ['1', '5', '60'],
+            has_seconds: true,
+            seconds_multipliers: ['5'],
             volume_precision: 0,
             data_status: 'streaming'
         };
@@ -63,8 +66,15 @@ const Datafeed = {
         try {
             // Determine the timeframe suffix based on resolution
             let fileSuffix = "1"; // Default to 1-minute
-            if (resolution === '1D') fileSuffix = "D";
+            if (resolution === '1D' || resolution === 'D') fileSuffix = "D";
             else if (resolution === '60') fileSuffix = "60";
+            else if (resolution === '5') fileSuffix = "5";
+            else if (resolution === '1') fileSuffix = "1";
+            else if (resolution === '5S') fileSuffix = "5S";
+            else if (['15', '30'].includes(resolution)) {
+                // If TV asks for 15m or 30m, we fetch 5m data and let TV's native engine aggregate it!
+                fileSuffix = "5";
+            }
             
             // Construct the Parquet URL
             const fileName = `${symbolInfo.name}_${fileSuffix}_2026-06-07_to_2026-09-15.parquet`;
