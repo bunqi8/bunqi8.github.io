@@ -98,10 +98,28 @@ function buildModal() {
 window.openOptionsChainModal = function() {
     if (!modalOverlay) buildModal();
     modalOverlay.style.display = 'flex';
+    
+    let targetExpiry = currentExpiry;
+    
+    // Auto-detect expiry from current chart symbol
+    try {
+        const symbol = window.tvWidget.activeChart().symbol();
+        const match = symbol.match(/NIFTY\d+?(\d{2})(\d{2})(\d{2})\d{5}[CP]E/);
+        if (match) {
+            let y = match[1];
+            let m = match[2];
+            let d = match[3];
+            // Format to match dateStr (e.g. "20260915")
+            let symDateStr = `20${y}${m}${d}`;
+            const found = expiries.find(e => e.dateStr === symDateStr);
+            if (found) targetExpiry = found;
+        }
+    } catch(e) {}
+    
     if (expiries.length === 0) {
         fetchExpiries();
-    } else if (currentExpiry) {
-        selectExpiry(currentExpiry);
+    } else if (targetExpiry) {
+        selectExpiry(targetExpiry);
     }
 };
 
@@ -226,23 +244,32 @@ async function selectExpiry(expiry) {
         btnFutures.style.display = 'none';
     }
     
-    let atmPrice = null;
-    if (indexFile) {
-        try {
-            while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-            const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexFile.path}`;
-            const vfsName = await window.ensureParquetLoaded(indexUrl);
-            const conn = await window.db.connect();
-            const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
-            const rows = result.toArray();
-            if (rows.length > 0) atmPrice = rows[0].close;
-            await conn.close();
-        } catch(e) {
-            console.error("Failed to fetch ATM price", e);
-        }
-    }
+    // 1. Instant render from cache (no ATM highlighting yet)
+    renderTable(sortedStrikes, symbols, null);
     
-    renderTable(sortedStrikes, symbols, atmPrice);
+    // 2. Background ATM price fetch
+    if (indexFile) {
+        (async () => {
+            try {
+                while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
+                const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexFile.path}`;
+                const vfsName = await window.ensureParquetLoaded(indexUrl);
+                const conn = await window.db.connect();
+                const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
+                const rows = result.toArray();
+                if (rows.length > 0) {
+                    const atmPrice = rows[0].close;
+                    // Re-render with ATM highlighting
+                    if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+                        renderTable(sortedStrikes, symbols, atmPrice);
+                    }
+                }
+                await conn.close();
+            } catch(e) {
+                console.error("Failed to fetch ATM price in background", e);
+            }
+        })();
+    }
 }
 
 function renderTable(strikes, symbols, atmPrice) {
