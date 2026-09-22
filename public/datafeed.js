@@ -119,14 +119,30 @@ const Datafeed = {
 
     searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
         const query = userInput.toUpperCase();
-        if (!query) return onResultReadyCallback([]);
-        
         const results = [];
-        
-
         
         try {
             const expiries = await window.SyncManager.getAllExpiries();
+            
+            // Default listing when search box is empty
+            if (!query) {
+                const uniqueTickers = [...new Set(expiries.map(e => e.baseTicker))].sort();
+                uniqueTickers.forEach(bt => {
+                    const idxSymbol = bt.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '') + '-INDEX';
+                    results.push({
+                        symbol: idxSymbol,
+                        full_name: idxSymbol,
+                        description: `${idxSymbol.replace('-INDEX', '')} Index`,
+                        exchange: (bt || "NSE_").split('_')[0],
+                        type: "index"
+                    });
+                });
+                return onResultReadyCallback(results);
+            }
+
+        
+
+        
             for (let exp of expiries) {
                 if (results.length > 50) break;
                 for (let f of exp.files) {
@@ -239,8 +255,6 @@ const Datafeed = {
         const fileSuffix = resolutionToSuffix(resolution);
         let allFiles = [];
         
-        try {
-            const expiries = await window.SyncManager.getAllExpiries();
             for (let exp of expiries) {
                 for (let f of exp.files) {
                     const filename = f.path.split('/').pop();
