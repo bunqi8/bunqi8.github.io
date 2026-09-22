@@ -255,7 +255,8 @@ const SyncManager = {
                 let activeBase = window.ACTIVE_BASE_TICKER;
                 if (!activeBase) {
                     try {
-                        const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
+                        let chartSym = 'NIFTY50-INDEX';
+                        try { if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol(); } catch(e) {}
                         const possible = [...new Set(outdated.map(o => o.remote.baseTicker))];
                         activeBase = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
                     } catch(e) {}

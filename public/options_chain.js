@@ -170,7 +170,8 @@ async function fetchExpiries() {
         
         const possible = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
         if (!window.ACTIVE_BASE_TICKER && possible.length > 0) {
-            const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
+            let chartSym = 'NIFTY50-INDEX';
+            try { if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol(); } catch(e) {}
             let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
             window.ACTIVE_BASE_TICKER = found || possible[0];
         }
