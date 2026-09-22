@@ -108,7 +108,10 @@ const SyncManager = {
             const tx = this.db.transaction('expiries', 'readwrite');
             const store = tx.objectStore('expiries');
             const req = store.put(expiryData); // put will insert or overwrite based on dateStr key
-            req.onsuccess = () => resolve();
+            req.onsuccess = () => {
+                window.dispatchEvent(new CustomEvent('hf_expiry_updated', { detail: expiryData.id }));
+                resolve();
+            };
             req.onerror = () => reject(req.error);
         });
     },

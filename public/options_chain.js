@@ -183,7 +183,10 @@ async function fetchExpiries() {
         
         if (currentExpiry) {
             const updated = expiries.find(e => e.id === currentExpiry.id);
-            if (updated && updated.timeStr !== currentExpiry.timeStr) {
+            if (updated && (
+                updated.timeStr !== currentExpiry.timeStr || 
+                (updated.files && updated.files.length > (currentExpiry.files ? currentExpiry.files.length : 0))
+            )) {
                 selectExpiry(updated);
             }
         } else if (expiries.length > 0) {
@@ -446,4 +449,11 @@ window.loadSymbol = function(symbol) {
 window.addEventListener('DOMContentLoaded', () => {
     buildModal();
     fetchExpiries();
+});
+
+window.addEventListener('hf_expiry_updated', (e) => {
+    // If the modal is currently open, auto-refresh the list when background sync completes a folder
+    if (modalOverlay && modalOverlay.style.display !== 'none') {
+        fetchExpiries();
+    }
 });
