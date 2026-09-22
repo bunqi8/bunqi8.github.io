@@ -182,13 +182,13 @@ window.getCustomIndicators = function (PineJS) {
                     is_hidden_study: false,
                     defaults: {
                         styles: {
-                            plot_ema1: { plottype: 0, linewidth: 1, color: "#000000" }, // Black
-                            plot_ema2: { plottype: 0, linewidth: 1, color: "#4CAF50" }, // Green
-                            plot_ema3: { plottype: 0, linewidth: 1, color: "#F44336" }, // Red
-                            plot_ema4: { plottype: 0, linewidth: 1, color: "#FF9800" }, // Orange
-                            plot_ema5: { plottype: 0, linewidth: 1, color: "#2196F3" }, // Blue
-                            plot_cross_up: { char: "+", location: "Absolute", color: "#2962FF", size: "large" },
-                            plot_cross_dn: { char: "+", location: "Absolute", color: "#E040FB", size: "large" }
+                            plot_ema1: { plottype: 0, linewidth: 1, color: "#000000", linestyle: 0, visible: true, trackPrice: false },
+                            plot_ema2: { plottype: 0, linewidth: 1, color: "#4CAF50", linestyle: 0, visible: true, trackPrice: false },
+                            plot_ema3: { plottype: 0, linewidth: 1, color: "#F44336", linestyle: 0, visible: true, trackPrice: false },
+                            plot_ema4: { plottype: 0, linewidth: 1, color: "#FF9800", linestyle: 0, visible: true, trackPrice: false },
+                            plot_ema5: { plottype: 0, linewidth: 1, color: "#2196F3", linestyle: 0, visible: true, trackPrice: false },
+                            plot_cross_up: { plottype: "shape_cross", location: "Absolute", color: "#2962FF", textColor: "#2962FF", size: "huge", visible: true },
+                            plot_cross_dn: { plottype: "shape_cross", location: "Absolute", color: "#E040FB", textColor: "#E040FB", size: "huge", visible: true }
                         },
                         inputs: {
                             len1: 3,
@@ -204,17 +204,17 @@ window.getCustomIndicators = function (PineJS) {
                         { id: "plot_ema3", type: "line" },
                         { id: "plot_ema4", type: "line" },
                         { id: "plot_ema5", type: "line" },
-                        { id: "plot_cross_up", type: "chars" },
-                        { id: "plot_cross_dn", type: "chars" }
+                        { id: "plot_cross_up", type: "shapes" },
+                        { id: "plot_cross_dn", type: "shapes" }
                     ],
                     styles: {
-                        plot_ema1: { title: "EMA 1 (3)", isHidden: false },
-                        plot_ema2: { title: "EMA 2 (30)", isHidden: false },
-                        plot_ema3: { title: "EMA 3 (50)", isHidden: false },
-                        plot_ema4: { title: "EMA 4 (100)", isHidden: false },
-                        plot_ema5: { title: "EMA 5 (200)", isHidden: false },
-                        plot_cross_up: { title: "Cross Up", isHidden: false },
-                        plot_cross_dn: { title: "Cross Down", isHidden: false }
+                        plot_ema1: { title: "EMA 3", isHidden: false, histogramBase: 0 },
+                        plot_ema2: { title: "EMA 30", isHidden: false, histogramBase: 0 },
+                        plot_ema3: { title: "EMA 50", isHidden: false, histogramBase: 0 },
+                        plot_ema4: { title: "EMA 100", isHidden: false, histogramBase: 0 },
+                        plot_ema5: { title: "EMA 200", isHidden: false, histogramBase: 0 },
+                        plot_cross_up: { title: "Cross Up", isHidden: false, location: "Absolute", plottype: "shape_cross" },
+                        plot_cross_dn: { title: "Cross Down", isHidden: false, location: "Absolute", plottype: "shape_cross" }
                     },
                     description: "5 EMA Crossover",
                     shortDescription: "5 EMAs",
