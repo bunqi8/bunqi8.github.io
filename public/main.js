@@ -224,6 +224,10 @@ function bootWidget() {
         autosize: true,
         debug: true,
         
+        custom_indicators_getter: function (PineJS) {
+            return window.getCustomIndicators(PineJS);
+        },
+        
         // Let the engine natively pull the chart from the adapter without manual JSON parsing!
         load_last_chart: true,
         auto_save_delay: 5,
