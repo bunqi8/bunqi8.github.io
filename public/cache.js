@@ -144,10 +144,10 @@ const SyncManager = {
                 }
             }
             
-            for (let baseTicker of baseTickers) {
+            await Promise.all(baseTickers.map(async (baseTicker) => {
                 try {
                     const exRes = await fetch(`${ROOT_URL}/${baseTicker}/option_data/parquet`);
-                    if (!exRes.ok) continue;
+                    if (!exRes.ok) return;
                     const exData = await exRes.json();
                     
                     for (let item of exData) {
@@ -169,7 +169,7 @@ const SyncManager = {
                 } catch (e) {
                     console.error("Failed to fetch expiries for", baseTicker, e);
                 }
-            }
+            }));
 
             const cachedExpiries = await this.getAllExpiries();
             const cacheMap = {};

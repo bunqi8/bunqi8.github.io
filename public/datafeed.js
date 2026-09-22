@@ -405,14 +405,18 @@ const Datafeed = {
 
         let conn;
         try {
-            // Wait for Options Chain to populate files
-            while (!window.ACTIVE_EXPIRY_FILES) {
-                await new Promise(r => setTimeout(r, 100));
+            // Wait for the background sync manager to download the metadata for this symbol if it's missing
+            let fileUrls = [];
+            for (let i = 0; i < 50; i++) {
+                fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
+                if (fileUrls.length > 0) break;
+                // If not found, wait and retry just in case the background queue is currently downloading it
+                await new Promise(r => setTimeout(r, 200));
             }
             
             // 1. Resolve Parquet files dynamically based on requested time range and symbol type
             // This natively supports Index and Futures merging across rollover months!
-            const fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
+            
             
             if (fileUrls.length === 0) {
                 DFLog.warn('getBars', `No Parquet files found for ${symbolInfo.name} in range`);
