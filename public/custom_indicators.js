@@ -48,8 +48,8 @@ window.getCustomIndicators = function(PineJS) {
                     plot_sell_circle: { title: "DownTrend Begins", isHidden: false },
                     plot_sell_label: { title: "Sell Label", isHidden: false, text: "Sell" }
                 },
-                description: "SuperTrend",
-                shortDescription: "SuperTrend",
+                description: "SuperTrend Custom",
+                shortDescription: "SuperTrend Custom",
                 is_price_study: true,
                 inputs: [
                     { id: "in_period", name: "ATR Period", defval: 10, type: "integer", min: 1 },
