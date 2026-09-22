@@ -16,6 +16,23 @@ const configurationData = {
 
 const HF_BASE_URL = "https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/NSE_NIFTY50_INDEX/option_data/parquet/NSE_NIFTY50_INDEX_20260915_121432/";
 
+
+// Structured Datafeed Logger
+const DFLogger = {
+    log: (method, msg) => {
+        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        console.log(`%c[${time}] [Datafeed::${method}]`, 'color: #2962FF; font-weight: bold;', msg);
+    },
+    warn: (method, msg, data = '') => {
+        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        console.warn(`%c[${time}] [Datafeed::${method}]`, 'color: #FF9800; font-weight: bold;', msg, data);
+    },
+    error: (method, msg, err) => {
+        const time = new Date().toISOString().split('T')[1].split('.')[0];
+        console.error(`%c[${time}] [Datafeed::${method}]`, 'color: #F44336; font-weight: bold;', msg, err);
+    }
+};
+
 const Datafeed = {
     onReady: (callback) => {
         setTimeout(() => callback({
@@ -61,7 +78,7 @@ const Datafeed = {
     },
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
         const { from, to, countBack, firstDataRequest } = periodParams;
-        console.log(`[getBars] Requesting ${symbolInfo.name} at ${resolution} from ${from} to ${to}`);
+        DFLogger.log('getBars', `Requesting ${symbolInfo.name} | Res: ${resolution} | Range: ${from} -> ${to}`);
         
         if (!window.db) {
             return onErrorCallback("DuckDB not initialized yet");
@@ -87,7 +104,7 @@ const Datafeed = {
             const fileName = `${symbolInfo.name}_${fileSuffix}_2026-06-07_to_2026-09-15.parquet`;
             let fileUrl = HF_BASE_URL + fileName;
 
-            console.log(`[getBars] Querying DuckDB: ${fileUrl}`);
+            DFLogger.log('getBars', `Querying Parquet file: ${fileUrl}`);
             
             const conn = await window.db.connect();
             let results;
@@ -98,7 +115,7 @@ const Datafeed = {
                 const virtualFileName = 'mem_' + btoa(url).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15) + '.parquet';
                 
                 if (!window.fileBufferCache[url]) {
-                    console.log(`[getBars] Downloading Parquet file into memory buffer...`);
+                    DFLogger.log('getBars', `Downloading primary Parquet chunk to ArrayBuffer cache...`);
                     const response = await fetch(url);
                     if (!response.ok) throw new Error("HTTP " + response.status);
                     const buffer = await response.arrayBuffer();
@@ -129,12 +146,12 @@ const Datafeed = {
             } catch (err) {
                 // If it fails, check if we can fallback between 'D' and '1D' naming conventions
                 if (fileSuffix === 'D') {
-                    console.log(`[getBars] _D_ failed, attempting fallback to _1D_...`);
+                    DFLogger.warn('getBars', `_D_ suffix failed, attempting fallback to _1D_...`);
                     const fallbackName = `${symbolInfo.name}_1D_2026-06-07_to_2026-09-15.parquet`;
                     fileUrl = HF_BASE_URL + fallbackName;
                     results = await executeQuery(fileUrl);
                 } else if (fileSuffix === '1D') {
-                    console.log(`[getBars] _1D_ failed, attempting fallback to _D_...`);
+                    DFLogger.warn('getBars', `_1D_ suffix failed, attempting fallback to _D_...`);
                     const fallbackName = `${symbolInfo.name}_D_2026-06-07_to_2026-09-15.parquet`;
                     fileUrl = HF_BASE_URL + fallbackName;
                     results = await executeQuery(fileUrl);
@@ -160,7 +177,7 @@ const Datafeed = {
             if (bars.length === 0) {
                 if (firstDataRequest) {
                     try {
-                        console.log(`[getBars] No data found. Parsing max time directly from filename to avoid DuckDB MAX() WASM OOM panics!`);
+                        DFLogger.warn('getBars', `Primary query returned 0 rows! Initiating forceful backwards fetch logic.`);
                         
                         // Extract "2026-09-15" from "NIFTY50-INDEX_5_2026-06-07_to_2026-09-15.parquet"
                         const dateMatch = fileUrl.match(/to_(\d{4}-\d{2}-\d{2})\.parquet/);
@@ -171,7 +188,7 @@ const Datafeed = {
                             maxTime = Math.floor(new Date(dateMatch[1] + "T23:59:59Z").getTime() / 1000);
                         }
                         
-                        console.log(`[getBars] Parsed Max time is ${maxTime} (${dateMatch[1]}). Forcefully fetching the latest ${countBack || 300} bars!`);
+                        DFLogger.log('getBars', `Parsed Max time: ${maxTime} (${dateMatch[1]}). Forcefully fetching the latest ${countBack || 300} bars!`);
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
                         // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
@@ -192,7 +209,7 @@ const Datafeed = {
                         const virtualFileName = 'mem_' + btoa(fileUrl).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15) + '.parquet';
                         
                         if (!window.fileBufferCache[fileUrl]) {
-                            console.log(`[getBars] Downloading Parquet file into memory buffer for forceful fetch...`);
+                            DFLogger.log('getBars', `Downloading fallback Parquet chunk to ArrayBuffer cache...`);
                             const response = await fetch(fileUrl);
                             if (!response.ok) throw new Error("HTTP " + response.status);
                             const buffer = await response.arrayBuffer();
@@ -234,12 +251,12 @@ const Datafeed = {
                             if (forceBars.length > limitBars) {
                                 forceBars = forceBars.slice(forceBars.length - limitBars);
                             }
-                            console.log(`[getBars] Successfully fetched ${forceBars.length} older bars. Injecting directly into chart!`);
+                            DFLogger.log('getBars', `Force fetch success! Injecting ${forceBars.length} older bars into chart.`);
                             onHistoryCallback(forceBars, { noData: false });
                             return;
                         }
                     } catch (e) {
-                        console.warn("[getBars] Failed to forcefully fetch older bars", e);
+                        DFLogger.error('getBars', `Failed to forcefully fetch older bars`, e);
                     }
                 }
                 onHistoryCallback([], { noData: true });
@@ -248,14 +265,14 @@ const Datafeed = {
 
             onHistoryCallback(bars, { noData: false });
         } catch (error) {
-            console.warn(`[getBars] DuckDB Parquet Error for ${symbolInfo.name}: File likely doesn't exist for this timeframe.`, error);
+            DFLogger.error('getBars', `DuckDB Parquet Error for ${symbolInfo.name}: File likely doesn't exist for this timeframe.`, error);
             // Instead of crashing the chart engine with onErrorCallback, we tell it there's simply no data.
             onHistoryCallback([], { noData: true });
         }
     },
 
     subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {
-        console.log('[subscribeBars]: Method call with subscriberUID:', subscriberUID);
+        DFLogger.log('subscribeBars', `Method call with subscriberUID: ${subscriberUID}`);
         
         // =================================================================
         // LIVE POLLING LOGIC HERE
@@ -273,7 +290,7 @@ const Datafeed = {
     },
 
     unsubscribeBars: (subscriberUID) => {
-        console.log('[unsubscribeBars]: Method call with subscriberUID:', subscriberUID);
+        DFLogger.log('unsubscribeBars', `Method call with subscriberUID: ${subscriberUID}`);
         // Clear the polling interval here when the user switches pairs
     }
 };
