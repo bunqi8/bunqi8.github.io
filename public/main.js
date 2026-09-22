@@ -238,6 +238,7 @@ function bootWidget() {
         },
         
         enabled_features: [
+            "seconds_resolution",
             "study_templates",
             "use_localstorage_for_settings",
             "save_chart_properties_to_local_storage",
