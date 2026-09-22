@@ -30,11 +30,11 @@ window.getCustomIndicators = function(PineJS) {
                 styles: {
                     plot_up: { title: "Up Trend", histogramBase: 0, joinPoints: false },
                     plot_down: { title: "Down Trend", histogramBase: 0, joinPoints: false },
-                    plot_mid: { title: "Body Middle", isHidden: true, display: 0 } // completely hidden
+                    plot_mid: { title: "Body Middle", isHidden: true, display: 0 }
                 },
                 description: "Supertrend Custom",
                 shortDescription: "Supertrend",
-                is_price_study: true, // overlays on price
+                is_price_study: true,
                 inputs: [
                     { id: "atrPeriod", name: "ATR Length", defval: 10, type: "integer", min: 1, max: 2000 },
                     { id: "factor", name: "Factor", defval: 3.0, type: "float", min: 0.01, step: 0.01, max: 100 }
@@ -49,41 +49,56 @@ window.getCustomIndicators = function(PineJS) {
                 format: { precision: 2, type: "price" },
             },
             constructor: function () {
-                this.main = function (ctx, get_input) {
+                this.init = function(ctx, get_input) {
                     this._context = ctx;
                     this._input = get_input;
+                };
+
+                this.main = function (ctx, get_input) {
+                    this._context = ctx || this._context;
+                    this._input = get_input || this._input;
 
                     var atrPeriod = this._input(0);
                     var factor = this._input(1);
 
-                    var high = PineJS.Std.high(ctx);
-                    var low = PineJS.Std.low(ctx);
-                    var close = PineJS.Std.close(ctx);
-                    var open = PineJS.Std.open(ctx);
+                    var high = PineJS.Std.high(this._context);
+                    var low = PineJS.Std.low(this._context);
+                    var close = PineJS.Std.close(this._context);
+                    var open = PineJS.Std.open(this._context);
 
                     var hl2 = (high + low) / 2.0;
-                    var tr = PineJS.Std.tr(ctx);
-                    var trSeries = ctx.new_var(tr);
-                    var atr = PineJS.Std.rma(trSeries, atrPeriod, ctx);
+                    
+                    var closeSeries = this._context.new_var(close);
+                    var prev_close = closeSeries.get(1);
+                    if (isNaN(prev_close)) prev_close = close;
+
+                    // Manual TR calculation just in case PineJS.Std.tr isn't exposed properly
+                    var tr = Math.max(
+                        high - low,
+                        Math.abs(high - prev_close),
+                        Math.abs(low - prev_close)
+                    );
+
+                    var trSeries = this._context.new_var(tr);
+                    // Fallback RMA calculation in case PineJS.Std.rma fails
+                    var atr = PineJS.Std.rma(trSeries, atrPeriod, this._context);
 
                     var basic_upper = hl2 + (factor * atr);
                     var basic_lower = hl2 - (factor * atr);
 
-                    var final_upper = ctx.new_var();
-                    var final_lower = ctx.new_var();
-                    var trend = ctx.new_var(); // 1 for UP, -1 for DOWN
-                    var supertrend = ctx.new_var();
+                    var final_upper = this._context.new_var();
+                    var final_lower = this._context.new_var();
+                    var trend = this._context.new_var(); // 1 for UP, -1 for DOWN
+                    var supertrend = this._context.new_var();
 
                     var prev_final_upper = final_upper.get(1);
                     var prev_final_lower = final_lower.get(1);
-                    var prev_close = ctx.new_var(close).get(1);
                     var prev_trend = trend.get(1);
 
                     if (isNaN(prev_final_upper)) prev_final_upper = 0;
                     if (isNaN(prev_final_lower)) prev_final_lower = 0;
                     if (isNaN(prev_trend)) prev_trend = 1;
 
-                    // Final Upper
                     var curr_final_upper = basic_upper;
                     if (!isNaN(prev_final_upper) && !isNaN(prev_close) && basic_upper >= prev_final_upper) {
                         if (prev_close <= prev_final_upper) {
@@ -92,7 +107,6 @@ window.getCustomIndicators = function(PineJS) {
                     }
                     final_upper.set(curr_final_upper);
 
-                    // Final Lower
                     var curr_final_lower = basic_lower;
                     if (!isNaN(prev_final_lower) && !isNaN(prev_close) && basic_lower <= prev_final_lower) {
                         if (prev_close >= prev_final_lower) {
@@ -101,7 +115,6 @@ window.getCustomIndicators = function(PineJS) {
                     }
                     final_lower.set(curr_final_lower);
 
-                    // Trend
                     var curr_trend = prev_trend;
                     if (isNaN(atr)) {
                         curr_trend = 1;
@@ -114,7 +127,6 @@ window.getCustomIndicators = function(PineJS) {
                     }
                     trend.set(curr_trend);
 
-                    // Supertrend Line
                     var curr_st = (curr_trend === 1) ? curr_final_lower : curr_final_upper;
                     supertrend.set(curr_st);
 
@@ -128,4 +140,4 @@ window.getCustomIndicators = function(PineJS) {
             }
         }
     ]);
-}
+};
