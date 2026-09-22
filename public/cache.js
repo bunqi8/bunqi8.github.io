@@ -151,6 +151,10 @@ const SyncManager = {
             
         } catch (e) {
             console.error("[SyncManager] Root sync failed", e);
+            const cachedExpiries = await this.getAllExpiries();
+            if (cachedExpiries.length === 0) {
+                alert("Network Error: Could not connect to HuggingFace dataset (Proxy/Connection failed). The chart cannot load without data.");
+            }
         }
     },
     

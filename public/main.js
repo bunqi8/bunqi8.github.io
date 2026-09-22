@@ -287,13 +287,31 @@ function bootWidget() {
             if (!iframe) return;
             const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
             
+            let attempts = 0;
             const checkReady = setInterval(() => {
-                const indicatorsBtn = iframeDoc.getElementById('header-toolbar-indicators');
-                if (indicatorsBtn) {
+                attempts++;
+                
+                // Native TV desktop indicators button
+                let targetEl = iframeDoc.getElementById('header-toolbar-indicators');
+                
+                // Mobile fallbacks
+                if (!targetEl) targetEl = iframeDoc.getElementById('header-toolbar-symbol-search');
+                if (!targetEl) targetEl = iframeDoc.querySelector('.group-wWM3zP_M');
+                if (!targetEl) targetEl = iframeDoc.querySelector('.group-MBOVGQRI');
+                
+                if (targetEl || attempts > 10) {
                     clearInterval(checkReady);
                     
+                    if (!targetEl) {
+                        // Ultimate fallback using API
+                        const fb = window.tvWidget.createButton();
+                        fb.innerHTML = '<div style="color: #2962FF; font-weight: bold;">Option Chain</div>';
+                        fb.addEventListener('click', () => { if (window.openOptionsChainModal) window.openOptionsChainModal(); });
+                        return;
+                    }
+                    
                     const ocBtnHtml = `
-                        <div class="group-MBOVGQRI" id="header-toolbar-option-chain">
+                        <div class="group-MBOVGQRI" id="header-toolbar-option-chain" style="margin: 0 4px;">
                             <button aria-label="Options Chain" data-role="button" data-tooltip-hotkey='{"keys":["O"],"text":"{0}"}' data-tooltip="Options Chain" tabindex="-1" type="button" class="button-OhqNVIYA button-ptpAHg8E withText-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" id="btn-option-chain-real">
                                 <span role="img" class="icon-GwQQdU8S" aria-hidden="true">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
@@ -306,7 +324,7 @@ function bootWidget() {
                         </div>
                     `;
                     
-                    indicatorsBtn.parentElement.insertAdjacentHTML('afterend', ocBtnHtml);
+                    targetEl.insertAdjacentHTML('afterend', ocBtnHtml);
                     
                     const realBtn = iframeDoc.getElementById('btn-option-chain-real');
                     if (realBtn) {
