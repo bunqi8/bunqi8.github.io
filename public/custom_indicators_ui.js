@@ -412,7 +412,8 @@ function setupCustomIndicatorsDialog(widget) {
             try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
             let localNames = Object.keys(stored);
             
-            let allCustomNames = ["SuperTrend Custom", ...localNames];
+            let hardcodedNames = ["SuperTrend Custom", "5 EMA Crossover"];
+            let allCustomNames = Array.from(new Set([...hardcodedNames, ...localNames]));
             
             let items = [];
             if (activeTab === 'favorites') {
