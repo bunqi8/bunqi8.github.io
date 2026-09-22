@@ -93,7 +93,16 @@ const Datafeed = {
             let results;
             
             const executeQuery = async (url) => {
-                return await conn.query(`
+                console.log(`[getBars] Downloading Parquet file into memory buffer to bypass WASM HTTP range-request bugs...`);
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                const buffer = await response.arrayBuffer();
+                
+                // Register the file natively into the DuckDB virtual filesystem!
+                const virtualFileName = 'mem_' + Date.now() + '.parquet';
+                await window.db.registerFileBuffer(virtualFileName, new Uint8Array(buffer));
+                
+                const res = await conn.query(`
                     SELECT 
                         time * 1000 as time,
                         open,
@@ -101,10 +110,14 @@ const Datafeed = {
                         low,
                         close,
                         volume
-                    FROM read_parquet('${url}')
+                    FROM read_parquet('${virtualFileName}')
                     WHERE time >= ${from} AND time <= ${to}
                     ORDER BY time ASC
                 `);
+                
+                // Clean up the virtual file to free memory
+                await window.db.dropFile(virtualFileName);
+                return res;
             };
 
             try {
@@ -158,6 +171,13 @@ const Datafeed = {
                         
                         // We strictly constrain the WHERE clause to the last 30 days of the maxTime.
                         // This prevents DuckDB-WASM from trying to load and sort the entire 150MB file in memory!
+                        console.log(`[getBars] Downloading Parquet file into memory buffer for forceful fetch...`);
+                        const response = await fetch(fileUrl);
+                        if (!response.ok) throw new Error("HTTP " + response.status);
+                        const buffer = await response.arrayBuffer();
+                        const virtualFileName = 'mem_force_' + Date.now() + '.parquet';
+                        await window.db.registerFileBuffer(virtualFileName, new Uint8Array(buffer));
+
                         const forceQuery = `
                             SELECT 
                                 time * 1000 as time,
@@ -166,11 +186,11 @@ const Datafeed = {
                                 low,
                                 close,
                                 volume
-                            FROM read_parquet('${fileUrl}')
+                            FROM read_parquet('${virtualFileName}')
                             WHERE time <= ${maxTime} AND time >= ${maxTime - 2592000}
                         `;
-                        // WE REMOVED "ORDER BY DESC LIMIT" FROM SQL to bypass a known DuckDB WASM bug!
                         const forceResults = await conn.query(forceQuery);
+                        await window.db.dropFile(virtualFileName);
                         
                         if (forceResults.length > 0) {
                             let forceBars = [];
