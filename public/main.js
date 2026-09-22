@@ -300,11 +300,11 @@ function bootWidget() {
             const checkReady = setInterval(() => {
                 attempts++;
                 
-                // Native TV desktop indicators button
-                let targetEl = iframeDoc.getElementById('header-toolbar-indicators');
+                // Target the symbol search box first (for both mobile and desktop)
+                let targetEl = iframeDoc.getElementById('header-toolbar-symbol-search');
                 
-                // Mobile fallbacks
-                if (!targetEl) targetEl = iframeDoc.getElementById('header-toolbar-symbol-search');
+                // Fallbacks
+                if (!targetEl) targetEl = iframeDoc.getElementById('header-toolbar-indicators');
                 if (!targetEl) targetEl = iframeDoc.querySelector('.group-wWM3zP_M');
                 if (!targetEl) targetEl = iframeDoc.querySelector('.group-MBOVGQRI');
                 
