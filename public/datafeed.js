@@ -5,8 +5,8 @@
 
 const configurationData = {
     supported_resolutions: [
-        // Seconds
-        '1S', '5S', '10S', '15S', '30S', '45S',
+        // Seconds (Smallest data is 5S, so 1S is mathematically impossible)
+        '5S', '10S', '15S', '30S', '45S',
         // Minutes
         '1', '2', '3', '5', '10', '15', '30', '45',
         // Hours
