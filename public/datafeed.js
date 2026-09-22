@@ -126,7 +126,7 @@ const Datafeed = {
             pricescale: 100,
             has_intraday: true,
             has_daily: true,
-            has_weekly_and_monthly: true,
+            has_weekly_and_monthly: false,
             supported_resolutions: configurationData.supported_resolutions,
             intraday_multipliers: ['1', '5', '60'],
             has_seconds: true,
