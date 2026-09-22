@@ -73,8 +73,27 @@ const SyncManager = {
     
     async _fetchAndSaveExpiry(id, remote) {
         try {
-            const res = await fetch(`https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${remote.folderPath}`);
-            const files = await res.json();
+            let currentUrl = `https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${remote.folderPath}`;
+            let allFiles = [];
+            while (currentUrl) {
+                const res = await fetch(currentUrl);
+                if (!res.ok) break;
+                const chunk = await res.json();
+                allFiles = allFiles.concat(chunk);
+                
+                const linkHeader = res.headers.get('link');
+                if (linkHeader && linkHeader.includes('rel="next"')) {
+                    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                    if (match) {
+                        currentUrl = match[1];
+                    } else {
+                        currentUrl = null;
+                    }
+                } else {
+                    currentUrl = null;
+                }
+            }
+            const files = allFiles;
             
             const year = parseInt(remote.dateStr.slice(0,4), 10);
             const monthNum = parseInt(remote.dateStr.slice(4,6), 10);
