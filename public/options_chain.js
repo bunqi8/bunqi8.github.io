@@ -159,7 +159,7 @@ async function fetchExpiries() {
             expiries = cached.sort((a,b) => a.dateObjValue - b.dateObjValue);
             window.HF_EXPIRIES = expiries;
             updateExpiryStrip();
-            if (!currentExpiry) selectExpiry(expiries[0]);
+            if (!currentExpiry) { const f = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER); if (f.length > 0) selectExpiry(f[f.length - 1]); }
         }
         
         await window.SyncManager.syncRoot();
@@ -183,7 +183,7 @@ async function fetchExpiries() {
                 selectExpiry(updated);
             }
         } else if (expiries.length > 0) {
-            selectExpiry(expiries[0]);
+            const f = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER); if (f.length > 0) selectExpiry(f[f.length - 1]);
         }
     } catch(e) {
         console.error("Failed to init options chain", e);
@@ -206,7 +206,7 @@ function updateExpiryStrip() {
             window.ACTIVE_BASE_TICKER = bt;
             const filtered = window.HF_EXPIRIES.filter(e => e.baseTicker === bt);
             updateExpiryStrip();
-            if (filtered.length > 0) selectExpiry(filtered[0]);
+            if (filtered.length > 0) selectExpiry(filtered[filtered.length - 1]);
         };
         baseStrip.appendChild(btn);
     });
@@ -388,7 +388,7 @@ function renderTable(strikes, symbols, atmPrice) {
             atmRow.id = 'atm-marker-row';
             atmRow.innerHTML = `
                 <div class="atm-line"></div>
-                <div class="atm-marker">NIFTY ${atmPrice.toFixed(2)}</div>
+                <div class="atm-marker">${(window.ACTIVE_BASE_TICKER || '').replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '')} ${atmPrice.toFixed(2)}</div>
             `;
             tbody.appendChild(atmRow);
         }
