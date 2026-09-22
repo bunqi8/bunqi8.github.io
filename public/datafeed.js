@@ -178,6 +178,24 @@ const Datafeed = {
                         const virtualFileName = 'mem_force_' + Date.now() + '.parquet';
                         await window.db.registerFileBuffer(virtualFileName, new Uint8Array(buffer));
 
+                        // To prevent the DuckDB-WASM Arrow-to-JS bridge from crashing via out-of-bounds memory,
+                        // we MUST strictly limit the amount of rows we return in this fallback query!
+                        // TradingView only needs `countBack` bars. 
+                        
+                        // Parse resolution to seconds (default 5m = 300s)
+                        let resSeconds = 300;
+                        if (resolution === '1') resSeconds = 60;
+                        else if (resolution === '5') resSeconds = 300;
+                        else if (resolution === '15') resSeconds = 900;
+                        else if (resolution === '30') resSeconds = 1800;
+                        else if (resolution === '60') resSeconds = 3600;
+                        else if (resolution.includes('D')) resSeconds = 86400;
+                        else if (resolution.includes('S')) resSeconds = parseInt(resolution.replace('S','')) || 5;
+
+                        // Multiply by countBack and add a 3x buffer for weekends/holidays
+                        const lookbackSeconds = (countBack || 300) * resSeconds * 3;
+                        const safeMinTime = maxTime - lookbackSeconds;
+
                         const forceQuery = `
                             SELECT 
                                 time * 1000 as time,
@@ -187,7 +205,7 @@ const Datafeed = {
                                 close,
                                 volume
                             FROM read_parquet('${virtualFileName}')
-                            WHERE time <= ${maxTime} AND time >= ${maxTime - 2592000}
+                            WHERE time <= ${maxTime} AND time >= ${safeMinTime}
                         `;
                         const forceResults = await conn.query(forceQuery);
                         await window.db.dropFile(virtualFileName);
