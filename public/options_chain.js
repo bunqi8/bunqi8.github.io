@@ -204,6 +204,18 @@ async function selectExpiry(expiry) {
     currentExpiry = expiry;
     updateExpiryStrip();
     
+    // In background, instantly check if this specific tab has newer data on HF. If so, it will sync and re-render.
+    if (window.SyncManager) {
+        window.SyncManager.forceSyncExpiry(expiry.dateStr).then(updated => {
+            if (updated && currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+                // If it updated, fetch the freshest copy from DB and re-render
+                window.SyncManager.getExpiry(expiry.dateStr).then(fresh => {
+                    if (fresh) selectExpiry(fresh);
+                });
+            }
+        });
+    }
+    
     window.ACTIVE_EXPIRY_FOLDER = expiry.folderPath;
     window.ACTIVE_EXPIRY_FILES = expiry.files; // Use cached files
     
