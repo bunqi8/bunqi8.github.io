@@ -4,6 +4,16 @@
 // -----------------------------------------------------------------------
 
 const configurationData = {
+    supported_resolutions: [
+        // Seconds
+        '1S', '5S', '10S', '15S', '30S', '45S',
+        // Minutes
+        '1', '2', '3', '5', '10', '15', '30', '45',
+        // Hours
+        '60', '120', '180', '240',
+        // Days, Weeks, Months
+        '1D', '1W', '1M', '3M', '6M', '12M'
+    ],
     exchanges: [{ value: 'CUSTOM', name: 'Custom', desc: 'Custom Datafeed' }],
     symbols_types: [{ name: 'Crypto', value: 'crypto'}],
 };
@@ -100,6 +110,7 @@ function arrowToTVBars(arrowResult) {
 const Datafeed = {
     onReady: (callback) => {
         setTimeout(() => callback({
+            supported_resolutions: configurationData.supported_resolutions,
             supports_marks: false,
             supports_timescale_marks: false,
             supports_time: true,
@@ -124,6 +135,7 @@ const Datafeed = {
             has_intraday: true,
             has_daily: true,
             has_weekly_and_monthly: false,
+            supported_resolutions: configurationData.supported_resolutions,
             intraday_multipliers: ['1', '5', '60'],
             has_seconds: true,
             seconds_multipliers: ['5'],
