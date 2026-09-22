@@ -313,11 +313,11 @@ const Datafeed = {
         const symbolInfo = {
             name: symbolName,
             full_name: symbolName,
-            description: symbolName + ' (Historical Data - Approx. Timings)',
+            description: symbolName,
             type: symbolName.includes('INDEX') ? 'index' : (symbolName.includes('FUT') ? 'futures' : 'option'),
             exchange: exchange,
             session: session,
-            timezone: 'Asia/Kolkata',
+            timezone: 'Etc/UTC',
             minmov: 1,
             pricescale: 100,
             has_intraday: true,
@@ -457,13 +457,13 @@ const Datafeed = {
         let conn;
         try {
             // Wait for the background sync manager to download the metadata for this symbol if it's missing
-            let fileUrls = [];
-            let maxTries = firstDataRequest ? 50 : 1; // Only poll on initial load to avoid hanging when paging backward into empty history
-            for (let i = 0; i < maxTries; i++) {
+            let fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
+            
+            // If no files found and this is the initial chart load, wait for the background sync to finish
+            if (fileUrls.length === 0 && firstDataRequest && window.SyncManager && window.SyncManager._syncPromise) {
+                DFLog.info('getBars', `No files in cache yet, waiting for background sync to complete...`);
+                try { await window.SyncManager._syncPromise; } catch(e) {}
                 fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
-                if (fileUrls.length > 0) break;
-                // If not found, wait and retry just in case the background queue is currently downloading it
-                if (i < maxTries - 1) await new Promise(r => setTimeout(r, 200));
             }
             
             // 1. Resolve Parquet files dynamically based on requested time range and symbol type

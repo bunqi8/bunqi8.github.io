@@ -162,7 +162,10 @@ async function fetchExpiries() {
             if (!currentExpiry) { const f = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER); if (f.length > 0) selectExpiry(f[f.length - 1]); }
         }
         
-        await window.SyncManager.syncRoot();
+        // Wait for the sync that was already started by cache.js on page load
+        if (window.SyncManager._syncPromise) {
+            await window.SyncManager._syncPromise;
+        }
         
         const fresh = await window.SyncManager.getAllExpiries();
         expiries = fresh.sort((a,b) => a.dateObjValue - b.dateObjValue);
