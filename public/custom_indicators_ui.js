@@ -133,33 +133,28 @@ function setupCustomIndicatorsDialog(widget) {
             } catch (e) {}
         }, 800);
 
-        // --- NATIVE MODAL HIJACK ---
-        let nativeBtnFound = false;
-        const checkInterval = setInterval(() => {
-            const nativeBtn = iframeDoc.getElementById('header-toolbar-indicators');
-            if (nativeBtn && !nativeBtnFound) {
-                nativeBtnFound = true;
-                clearInterval(checkInterval);
-                
-                // 1. Stop TradingView from seeing any of these events
-                ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(evt => {
-                    nativeBtn.addEventListener(evt, (e) => {
-                        e.stopPropagation();
-                    }, true);
-                });
-                
-                // 2. Trigger our modal cleanly
-                nativeBtn.addEventListener('click', (e) => {
-                    if (e.cancelable) e.preventDefault();
-                    openModal();
-                }, true);
-                
-                nativeBtn.addEventListener('touchend', (e) => {
-                    if (e.cancelable) e.preventDefault(); // Stop ghost click
-                    openModal();
-                }, true);
-            }
-        }, 100);
+        // --- NATIVE MODAL HIJACK (Event Delegation) ---
+        // TradingView destroys and recreates toolbars on mobile/resize, so a one-time lookup fails.
+        // We use capture phase delegation on the document root.
+        ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(evt => {
+            iframeDoc.documentElement.addEventListener(evt, (e) => {
+                const btn = e.target.closest('#header-toolbar-indicators, [data-name="header-toolbar-indicators"]');
+                if (btn) {
+                    e.stopPropagation(); // Hide from TradingView native handlers
+                    
+                    if (evt === 'click' || evt === 'touchend') {
+                        if (e.cancelable) e.preventDefault(); // Stop ghost clicks
+                        
+                        // Prevent rapid double-firing if touch and click both happen
+                        if (window._tvModalOpening) return;
+                        window._tvModalOpening = true;
+                        setTimeout(() => window._tvModalOpening = false, 300);
+                        
+                        openModal();
+                    }
+                }
+            }, true); // useCapture = true ensures we intercept before React
+        });
 
         const style = document.createElement('style');
         style.textContent = `
@@ -183,7 +178,7 @@ function setupCustomIndicatorsDialog(widget) {
                 touch-action: auto !important;
             }
             .tv-custom-modal-body {
-                display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb;
+                display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb; min-height: 0;
             }
             .tv-custom-modal-tabs {
                 width: 220px; display: flex; flex-direction: column; padding: 16px 12px; border-right: 1px solid #e0e3eb; background: #fafbfc;
@@ -270,7 +265,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabsContainer.appendChild(tabBuiltin);
         
         const listWrapper = document.createElement('div');
-        listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff;';
+        listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff; min-height:0;';
         
         const listHeader = document.createElement('div');
         listHeader.style.cssText = 'padding:16px 24px 8px 24px; font-size:11px; font-weight:600; color:#b2b5be; text-transform:uppercase; letter-spacing:0.4px;';
@@ -278,7 +273,7 @@ function setupCustomIndicatorsDialog(widget) {
 
         const listContainer = document.createElement('div');
         listContainer.className = 'tv-list-container';
-        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:0 12px 12px 12px;';
+        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:0 12px 12px 12px; min-height:0; touch-action: pan-y !important; -webkit-overflow-scrolling: touch;';
         
         listWrapper.appendChild(listHeader);
         listWrapper.appendChild(listContainer);
