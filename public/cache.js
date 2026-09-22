@@ -166,7 +166,27 @@ const SyncManager = {
             }
             
             if (outdated.length > 0) {
-                console.log(`[SyncManager] Found ${outdated.length} outdated folders. Starting slow background sync...`);
+                console.log(`[SyncManager] Found ${outdated.length} outdated folders. Starting prioritized background sync...`);
+                
+                let activeBase = window.ACTIVE_BASE_TICKER;
+                if (!activeBase) {
+                    try {
+                        const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
+                        const possible = [...new Set(outdated.map(o => o.remote.baseTicker))];
+                        activeBase = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
+                    } catch(e) {}
+                }
+                
+                outdated.sort((a, b) => {
+                    const aIsActive = a.remote.baseTicker === activeBase;
+                    const bIsActive = b.remote.baseTicker === activeBase;
+                    
+                    if (aIsActive && !bIsActive) return -1;
+                    if (!aIsActive && bIsActive) return 1;
+                    
+                    return b.remote.dateStr.localeCompare(a.remote.dateStr);
+                });
+                
                 this._processQueue(outdated);
             } else {
                 console.log("[SyncManager] Cache is completely up to date!");
