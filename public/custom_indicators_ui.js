@@ -34,22 +34,33 @@ function setupCustomIndicatorsDialog(widget) {
                 if (!iframe) return;
                 const iframeDoc = iframe.contentWindow.document;
                 
-                // Hook into the 'delete' (trash) button since it's present on all studies but NOT on the main chart series
-                const deleteButtons = iframeDoc.querySelectorAll('[data-name="legend-delete-action"]');
-                deleteButtons.forEach(btn => {
+                // Hook into 'delete' or 'settings' buttons (TV uses data-name or data-qa-id depending on version)
+                const actionButtons = iframeDoc.querySelectorAll([
+                    '[data-name="legend-delete-action"]', 
+                    '[data-qa-id="legend-delete-action"]',
+                    '[data-name="legend-settings-action"]',
+                    '[data-qa-id="legend-settings-action"]'
+                ].join(', '));
+                
+                actionButtons.forEach(btn => {
                     const container = btn.parentNode;
-                    if (!container || container.dataset.injectedSourceBtn) return;
+                    if (!container) return;
+                    
+                    // Critical React Fix: React might reuse the container but wipe our injected child.
+                    // We must check if our button physically exists, not just rely on a dataset flag.
+                    if (container.querySelector('.tv-custom-source-btn')) return;
                     
                     // Get the study title to map it to our local indicators
                     let studyTitle = "";
-                    const legendItem = container.closest('[data-name="legend-item"]') || container.parentElement.parentElement;
+                    const legendItem = container.closest('[data-name="legend-item"], [data-qa-id="legend-item"], tr, [class*="legend-item"]');
                     if (legendItem) {
-                        const titleEl = legendItem.querySelector('[data-name="legend-source-title"]');
-                        if (titleEl) studyTitle = titleEl.textContent;
+                        const titleEl = legendItem.querySelector('[data-name="legend-source-title"], [data-qa-id="legend-source-title"], [class*="title"]');
+                        if (titleEl) studyTitle = titleEl.textContent.trim();
                     }
 
                     // Create the {} button
                     const srcBtn = iframeDoc.createElement('div');
+                    srcBtn.className = 'tv-custom-source-btn';
                     srcBtn.innerHTML = '{ }';
                     srcBtn.title = 'Open Local Code Editor';
                     srcBtn.style.cssText = 'display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin:0 2px; cursor:pointer; font-family:"JetBrains Mono", Consolas, monospace; font-weight:700; font-size:13px; color:#131722; border-radius:4px; transition:0.2s;';
@@ -81,9 +92,14 @@ function setupCustomIndicatorsDialog(widget) {
                         }, 50);
                     };
                     
-                    // Insert right BEFORE the delete button
-                    container.insertBefore(srcBtn, btn);
-                    container.dataset.injectedSourceBtn = "true";
+                    // Insert right BEFORE the delete button or AT THE END of the container
+                    if (btn.getAttribute('data-name') === 'legend-delete-action' || btn.getAttribute('data-qa-id') === 'legend-delete-action') {
+                        container.insertBefore(srcBtn, btn);
+                    } else if (btn.nextSibling) {
+                        container.insertBefore(srcBtn, btn.nextSibling);
+                    } else {
+                        container.appendChild(srcBtn);
+                    }
                 });
             } catch (e) {}
         }, 800);
