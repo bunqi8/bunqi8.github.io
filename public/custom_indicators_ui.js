@@ -246,8 +246,44 @@ function setupCustomIndicatorsDialog(widget) {
             return false;
         }
         
+        // Helper: find and hide any native indicators dialog in the iframe
+        function findAndHideNativeDialog() {
+            // Check all direct children of body for dialog-like overlays
+            const candidates = iframeDoc.body.querySelectorAll('[role="dialog"], [data-name*="dialog"], [class*="dialog"]');
+            for (const candidate of candidates) {
+                // Skip our own elements
+                if (candidate.closest('.tv-custom-modal-overlay')) continue;
+                
+                const text = candidate.textContent || '';
+                if ((text.includes('Accumulation') && text.includes('Bollinger')) ||
+                    (text.includes('Indicators') && text.includes('strategies')) ||
+                    (text.includes('Aroon') && text.includes('Average Price'))) {
+                    
+                    console.log('[Custom UI] Native dialog found via polling — hiding!');
+                    candidate.style.display = 'none';
+                    setTimeout(() => { try { candidate.remove(); } catch(e) {} }, 50);
+                    
+                    if (!window._tvModalOpening) {
+                        window._tvModalOpening = true;
+                        setTimeout(() => window._tvModalOpening = false, 400);
+                        openModal();
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+        
         // Start observing. Use subtree:true because TV might nest the dialog deep.
         nativeDialogObserver.observe(iframeDoc.body, { childList: true, subtree: true });
+        
+        // Strategy 3: Polling fallback — catches lazily-rendered dialogs that the
+        // MutationObserver might miss if content loads after the container is added.
+        setInterval(() => {
+            // Only check when our custom modal is NOT visible (to avoid false positives)
+            if (modalOverlay && modalOverlay.classList.contains('visible')) return;
+            findAndHideNativeDialog();
+        }, 300);
 
         const style = document.createElement('style');
         style.textContent = `
