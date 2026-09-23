@@ -133,28 +133,121 @@ function setupCustomIndicatorsDialog(widget) {
             } catch (e) {}
         }, 800);
 
-        // --- NATIVE MODAL HIJACK (Event Delegation) ---
-        // TradingView destroys and recreates toolbars on mobile/resize, so a one-time lookup fails.
-        // We use capture phase delegation on the document root.
+        // --- NATIVE MODAL HIJACK (MutationObserver + Event Delegation) ---
+        // 
+        // ROOT CAUSE: TradingView uses React synthetic events internally.
+        // React registers ONE listener on the root and dispatches synthetically,
+        // so our capture-phase stopPropagation() CANNOT prevent React's onClick
+        // from firing on mobile. The native indicators dialog opens regardless.
+        //
+        // SOLUTION: Use a MutationObserver to detect the native dialog the instant
+        // it appears in the DOM, hide it immediately, and open our custom modal.
+        // This works no matter HOW the dialog was triggered.
+        //
+        
+        // Strategy 1: Event delegation (works on desktop, may work on some mobile)
         ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(evt => {
             iframeDoc.documentElement.addEventListener(evt, (e) => {
                 const btn = e.target.closest('#header-toolbar-indicators, [data-name="header-toolbar-indicators"]');
                 if (btn) {
-                    e.stopPropagation(); // Hide from TradingView native handlers
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    if (e.cancelable) e.preventDefault();
                     
                     if (evt === 'click' || evt === 'touchend') {
-                        if (e.cancelable) e.preventDefault(); // Stop ghost clicks
-                        
-                        // Prevent rapid double-firing if touch and click both happen
                         if (window._tvModalOpening) return;
                         window._tvModalOpening = true;
-                        setTimeout(() => window._tvModalOpening = false, 300);
-                        
+                        setTimeout(() => window._tvModalOpening = false, 400);
                         openModal();
                     }
                 }
-            }, true); // useCapture = true ensures we intercept before React
+            }, true);
         });
+        
+        // Strategy 2: MutationObserver — the nuclear option that ALWAYS works.
+        // Watches for TradingView's native indicators dialog appearing in the DOM.
+        // When detected, hides it instantly and opens our custom modal.
+        const nativeDialogObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== 1) continue; // Skip text nodes
+                    
+                    // TradingView's indicators dialog is a full-screen overlay div
+                    // appended directly to the iframe body. We detect it by checking
+                    // for the search input and study list content that only exists
+                    // in the indicators dialog.
+                    const isIndicatorsDialog = detectNativeIndicatorsDialog(node);
+                    if (isIndicatorsDialog) {
+                        console.log('[Custom UI] Native indicators dialog detected — hijacking!');
+                        
+                        // Hide it instantly (display:none so it doesn't flash)
+                        node.style.display = 'none';
+                        
+                        // Remove it from DOM after a tiny delay to avoid React errors
+                        setTimeout(() => {
+                            try { node.remove(); } catch(e) {}
+                        }, 50);
+                        
+                        // Open our custom modal (debounced to prevent double-open)
+                        if (!window._tvModalOpening) {
+                            window._tvModalOpening = true;
+                            setTimeout(() => window._tvModalOpening = false, 400);
+                            openModal();
+                        }
+                        return;
+                    }
+                }
+            }
+        });
+        
+        // Detect if a DOM node is TradingView's native "Indicators, metrics, and strategies" dialog
+        function detectNativeIndicatorsDialog(node) {
+            // Quick bail-out: must be an element with children
+            if (!node.querySelector) return false;
+            
+            // Method 1: Check for data-name attribute pattern used by TV dialogs
+            if (node.getAttribute && (
+                node.getAttribute('data-name') === 'indicators-dialog' ||
+                node.getAttribute('data-dialog-name') === 'indicators' ||
+                node.getAttribute('data-name') === 'insert-study-dialog'
+            )) return true;
+            
+            // Method 2: Check role="dialog" with indicator-related content  
+            if (node.getAttribute && node.getAttribute('role') === 'dialog') {
+                const text = node.textContent || '';
+                if (text.includes('Indicators') || text.includes('Accumulation') || text.includes('Bollinger')) {
+                    return true;
+                }
+            }
+            
+            // Method 3: Check for TradingView's specific dialog structure
+            // The dialog is typically a full-viewport overlay with a search input inside
+            const hasSearch = node.querySelector && node.querySelector('input[type="text"], input[placeholder*="Search"], input[data-role="search"]');
+            if (hasSearch) {
+                const text = node.textContent || '';
+                // Must contain indicator names (these are always present in the dialog)
+                if ((text.includes('Accumulation') && text.includes('Bollinger')) || 
+                    (text.includes('Indicators') && text.includes('strategies'))) {
+                    return true;
+                }
+            }
+            
+            // Method 4: Deep check — look inside for the dialog within a wrapper
+            const innerDialogs = node.querySelectorAll ? node.querySelectorAll('[role="dialog"], [data-name*="dialog"]') : [];
+            for (const inner of innerDialogs) {
+                const innerText = inner.textContent || '';
+                if ((innerText.includes('Accumulation') && innerText.includes('Bollinger')) ||
+                    (innerText.includes('Indicators') && innerText.includes('strategies'))) {
+                    // Hide the wrapper, not just the inner dialog
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+        
+        // Start observing. Use subtree:true because TV might nest the dialog deep.
+        nativeDialogObserver.observe(iframeDoc.body, { childList: true, subtree: true });
 
         const style = document.createElement('style');
         style.textContent = `
@@ -546,7 +639,10 @@ function setupCustomIndicatorsDialog(widget) {
             tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
             renderList();
-            setTimeout(() => searchInput.focus(), 100);
+            // Only auto-focus search on desktop — on mobile this pops up the keyboard
+            if (!('ontouchstart' in window) && !navigator.maxTouchPoints) {
+                setTimeout(() => searchInput.focus(), 100);
+            }
         }
         
         function closeModal(e) {
