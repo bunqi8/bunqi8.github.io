@@ -84,13 +84,19 @@ const SyncManager = {
                         const yyyymmdd = `${dParts[2]}${dParts[1]}${dParts[0]}`;
                         const dateObjValue = parseInt(ts) * 1000;
                         const mStr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][parseInt(dParts[1])-1];
+                        const year = parseInt(dParts[2], 10);
+                        let monthLabel = mStr;
+                        const currentYear = new Date().getFullYear();
+                        if (year !== currentYear && year > 2000) {
+                            monthLabel += " '" + (year % 100).toString().padStart(2, '0');
+                        }
                         csvExpiries.push({
                             id: `dummy_${bt}_${yyyymmdd}`,
                             baseTicker: bt,
                             dateStr: yyyymmdd,
                             dateObjValue: dateObjValue,
                             day: dParts[0],
-                            monthLabel: `${mStr} ${dParts[2]}`,
+                            monthLabel: monthLabel,
                             isDummy: true
                         });
                     }
