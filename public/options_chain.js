@@ -30,11 +30,17 @@ style.innerHTML = `
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
     .oc-expiry.disabled { opacity: 0.5; cursor: not-allowed; background: #f0f3fa; color: #787b86; text-decoration: line-through; pointer-events: none; }
-    .oc-expiry.golden { background: #e8f5e9; color: #2e7d32; border: 1px solid #81c784; }
-    .oc-expiry.golden:hover { background: #c8e6c9; }
-    .oc-expiry.golden.active { background: #2e7d32; color: white; border-color: #2e7d32; }
-    .oc-expiry.golden.disabled { opacity: 0.8; cursor: not-allowed; text-decoration: none; pointer-events: none; background: #f1f8e9; border: 1px dashed #81c784; }
+    @keyframes goldenPulse {
+        0% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0.4); }
+        70% { box-shadow: 0 0 0 5px rgba(255, 171, 0, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0); }
+    }
+    .oc-expiry.golden { background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%); color: #f57f17; border: 1px solid #ffd54f; animation: goldenPulse 2s infinite; font-weight: 600; }
+    .oc-expiry.golden:hover { background: linear-gradient(135deg, #ffecb3 0%, #ffe082 100%); }
+    .oc-expiry.golden.active { background: linear-gradient(135deg, #f57f17 0%, #ffb300 100%); color: white; border-color: #f57f17; animation: none; }
+    .oc-expiry.golden.disabled { opacity: 0.9; cursor: not-allowed; text-decoration: none; pointer-events: none; background: #fffde7; border: 1px dashed #ffc107; animation: goldenPulse 2s infinite; }
     
+    .oc-base-btn .golden-dot { display: inline-block; margin-left: 3px; font-size: 11px; animation: goldenPulse 2s infinite; border-radius: 50%; }
     .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
     .oc-table-header { flex-shrink: 0; display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
     .oc-col { flex: 1; text-align: center; }
@@ -274,6 +280,7 @@ function updateExpiryStrip() {
     
     possibleBaseTickers.forEach(bt => {
         const btn = document.createElement('button');
+        btn.id = 'oc-base-btn-' + bt;
         btn.className = `oc-base-btn ${window.ACTIVE_BASE_TICKER === bt ? 'active' : ''}`;
         btn.innerText = bt.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '');
         btn.onclick = () => {
@@ -397,7 +404,78 @@ function updateExpiryStrip() {
         }
         currentDaysRow.appendChild(btn);
     });
+    
+    if (window.checkGlobalGoldenPeriod) {
+        window.checkGlobalGoldenPeriod();
+    }
 }
+
+window.checkGlobalGoldenPeriod = function() {
+    if (!window.SyncManager) return;
+    window.SyncManager.getAllCsvExpiries().then(allCsvs => {
+        let anyGolden = false;
+        const now = Date.now();
+        allCsvs.forEach(item => {
+            const bt = item.baseTicker;
+            const csvs = item.data;
+            let hasGolden = false;
+            for (const ce of csvs) {
+                if (now >= ce.dateObjValue) {
+                    const nextMidnightUTC = new Date(ce.dateObjValue);
+                    nextMidnightUTC.setUTCHours(24, 0, 0, 0);
+                    if (now < nextMidnightUTC.getTime()) {
+                        hasGolden = true;
+                        anyGolden = true;
+                        break;
+                    }
+                }
+            }
+            if (hasGolden) {
+                const baseBtn = document.getElementById(`oc-base-btn-${bt}`);
+                if (baseBtn && !baseBtn.querySelector('.golden-dot')) {
+                    baseBtn.innerHTML += ` <span class="golden-dot">✨</span>`;
+                }
+            }
+        });
+        
+        // Pulse the main Option Chain button in the iframe if there's any golden expiry
+        const iframe = document.querySelector('iframe[id^="tradingview_"]');
+        if (iframe) {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            const mainBtn = doc.getElementById('btn-option-chain-real');
+            if (mainBtn) {
+                if (anyGolden) {
+                    mainBtn.classList.add('golden-pulse-btn');
+                } else {
+                    mainBtn.classList.remove('golden-pulse-btn');
+                }
+            }
+            
+            // Inject the pulse animation into the iframe if not already there
+            if (!doc.getElementById('golden-pulse-style')) {
+                const style = doc.createElement('style');
+                style.id = 'golden-pulse-style';
+                style.innerHTML = `
+                    @keyframes goldenPulseMain {
+                        0% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0.4); }
+                        70% { box-shadow: 0 0 0 5px rgba(255, 171, 0, 0); }
+                        100% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0); }
+                    }
+                    .golden-pulse-btn {
+                        animation: goldenPulseMain 2s infinite !important;
+                        border: 1px solid #ffd54f !important;
+                        background: rgba(255, 193, 7, 0.1) !important;
+                    }
+                `;
+                doc.head.appendChild(style);
+            }
+        }
+    });
+};
+
+window.addEventListener('hf_csv_updated', () => {
+    if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
+});
 
 async function selectExpiry(expiry) {
     currentExpiry = expiry;
