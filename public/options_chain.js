@@ -103,9 +103,15 @@ function buildModal() {
 }
 
 window.CSV_EXPIRIES_CACHE = window.CSV_EXPIRIES_CACHE || {};
+window._csv_fetching = window._csv_fetching || {};
 
 async function fetchCsvExpiries(baseTicker) {
-    if (window.CSV_EXPIRIES_CACHE[baseTicker]) return window.CSV_EXPIRIES_CACHE[baseTicker];
+    if (window.CSV_EXPIRIES_CACHE[baseTicker] && window.CSV_EXPIRIES_CACHE[baseTicker].length > 0) {
+        return window.CSV_EXPIRIES_CACHE[baseTicker];
+    }
+    if (window._csv_fetching[baseTicker]) return []; // prevent concurrent fetches
+    
+    window._csv_fetching[baseTicker] = true;
     try {
         const url = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${baseTicker}/${baseTicker}_expiries.csv`;
         const res = await fetch(url);
@@ -137,8 +143,10 @@ async function fetchCsvExpiries(baseTicker) {
         }
         csvExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
         window.CSV_EXPIRIES_CACHE[baseTicker] = csvExpiries;
+        window._csv_fetching[baseTicker] = false;
         return csvExpiries;
     } catch(e) {
+        window._csv_fetching[baseTicker] = false;
         return [];
     }
 }
@@ -299,10 +307,9 @@ function updateExpiryStrip() {
     const filteredExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
     
     // Fetch CSV in background if not cached, then re-render
-    if (window.ACTIVE_BASE_TICKER && !window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER]) {
-        window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER] = []; // prevent infinite loop
-        fetchCsvExpiries(window.ACTIVE_BASE_TICKER).then(() => {
-            updateExpiryStrip();
+    if (window.ACTIVE_BASE_TICKER && !window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER] && !window._csv_fetching[window.ACTIVE_BASE_TICKER]) {
+        fetchCsvExpiries(window.ACTIVE_BASE_TICKER).then(data => {
+            if (data && data.length > 0) updateExpiryStrip();
         });
     }
 
