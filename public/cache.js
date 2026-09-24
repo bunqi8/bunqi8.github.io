@@ -1,5 +1,5 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
 
 const SyncManager = {
@@ -18,8 +18,12 @@ const SyncManager = {
                 if (db.objectStoreNames.contains('parquetFiles')) {
                     db.deleteObjectStore('parquetFiles');
                 }
+                if (db.objectStoreNames.contains('csvExpiries')) {
+                    db.deleteObjectStore('csvExpiries');
+                }
                 db.createObjectStore('expiries', { keyPath: 'id' });
                 db.createObjectStore('parquetFiles', { keyPath: 'url' });
+                db.createObjectStore('csvExpiries', { keyPath: 'baseTicker' });
             };
             req.onsuccess = (e) => {
                 this.db = e.target.result;
@@ -27,6 +31,65 @@ const SyncManager = {
             };
             req.onerror = () => reject(req.error);
         });
+    },
+
+    async getCsvExpiries(baseTicker) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('csvExpiries', 'readonly');
+            const req = tx.objectStore('csvExpiries').get(baseTicker);
+            req.onsuccess = () => resolve(req.result ? req.result.data : null);
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    async saveCsvExpiries(baseTicker, data) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('csvExpiries', 'readwrite');
+            const store = tx.objectStore('csvExpiries');
+            const req = store.put({ baseTicker, data, lastUpdated: Date.now() });
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    },
+    
+    async syncCsvExpiries(baseTickers) {
+        for (const bt of baseTickers) {
+            try {
+                const url = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${bt}/${bt}_expiries.csv`;
+                const res = await fetch(url);
+                if (!res.ok) continue;
+                const text = await res.text();
+                const lines = text.trim().split('\n').slice(1);
+                const csvExpiries = [];
+                for (const line of lines) {
+                    const parts = line.split(',');
+                    if (parts.length < 2) continue;
+                    const dateStrRaw = parts[0];
+                    const ts = parts[1];
+                    if (!dateStrRaw || !ts) continue;
+                    const dParts = dateStrRaw.split('-');
+                    if (dParts.length === 3) {
+                        const yyyymmdd = `${dParts[2]}${dParts[1]}${dParts[0]}`;
+                        const dateObjValue = parseInt(ts) * 1000;
+                        const mStr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][parseInt(dParts[1])-1];
+                        csvExpiries.push({
+                            id: `dummy_${bt}_${yyyymmdd}`,
+                            baseTicker: bt,
+                            dateStr: yyyymmdd,
+                            dateObjValue: dateObjValue,
+                            day: dParts[0],
+                            monthLabel: `${mStr} ${dParts[2]}`,
+                            isDummy: true
+                        });
+                    }
+                }
+                csvExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+                await this.saveCsvExpiries(bt, csvExpiries);
+                window.dispatchEvent(new CustomEvent('hf_csv_updated', { detail: bt }));
+            } catch(e) {}
+        }
     },
 
     
@@ -211,6 +274,9 @@ const SyncManager = {
                     baseTickers.push(item.path);
                 }
             }
+            
+            // Kick off CSV sync in background for all base tickers
+            this.syncCsvExpiries(baseTickers).catch(e => console.error("CSV sync failed", e));
             
             await Promise.all(baseTickers.map(async (baseTicker) => {
                 try {
