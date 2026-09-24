@@ -157,6 +157,14 @@ window.openOptionsChainModal = function() {
         const filtered = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
         if (filtered.length > 0) selectExpiry(filtered[filtered.length - 1]);
     }
+    
+    // Smoothly scroll the active tab into view after rendering
+    setTimeout(() => {
+        const activeTab = document.querySelector('#oc_base_strip .oc-base-btn.active');
+        if (activeTab) {
+            activeTab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+    }, 100);
 };
 
 window.closeOptionsChainModal = function() {
@@ -231,11 +239,7 @@ function updateExpiryStrip() {
         return (popMap[baseA] || 99) - (popMap[baseB] || 99) || baseA.localeCompare(baseB);
     });
     
-    // Ensure currently selected ticker is always first in the list
-    if (window.ACTIVE_BASE_TICKER && possibleBaseTickers.includes(window.ACTIVE_BASE_TICKER)) {
-        possibleBaseTickers = possibleBaseTickers.filter(bt => bt !== window.ACTIVE_BASE_TICKER);
-        possibleBaseTickers.unshift(window.ACTIVE_BASE_TICKER);
-    }
+    // Ensure tabs remain in a stable sorted order instead of jumping around.
     
     possibleBaseTickers.forEach(bt => {
         const btn = document.createElement('button');
