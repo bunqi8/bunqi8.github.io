@@ -30,6 +30,10 @@ style.innerHTML = `
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
     .oc-expiry.disabled { opacity: 0.5; cursor: not-allowed; background: #f0f3fa; color: #787b86; text-decoration: line-through; pointer-events: none; }
+    .oc-expiry.golden { background: #e8f5e9; color: #2e7d32; border: 1px solid #81c784; }
+    .oc-expiry.golden:hover { background: #c8e6c9; }
+    .oc-expiry.golden.active { background: #2e7d32; color: white; border-color: #2e7d32; }
+    .oc-expiry.golden.disabled { opacity: 0.8; cursor: not-allowed; text-decoration: none; pointer-events: none; background: #f1f8e9; border: 1px dashed #81c784; }
     
     .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
     .oc-table-header { flex-shrink: 0; display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
@@ -313,6 +317,22 @@ function updateExpiryStrip() {
         }
     }
     
+    const csvMap = new Map();
+    csvExpiries.forEach(c => csvMap.set(c.dateStr, c));
+
+    for (const exp of combined) {
+        const ce = csvMap.get(exp.dateStr);
+        if (ce) {
+            if (now >= ce.dateObjValue) {
+                const nextMidnightUTC = new Date(ce.dateObjValue);
+                nextMidnightUTC.setUTCHours(24, 0, 0, 0);
+                if (now < nextMidnightUTC.getTime()) {
+                    exp.isGolden = true;
+                }
+            }
+        }
+    }
+    
     combined.sort((a,b) => a.dateObjValue - b.dateObjValue);
     
     // Update Title & Index button
@@ -356,13 +376,23 @@ function updateExpiryStrip() {
         }
         
         const btn = document.createElement('button');
+        let classes = ['oc-expiry'];
+        if (exp.isDummy) classes.push('disabled');
+        if (exp.isGolden) classes.push('golden');
+        if (!exp.isDummy && currentExpiry && currentExpiry.id === exp.id) classes.push('active');
+        
+        btn.className = classes.join(' ');
+        btn.innerText = exp.day;
+        
+        if (exp.isGolden && exp.isDummy) {
+            btn.title = "Session ended. Download the latest data to view this expiry.";
+        } else if (exp.isGolden && !exp.isDummy) {
+            btn.title = "Latest data downloaded successfully!";
+        }
+        
         if (exp.isDummy) {
-            btn.className = 'oc-expiry disabled';
-            btn.innerText = exp.day;
             btn.onclick = null;
         } else {
-            btn.className = `oc-expiry ${currentExpiry && currentExpiry.id === exp.id ? 'active' : ''}`;
-            btn.innerText = exp.day;
             btn.onclick = () => selectExpiry(exp);
         }
         currentDaysRow.appendChild(btn);
