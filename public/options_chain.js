@@ -29,6 +29,7 @@ style.innerHTML = `
     .oc-expiry, .oc-btn-native { padding: 4px 10px; border-radius: 6px; border: none; background: #f0f3fa; cursor: pointer; font-size: 13px; color: #131722; font-weight: 500; transition: background 0.2s; }
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
+    .oc-expiry.disabled { opacity: 0.5; cursor: not-allowed; background: #f0f3fa; color: #787b86; text-decoration: line-through; pointer-events: none; }
     
     .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
     .oc-table-header { flex-shrink: 0; display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
@@ -99,6 +100,47 @@ function buildModal() {
     modalOverlay.addEventListener('click', (e) => {
         if (e.target === modalOverlay) window.closeOptionsChainModal();
     });
+}
+
+window.CSV_EXPIRIES_CACHE = window.CSV_EXPIRIES_CACHE || {};
+
+async function fetchCsvExpiries(baseTicker) {
+    if (window.CSV_EXPIRIES_CACHE[baseTicker]) return window.CSV_EXPIRIES_CACHE[baseTicker];
+    try {
+        const url = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${baseTicker}/${baseTicker}_expiries.csv`;
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const text = await res.text();
+        const lines = text.trim().split('\n').slice(1);
+        const csvExpiries = [];
+        for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length < 2) continue;
+            const dateStrRaw = parts[0];
+            const ts = parts[1];
+            if (!dateStrRaw || !ts) continue;
+            const dParts = dateStrRaw.split('-');
+            if (dParts.length === 3) {
+                const yyyymmdd = `${dParts[2]}${dParts[1]}${dParts[0]}`;
+                const dateObjValue = parseInt(ts) * 1000;
+                const mStr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][parseInt(dParts[1])-1];
+                csvExpiries.push({
+                    id: `dummy_${baseTicker}_${yyyymmdd}`,
+                    baseTicker: baseTicker,
+                    dateStr: yyyymmdd,
+                    dateObjValue: dateObjValue,
+                    day: dParts[0],
+                    monthLabel: `${mStr} ${dParts[2]}`,
+                    isDummy: true
+                });
+            }
+        }
+        csvExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+        window.CSV_EXPIRIES_CACHE[baseTicker] = csvExpiries;
+        return csvExpiries;
+    } catch(e) {
+        return [];
+    }
 }
 
 window.openOptionsChainModal = function() {
@@ -256,6 +298,39 @@ function updateExpiryStrip() {
 
     const filteredExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
     
+    // Fetch CSV in background if not cached, then re-render
+    if (window.ACTIVE_BASE_TICKER && !window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER]) {
+        window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER] = []; // prevent infinite loop
+        fetchCsvExpiries(window.ACTIVE_BASE_TICKER).then(() => {
+            updateExpiryStrip();
+        });
+    }
+
+    const csvExpiries = window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER] || [];
+    let combined = [...filteredExpiries];
+    const actualDateStrs = new Set(filteredExpiries.map(e => e.dateStr));
+    
+    const now = Date.now();
+    let nextFutureDateObj = null;
+    for (const ce of csvExpiries) {
+        if (ce.dateObjValue > now) {
+            nextFutureDateObj = ce.dateObjValue;
+            break;
+        }
+    }
+    
+    for (const ce of csvExpiries) {
+        if (!actualDateStrs.has(ce.dateStr)) {
+            if (ce.dateObjValue <= now) {
+                combined.push(ce);
+            } else if (ce.dateObjValue === nextFutureDateObj) {
+                combined.push(ce);
+            }
+        }
+    }
+    
+    combined.sort((a,b) => a.dateObjValue - b.dateObjValue);
+    
     // Update Title & Index button
     const titleEl = document.querySelector('.oc-title');
     const prettyName = window.ACTIVE_BASE_TICKER ? window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') : 'Options';
@@ -266,7 +341,6 @@ function updateExpiryStrip() {
     const btnIndex = document.getElementById('btn_index');
     if (btnIndex && window.ACTIVE_BASE_TICKER) {
         let idxSymbol = window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
-        // Append -INDEX based on standard behavior unless it already has it (some might just be 'SENSEX-INDEX', some 'NIFTY50-INDEX')
         if (!idxSymbol.endsWith('-INDEX')) idxSymbol += '-INDEX';
         btnIndex.onclick = () => {
             window.loadSymbol(idxSymbol);
@@ -279,7 +353,7 @@ function updateExpiryStrip() {
     let currentDaysRow = null;
     
     // Maintain chronological order but group by monthLabel
-    filteredExpiries.forEach(exp => {
+    combined.forEach(exp => {
         if (exp.monthLabel !== lastMonthLabel) {
             currentGroupDiv = document.createElement('div');
             currentGroupDiv.className = 'oc-month-group';
@@ -298,9 +372,15 @@ function updateExpiryStrip() {
         }
         
         const btn = document.createElement('button');
-        btn.className = `oc-expiry ${currentExpiry && currentExpiry.id === exp.id ? 'active' : ''}`;
-        btn.innerText = exp.day;
-        btn.onclick = () => selectExpiry(exp);
+        if (exp.isDummy) {
+            btn.className = 'oc-expiry disabled';
+            btn.innerText = exp.day;
+            btn.onclick = null;
+        } else {
+            btn.className = `oc-expiry ${currentExpiry && currentExpiry.id === exp.id ? 'active' : ''}`;
+            btn.innerText = exp.day;
+            btn.onclick = () => selectExpiry(exp);
+        }
         currentDaysRow.appendChild(btn);
     });
 }
