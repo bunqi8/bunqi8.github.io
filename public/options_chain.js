@@ -68,7 +68,7 @@ function buildModal() {
                     NIFTY Options
                 </div>
                 <div style="display:flex; align-items:center; gap: 8px; margin-left: auto; margin-right: 24px;">
-                    <button class="oc-btn-native" onclick="window.loadSymbol('NIFTY50-INDEX')">Index</button>
+                    <button class="oc-btn-native" id="btn_index" onclick="window.loadSymbol('NIFTY50-INDEX')">Index</button>
                     <button class="oc-btn-native" id="btn_futures" style="display:none;" onclick="">Futures</button>
                 </div>
                 <div class="oc-close" onclick="window.closeOptionsChainModal()">
@@ -111,12 +111,25 @@ window.openOptionsChainModal = function() {
     if (!modalOverlay) buildModal();
     modalOverlay.style.display = 'flex';
     
+    // Auto-detect Base Ticker from current chart symbol
+    try {
+        const chartSym = window.tvWidget.activeChart().symbol();
+        if (expiries && expiries.length > 0) {
+            const possible = [...new Set(expiries.map(e => e.baseTicker))];
+            let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
+            if (found && window.ACTIVE_BASE_TICKER !== found) {
+                window.ACTIVE_BASE_TICKER = found;
+                currentExpiry = null; // force re-selection
+            }
+        }
+    } catch(e) {}
+
     let targetExpiry = currentExpiry;
     
     // Auto-detect expiry from current chart symbol
     try {
         const symbol = window.tvWidget.activeChart().symbol();
-        const match = symbol.match(/NIFTY(\d{2})([1-9OND])(\d{2})\d{5}[CP]E/);
+        const match = symbol.match(/^[A-Z]+(\d{2})([1-9OND])(\d{2})\d{5}[CP]E/);
         if (match) {
             let y = match[1];
             let mStr = match[2];
@@ -128,8 +141,8 @@ window.openOptionsChainModal = function() {
             else if (mStr === 'D') m = '12';
             else m = mStr.padStart(2, '0');
             
-            // Format to match dateStr (e.g. "20260915")
             let symDateStr = `20${y}${m}${d}`;
+            const filteredExpiries = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
             const found = filteredExpiries.find(e => e.dateStr === symDateStr);
             if (found) targetExpiry = found;
         }
@@ -139,6 +152,10 @@ window.openOptionsChainModal = function() {
         fetchExpiries();
     } else if (targetExpiry) {
         selectExpiry(targetExpiry);
+    } else {
+        // Fallback to most recent expiry for the active base ticker
+        const filtered = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
+        if (filtered.length > 0) selectExpiry(filtered[filtered.length - 1]);
     }
 };
 
@@ -204,7 +221,22 @@ function updateExpiryStrip() {
     strip.innerHTML = '';
     baseStrip.innerHTML = '';
     
-    const possibleBaseTickers = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
+    let possibleBaseTickers = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
+    const popMap = { 'NIFTY50':1, 'NIFTY':1, 'BANKNIFTY':2, 'SENSEX':3, 'FINNIFTY':4, 'BANKEX':5, 'MIDCPNIFTY':6, 'NIFTYNXT50':7, 'SX50':8 };
+    
+    // Sort based on popularity
+    possibleBaseTickers.sort((a, b) => {
+        const baseA = a.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+        const baseB = b.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+        return (popMap[baseA] || 99) - (popMap[baseB] || 99) || baseA.localeCompare(baseB);
+    });
+    
+    // Ensure currently selected ticker is always first in the list
+    if (window.ACTIVE_BASE_TICKER && possibleBaseTickers.includes(window.ACTIVE_BASE_TICKER)) {
+        possibleBaseTickers = possibleBaseTickers.filter(bt => bt !== window.ACTIVE_BASE_TICKER);
+        possibleBaseTickers.unshift(window.ACTIVE_BASE_TICKER);
+    }
+    
     possibleBaseTickers.forEach(bt => {
         const btn = document.createElement('button');
         btn.className = `oc-base-btn ${window.ACTIVE_BASE_TICKER === bt ? 'active' : ''}`;
@@ -220,11 +252,22 @@ function updateExpiryStrip() {
 
     const filteredExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
     
-    // Update Title
+    // Update Title & Index button
     const titleEl = document.querySelector('.oc-title');
+    const prettyName = window.ACTIVE_BASE_TICKER ? window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') : 'Options';
     if (titleEl) {
-        const prettyName = window.ACTIVE_BASE_TICKER ? window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') : 'Options';
         titleEl.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: -4px;"><path d="M15 18l-6-6 6-6"/></svg> ${prettyName} Options`;
+    }
+    
+    const btnIndex = document.getElementById('btn_index');
+    if (btnIndex && window.ACTIVE_BASE_TICKER) {
+        let idxSymbol = window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+        // Append -INDEX based on standard behavior unless it already has it (some might just be 'SENSEX-INDEX', some 'NIFTY50-INDEX')
+        if (!idxSymbol.endsWith('-INDEX')) idxSymbol += '-INDEX';
+        btnIndex.onclick = () => {
+            window.loadSymbol(idxSymbol);
+            window.closeOptionsChainModal();
+        };
     }
 
     let lastMonthLabel = null;
