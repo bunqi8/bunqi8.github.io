@@ -485,19 +485,38 @@ window.checkGlobalGoldenPeriod = function() {
                 const style = doc.createElement('style');
                 style.id = 'golden-pulse-style';
                 style.innerHTML = `
-                    @keyframes actionPulseMain {
-                        0% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0.4); }
-                        70% { box-shadow: 0 0 0 5px rgba(255, 111, 0, 0); }
+                    @keyframes actionPulseBadge {
+                        0% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0.6); }
+                        70% { box-shadow: 0 0 0 6px rgba(255, 111, 0, 0); }
                         100% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0); }
                     }
-                    .golden-pulse-missing {
-                        animation: actionPulseMain 2s infinite !important;
-                        border: 1px solid #ffb300 !important;
-                        background: rgba(255, 111, 0, 0.1) !important;
+                    #btn-option-chain-real {
+                        position: relative !important;
                     }
-                    .golden-pulse-ready {
-                        border: 1px solid #81c784 !important;
-                        background: rgba(76, 175, 80, 0.15) !important;
+                    .golden-pulse-missing::after {
+                        content: '';
+                        position: absolute;
+                        top: 4px;
+                        right: 4px;
+                        width: 7px;
+                        height: 7px;
+                        background-color: #ff6f00;
+                        border-radius: 50%;
+                        box-shadow: 0 0 0 1.5px var(--tv-color-platform-background, #fff);
+                        animation: actionPulseBadge 2s infinite;
+                        z-index: 2;
+                    }
+                    .golden-pulse-ready::after {
+                        content: '';
+                        position: absolute;
+                        top: 4px;
+                        right: 4px;
+                        width: 7px;
+                        height: 7px;
+                        background-color: #4caf50;
+                        border-radius: 50%;
+                        box-shadow: 0 0 0 1.5px var(--tv-color-platform-background, #fff);
+                        z-index: 2;
                     }
                 `;
                 doc.head.appendChild(style);
