@@ -30,17 +30,19 @@ style.innerHTML = `
     .oc-expiry:hover, .oc-btn-native:hover { background: #e0e3eb; }
     .oc-expiry.active { background: #2a2e39; color: white; }
     .oc-expiry.disabled { opacity: 0.5; cursor: not-allowed; background: #f0f3fa; color: #787b86; text-decoration: line-through; pointer-events: none; }
-    @keyframes goldenPulse {
-        0% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0.4); }
-        70% { box-shadow: 0 0 0 5px rgba(255, 171, 0, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0); }
+    @keyframes actionPulse {
+        0% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0.4); }
+        70% { box-shadow: 0 0 0 5px rgba(255, 111, 0, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0); }
     }
-    .oc-expiry.golden { background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%); color: #f57f17; border: 1px solid #ffd54f; animation: goldenPulse 2s infinite; font-weight: 600; }
-    .oc-expiry.golden:hover { background: linear-gradient(135deg, #ffecb3 0%, #ffe082 100%); }
-    .oc-expiry.golden.active { background: linear-gradient(135deg, #f57f17 0%, #ffb300 100%); color: white; border-color: #f57f17; animation: none; }
-    .oc-expiry.golden.disabled { opacity: 0.9; cursor: not-allowed; text-decoration: none; pointer-events: none; background: #fffde7; border: 1px dashed #ffc107; animation: goldenPulse 2s infinite; }
+    .oc-expiry.golden-missing { opacity: 0.95; cursor: pointer; pointer-events: none; text-decoration: none; background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); color: #e65100; border: 1px dashed #ffb300; animation: actionPulse 2s infinite; font-weight: 600; }
     
-    .oc-base-btn .golden-dot { display: inline-block; margin-left: 3px; font-size: 11px; animation: goldenPulse 2s infinite; border-radius: 50%; }
+    .oc-expiry.golden-ready { background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); color: #1b5e20; border: 1px solid #81c784; font-weight: 600; }
+    .oc-expiry.golden-ready:hover { background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%); }
+    .oc-expiry.golden-ready.active { background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%); color: white; border-color: #1b5e20; }
+    
+    .status-dot-missing { display: inline-block; width: 8px; height: 8px; background: #ff6f00; border-radius: 50%; margin-left: 6px; animation: actionPulse 2s infinite; vertical-align: middle; }
+    .status-dot-ready { display: inline-block; width: 8px; height: 8px; background: #4caf50; border-radius: 50%; margin-left: 6px; vertical-align: middle; }
     .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
     .oc-table-header { flex-shrink: 0; display: flex; padding: 4px 0 12px 0; border-bottom: 1px solid #e0e3eb; font-size: 12px; color: #787b86; }
     .oc-col { flex: 1; text-align: center; }
@@ -384,8 +386,16 @@ function updateExpiryStrip() {
         
         const btn = document.createElement('button');
         let classes = ['oc-expiry'];
-        if (exp.isDummy) classes.push('disabled');
-        if (exp.isGolden) classes.push('golden');
+        if (exp.isGolden) {
+            if (exp.isDummy) {
+                classes.push('golden-missing');
+            } else {
+                classes.push('golden-ready');
+            }
+        } else if (exp.isDummy) {
+            classes.push('disabled');
+        }
+        
         if (!exp.isDummy && currentExpiry && currentExpiry.id === exp.id) classes.push('active');
         
         btn.className = classes.join(' ');
@@ -413,58 +423,81 @@ function updateExpiryStrip() {
 window.checkGlobalGoldenPeriod = function() {
     if (!window.SyncManager) return;
     window.SyncManager.getAllCsvExpiries().then(allCsvs => {
-        let anyGolden = false;
+        let anyMissing = false;
+        let anyReady = false;
+        
         const now = Date.now();
         allCsvs.forEach(item => {
             const bt = item.baseTicker;
             const csvs = item.data;
-            let hasGolden = false;
+            
+            const downloadedDates = new Set(
+                (window.HF_EXPIRIES || []).filter(e => e.baseTicker === bt).map(e => e.dateStr)
+            );
+            
+            let hasMissing = false;
+            let hasReady = false;
+            
             for (const ce of csvs) {
                 if (now >= ce.dateObjValue) {
                     const nextMidnightUTC = new Date(ce.dateObjValue);
                     nextMidnightUTC.setUTCHours(24, 0, 0, 0);
                     if (now < nextMidnightUTC.getTime()) {
-                        hasGolden = true;
-                        anyGolden = true;
-                        break;
+                        if (!downloadedDates.has(ce.dateStr)) {
+                            hasMissing = true;
+                            anyMissing = true;
+                        } else {
+                            hasReady = true;
+                            anyReady = true;
+                        }
                     }
                 }
             }
-            if (hasGolden) {
-                const baseBtn = document.getElementById(`oc-base-btn-${bt}`);
-                if (baseBtn && !baseBtn.querySelector('.golden-dot')) {
-                    baseBtn.innerHTML += ` <span class="golden-dot">✨</span>`;
+            
+            const baseBtn = document.getElementById(`oc-base-btn-${bt}`);
+            if (baseBtn) {
+                // Clear any existing dots
+                const existing = baseBtn.querySelector('.status-dot-missing, .status-dot-ready');
+                if (existing) existing.remove();
+                
+                if (hasMissing) {
+                    baseBtn.innerHTML += ` <span class="status-dot-missing" title="Golden Period: Download Required"></span>`;
+                } else if (hasReady) {
+                    baseBtn.innerHTML += ` <span class="status-dot-ready" title="Golden Period: Data Downloaded"></span>`;
                 }
             }
         });
         
-        // Pulse the main Option Chain button in the iframe if there's any golden expiry
         const iframe = document.querySelector('iframe[id^="tradingview_"]');
         if (iframe) {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             const mainBtn = doc.getElementById('btn-option-chain-real');
             if (mainBtn) {
-                if (anyGolden) {
-                    mainBtn.classList.add('golden-pulse-btn');
-                } else {
-                    mainBtn.classList.remove('golden-pulse-btn');
+                mainBtn.classList.remove('golden-pulse-missing', 'golden-pulse-ready');
+                if (anyMissing) {
+                    mainBtn.classList.add('golden-pulse-missing');
+                } else if (anyReady) {
+                    mainBtn.classList.add('golden-pulse-ready');
                 }
             }
             
-            // Inject the pulse animation into the iframe if not already there
             if (!doc.getElementById('golden-pulse-style')) {
                 const style = doc.createElement('style');
                 style.id = 'golden-pulse-style';
                 style.innerHTML = `
-                    @keyframes goldenPulseMain {
-                        0% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0.4); }
-                        70% { box-shadow: 0 0 0 5px rgba(255, 171, 0, 0); }
-                        100% { box-shadow: 0 0 0 0 rgba(255, 171, 0, 0); }
+                    @keyframes actionPulseMain {
+                        0% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0.4); }
+                        70% { box-shadow: 0 0 0 5px rgba(255, 111, 0, 0); }
+                        100% { box-shadow: 0 0 0 0 rgba(255, 111, 0, 0); }
                     }
-                    .golden-pulse-btn {
-                        animation: goldenPulseMain 2s infinite !important;
-                        border: 1px solid #ffd54f !important;
-                        background: rgba(255, 193, 7, 0.1) !important;
+                    .golden-pulse-missing {
+                        animation: actionPulseMain 2s infinite !important;
+                        border: 1px solid #ffb300 !important;
+                        background: rgba(255, 111, 0, 0.1) !important;
+                    }
+                    .golden-pulse-ready {
+                        border: 1px solid #81c784 !important;
+                        background: rgba(76, 175, 80, 0.15) !important;
                     }
                 `;
                 doc.head.appendChild(style);
