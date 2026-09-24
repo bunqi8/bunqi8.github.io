@@ -113,38 +113,15 @@ async function fetchCsvExpiries(baseTicker) {
     
     window._csv_fetching[baseTicker] = true;
     try {
-        const url = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${baseTicker}/${baseTicker}_expiries.csv`;
-        const res = await fetch(url);
-        if (!res.ok) return [];
-        const text = await res.text();
-        const lines = text.trim().split('\n').slice(1);
-        const csvExpiries = [];
-        for (const line of lines) {
-            const parts = line.split(',');
-            if (parts.length < 2) continue;
-            const dateStrRaw = parts[0];
-            const ts = parts[1];
-            if (!dateStrRaw || !ts) continue;
-            const dParts = dateStrRaw.split('-');
-            if (dParts.length === 3) {
-                const yyyymmdd = `${dParts[2]}${dParts[1]}${dParts[0]}`;
-                const dateObjValue = parseInt(ts) * 1000;
-                const mStr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][parseInt(dParts[1])-1];
-                csvExpiries.push({
-                    id: `dummy_${baseTicker}_${yyyymmdd}`,
-                    baseTicker: baseTicker,
-                    dateStr: yyyymmdd,
-                    dateObjValue: dateObjValue,
-                    day: dParts[0],
-                    monthLabel: `${mStr} ${dParts[2]}`,
-                    isDummy: true
-                });
-            }
+        let csvExpiries = await window.SyncManager.getCsvExpiries(baseTicker);
+        if (!csvExpiries || csvExpiries.length === 0) {
+            // Fallback: force fetch if missing in IndexedDB
+            await window.SyncManager.syncCsvExpiries([baseTicker]);
+            csvExpiries = await window.SyncManager.getCsvExpiries(baseTicker);
         }
-        csvExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-        window.CSV_EXPIRIES_CACHE[baseTicker] = csvExpiries;
+        window.CSV_EXPIRIES_CACHE[baseTicker] = csvExpiries || [];
         window._csv_fetching[baseTicker] = false;
-        return csvExpiries;
+        return window.CSV_EXPIRIES_CACHE[baseTicker];
     } catch(e) {
         window._csv_fetching[baseTicker] = false;
         return [];
