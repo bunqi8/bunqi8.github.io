@@ -119,6 +119,9 @@ function arrowToTVBars(arrowResult, resolution = '') {
     for (const row of arrowResult) {
         let t = Number(row.time);
         
+        // Convert pseudo-UTC back to true UTC by subtracting 5 hours 30 mins
+        t -= 19800000;
+        
         // TradingView requires Daily (1D, 1W) bars to be aligned exactly to 00:00:00 UTC
         // The HuggingFace daily parquets have timestamps at 09:15 IST (03:45 UTC).
         if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
@@ -317,7 +320,7 @@ const Datafeed = {
             type: symbolName.includes('INDEX') ? 'index' : (symbolName.includes('FUT') ? 'futures' : 'option'),
             exchange: exchange,
             session: session,
-            timezone: 'Etc/UTC',
+            timezone: 'Asia/Kolkata',
             minmov: 1,
             pricescale: 100,
             has_intraday: true,
@@ -447,7 +450,14 @@ const Datafeed = {
     },
 
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
-        const { from, to, countBack, firstDataRequest } = periodParams;
+        let { from, to, countBack, firstDataRequest } = periodParams;
+        
+        // The HuggingFace backend stores IST times directly as UTC epoch values (e.g. 09:15 IST is stored as 09:15 UTC).
+        // Since TradingView asks for true UTC bounds (e.g. 03:45 UTC), we must shift our query bounds forward by 5:30
+        // to correctly hit the pseudo-UTC data inside DuckDB.
+        from += 19800;
+        to += 19800;
+        
         DFLog.info('getBars', `${symbolInfo.name} | res=${resolution} | from=${from} to=${to} | countBack=${countBack} | first=${firstDataRequest}`);
 
         if (!window.db) {
