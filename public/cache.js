@@ -42,6 +42,16 @@ const SyncManager = {
             req.onerror = () => reject(req.error);
         });
     },
+    
+    async getAllCsvExpiries() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('csvExpiries', 'readonly');
+            const req = tx.objectStore('csvExpiries').getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    },
 
     async saveCsvExpiries(baseTicker, data) {
         await this.init();
