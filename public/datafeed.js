@@ -618,6 +618,11 @@ const Datafeed = {
                             return;
                         } else {
                             DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEnd}`);
+                            if (!isEnd && rawFrom > 0) {
+                                DFLog.info('getBars', 'Injecting dummy bar to visually span the void');
+                                let dummyBar = { time: rawFrom * 1000, open: 100, high: 100, low: 100, close: 100, volume: 0 };
+                                return onHistoryCallback([dummyBar], { noData: false });
+                            }
                             return onHistoryCallback([], { noData: isEnd });
                         }
                     } catch(e) {
@@ -1013,6 +1018,11 @@ const Datafeed = {
                             return;
                         } else {
                             DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEnd}`);
+                            if (!isEnd && rawFrom > 0) {
+                                DFLog.info('getBars', 'Injecting dummy bar to visually span the void');
+                                let dummyBar = { time: rawFrom * 1000, open: 100, high: 100, low: 100, close: 100, volume: 0 };
+                                return onHistoryCallback([dummyBar], { noData: false });
+                            }
                             return onHistoryCallback([], { noData: isEnd });
                         }
                     } catch(e) {
