@@ -347,6 +347,9 @@ function bootWidget() {
                         realBtn.addEventListener('mouseleave', () => {
                             realBtn.removeAttribute('title');
                         });
+                        
+                        // Explicitly check golden period immediately after button is in DOM
+                        if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
                     }
                 }
             }, 500);
