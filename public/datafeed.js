@@ -648,9 +648,19 @@ const Datafeed = {
             if (isEnd) {
                 return onHistoryCallback([], { noData: true });
             } else {
-                // TV quirk: If we return empty array without nextTime, TV stops paginating backwards forever (thinks it hit Inception Date).
-                // We MUST provide nextTime to tell it to keep skipping backwards (e.g. over a weekend).
-                // Giving it rawFrom - 86400 (1 day prior) ensures it aggressively steps backward until it finds data.
+                // To prevent infinite fast-forward loops when broker is offline, we must check if there is ANY realistic chance of older data existing.
+                let absoluteEarliest = Infinity;
+                if (Datafeed.getEarliestParquetTime) {
+                    absoluteEarliest = await Datafeed.getEarliestParquetTime(symbolInfo);
+                }
+                
+                // If Fyers is offline (!window.FyersAPI || !window.FyersAPI.token), AND we are already querying a time BEFORE the absolute earliest Parquet file...
+                const fyersOffline = !window.FyersAPI || !window.FyersAPI.token;
+                if (fyersOffline && rawFrom < absoluteEarliest) {
+                    DFLog.info('getBars', 'Broker offline & hit Parquet absolute inception date. Halting pagination.');
+                    return onHistoryCallback([], { noData: true }); // Halt pagination to prevent 50-request infinite EOD loop
+                }
+                
                 return onHistoryCallback([], { noData: true, nextTime: rawFrom - 86400 });
             }
 
