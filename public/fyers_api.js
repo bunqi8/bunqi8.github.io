@@ -268,6 +268,37 @@ class FyersEngine {
         return { data: resultBars, isEnd: globalIsEnd };
     }
 
+    
+    getSegmentKey(symbol) {
+        let exch = 10, seg = 10;
+        if (symbol.startsWith('NSE:')) { exch = 10; }
+        else if (symbol.startsWith('MCX:')) { exch = 11; }
+        else if (symbol.startsWith('BSE:')) { exch = 12; }
+        
+        if (exch === 11) { seg = 20; }
+        else {
+            if (symbol.endsWith('FUT') || symbol.endsWith('CE') || symbol.endsWith('PE')) {
+                seg = 11;
+            }
+        }
+        return `${exch}:${seg}`;
+    }
+
+    async checkMarketStatus() {
+        try {
+            const res = await fetch('https://api-t1.fyers.in/data/marketStatus', {
+                headers: { 'Authorization': this.token }
+            });
+            const data = await res.json();
+            if (data.s === 'ok' && data.marketStatus) return data.marketStatus;
+            return null;
+        } catch(e) {
+            console.error('Market Status Error:', e);
+            return null;
+        }
+    }
+
+
     connectWebSocket() {
         if (!this.token) return;
         this.isConnected = true; 
@@ -275,67 +306,127 @@ class FyersEngine {
         if (this.isPolling) return;
         this.isPolling = true;
         
+        if (!this.segmentState) this.segmentState = new Map();
+        if (!this.symbolLastTickTime) this.symbolLastTickTime = new Map();
+        this.lastStatusCheck = 0;
+        
         const poll = async () => {
             const symbols = Array.from(this.subscribers.keys());
             if (symbols.length === 0) { 
                 this.isPolling = false;
-                this.pollInterval = null; // for compatibility with subscribe check
+                this.pollInterval = null;
                 return; 
             }
             
-            // Fyers rate limit: 200/min. We target 150/min max.
-            // 50 symbols per request.
-            const numChunks = Math.ceil(symbols.length / 50);
+            const now = Date.now();
+            let symbolsToPoll = [];
+            let needsStatusCheck = false;
+            
+            for (let symbol of symbols) {
+                const segKey = this.getSegmentKey(symbol);
+                const state = this.segmentState.get(segKey) || "ACTIVE";
+                
+                if (state === "ACTIVE") {
+                    symbolsToPoll.push(symbol);
+                    const lastTick = this.symbolLastTickTime.get(symbol) || now;
+                    if (now - lastTick > 5 * 60 * 1000) {
+                        needsStatusCheck = true; 
+                    }
+                }
+            }
+            
+            const numChunks = Math.ceil(symbolsToPoll.length / 50);
             const dynamicDelayMs = Math.max(1000, numChunks * 400);
             
             try {
-                for (let i = 0; i < symbols.length; i += 50) {
-                    const chunk = symbols.slice(i, i + 50);
-                    const qUrl = `https://api-t1.fyers.in/data/quotes?symbols=${chunk.join(',')}`;
-                    const res = await fetch(qUrl, {
-                        headers: { 'Authorization': this.token }
-                    });
-                                        const data = await res.json();
-                    
-                    if (data.s === 'error' && (data.code === -15 || data.message.toLowerCase().includes('token'))) {
-                        console.error("Fyers Auth Error:", data.message);
-                        this.isPolling = false;
-                        this.pollInterval = null;
-                        this.token = null;
-                        localStorage.removeItem('fyers_token');
+                if (symbolsToPoll.length > 0) {
+                    for (let i = 0; i < symbolsToPoll.length; i += 50) {
+                        const chunk = symbolsToPoll.slice(i, i + 50);
+                        const qUrl = `https://api-t1.fyers.in/data/quotes?symbols=${chunk.join(',')}`;
+                        const res = await fetch(qUrl, {
+                            headers: { 'Authorization': this.token }
+                        });
+                        const data = await res.json();
                         
-                        // Show visual alert on the UI
-                        alert("Fyers Live Data Disconnected: Your access token has expired or is invalid.\n\nPlease click the Broker button to provide a new token.");
+                        if (data.s === 'error' && (data.code === -15 || data.message.toLowerCase().includes('token'))) {
+                            console.error("Fyers Auth Error:", data.message);
+                            this.isPolling = false;
+                            this.pollInterval = null;
+                            this.token = null;
+                            localStorage.removeItem('fyers_token');
+                            alert("Fyers Live Data Disconnected: Your access token has expired or is invalid.\n\nPlease click the Broker button to provide a new token.");
+                            return; 
+                        }
                         
-                        return; // Stop the polling loop completely
-                    }
-                    
-                    if (data.s === 'ok' && data.d) {
-                        data.d.forEach(item => {
-                            if (item.s === 'ok' && item.v) {
-                                const subs = this.subscribers.get(item.n);
-                                if (subs) {
-                                    let tickTime = Date.now();
-                                    if (item.v.tt) {
-                                        tickTime = item.v.tt.toString().length === 10 ? item.v.tt * 1000 : item.v.tt;
-                                    } else if (item.v.exch_tm) {
-                                        tickTime = item.v.exch_tm.toString().length === 10 ? item.v.exch_tm * 1000 : item.v.exch_tm;
+                        if (data.s === 'ok' && data.d) {
+                            data.d.forEach(item => {
+                                if (item.s === 'ok' && item.v) {
+                                    const symbol = item.n;
+                                    const subs = this.subscribers.get(symbol);
+                                    if (subs) {
+                                        let tickTime = Date.now();
+                                        if (item.v.tt) {
+                                            tickTime = item.v.tt.toString().length === 10 ? item.v.tt * 1000 : item.v.tt;
+                                        } else if (item.v.exch_tm) {
+                                            tickTime = item.v.exch_tm.toString().length === 10 ? item.v.exch_tm * 1000 : item.v.exch_tm;
+                                        }
+                                        
+                                        this.symbolLastTickTime.set(symbol, tickTime);
+                                        
+                                        const tick = {
+                                            time: tickTime,
+                                            open: item.v.open_price || item.v.o || item.v.lp,
+                                            high: item.v.high_price || item.v.h || item.v.lp,
+                                            low: item.v.low_price || item.v.l || item.v.lp,
+                                            close: item.v.lp,
+                                            volume: item.v.volume || item.v.vol || item.v.v || 0
+                                        };
+                                        subs.forEach(cb => cb(tick));
                                     }
-                                    
-                                    const tick = {
-                                        time: tickTime,
-                                        open: item.v.open_price || item.v.o || item.v.lp,
-                                        high: item.v.high_price || item.v.h || item.v.lp,
-                                        low: item.v.low_price || item.v.l || item.v.lp,
-                                        close: item.v.lp,
-                                        volume: item.v.volume || item.v.vol || item.v.v || 0
-                                    };
-                                    subs.forEach(cb => cb(tick));
+                                }
+                            });
+                        }
+                    }
+                }
+                
+                // Active segments staleness check
+                if (needsStatusCheck) {
+                    const statusList = await this.checkMarketStatus();
+                    if (statusList) {
+                        statusList.forEach(st => {
+                            if (st.market_type === 'NORMAL' && st.status !== 'OPEN') {
+                                const segKey = `${st.exchange}:${st.segment}`;
+                                this.segmentState.set(segKey, 'PAUSED');
+                                console.log(`[Lifecycle] Segment ${segKey} paused (Market is ${st.status})`);
+                            }
+                        });
+                    }
+                    symbolsToPoll.forEach(sym => this.symbolLastTickTime.set(sym, Date.now()));
+                }
+                
+                // Wake up check for paused segments
+                let hasPausedSegments = symbols.length > symbolsToPoll.length;
+                if (hasPausedSegments && (now - this.lastStatusCheck > 5 * 60 * 1000)) {
+                    this.lastStatusCheck = now;
+                    const statusList = await this.checkMarketStatus();
+                    if (statusList) {
+                        statusList.forEach(st => {
+                            if (st.market_type === 'NORMAL' && st.status === 'OPEN') {
+                                const segKey = `${st.exchange}:${st.segment}`;
+                                if (this.segmentState.get(segKey) === 'PAUSED') {
+                                    this.segmentState.set(segKey, 'ACTIVE');
+                                    console.log(`[Lifecycle] Segment ${segKey} awoken (Market is OPEN)`);
+                                    symbols.forEach(sym => {
+                                        if (this.getSegmentKey(sym) === segKey) {
+                                            this.symbolLastTickTime.set(sym, Date.now());
+                                        }
+                                    });
                                 }
                             }
                         });
                     }
                 }
+                
             } catch (err) {
                 console.error("Fyers Polling Error", err);
             }
@@ -343,7 +434,7 @@ class FyersEngine {
             setTimeout(poll, dynamicDelayMs);
         };
         
-        this.pollInterval = true; // Flag that polling is active
+        this.pollInterval = true;
         poll();
     }
 
