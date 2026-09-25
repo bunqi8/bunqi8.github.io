@@ -9,7 +9,7 @@ class FyersEngine {
         this.isConnected = false;
         
         // WebSocket state
-        this.ws = null;
+        
         this.subscribers = new Map(); // symbol -> Set of callbacks
         this.reconnectAttempts = 0;
         this.maxReconnect = 5;
@@ -119,91 +119,63 @@ class FyersEngine {
         }
     }
     
+
     connectWebSocket() {
-        if (!this.token || this.ws) return;
+        if (!this.token) return;
+        this.isConnected = true; // Assume true since token exists, profile is checked separately
         
-        // Ensure token has appId:accessToken format
-        // Some users pass only access token, we will just pass whatever is given in the auth header or payload.
-        this.ws = new WebSocket(this.wsUrl);
+        if (this.pollInterval) clearInterval(this.pollInterval);
         
-        this.ws.onopen = () => {
-            console.log("Fyers WS Connected");
-            this.reconnectAttempts = 0;
+        this.pollInterval = setInterval(async () => {
+            const symbols = Array.from(this.subscribers.keys());
+            if (symbols.length === 0) { clearInterval(this.pollInterval); this.pollInterval = null; return; }
             
-            // Re-subscribe to all active symbols
-            const symbolsToSub = Array.from(this.subscribers.keys());
-            if (symbolsToSub.length > 0) {
-                this._sendWsCommand('SUB_DATA', symbolsToSub);
-            }
-        };
-        
-        this.ws.onmessage = (e) => {
-            // Fyers typically sends binary arraybuffer or json string. Assume JSON for simplicity.
             try {
-                let data = e.data;
-                if (data instanceof Blob) {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        this._handleWsMessage(JSON.parse(reader.result));
-                    };
-                    reader.readAsText(data);
-                } else {
-                    this._handleWsMessage(JSON.parse(data));
+                // Chunk into arrays of 50
+                for (let i = 0; i < symbols.length; i += 50) {
+                    const chunk = symbols.slice(i, i + 50);
+                    const qUrl = `https://api-t1.fyers.in/data/quotes?symbols=${chunk.join(',')}`;
+                    const res = await fetch(qUrl, {
+                        headers: { 'Authorization': this.token }
+                    });
+                    const data = await res.json();
+                    
+                    if (data.s === 'ok' && data.d) {
+                        data.d.forEach(item => {
+                            if (item.s === 'ok' && item.v) {
+                                const subs = this.subscribers.get(item.n);
+                                if (subs) {
+                                    const tick = {
+                                        time: (item.v.tt * 1000) || Date.now(),
+                                        open: item.v.o || item.v.lp,
+                                        high: item.v.h || item.v.lp,
+                                        low: item.v.l || item.v.lp,
+                                        close: item.v.lp,
+                                        volume: item.v.vol || 0
+                                    };
+                                    subs.forEach(cb => cb(tick));
+                                }
+                            }
+                        });
+                    }
                 }
-            } catch (err) {}
-        };
-        
-        this.ws.onclose = () => {
-            console.log("Fyers WS Disconnected");
-            this.ws = null;
-            if (this.reconnectAttempts < this.maxReconnect) {
-                this.reconnectAttempts++;
-                setTimeout(() => this.connectWebSocket(), 2000 * this.reconnectAttempts);
+            } catch (err) {
+                console.error("Fyers Polling Error", err);
             }
-        };
-        
-        this.ws.onerror = (e) => console.error("Fyers WS Error", e);
+        }, 1000);
     }
     
-    _handleWsMessage(msg) {
-        // Fyers sends messages like: { type: "symbolUpdate", symbol: "NSE:NIFTY24...", ltp: 100, open: 90, ... }
-        if (!msg || !msg.symbol) return;
-        
-        const subs = this.subscribers.get(msg.symbol);
-        if (subs) {
-            // Construct a standard TradingView tick object
-            // Fallback to LTP if full OHLCV is not sent in this specific tick
-            const tick = {
-                time: (msg.timestamp * 1000) || Date.now(),
-                open: msg.open || msg.ltp,
-                high: msg.high || msg.ltp,
-                low: msg.low || msg.ltp,
-                close: msg.ltp,
-                volume: msg.volume || 0
-            };
-            subs.forEach(cb => cb(tick));
-        }
-    }
-    
-    _sendWsCommand(command, symbols) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-                T: command,
-                symbols: symbols,
-                type: 'symbolUpdate',
-                access_token: this.token
-            }));
-        }
-    }
+    _handleWsMessage(msg) { }
+    _sendWsCommand(command, symbols) { }
 
     subscribe(symbol, callback) {
         if (!this.subscribers.has(symbol)) {
             this.subscribers.set(symbol, new Set());
-            this._sendWsCommand('SUB_DATA', [symbol]);
+            
         }
         this.subscribers.get(symbol).add(callback);
         
-        if (!this.ws) {
+        if (!this.pollInterval) {
             this.connectWebSocket();
         }
     }
@@ -212,7 +184,7 @@ class FyersEngine {
         if (this.subscribers.has(symbol)) {
             this.subscribers.get(symbol).delete(callback);
             if (this.subscribers.get(symbol).size === 0) {
-                this._sendWsCommand('UNSUB_DATA', [symbol]);
+                
                 this.subscribers.delete(symbol);
             }
         }
