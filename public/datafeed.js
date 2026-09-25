@@ -115,14 +115,16 @@ function resolutionToSuffix(resolution) {
 
 function alignFyersDwmTime(bars, resolution) {
     if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
+        const unique = new Map();
         bars.forEach(b => {
             const d = new Date(b.time);
             d.setUTCHours(0, 0, 0, 0);
             b.time = d.getTime();
+            
+            if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) {
+                unique.set(b.time, b);
+            }
         });
-        // Deduplicate Fyers bars internally just in case aligning created dupes
-        const unique = new Map();
-        bars.forEach(b => unique.set(b.time, b));
         return Array.from(unique.values()).sort((a,b) => a.time - b.time);
     }
     return bars;
@@ -145,7 +147,11 @@ function safeHistoryCallback(bars, cb, resolution) {
             const d = new Date(tNum);
             d.setUTCHours(0, 0, 0, 0);
             b.time = d.getTime();
-            unique.set(b.time, b);
+            
+            // PREVENT TRADINGVIEW SNAP BUG
+            if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) {
+                unique.set(b.time, b);
+            }
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
     }
