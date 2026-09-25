@@ -41,6 +41,14 @@ style.innerHTML = `
     .oc-expiry.golden-ready:hover { background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%); }
     .oc-expiry.golden-ready.active { background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%); color: white; border-color: #1b5e20; }
     
+    .oc-expiry.live-target { pointer-events: auto !important; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%) !important; color: #0d47a1 !important; border: 1px solid #2196f3 !important; font-weight: 600; box-shadow: 0 0 5px rgba(33, 150, 243, 0.4); animation: pulseLive 2s infinite !important; }
+    
+    @keyframes pulseLive {
+        0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
+        70% { box-shadow: 0 0 0 6px rgba(33, 150, 243, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0); }
+    }
+    
     .status-dot-missing { display: inline-block; width: 8px; height: 8px; background: #ff6f00; border-radius: 50%; margin-left: 6px; animation: actionPulse 2s infinite; vertical-align: middle; }
     .status-dot-ready { display: inline-block; width: 8px; height: 8px; background: #4caf50; border-radius: 50%; margin-left: 6px; vertical-align: middle; }
     .oc-table-top-header { flex-shrink: 0; display: flex; padding: 12px 0 4px 0; font-size: 13px; font-weight: 600; color: #131722; }
@@ -345,6 +353,18 @@ function updateExpiryStrip() {
     
     combined.sort((a,b) => a.dateObjValue - b.dateObjValue);
     
+    let liveTargetId = null;
+    for (const exp of combined) {
+        if (exp.isDummy) {
+            liveTargetId = exp.id;
+            break;
+        }
+    }
+    
+    for (const exp of combined) {
+        if (exp.id === liveTargetId) exp.isLiveTarget = true;
+    }
+    
     // Update Title & Index button
     const titleEl = document.querySelector('.oc-title');
     const prettyName = window.ACTIVE_BASE_TICKER ? window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') : 'Options';
@@ -393,22 +413,25 @@ function updateExpiryStrip() {
             } else {
                 classes.push('golden-ready');
             }
-        } else if (exp.isDummy) {
+        } else if (exp.isDummy && !exp.isLiveTarget) {
             classes.push('disabled');
         }
+        if (exp.isLiveTarget) classes.push('live-target');
         
-        if (!exp.isDummy && currentExpiry && currentExpiry.id === exp.id) classes.push('active');
+        if (currentExpiry && currentExpiry.id === exp.id) classes.push('active');
         
         btn.className = classes.join(' ');
         btn.innerText = exp.day;
         
-        if (exp.isGolden && exp.isDummy) {
+        if (exp.isLiveTarget) {
+            btn.title = "Live Fyers Data";
+        } else if (exp.isGolden && exp.isDummy) {
             btn.title = "Session ended. Download the latest data to view this expiry.";
         } else if (exp.isGolden && !exp.isDummy) {
             btn.title = "Latest data downloaded successfully!";
         }
         
-        if (exp.isDummy) {
+        if (exp.isDummy && !exp.isLiveTarget) {
             btn.onclick = null;
         } else {
             btn.onclick = () => selectExpiry(exp);
@@ -553,36 +576,74 @@ async function selectExpiry(expiry) {
     window.ACTIVE_EXPIRY_FILES = expiry.files; // Use cached files
     
     const tbody = document.getElementById('oc_table_body');
-    if (!expiry.files || expiry.files.length === 0) {
-        tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">No files found</div>';
-        return;
-    }
-    
     const strikes = new Set();
     const symbols = {}; 
-    
     let indexFile = null;
     let futSymbol = null;
 
-    for (let f of expiry.files) {
-        const filename = f.path.split('/').pop();
+    if (!expiry.files || expiry.files.length === 0) {
+        if (!expiry.isLiveTarget) {
+            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">No files found</div>';
+            return;
+        }
         
-        if (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_')) {
-            if (!indexFile || filename.includes('_D_')) {
-                indexFile = f;
+        // Fabricate LIVE rows
+        const validExpiries = (window.HF_EXPIRIES || []).filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
+        const lastValid = validExpiries[validExpiries.length - 1];
+        if (!lastValid) {
+            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Cannot generate live chain: No historical reference data found.</div>';
+            return;
+        }
+        
+        let lastStrikes = [];
+        for (let f of lastValid.files) {
+            const match = f.path.split('/').pop().match(/[A-Z]+.+?(\d{5})([CP]E)_/);
+            if (match) lastStrikes.push(parseInt(match[1], 10));
+        }
+        lastStrikes = [...new Set(lastStrikes)].sort((a,b) => a-b);
+        
+        if (lastStrikes.length >= 2) {
+            const gap = lastStrikes[1] - lastStrikes[0];
+            const minStrike = lastStrikes[0] - (gap * 15);
+            const maxStrike = lastStrikes[lastStrikes.length - 1] + (gap * 15);
+            
+            // Generate Fyers symbols based on expiry.expiryCode
+            const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+            const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
+            // Fyers Option format: NSE:NIFTY26SEP25000CE
+            const yy = expiry.dateStr.slice(2,4); // from yyyymmdd e.g. 20260924 -> 26
+            
+            for (let s = minStrike; s <= maxStrike; s += gap) {
+                strikes.add(s);
+                const strikeStr = s.toString();
+                symbols[`${s}_CE`] = `${exchange}:${base}${yy}${expiry.expiryCode}${strikeStr}CE|LIVE`;
+                symbols[`${s}_PE`] = `${exchange}:${base}${yy}${expiry.expiryCode}${strikeStr}PE|LIVE`;
             }
+        } else {
+            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Failed to determine strike gap from previous expiry.</div>';
+            return;
         }
-        if (filename.includes('FUT_')) {
-            futSymbol = filename.split('_')[0];
-        }
-        
-        const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
-        if (match) {
-            const strike = parseInt(match[1], 10);
-            const type = match[2];
-            strikes.add(strike);
-            const symbol = filename.split('_')[0]; 
-            symbols[`${strike}_${type}`] = symbol;
+    } else {
+        for (let f of expiry.files) {
+            const filename = f.path.split('/').pop();
+            
+            if (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_')) {
+                if (!indexFile || filename.includes('_D_')) {
+                    indexFile = f;
+                }
+            }
+            if (filename.includes('FUT_')) {
+                futSymbol = filename.split('_')[0];
+            }
+            
+            const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
+            if (match) {
+                const strike = parseInt(match[1], 10);
+                const type = match[2];
+                strikes.add(strike);
+                const symbol = filename.split('_')[0]; 
+                symbols[`${strike}_${type}`] = symbol;
+            }
         }
     }
     
@@ -632,9 +693,25 @@ async function selectExpiry(expiry) {
                     }
                 }
                 await conn.close();
-            } catch(e) {
-                console.error("Failed to fetch ATM price in background", e);
-            }
+            } catch(e) { console.error("ATM fetch failed", e); }
+        })();
+    } else if (expiry.isLiveTarget && window.FyersAPI) {
+        (async () => {
+            try {
+                const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
+                const symbol = `${exchange}:${base}-INDEX`;
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const bars = await window.FyersAPI.getHistory(symbol, '1', today.getTime()/1000, Date.now()/1000);
+                if (bars && bars.length > 0) {
+                    const newAtmPrice = bars[bars.length - 1].close;
+                    expiry.atmPrice = newAtmPrice;
+                    if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+                        renderTable(sortedStrikes, symbols, newAtmPrice);
+                    }
+                }
+            } catch (e) { console.error("Live ATM fetch failed", e); }
         })();
     }
 }

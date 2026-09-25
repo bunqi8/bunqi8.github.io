@@ -306,18 +306,26 @@ const Datafeed = {
         let exchange = 'NSE';
         let session = '0915-1530'; // Standard NSE/BSE trading hours
         
-        if (symbolName.includes('SENSEX') || symbolName.includes('BANKEX')) {
+        let isLive = false;
+        let actualName = symbolName;
+        if (symbolName.includes('|LIVE')) {
+            isLive = true;
+            actualName = symbolName.split('|')[0];
+        }
+        
+        if (actualName.includes('SENSEX') || actualName.includes('BANKEX')) {
             exchange = 'BSE';
-        } else if (symbolName.includes('CRUDE') || symbolName.includes('GOLD') || symbolName.includes('SILVER') || symbolName.includes('NATURALGAS')) {
+        } else if (actualName.includes('CRUDE') || actualName.includes('GOLD') || actualName.includes('SILVER') || actualName.includes('NATURALGAS')) {
             exchange = 'MCX';
             session = '0900-2330'; // Standard MCX trading hours
         }
 
         const symbolInfo = {
-            name: symbolName,
-            full_name: symbolName,
-            description: symbolName,
-            type: symbolName.includes('INDEX') ? 'index' : (symbolName.includes('FUT') ? 'futures' : 'option'),
+            name: actualName,
+            full_name: actualName,
+            isLive: isLive,
+            description: actualName,
+            type: actualName.includes('INDEX') ? 'index' : (actualName.includes('FUT') ? 'futures' : 'option'),
             exchange: exchange,
             session: session,
             timezone: 'Asia/Kolkata',
@@ -451,6 +459,18 @@ const Datafeed = {
 
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
         let { from, to, countBack, firstDataRequest } = periodParams;
+        const rawFrom = from;
+        const rawTo = to;
+        
+        // Pure Fyers API call for Live Options
+        if (symbolInfo.isLive && window.FyersAPI) {
+            const fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
+            if (fyersBars.length > 0) {
+                return onHistoryCallback(fyersBars, { noData: false });
+            } else {
+                return onHistoryCallback([], { noData: true });
+            }
+        }
         
         // The HuggingFace backend stores IST times directly as UTC epoch values (e.g. 09:15 IST is stored as 09:15 UTC).
         // Since TradingView asks for true UTC bounds (e.g. 03:45 UTC), we must shift our query bounds forward by 5:30
@@ -509,6 +529,24 @@ const Datafeed = {
             DFLog.debug('getBars', `SQL: WHERE time >= ${from} AND time < ${to}`);
             const rangeResult = await conn.query(rangeSQL);
             let bars = arrowToTVBars(rangeResult, resolution);
+            
+            const startOfTodayRaw = new Date();
+            startOfTodayRaw.setHours(0,0,0,0); // Local time midnight
+            const startOfTodayUTC = startOfTodayRaw.getTime() / 1000;
+            
+            if ((symbolInfo.type === 'index' || symbolInfo.type === 'futures') && rawTo >= startOfTodayUTC && window.FyersAPI) {
+                let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+                try {
+                    let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
+                    if (fyersBars.length > 0) {
+                        // Merge and sort
+                        bars = bars.concat(fyersBars).sort((a,b) => a.time - b.time);
+                    }
+                } catch(e) {
+                    DFLog.error('getBars', 'Failed to fetch Fyers live bars for stitching', e);
+                }
+            }
+            
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
             // 4. If we got bars in range, return them
@@ -634,9 +672,26 @@ const Datafeed = {
 
     subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {
         DFLog.info('subscribeBars', `UID: ${subscriberUID}`);
+        if (!window.FyersAPI) return;
+        
+        let fyersSymbol = symbolInfo.name;
+        if (!symbolInfo.isLive) {
+            fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+        }
+        
+        if (!window._tvSubscribers) window._tvSubscribers = new Map();
+        
+        const cb = (tick) => onRealtimeCallback(tick);
+        window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
+        window.FyersAPI.subscribe(fyersSymbol, cb);
     },
 
     unsubscribeBars: (subscriberUID) => {
         DFLog.info('unsubscribeBars', `UID: ${subscriberUID}`);
+        if (window._tvSubscribers && window._tvSubscribers.has(subscriberUID)) {
+            const sub = window._tvSubscribers.get(subscriberUID);
+            if (window.FyersAPI) window.FyersAPI.unsubscribe(sub.symbol, sub.cb);
+            window._tvSubscribers.delete(subscriberUID);
+        }
     }
 };
