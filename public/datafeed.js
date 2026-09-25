@@ -1054,7 +1054,19 @@ const Datafeed = {
         
         if (!window._tvSubscribers) window._tvSubscribers = new Map();
         
-        const cb = (tick) => onRealtimeCallback(tick);
+        const resString = resolution ? resolution.toString() : '';
+        const sfx = resolution ? resolutionToSuffix(resolution) : '';
+        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+        
+        const cb = (tick) => {
+            let alignedTick = { ...tick };
+            if (isDWM) {
+                const d = new Date(alignedTick.time);
+                d.setUTCHours(0, 0, 0, 0);
+                alignedTick.time = d.getTime();
+            }
+            onRealtimeCallback(alignedTick);
+        };
         window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
         window.FyersAPI.subscribe(fyersSymbol, cb);
     },
