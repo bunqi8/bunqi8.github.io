@@ -537,11 +537,21 @@ const Datafeed = {
             }
         }
         
-        // The HuggingFace backend stores IST times directly as UTC epoch values (e.g. 09:15 IST is stored as 09:15 UTC).
+        
+        const resString = resolution ? resolution.toString() : '';
+        const sfx = resolution ? resolutionToSuffix(resolution) : '';
+        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+
+        // The HuggingFace backend stores IST times directly as UTC epoch values (e.g. 09:15 IST is stored as 09:15 UTC) FOR INTRADAY ONLY.
         // Since TradingView asks for true UTC bounds (e.g. 03:45 UTC), we must shift our query bounds forward by 5:30
         // to correctly hit the pseudo-UTC data inside DuckDB.
-        from += 19800;
-        to += 19800;
+        // HOWEVER, for Daily/Weekly/Monthly charts, the Parquet files store true UTC midnights (00:00:00 UTC).
+        // So we MUST NOT shift the bounds for DWM, otherwise we skip the first day of every request!
+        if (!isDWM) {
+            from += 19800;
+            to += 19800;
+        }
+
         
         DFLog.info('getBars', `${symbolInfo.name} | res=${resolution} | from=${from} to=${to} | countBack=${countBack} | first=${firstDataRequest}`);
 
