@@ -633,6 +633,9 @@ const Datafeed = {
                 
                 let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
                 
+                if (!window._lastBarTime) window._lastBarTime = {};
+                window._lastBarTime[`${fyersSymbol}_${resolution}`] = cleanBars[cleanBars.length - 1].time;
+                
                 DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
                 return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
             }
@@ -663,11 +666,23 @@ const Datafeed = {
         
         const cb = (tick) => {
             let alignedTick = { ...tick };
+            
             if (isDWM) {
                 const d = new Date(alignedTick.time);
                 d.setUTCHours(0, 0, 0, 0);
                 alignedTick.time = d.getTime();
             }
+            
+            // Prevent TradingView backward time violations on stale weekend/closed quotes
+            // Fyers often returns 00:00:00 UTC for exch_tm when the market is closed.
+            const cacheKey = `${fyersSymbol}_${resolution}`;
+            if (window._lastBarTime && window._lastBarTime[cacheKey]) {
+                const lastTime = window._lastBarTime[cacheKey];
+                if (alignedTick.time < lastTime) {
+                    alignedTick.time = lastTime; // Snap stale ticks to the last known candle floor
+                }
+            }
+            
             onRealtimeCallback(alignedTick);
         };
         window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
