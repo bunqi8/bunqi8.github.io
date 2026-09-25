@@ -350,6 +350,8 @@ function bootWidget() {
                         
                         // Explicitly check golden period immediately after button is in DOM
                         if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
+                        
+                        if (window.FyersUI) window.FyersUI.injectButton(targetEl, iframeDoc);
                     }
                 }
             }, 500);

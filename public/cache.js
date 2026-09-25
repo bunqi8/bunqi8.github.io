@@ -97,7 +97,8 @@ const SyncManager = {
                             dateObjValue: dateObjValue,
                             day: dParts[0],
                             monthLabel: monthLabel,
-                            isDummy: true
+                            isDummy: true,
+                            expiryCode: parts[4] ? parts[4].trim() : ''
                         });
                     }
                 }
@@ -410,3 +411,15 @@ window.SyncManager = SyncManager;
 
 // Start syncing immediately on page load — don't wait for Options Chain or TradingView
 SyncManager._syncPromise = SyncManager.init().then(() => SyncManager.syncRoot());
+
+// Poll every 60 seconds to detect new backend uploads (golden period rollover)
+setInterval(() => {
+    SyncManager.syncRoot();
+}, 60000);
+
+window.addEventListener('hf_csv_updated', () => {
+    if (window.FyersAPI) window.FyersAPI.clearCache();
+});
+window.addEventListener('hf_expiry_updated', () => {
+    if (window.FyersAPI) window.FyersAPI.clearCache();
+});
