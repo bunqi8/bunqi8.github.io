@@ -113,7 +113,7 @@ function resolutionToSuffix(resolution) {
 // DuckDB-WASM returns Apache Arrow Tables. int64 columns come as BigInt.
 // -----------------------------------------------------------------------
 
-function alignFyersDwmTime(bars, resolution, type) {
+function alignFyersDwmTime(bars, resolution) {
     if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
         const unique = new Map();
         bars.forEach(b => {
@@ -122,12 +122,7 @@ function alignFyersDwmTime(bars, resolution, type) {
             b.time = d.getTime();
             
             if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) {
-                // If it's an index, strip holiday/ghost candles (vol=0, flat OHLC). Keep for options/futures!
-                if (type === 'index' && b.volume === 0 && b.open === b.high && b.high === b.low && b.low === b.close) {
-                    // Skip ghost candle
-                } else {
-                    unique.set(b.time, b);
-                }
+                unique.set(b.time, b);
             }
         });
         return Array.from(unique.values()).sort((a,b) => a.time - b.time);
@@ -532,7 +527,7 @@ const Datafeed = {
         // Pure Fyers API call for Live Options
         if (symbolInfo.isLive && window.FyersAPI) {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
-            fyersBars = alignFyersDwmTime(fyersBars, resolution, symbolInfo.type);
+            fyersBars = alignFyersDwmTime(fyersBars, resolution);
             if (fyersBars.length > 0) {
                 return onHistoryCallback(fyersBars, { noData: false });
             } else {
@@ -606,7 +601,7 @@ const Datafeed = {
                         let deepBars = Array.isArray(res) ? res : (res.data || []);
                         let isEnd = res.isEnd || false;
                         
-                        deepBars = alignFyersDwmTime(deepBars, resolution, symbolInfo.type);
+                        deepBars = alignFyersDwmTime(deepBars, resolution);
                         
                         const resString = resolution ? resolution.toString() : '';
                         const sfx = resolution ? resolutionToSuffix(resolution) : '';
@@ -670,7 +665,7 @@ const Datafeed = {
                 let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
                 try {
                     let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
-                    fyersBars = alignFyersDwmTime(fyersBars, resolution, symbolInfo.type);
+                    fyersBars = alignFyersDwmTime(fyersBars, resolution);
                     if (fyersBars.length > 0) {
                         // Merge, sort, and strictly deduplicate by time (DuckDB/Parquet takes precedence)
                         const duckdbTimes = new Set(bars.map(b => b.time));
@@ -746,7 +741,7 @@ const Datafeed = {
                         DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
                         let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
                         let deepBars = Array.isArray(res) ? res : (res.data || []);
-                        deepBars = alignFyersDwmTime(deepBars, resolution, symbolInfo.type);
+                        deepBars = alignFyersDwmTime(deepBars, resolution);
                         
                         const resString = resolution ? resolution.toString() : '';
                         const sfx = resolution ? resolutionToSuffix(resolution) : '';
@@ -857,7 +852,7 @@ const Datafeed = {
                             DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
                             let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
                             let deepBars = Array.isArray(res) ? res : (res.data || []);
-                            deepBars = alignFyersDwmTime(deepBars, resolution, symbolInfo.type);
+                            deepBars = alignFyersDwmTime(deepBars, resolution);
                             
                             const resString = resolution ? resolution.toString() : '';
                             const sfx = resolution ? resolutionToSuffix(resolution) : '';
@@ -958,7 +953,7 @@ const Datafeed = {
                             DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
                             let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
                             let deepBars = Array.isArray(res) ? res : (res.data || []);
-                            deepBars = alignFyersDwmTime(deepBars, resolution, symbolInfo.type);
+                            deepBars = alignFyersDwmTime(deepBars, resolution);
                             
                             const resString = resolution ? resolution.toString() : '';
                             const sfx = resolution ? resolutionToSuffix(resolution) : '';
@@ -1006,7 +1001,7 @@ const Datafeed = {
                         let deepBars = Array.isArray(res) ? res : (res.data || []);
                         let isEnd = res.isEnd || false;
                         
-                        deepBars = alignFyersDwmTime(deepBars, resolution, symbolInfo.type);
+                        deepBars = alignFyersDwmTime(deepBars, resolution);
                         
                         const resString = resolution ? resolution.toString() : '';
                         const sfx = resolution ? resolutionToSuffix(resolution) : '';
