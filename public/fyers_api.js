@@ -324,11 +324,11 @@ class FyersEngine {
                                     
                                     const tick = {
                                         time: tickTime,
-                                        open: item.v.o || item.v.lp,
-                                        high: item.v.h || item.v.lp,
-                                        low: item.v.l || item.v.lp,
+                                        open: item.v.open_price || item.v.o || item.v.lp,
+                                        high: item.v.high_price || item.v.h || item.v.lp,
+                                        low: item.v.low_price || item.v.l || item.v.lp,
                                         close: item.v.lp,
-                                        volume: item.v.vol || 0
+                                        volume: item.v.volume || item.v.vol || item.v.v || 0
                                     };
                                     subs.forEach(cb => cb(tick));
                                 }
