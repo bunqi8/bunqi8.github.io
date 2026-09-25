@@ -634,7 +634,11 @@ const Datafeed = {
                 let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
                 
                 if (!window._lastBarTime) window._lastBarTime = {};
-                window._lastBarTime[`${fyersSymbol}_${resolution}`] = cleanBars[cleanBars.length - 1].time;
+                const currentMax = window._lastBarTime[`${fyersSymbol}_${resolution}`] || 0;
+                const batchMax = cleanBars[cleanBars.length - 1].time;
+                if (batchMax > currentMax) {
+                    window._lastBarTime[`${fyersSymbol}_${resolution}`] = batchMax;
+                }
                 
                 DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
                 return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
