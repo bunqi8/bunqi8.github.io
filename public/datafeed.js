@@ -569,8 +569,19 @@ const Datafeed = {
             
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
-            // 4. If we got bars in range, return them
             if (bars.length > 0) {
+                // NUCLEAR ZEROING FOR TV CRASH
+                if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
+                    const unique = new Map();
+                    bars.forEach(b => {
+                        const d = new Date(b.time);
+                        d.setUTCHours(0, 0, 0, 0);
+                        b.time = d.getTime();
+                        unique.set(b.time, b);
+                    });
+                    bars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                }
+                
                 await conn.close();
                 DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
                 onHistoryCallback(bars, { noData: false });
@@ -626,6 +637,18 @@ const Datafeed = {
 
                 if (latestBars.length > 0) {
                     latestBars.reverse(); // TV requires ascending order
+                    
+                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
+                        const unique = new Map();
+                        latestBars.forEach(b => {
+                            const d = new Date(b.time);
+                            d.setUTCHours(0, 0, 0, 0);
+                            b.time = d.getTime();
+                            unique.set(b.time, b);
+                        });
+                        latestBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                    }
+                    
                     DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
                     onHistoryCallback(latestBars, { noData: false });
                     return;
@@ -672,6 +695,18 @@ const Datafeed = {
 
                 if (olderBars.length > 0) {
                     olderBars.reverse(); // TV requires ascending order
+                    
+                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
+                        const unique = new Map();
+                        olderBars.forEach(b => {
+                            const d = new Date(b.time);
+                            d.setUTCHours(0, 0, 0, 0);
+                            b.time = d.getTime();
+                            unique.set(b.time, b);
+                        });
+                        olderBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                    }
+                    
                     DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
                     onHistoryCallback(olderBars, { noData: false });
                     return;
