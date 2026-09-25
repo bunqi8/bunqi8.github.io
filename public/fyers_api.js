@@ -315,8 +315,15 @@ class FyersEngine {
                             if (item.s === 'ok' && item.v) {
                                 const subs = this.subscribers.get(item.n);
                                 if (subs) {
+                                    let tickTime = Date.now();
+                                    if (item.v.tt) {
+                                        tickTime = item.v.tt.toString().length === 10 ? item.v.tt * 1000 : item.v.tt;
+                                    } else if (item.v.exch_tm) {
+                                        tickTime = item.v.exch_tm.toString().length === 10 ? item.v.exch_tm * 1000 : item.v.exch_tm;
+                                    }
+                                    
                                     const tick = {
-                                        time: Date.now(),
+                                        time: tickTime,
                                         open: item.v.o || item.v.lp,
                                         high: item.v.h || item.v.lp,
                                         low: item.v.l || item.v.lp,
