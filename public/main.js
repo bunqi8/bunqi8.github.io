@@ -408,10 +408,23 @@ function bootWidget() {
 }
 
 window.onload = function() {
-    if (window.db) {
+    const bootWhenReady = async () => {
+        console.log("Waiting for DuckDB-WASM and SyncManager...");
+        
+        // Wait for DuckDB
+        if (!window.db) {
+            await new Promise(r => window.addEventListener('DuckDBReady', r, { once: true }));
+        }
+        
+        // Wait for SyncManager root sync
+        if (window.SyncManager && window.SyncManager._syncPromise) {
+            try {
+                await window.SyncManager._syncPromise;
+            } catch(e) {}
+        }
+        
         bootWidget();
-    } else {
-        console.log("Waiting for DuckDB-WASM...");
-        window.addEventListener('DuckDBReady', bootWidget);
-    }
+    };
+    
+    bootWhenReady();
 };
