@@ -475,7 +475,9 @@ const Datafeed = {
             }
             
             // Files that intersect the requested range
+            console.log("[resolveSymbolFiles] allFiles:", allFiles);
             let intersecting = allFiles.filter(f => f.fEnd >= qFrom && f.fStart <= qTo);
+            console.log("[resolveSymbolFiles] intersecting:", intersecting);
             
             // If no intersection (e.g. asking for today, but latest data is 1 month ago),
             // find the newest files that are BEFORE qTo
@@ -556,8 +558,8 @@ const Datafeed = {
             }
 
             // 3. Query DuckDB Parquet Data
-            if (window.db && window.resolveSymbolFiles) {
-                const fileUrls = await window.resolveSymbolFiles(symbolInfo, resolution, rawFrom, rawTo, countBack);
+            if (window.db && Datafeed.resolveParquetFiles) {
+                const fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, rawFrom, rawTo);
                 if (fileUrls.length > 0) {
                     let vfsNames = [];
                     for (let url of fileUrls) {
