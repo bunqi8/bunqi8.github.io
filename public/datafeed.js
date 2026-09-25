@@ -570,145 +570,46 @@ const Datafeed = {
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
             if (bars.length > 0) {
-                // NUCLEAR ZEROING FOR TV CRASH
-                if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
+                
+                
+                await conn.close();
+                DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
+                
+                let safeBars = bars;
+                
+                    
+                    DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
+                    
+                let safeBars = latestBars;
+                
+                    
+                    DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
+                    
+                let safeBars = olderBars;
+                if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M') || resolutionToSuffix(resolution) === 'D')) {
                     const unique = new Map();
-                    bars.forEach(b => {
-                        const d = new Date(b.time);
+                    safeBars.forEach(b => {
+                        let tNum = Number(b.time);
+                        const d = new Date(tNum);
                         d.setUTCHours(0, 0, 0, 0);
                         b.time = d.getTime();
                         unique.set(b.time, b);
                     });
-                    bars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                    safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
                 }
                 
-                await conn.close();
-                DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
-                onHistoryCallback(bars, { noData: false });
-                return;
-            }
-
-            // 5. Range returned 0 bars — two different strategies:
-            //
-            //    A) firstDataRequest=true (initial chart load):
-            //       TV needs SOMETHING to display. Return the latest countBack
-            //       bars from wherever they exist in the file.
-            //
-            //    B) firstDataRequest=false (user scrolling left):
-            //       TV is looking for data BEFORE `from`. Return older bars
-            //       that come before the requested range. If none exist,
-            //       return noData:true to stop further backward requests.
-
-            if (firstDataRequest) {
-                // Strategy A: Initial load — get the newest countBack bars
-                DFLog.warn('getBars', `First request, 0 bars in range. Getting latest ${countBack} bars from file...`);
-
-                let latestBars;
-                try {
-                    const latestSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;
-                    const latestResult = await conn.query(latestSQL);
-                    latestBars = arrowToTVBars(latestResult, resolution);
-                } catch (wasmErr) {
-                    // DuckDB-WASM may crash on ORDER BY DESC + LIMIT.
-                    // Fallback: fetch ALL rows and sort/slice in JavaScript.
-                    DFLog.warn('getBars', `WASM ORDER BY crashed, falling back to JS sort...`);
-                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                    `;
-                    const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult, resolution);
-                    DFLog.info('getBars', `Fetched all ${allBars.length} bars, sorting in JS...`);
-                    allBars.sort((a, b) => b.time - a.time);
-                    latestBars = allBars.slice(0, countBack);
-                }
-
-                await conn.close();
-                conn = null;
-
-                if (latestBars.length > 0) {
-                    latestBars.reverse(); // TV requires ascending order
-                    
-                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
-                        const unique = new Map();
-                        latestBars.forEach(b => {
-                            const d = new Date(b.time);
-                            d.setUTCHours(0, 0, 0, 0);
-                            b.time = d.getTime();
-                            unique.set(b.time, b);
-                        });
-                        latestBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                // Final safety check to absolutely prevent TradingView from crashing
+                const dedupedBars = [];
+                let lastTime = -1;
+                for (let b of safeBars) {
+                    if (b.time > lastTime) {
+                        dedupedBars.push(b);
+                        lastTime = b.time;
                     }
-                    
-                    DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
-                    onHistoryCallback(latestBars, { noData: false });
-                    return;
                 }
+                
+                onHistoryCallback(dedupedBars, { noData: dedupedBars.length === 0 });
 
-                DFLog.warn('getBars', `File has no data at all.`);
-                onHistoryCallback([], { noData: true });
-                return;
-
-            } else {
-                // Strategy B: Scroll-back — get bars BEFORE `from`
-                DFLog.info('getBars', `Scroll-back, 0 bars in range. Querying ${countBack} bars before timestamp ${from}...`);
-
-                let olderBars;
-                try {
-                    const olderSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;
-                    const olderResult = await conn.query(olderSQL);
-                    olderBars = arrowToTVBars(olderResult, resolution);
-                } catch (wasmErr) {
-                    DFLog.warn('getBars', `WASM ORDER BY crashed on scroll-back, falling back to JS...`);
-                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                    `;
-                    const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult, resolution);
-                    allBars.sort((a, b) => b.time - a.time);
-                    olderBars = allBars.slice(0, countBack);
-                }
-
-                await conn.close();
-                conn = null;
-
-                if (olderBars.length > 0) {
-                    olderBars.reverse(); // TV requires ascending order
-                    
-                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
-                        const unique = new Map();
-                        olderBars.forEach(b => {
-                            const d = new Date(b.time);
-                            d.setUTCHours(0, 0, 0, 0);
-                            b.time = d.getTime();
-                            unique.set(b.time, b);
-                        });
-                        olderBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
-                    }
-                    
-                    DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
-                    onHistoryCallback(olderBars, { noData: false });
                     return;
                 }
 
@@ -738,7 +639,32 @@ const Datafeed = {
                     deepBars = alignFyersDwmTime(deepBars, resolution);
                     if (deepBars && deepBars.length > 0) {
                         DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                        onHistoryCallback(deepBars, { noData: false });
+                        
+                let safeBars = deepBars;
+                if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M') || resolutionToSuffix(resolution) === 'D')) {
+                    const unique = new Map();
+                    safeBars.forEach(b => {
+                        let tNum = Number(b.time);
+                        const d = new Date(tNum);
+                        d.setUTCHours(0, 0, 0, 0);
+                        b.time = d.getTime();
+                        unique.set(b.time, b);
+                    });
+                    safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+                }
+                
+                // Final safety check to absolutely prevent TradingView from crashing
+                const dedupedBars = [];
+                let lastTime = -1;
+                for (let b of safeBars) {
+                    if (b.time > lastTime) {
+                        dedupedBars.push(b);
+                        lastTime = b.time;
+                    }
+                }
+                
+                onHistoryCallback(dedupedBars, { noData: dedupedBars.length === 0 });
+
                         return;
                     }
                 }
