@@ -330,6 +330,7 @@ function updateExpiryStrip() {
     csvExpiries.forEach(c => csvMap.set(c.dateStr, c));
 
     for (const exp of combined) {
+        exp.isGolden = false;
         const ce = csvMap.get(exp.dateStr);
         if (ce) {
             if (now >= ce.dateObjValue) {
@@ -528,6 +529,9 @@ window.checkGlobalGoldenPeriod = function() {
 window.addEventListener('hf_csv_updated', () => {
     if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
 });
+setInterval(() => {
+    if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
+}, 60000);
 
 async function selectExpiry(expiry) {
     currentExpiry = expiry;
