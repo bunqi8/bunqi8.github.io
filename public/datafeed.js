@@ -129,9 +129,21 @@ function alignFyersDwmTime(bars, resolution) {
 }
 
 
+
 function safeHistoryCallback(bars, cb, resolution) {
     let safeBars = bars;
-    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M') || resolutionToSuffix(resolution) === 'D')) {
+    const resString = resolution ? resolution.toString() : 'undefined';
+    const sfx = resolution ? resolutionToSuffix(resolution) : 'undefined';
+    
+    const shouldZero = resolution && (resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D');
+    
+    console.error(`[DF::DEBUG] safeHistoryCallback triggered!`);
+    console.error(`[DF::DEBUG] resolution: ${resString}, typeof: ${typeof resolution}, suffix: ${sfx}, shouldZero: ${shouldZero}`);
+    console.error(`[DF::DEBUG] First bar before zeroing:`, safeBars.length > 0 ? new Date(safeBars[0].time).toISOString() + " (" + safeBars[0].time + ")" : "none");
+
+    // UNCONDITIONAL ZEROING FOR ANY CHART THAT LOOKS DAILY (either resolution includes D or suffix is D)
+    // Actually, let's just forcefully apply it if shouldZero is true.
+    if (shouldZero) {
         const unique = new Map();
         safeBars.forEach(b => {
             let tNum = Number(b.time);
@@ -141,6 +153,9 @@ function safeHistoryCallback(bars, cb, resolution) {
             unique.set(b.time, b);
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+        console.error(`[DF::DEBUG] First bar AFTER zeroing:`, safeBars.length > 0 ? new Date(safeBars[0].time).toISOString() + " (" + safeBars[0].time + ")" : "none");
+    } else {
+        console.error(`[DF::DEBUG] Skipping zeroing because shouldZero is false.`);
     }
     
     const dedupedBars = [];
@@ -149,33 +164,39 @@ function safeHistoryCallback(bars, cb, resolution) {
         if (b.time > lastTime) {
             dedupedBars.push(b);
             lastTime = b.time;
+        } else {
+            console.error(`[DF::DEBUG] DEDUP DROPPED BAR: ${b.time} <= ${lastTime}`);
         }
     }
     
+    console.error(`[DF::DEBUG] Calling TradingView callback with ${dedupedBars.length} bars.`);
     cb(dedupedBars, { noData: dedupedBars.length === 0 });
 }
+
 
 function arrowToTVBars(arrowResult, resolution = '') {
     const bars = [];
     const seenTimes = new Set();
     
+    const resString = resolution ? resolution.toString() : '';
+    const sfx = resolution ? resolutionToSuffix(resolution) : '';
+    const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+    
     for (const row of arrowResult) {
         let t = Number(row.time);
         
-        // Convert pseudo-UTC back to true UTC by subtracting 5 hours 30 mins
-        t -= 19800000;
-        
-        // TradingView requires Daily (1D, 1W) bars to be aligned exactly to 00:00:00 UTC
-        // The HuggingFace daily parquets have timestamps at 09:15 IST (03:45 UTC).
-        if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
+        if (isDWM) {
+            // Daily/Weekly/Monthly Parquet files ALREADY have true 00:00:00 UTC timestamps.
+            // DO NOT subtract 5.5 hours, otherwise it pushes Monday to Sunday!
             const d = new Date(t);
             d.setUTCHours(0, 0, 0, 0);
             t = d.getTime();
+        } else {
+            // Intraday Parquet files store "09:15 IST" as "09:15 UTC" (pseudo-UTC)
+            // Subtract 5.5 hours to convert back to true UTC
+            t -= 19800000;
         }
         
-        // TradingView FATAL crashes if it receives duplicate timestamps.
-        // Overlapping parquet files might yield identical timestamps with slightly different volume ticks.
-        // We MUST enforce strict strict chronological deduplication.
         if (seenTimes.has(t)) continue;
         seenTimes.add(t);
         
