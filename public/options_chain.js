@@ -416,7 +416,10 @@ function updateExpiryStrip() {
         } else if (exp.isDummy && !exp.isLiveTarget) {
             classes.push('disabled');
         }
-        if (exp.isLiveTarget) classes.push('live-target');
+        if (exp.isLiveTarget) {
+            classes.push('live-target');
+            if (!window.FyersAPI || !window.FyersAPI.token) classes.push('disabled');
+        }
         
         if (currentExpiry && currentExpiry.id === exp.id) classes.push('active');
         
@@ -424,7 +427,7 @@ function updateExpiryStrip() {
         btn.innerText = exp.day;
         
         if (exp.isLiveTarget) {
-            btn.title = "Live Fyers Data";
+            btn.title = (!window.FyersAPI || !window.FyersAPI.token) ? "Broker Disconnected. Login to Fyers to view Live Chain." : "Live Fyers Data";
         } else if (exp.isGolden && exp.isDummy) {
             btn.title = "Session ended. Download the latest data to view this expiry.";
         } else if (exp.isGolden && !exp.isDummy) {
@@ -432,6 +435,8 @@ function updateExpiryStrip() {
         }
         
         if (exp.isDummy && !exp.isLiveTarget) {
+            btn.onclick = null;
+        } else if (exp.isLiveTarget && (!window.FyersAPI || !window.FyersAPI.token)) {
             btn.onclick = null;
         } else {
             btn.onclick = () => selectExpiry(exp);
@@ -625,7 +630,7 @@ async function selectExpiry(expiry) {
                         
                         // Use max date in parquet as proxy for "now" for 6 month lookback to support simulated history
                         const metaRes = await conn.query(`SELECT MAX(time) as t FROM read_parquet('${vfsName}')`);
-                        const maxT = metaRes.toArray()[0].t || Math.floor(Date.now() / 1000);
+                        const maxT = Number(metaRes.toArray()[0].t) || Math.floor(Date.now() / 1000);
                         const sixMonthsAgo = maxT - (180 * 24 * 60 * 60);
                         
                         const result = await conn.query(`SELECT MIN(low) as minL, MAX(high) as maxH FROM read_parquet('${vfsName}') WHERE time >= ${sixMonthsAgo}`);
