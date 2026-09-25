@@ -112,6 +112,22 @@ function resolutionToSuffix(resolution) {
 // Convert DuckDB Arrow result rows to TradingView bar objects
 // DuckDB-WASM returns Apache Arrow Tables. int64 columns come as BigInt.
 // -----------------------------------------------------------------------
+
+function alignFyersDwmTime(bars, resolution) {
+    if (resolution && (resolution.includes('D') || resolution.includes('W') || resolution.includes('M'))) {
+        bars.forEach(b => {
+            const d = new Date(b.time);
+            d.setUTCHours(0, 0, 0, 0);
+            b.time = d.getTime();
+        });
+        // Deduplicate Fyers bars internally just in case aligning created dupes
+        const unique = new Map();
+        bars.forEach(b => unique.set(b.time, b));
+        return Array.from(unique.values()).sort((a,b) => a.time - b.time);
+    }
+    return bars;
+}
+
 function arrowToTVBars(arrowResult, resolution = '') {
     const bars = [];
     const seenTimes = new Set();
@@ -464,7 +480,8 @@ const Datafeed = {
         
         // Pure Fyers API call for Live Options
         if (symbolInfo.isLive && window.FyersAPI) {
-            const fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
+            let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
+            fyersBars = alignFyersDwmTime(fyersBars, resolution);
             if (fyersBars.length > 0) {
                 return onHistoryCallback(fyersBars, { noData: false });
             } else {
@@ -538,6 +555,7 @@ const Datafeed = {
                 let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
                 try {
                     let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
+                    fyersBars = alignFyersDwmTime(fyersBars, resolution);
                     if (fyersBars.length > 0) {
                         // Merge, sort, and strictly deduplicate by time (DuckDB/Parquet takes precedence)
                         const duckdbTimes = new Set(bars.map(b => b.time));
@@ -633,7 +651,7 @@ const Datafeed = {
                         LIMIT ${countBack}
                     `;
                     const olderResult = await conn.query(olderSQL);
-                    olderBars = arrowToTVBars(olderResult);
+                    olderBars = arrowToTVBars(olderResult, resolution);
                 } catch (wasmErr) {
                     DFLog.warn('getBars', `WASM ORDER BY crashed on scroll-back, falling back to JS...`);
                     const allSQL = `
@@ -681,7 +699,8 @@ const Datafeed = {
                         }
                     }
                     
-                    const deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                    let deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                    deepBars = alignFyersDwmTime(deepBars, resolution);
                     if (deepBars && deepBars.length > 0) {
                         DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
                         onHistoryCallback(deepBars, { noData: false });
