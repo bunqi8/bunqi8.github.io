@@ -598,10 +598,30 @@ const Datafeed = {
                         DFLog.info('getBars', `Falling back to Fyers Deep History for ${fyersSymbol} from ${new Date(rawFrom*1000).toISOString()} to ${new Date(rawTo*1000).toISOString()}`);
                         let deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
                         deepBars = alignFyersDwmTime(deepBars, resolution);
+                        
+                        const resString = resolution ? resolution.toString() : '';
+                        const sfx = resolution ? resolutionToSuffix(resolution) : '';
+                        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+                        
+                        if (rawTo && isDWM) {
+                            const toMs = rawTo * 1000;
+                            deepBars = deepBars.filter(b => b.time < toMs);
+                        }
+                        
                         if (deepBars && deepBars.length > 0) {
                             DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
                             safeHistoryCallback(deepBars, onHistoryCallback, resolution);
                             return;
+                        } else {
+                            const nowSec = Math.floor(Date.now() / 1000);
+                            let isEndOfHistory = false;
+                            if (!isDWM) {
+                                if (rawTo < nowSec - (120 * 86400)) isEndOfHistory = true;
+                            } else {
+                                if (rawTo < 1262304000) isEndOfHistory = true;
+                            }
+                            DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEndOfHistory}`);
+                            return onHistoryCallback([], { noData: isEndOfHistory });
                         }
                     } catch(e) {
                         DFLog.error('getBars', 'Deep History fallback failed', e);
@@ -820,7 +840,7 @@ const Datafeed = {
                     return;
                 }
 
-                if (window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
+                if (!firstDataRequest && rawTo < startOfTodayUTC && window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
                     DFLog.info('getBars', `No older Parquet data exists. Falling back to Fyers Deep History...`);
                     
                     let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
@@ -842,12 +862,36 @@ const Datafeed = {
                         }
                     }
                     
-                    let deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
-                    deepBars = alignFyersDwmTime(deepBars, resolution);
-                    if (deepBars && deepBars.length > 0) {
-                        DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                        safeHistoryCallback(deepBars, onHistoryCallback, resolution);
-                        return;
+                    try {
+                        let deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                        deepBars = alignFyersDwmTime(deepBars, resolution);
+                        
+                        const resString = resolution ? resolution.toString() : '';
+                        const sfx = resolution ? resolutionToSuffix(resolution) : '';
+                        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+                        
+                        if (rawTo && isDWM) {
+                            const toMs = rawTo * 1000;
+                            deepBars = deepBars.filter(b => b.time < toMs);
+                        }
+                        
+                        if (deepBars && deepBars.length > 0) {
+                            DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
+                            safeHistoryCallback(deepBars, onHistoryCallback, resolution);
+                            return;
+                        } else {
+                            const nowSec = Math.floor(Date.now() / 1000);
+                            let isEndOfHistory = false;
+                            if (!isDWM) {
+                                if (rawTo < nowSec - (120 * 86400)) isEndOfHistory = true;
+                            } else {
+                                if (rawTo < 1262304000) isEndOfHistory = true;
+                            }
+                            DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEndOfHistory}`);
+                            return onHistoryCallback([], { noData: isEndOfHistory });
+                        }
+                    } catch(e) {
+                        DFLog.error('getBars', 'Deep History fallback failed', e);
                     }
                 }
                 
