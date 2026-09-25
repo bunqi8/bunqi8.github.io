@@ -122,7 +122,12 @@ function alignFyersDwmTime(bars, resolution) {
             b.time = d.getTime();
             
             if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) {
-                unique.set(b.time, b);
+                // Strip Fyers API artifacts (holidays often broadcast with 0 volume and unchanged flat OHLC)
+                if (b.volume === 0 && b.open === b.high && b.high === b.low && b.low === b.close) {
+                    // Skip ghost candle
+                } else {
+                    unique.set(b.time, b);
+                }
             }
         });
         return Array.from(unique.values()).sort((a,b) => a.time - b.time);
@@ -150,7 +155,12 @@ function safeHistoryCallback(bars, cb, resolution) {
             
             // PREVENT TRADINGVIEW SNAP BUG
             if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) {
-                unique.set(b.time, b);
+                // Strip Fyers API artifacts (holidays often broadcast with 0 volume and unchanged flat OHLC)
+                if (b.volume === 0 && b.open === b.high && b.high === b.low && b.low === b.close) {
+                    // Skip ghost candle
+                } else {
+                    unique.set(b.time, b);
+                }
             }
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
@@ -393,7 +403,7 @@ const Datafeed = {
             minmov: 1,
             pricescale: 100,
             has_intraday: true,
-            has_empty_bars: true,
+            has_empty_bars: false,
             has_daily: true,
             has_weekly_and_monthly: false,
             supported_resolutions: configurationData.supported_resolutions,
