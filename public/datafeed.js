@@ -675,6 +675,15 @@ const Datafeed = {
                 const d = new Date(alignedTick.time);
                 d.setUTCHours(0, 0, 0, 0);
                 alignedTick.time = d.getTime();
+            } else {
+                // Fyers API sends the DAILY high/low in its live quote payloads.
+                // For intraday charts, passing this would cause the current 1h/15m candle 
+                // to suddenly stretch and engulf the entire day's range.
+                // We must override the tick's OHL to the last traded price. TradingView will 
+                // correctly aggregate the boundaries natively.
+                alignedTick.open = alignedTick.close;
+                alignedTick.high = alignedTick.close;
+                alignedTick.low = alignedTick.close;
             }
             
             // Prevent TradingView backward time violations on stale weekend/closed quotes
