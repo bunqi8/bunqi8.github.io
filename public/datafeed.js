@@ -130,20 +130,14 @@ function alignFyersDwmTime(bars, resolution) {
 
 
 
-function safeHistoryCallback(bars, cb, resolution) {
+
+function safeHistoryCallback(bars, cb, resolution, toMs = null) {
     let safeBars = bars;
     const resString = resolution ? resolution.toString() : 'undefined';
     const sfx = resolution ? resolutionToSuffix(resolution) : 'undefined';
+    const isDWM = resolution && (resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D');
     
-    const shouldZero = resolution && (resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D');
-    
-    console.error(`[DF::DEBUG] safeHistoryCallback triggered!`);
-    console.error(`[DF::DEBUG] resolution: ${resString}, typeof: ${typeof resolution}, suffix: ${sfx}, shouldZero: ${shouldZero}`);
-    console.error(`[DF::DEBUG] First bar before zeroing:`, safeBars.length > 0 ? new Date(safeBars[0].time).toISOString() + " (" + safeBars[0].time + ")" : "none");
-
-    // UNCONDITIONAL ZEROING FOR ANY CHART THAT LOOKS DAILY (either resolution includes D or suffix is D)
-    // Actually, let's just forcefully apply it if shouldZero is true.
-    if (shouldZero) {
+    if (isDWM) {
         const unique = new Map();
         safeBars.forEach(b => {
             let tNum = Number(b.time);
@@ -153,25 +147,30 @@ function safeHistoryCallback(bars, cb, resolution) {
             unique.set(b.time, b);
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
-        console.error(`[DF::DEBUG] First bar AFTER zeroing:`, safeBars.length > 0 ? new Date(safeBars[0].time).toISOString() + " (" + safeBars[0].time + ")" : "none");
-    } else {
-        console.error(`[DF::DEBUG] Skipping zeroing because shouldZero is false.`);
     }
     
     const dedupedBars = [];
     let lastTime = -1;
     for (let b of safeBars) {
+        // PREVENT TRADINGVIEW CACHE OVERLAP BUG:
+        // When scrolling left, TV passes `to` as the exact unaligned midnight timestamp of its first cached bar.
+        // If we return a bar matching this exact timestamp, TV's `splice` deduplication fails because
+        // TV has already mutated its cached bar to session start (e.g. 03:45 UTC).
+        // This causes TV to forcefully inject a duplicate bar and crash the engine.
+        // We fix this by dropping the overlapping bar here.
+        if (toMs && isDWM && b.time >= toMs) {
+                        continue;
+        }
+
         if (b.time > lastTime) {
             dedupedBars.push(b);
             lastTime = b.time;
-        } else {
-            console.error(`[DF::DEBUG] DEDUP DROPPED BAR: ${b.time} <= ${lastTime}`);
         }
     }
     
-    console.error(`[DF::DEBUG] Calling TradingView callback with ${dedupedBars.length} bars.`);
     cb(dedupedBars, { noData: dedupedBars.length === 0 });
 }
+
 
 
 function arrowToTVBars(arrowResult, resolution = '') {
@@ -642,7 +641,7 @@ const Datafeed = {
                 
                 await conn.close();
                 DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
-                safeHistoryCallback(bars, onHistoryCallback, resolution);
+                safeHistoryCallback(bars, onHistoryCallback, resolution, rawTo * 1000);
                 return;
             }
 
@@ -708,7 +707,7 @@ const Datafeed = {
                     }
                     
                     DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(latestBars, onHistoryCallback, resolution);
+                    safeHistoryCallback(latestBars, onHistoryCallback, resolution, rawTo * 1000);
                     return;
                 }
 
@@ -766,7 +765,7 @@ const Datafeed = {
                     }
                     
                     DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(olderBars, onHistoryCallback, resolution);
+                    safeHistoryCallback(olderBars, onHistoryCallback, resolution, rawTo * 1000);
                     return;
                 }
 
@@ -796,7 +795,7 @@ const Datafeed = {
                     deepBars = alignFyersDwmTime(deepBars, resolution);
                     if (deepBars && deepBars.length > 0) {
                         DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                        safeHistoryCallback(deepBars, onHistoryCallback, resolution);
+                        safeHistoryCallback(deepBars, onHistoryCallback, resolution, rawTo * 1000);
                         return;
                     }
                 }
