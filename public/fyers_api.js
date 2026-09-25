@@ -143,94 +143,107 @@ class FyersEngine {
         const symbol_res = `${symbol}_${resolution}`;
         const db = await this.dbPromise;
         
-        const ranges = await new Promise(r => {
-            const tx = db.transaction('deep_history_ranges', 'readonly');
-            const req = tx.objectStore('deep_history_ranges').get(symbol_res);
-            req.onsuccess = () => r(req.result ? req.result.ranges : []);
-            req.onerror = () => r([]);
-        });
+        let currentTo = to;
+        let globalIsEnd = false;
         
-        let isCovered = false;
-        for (let r of ranges) {
-            if (r.start <= from && r.end >= to) {
-                isCovered = true;
-                break;
+        while (currentTo > from) {
+            let currentFrom = Math.max(from, currentTo - maxRangeSec);
+            if (currentTo - currentFrom < maxRangeSec) {
+                currentFrom = currentTo - maxRangeSec;
             }
-        }
-        
-        if (!isCovered) {
-            let fetchFrom = to - maxRangeSec;
-            if (from < fetchFrom) fetchFrom = to - maxRangeSec;
             
-            const datef = new Date(fetchFrom * 1000).toISOString().split('T')[0];
-            const datet = new Date(to * 1000).toISOString().split('T')[0];
-            const url = `https://api-t1.fyers.in/data/history?symbol=${symbol}&resolution=${resolution}&date_format=1&range_from=${datef}&range_to=${datet}`;
+            const ranges = await new Promise(r => {
+                const tx = db.transaction('deep_history_ranges', 'readonly');
+                const req = tx.objectStore('deep_history_ranges').get(symbol_res);
+                req.onsuccess = () => r(req.result ? req.result.ranges : []);
+                req.onerror = () => r([]);
+            });
             
-            try {
-                const res = await fetch(url, { headers: { 'Authorization': this.token } });
-                const data = await res.json();
-                
-                let fetchedBars = [];
-                let isEnd = false;
-                
-                if (data.s === 'ok' && data.candles) {
-                    fetchedBars = data.candles.map(c => ({
-                        id: `${symbol_res}_${c[0] * 1000}`,
-                        symbol_res: symbol_res,
-                        time: c[0] * 1000,
-                        open: c[1],
-                        high: c[2],
-                        low: c[3],
-                        close: c[4],
-                        volume: c[5]
-                    }));
-                } else if (data.s === 'error' || data.s === 'no_data') {
-                    if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token'))) {
-                        this.isConnected = false;
-                        this.token = null;
-                        localStorage.removeItem('fyers_token');
-                        alert("Fyers Deep History: Token expired. Please re-authenticate via Broker button.");
-                    } else {
-                        isEnd = true;
-                    }
+            let isCovered = false;
+            let chunkIsEnd = false;
+            for (let r of ranges) {
+                if (r.start <= currentFrom && r.end >= currentTo) {
+                    isCovered = true;
+                    if (r.isEnd) chunkIsEnd = true;
+                    break;
                 }
+            }
+            
+            if (!isCovered) {
+                const datef = new Date(currentFrom * 1000).toISOString().split('T')[0];
+                const datet = new Date(currentTo * 1000).toISOString().split('T')[0];
+                const url = `https://api-t1.fyers.in/data/history?symbol=${symbol}&resolution=${resolution}&date_format=1&range_from=${datef}&range_to=${datet}`;
                 
-                if (fetchedBars.length === 0 && (to - fetchFrom) >= (maxRangeSec - 86400)) {
-                    isEnd = true;
-                }
-                
-                const tx = db.transaction(['deep_history_ranges', 'deep_history_bars'], 'readwrite');
-                if (fetchedBars.length > 0) {
-                    const barStore = tx.objectStore('deep_history_bars');
-                    fetchedBars.forEach(b => barStore.put(b));
-                }
-                
-                let newRanges = [...ranges, { start: fetchFrom, end: to, isEnd }];
-                newRanges.sort((a,b) => a.start - b.start);
-                let merged = [];
-                if (newRanges.length > 0) {
-                    let current = newRanges[0];
-                    for (let i = 1; i < newRanges.length; i++) {
-                        if (newRanges[i].start <= current.end) {
-                            current.end = Math.max(current.end, newRanges[i].end);
-                            current.isEnd = current.isEnd || newRanges[i].isEnd;
+                try {
+                    const res = await fetch(url, { headers: { 'Authorization': this.token } });
+                    const data = await res.json();
+                    
+                    let fetchedBars = [];
+                    
+                    if (data.s === 'ok' && data.candles) {
+                        fetchedBars = data.candles.map(c => ({
+                            id: `${symbol_res}_${c[0] * 1000}`,
+                            symbol_res: symbol_res,
+                            time: c[0] * 1000,
+                            open: c[1],
+                            high: c[2],
+                            low: c[3],
+                            close: c[4],
+                            volume: c[5]
+                        }));
+                    } else if (data.s === 'error' || data.s === 'no_data') {
+                        if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token'))) {
+                            this.isConnected = false;
+                            this.token = null;
+                            localStorage.removeItem('fyers_token');
+                            alert("Fyers Deep History: Token expired. Please re-authenticate via Broker button.");
                         } else {
-                            merged.push(current);
-                            current = newRanges[i];
+                            chunkIsEnd = true;
                         }
                     }
-                    merged.push(current);
+                    
+                    if (fetchedBars.length === 0 && (currentTo - currentFrom) >= (maxRangeSec - 86400)) {
+                        chunkIsEnd = true;
+                    }
+                    
+                    const tx = db.transaction(['deep_history_ranges', 'deep_history_bars'], 'readwrite');
+                    if (fetchedBars.length > 0) {
+                        const barStore = tx.objectStore('deep_history_bars');
+                        fetchedBars.forEach(b => barStore.put(b));
+                    }
+                    
+                    let newRanges = [...ranges, { start: currentFrom, end: currentTo, isEnd: chunkIsEnd }];
+                    newRanges.sort((a,b) => a.start - b.start);
+                    let merged = [];
+                    if (newRanges.length > 0) {
+                        let current = newRanges[0];
+                        for (let i = 1; i < newRanges.length; i++) {
+                            if (newRanges[i].start <= current.end) {
+                                current.end = Math.max(current.end, newRanges[i].end);
+                                current.isEnd = current.isEnd || newRanges[i].isEnd;
+                            } else {
+                                merged.push(current);
+                                current = newRanges[i];
+                            }
+                        }
+                        merged.push(current);
+                    }
+                    
+                    tx.objectStore('deep_history_ranges').put({ symbol_res, ranges: merged });
+                    await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
+                    
+                } catch (e) {
+                    console.error("Fyers deep history error:", e);
+                    break;
                 }
-                
-                tx.objectStore('deep_history_ranges').put({ symbol_res, ranges: merged });
-                await new Promise(r => { tx.oncomplete = r; tx.onerror = r; });
-                
-                ranges.length = 0;
-                ranges.push(...merged);
-            } catch (e) {
-                console.error("Fyers deep history error:", e);
-                return { data: [], isEnd: false };
             }
+            
+            if (chunkIsEnd) {
+                globalIsEnd = true;
+                break;
+            }
+            
+            currentTo = currentFrom;
         }
         
         const resultBars = await new Promise(resolve => {
@@ -246,14 +259,7 @@ class FyersEngine {
             req.onerror = () => resolve([]);
         });
         
-        let rangeIsEnd = false;
-        for (let r of ranges) {
-            if (r.start <= from && r.end >= to && r.isEnd && resultBars.length === 0) {
-                rangeIsEnd = true;
-            }
-        }
-        
-        return { data: resultBars, isEnd: rangeIsEnd };
+        return { data: resultBars, isEnd: globalIsEnd };
     }
 
     connectWebSocket() {
