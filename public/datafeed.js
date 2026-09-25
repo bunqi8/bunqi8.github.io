@@ -568,6 +568,39 @@ const Datafeed = {
             
             if (fileUrls.length === 0) {
                 DFLog.warn('getBars', `No Parquet files found for ${symbolInfo.name} in range`);
+                if (window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
+                    let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+                    if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
+                        const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
+                        if (baseTickerMatch) {
+                            const baseTicker = baseTickerMatch[1] + '_INDEX';
+                            const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
+                            if (baseExpiries.length > 0) {
+                                baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+                                const now = Date.now();
+                                let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
+                                if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
+                                
+                                const yy = activeExp.dateStr.slice(2,4);
+                                const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                                fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
+                            }
+                        }
+                    }
+                    
+                    try {
+                        DFLog.info('getBars', `Falling back to Fyers Deep History for ${fyersSymbol} from ${new Date(rawFrom*1000).toISOString()} to ${new Date(rawTo*1000).toISOString()}`);
+                        let deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                        deepBars = alignFyersDwmTime(deepBars, resolution);
+                        if (deepBars && deepBars.length > 0) {
+                            DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
+                            safeHistoryCallback(deepBars, onHistoryCallback, resolution);
+                            return;
+                        }
+                    } catch(e) {
+                        DFLog.error('getBars', 'Deep History fallback failed', e);
+                    }
+                }
                 return onHistoryCallback([], { noData: true });
             }
 
