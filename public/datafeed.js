@@ -633,11 +633,12 @@ const Datafeed = {
                 
                 let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
                 
-                if (!window._lastBarTime) window._lastBarTime = {};
-                const currentMax = window._lastBarTime[`${fyersSymbol}_${resolution}`] || 0;
-                const batchMax = cleanBars[cleanBars.length - 1].time;
-                if (batchMax > currentMax) {
-                    window._lastBarTime[`${fyersSymbol}_${resolution}`] = batchMax;
+                if (!window._tvLastBar) window._tvLastBar = {};
+                const cacheKey = `${fyersSymbol}_${resolution}`;
+                const currentLastBar = window._tvLastBar[cacheKey];
+                const batchLastBar = cleanBars[cleanBars.length - 1];
+                if (!currentLastBar || batchLastBar.time > currentLastBar.time) {
+                    window._tvLastBar[cacheKey] = { ...batchLastBar };
                 }
                 
                 DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
@@ -670,33 +671,50 @@ const Datafeed = {
         
         const cb = (tick) => {
             let alignedTick = { ...tick };
+            const cacheKey = `${fyersSymbol}_${resolution}`;
             
             if (isDWM) {
                 const d = new Date(alignedTick.time);
                 d.setUTCHours(0, 0, 0, 0);
                 alignedTick.time = d.getTime();
-            } else {
-                // Fyers API sends the DAILY high/low in its live quote payloads.
-                // For intraday charts, passing this would cause the current 1h/15m candle 
-                // to suddenly stretch and engulf the entire day's range.
-                // We must override the tick's OHL to the last traded price. TradingView will 
-                // correctly aggregate the boundaries natively.
-                alignedTick.open = alignedTick.close;
-                alignedTick.high = alignedTick.close;
-                alignedTick.low = alignedTick.close;
             }
             
-            // Prevent TradingView backward time violations on stale weekend/closed quotes
-            // Fyers often returns 00:00:00 UTC for exch_tm when the market is closed.
-            const cacheKey = `${fyersSymbol}_${resolution}`;
-            if (window._lastBarTime && window._lastBarTime[cacheKey]) {
-                const lastTime = window._lastBarTime[cacheKey];
-                if (alignedTick.time < lastTime) {
-                    alignedTick.time = lastTime; // Snap stale ticks to the last known candle floor
+            if (!window._tvLastBar) window._tvLastBar = {};
+            let lastBar = window._tvLastBar[cacheKey];
+            
+            // 1. Prevent time violations (snap stale weekend quotes to chronological floor)
+            if (lastBar && alignedTick.time < lastBar.time) {
+                alignedTick.time = lastBar.time;
+            }
+            
+            // 2. Safely merge the live tick into the candle without crushing historical OHL
+            if (lastBar && alignedTick.time === lastBar.time) {
+                if (isDWM) {
+                    // Daily charts: safely inherit Fyers daily exchange limits
+                    lastBar.open = alignedTick.open || lastBar.open;
+                    lastBar.high = Math.max(lastBar.high, alignedTick.high);
+                    lastBar.low = Math.min(lastBar.low, alignedTick.low);
+                } else {
+                    // Intraday charts: mathematically expand the wicks using only Last Traded Price (close)
+                    lastBar.high = Math.max(lastBar.high, alignedTick.close);
+                    lastBar.low = Math.min(lastBar.low, alignedTick.close);
                 }
+                lastBar.close = alignedTick.close;
+                lastBar.volume = alignedTick.volume || lastBar.volume;
+            } else {
+                // Time moved forward, start a completely new candle
+                lastBar = {
+                    time: alignedTick.time,
+                    open: alignedTick.close,
+                    high: alignedTick.close,
+                    low: alignedTick.close,
+                    close: alignedTick.close,
+                    volume: alignedTick.volume || 0
+                };
+                window._tvLastBar[cacheKey] = lastBar;
             }
             
-            onRealtimeCallback(alignedTick);
+            onRealtimeCallback({ ...lastBar });
         };
         window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
         window.FyersAPI.subscribe(fyersSymbol, cb);
