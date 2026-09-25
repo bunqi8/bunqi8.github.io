@@ -539,8 +539,9 @@ const Datafeed = {
                 try {
                     let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
                     if (fyersBars.length > 0) {
-                        // Merge and sort
-                        bars = bars.concat(fyersBars).sort((a,b) => a.time - b.time);
+                        // Merge, sort, and strictly deduplicate by time (Fyers takes precedence for live day)
+                        const fyersTimes = new Set(fyersBars.map(b => b.time));
+                        bars = bars.filter(b => !fyersTimes.has(b.time)).concat(fyersBars).sort((a,b) => a.time - b.time);
                     }
                 } catch(e) {
                     DFLog.error('getBars', 'Failed to fetch Fyers live bars for stitching', e);
