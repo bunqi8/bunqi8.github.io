@@ -524,517 +524,120 @@ const Datafeed = {
         const rawFrom = from;
         const rawTo = to;
         
-        // Pure Fyers API call for Live Options
+        // 1. Live Options (No Parquet)
         if (symbolInfo.isLive && window.FyersAPI) {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
             fyersBars = alignFyersDwmTime(fyersBars, resolution);
-            if (fyersBars.length > 0) {
-                return onHistoryCallback(fyersBars, { noData: false });
-            } else {
-                return onHistoryCallback([], { noData: true });
-            }
-        }
-        
-        
-        const resString = resolution ? resolution.toString() : '';
-        const sfx = resolution ? resolutionToSuffix(resolution) : '';
-        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-
-        // The HuggingFace backend stores IST times directly as UTC epoch values (e.g. 09:15 IST is stored as 09:15 UTC) FOR INTRADAY ONLY.
-        // Since TradingView asks for true UTC bounds (e.g. 03:45 UTC), we must shift our query bounds forward by 5:30
-        // to correctly hit the pseudo-UTC data inside DuckDB.
-        // HOWEVER, for Daily/Weekly/Monthly charts, the Parquet files store true UTC midnights (00:00:00 UTC).
-        // So we MUST NOT shift the bounds for DWM, otherwise we skip the first day of every request!
-        if (!isDWM) {
-            from += 19800;
-            to += 19800;
+            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution);
         }
 
-        
-        DFLog.info('getBars', `${symbolInfo.name} | res=${resolution} | from=${from} to=${to} | countBack=${countBack} | first=${firstDataRequest}`);
+        let conn = null;
+        let finalBars = [];
+        let duckdbHit = false;
 
-        if (!window.db) {
-            return onErrorCallback("DuckDB not initialized yet");
-        }
-
-        let conn;
         try {
-            // Wait for the background sync manager to download the metadata for this symbol if it's missing
-            let fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
-            
-            // If no files found and this is the initial chart load, wait for the background sync to finish
-            if (fileUrls.length === 0 && firstDataRequest && window.SyncManager && window.SyncManager._syncPromise) {
-                DFLog.info('getBars', `No files in cache yet, waiting for background sync to complete...`);
-                try { await window.SyncManager._syncPromise; } catch(e) {}
-                fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
-            }
-            
-            // 1. Resolve Parquet files dynamically based on requested time range and symbol type
-            // This natively supports Index and Futures merging across rollover months!
-            
-            
-            if (fileUrls.length === 0) {
-                DFLog.warn('getBars', `No Parquet files found for ${symbolInfo.name} in range`);
-                if (window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
-                    let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                    if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
-                        const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
-                        if (baseTickerMatch) {
-                            const baseTicker = baseTickerMatch[1] + '_INDEX';
-                            const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
-                            if (baseExpiries.length > 0) {
-                                baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-                                const now = Date.now();
-                                let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
-                                if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
-                                
-                                const yy = activeExp.dateStr.slice(2,4);
-                                const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                                fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
-                            }
-                        }
+            // 2. Identify Fyers Base Symbol for stitching
+            let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+            if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
+                const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
+                if (baseTickerMatch) {
+                    const baseTicker = baseTickerMatch[1] + '_INDEX';
+                    const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
+                    if (baseExpiries.length > 0) {
+                        baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+                        const now = Date.now();
+                        let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
+                        if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
+                        const yy = activeExp.dateStr.slice(2,4);
+                        const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                        fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
                     }
+                }
+            }
+
+            // 3. Query DuckDB Parquet Data
+            if (window.db && window.resolveSymbolFiles) {
+                const fileUrls = await window.resolveSymbolFiles(symbolInfo, resolution, rawFrom, rawTo, countBack);
+                if (fileUrls.length > 0) {
+                    let vfsNames = [];
+                    for (let url of fileUrls) {
+                        vfsNames.push(await window.ensureParquetLoaded(url));
+                    }
+                    const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
                     
-                    try {
-                        DFLog.info('getBars', `Falling back to Fyers Deep History for ${fyersSymbol} from ${new Date(rawFrom*1000).toISOString()} to ${new Date(rawTo*1000).toISOString()}`);
-                        let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
-                        let deepBars = Array.isArray(res) ? res : (res.data || []);
-                        let isEnd = res.isEnd || false;
+                    conn = await window.db.connect();
+                    
+                    // We query wider to ensure boundaries are caught cleanly
+                    const rangeSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM (${unionStmts})
+                        WHERE time >= ${rawFrom - 86400} AND time <= ${rawTo + 86400}
+                        ORDER BY time ASC
+                    `;
+                    const rangeResult = await conn.query(rangeSQL);
+                    let parquetBars = arrowToTVBars(rangeResult, resolution);
+                    
+                    if (parquetBars.length > 0) {
+                        duckdbHit = true;
                         
-                        deepBars = alignFyersDwmTime(deepBars, resolution);
+                        let coreBars = parquetBars.filter(b => b.time >= rawFrom * 1000 && b.time <= rawTo * 1000);
+                        let earliestParquet = coreBars.length > 0 ? coreBars[0].time / 1000 : (parquetBars[0].time / 1000);
+                        let latestParquet = coreBars.length > 0 ? coreBars[coreBars.length - 1].time / 1000 : (parquetBars[parquetBars.length - 1].time / 1000);
                         
-                        const resString = resolution ? resolution.toString() : '';
-                        const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+                        finalBars = coreBars;
                         
-                        if (rawTo && isDWM) {
-                            const toMs = rawTo * 1000;
-                            deepBars = deepBars.filter(b => b.time < toMs);
+                        // LEFT GAP: Fetch Deep History if TV wants older data than Parquet has
+                        if (rawFrom < earliestParquet && window.FyersAPI) {
+                            try {
+                                DFLog.info('getBars', `Fetching LEFT GAP from Fyers: ${rawFrom} to ${earliestParquet}`);
+                                let leftBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, earliestParquet);
+                                leftBars = alignFyersDwmTime(Array.isArray(leftBars) ? leftBars : (leftBars.data || []), resolution);
+                                finalBars = leftBars.concat(finalBars);
+                            } catch(e) { DFLog.error('getBars', 'Left gap fetch failed', e); }
                         }
                         
-                        if (deepBars && deepBars.length > 0) {
-                            DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                            safeHistoryCallback(deepBars, onHistoryCallback, resolution);
-                            return;
-                        } else {
-                            DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEnd}`);
-                            if (!isEnd && rawFrom > 0) {
-                                DFLog.info('getBars', 'Injecting dummy bar to visually span the void');
-                                let dummyBar = { time: rawFrom * 1000, open: 100, high: 100, low: 100, close: 100, volume: 0 };
-                                return onHistoryCallback([dummyBar], { noData: false });
-                            }
-                            return onHistoryCallback([], { noData: isEnd });
+                        // RIGHT GAP: Fetch Recent History if TV wants newer data than Parquet has (Fixes missing days before today!)
+                        if (rawTo > latestParquet && window.FyersAPI) {
+                            try {
+                                DFLog.info('getBars', `Fetching RIGHT GAP from Fyers: ${latestParquet} to ${rawTo}`);
+                                let rightBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, latestParquet, rawTo);
+                                rightBars = alignFyersDwmTime(Array.isArray(rightBars) ? rightBars : (rightBars.data || []), resolution);
+                                finalBars = finalBars.concat(rightBars);
+                            } catch(e) { DFLog.error('getBars', 'Right gap fetch failed', e); }
                         }
-                    } catch(e) {
-                        DFLog.error('getBars', 'Deep History fallback failed', e);
-                    }
-                }
-                return onHistoryCallback([], { noData: true });
-            }
-
-            // 2. Ensure Parquet files are downloaded & registered in DuckDB VFS
-            let vfsNames = [];
-            for (let url of fileUrls) {
-                vfsNames.push(await window.ensureParquetLoaded(url));
-            }
-            
-            // Build UNION query
-            const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
-
-
-            // 3. Open a connection and run the range query
-            conn = await window.db.connect();
-
-            const rangeSQL = `
-                SELECT time * 1000 AS time, open, high, low, close, volume
-                FROM (
-                    ${unionStmts}
-                )
-                WHERE time >= ${from} AND time < ${to}
-                ORDER BY time ASC
-            `;
-            DFLog.debug('getBars', `SQL: WHERE time >= ${from} AND time < ${to}`);
-            const rangeResult = await conn.query(rangeSQL);
-            let bars = arrowToTVBars(rangeResult, resolution);
-            
-            const startOfTodayRaw = new Date();
-            startOfTodayRaw.setHours(0,0,0,0); // Local time midnight
-            const startOfTodayUTC = startOfTodayRaw.getTime() / 1000;
-            
-            if ((symbolInfo.type === 'index' || symbolInfo.type === 'futures') && rawTo >= startOfTodayUTC && window.FyersAPI) {
-                let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                try {
-                    let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
-                    fyersBars = alignFyersDwmTime(fyersBars, resolution);
-                    if (fyersBars.length > 0) {
-                        // Merge, sort, and strictly deduplicate by time (DuckDB/Parquet takes precedence)
-                        const duckdbTimes = new Set(bars.map(b => b.time));
-                        const filteredFyers = fyersBars.filter(b => !duckdbTimes.has(b.time));
-                        bars = bars.concat(filteredFyers).sort((a,b) => a.time - b.time);
-                    }
-                } catch(e) {
-                    DFLog.error('getBars', 'Failed to fetch Fyers live bars for stitching', e);
-                }
-            }
-            
-            
-            DFLog.info('getBars', `Range query returned ${bars.length} bars`);
-
-            // PREVENT TRADINGVIEW CACHE OVERLAP BUG
-            // When scrolling backwards (!firstDataRequest), TV requests exactly up to its cache boundary.
-            // If DuckDB returns a DWM bar precisely at `rawTo`, TV will fail to splice it, crashing the engine.
-            // By stripping overlapping bars HERE, if `bars` becomes empty, we correctly fall through to the Deep History fallback!
-            if (!firstDataRequest && rawTo) {
-                const toMs = rawTo * 1000;
-                const resString = resolution ? resolution.toString() : '';
-                const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-                if (isDWM) {
-                    const beforeFilter = bars.length;
-                    bars = bars.filter(b => b.time < toMs);
-                    if (beforeFilter !== bars.length) {
-                        DFLog.info('getBars', `Stripped ${beforeFilter - bars.length} overlapping bars at the cache boundary.`);
                     }
                 }
             }
+            
+            // 4. If DuckDB returned absolutely nothing for this range
+            let isEnd = false;
+            if (!duckdbHit && window.FyersAPI) {
+                DFLog.info('getBars', `No Parquet data found for range. Falling back to Fyers Deep History.`);
+                let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                let deepBars = Array.isArray(res) ? res : (res.data || []);
+                isEnd = res.isEnd || false;
+                
+                finalBars = alignFyersDwmTime(deepBars, resolution);
+            }
 
-            if (bars.length > 0) {
-
-                // NUCLEAR ZEROING FOR TV CRASH
-                if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
-                    const unique = new Map();
-                    bars.forEach(b => {
-                        const d = new Date(b.time);
-                        d.setUTCHours(0, 0, 0, 0);
-                        b.time = d.getTime();
-                        unique.set(b.time, b);
-                    });
-                    bars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+            // 5. Final Deduplication and Time Filtering (Bulletproof Pipeline)
+            if (finalBars.length > 0) {
+                // TradingView strictly requires bars to NOT exceed rawTo
+                finalBars = finalBars.filter(b => b.time <= rawTo * 1000);
+                
+                // Pure deduplication by exact timestamp (Parquet + Fyers overlap perfectly deduplicated)
+                const uniqueMap = new Map();
+                for (let b of finalBars) {
+                    uniqueMap.set(b.time, b);
                 }
                 
-                await conn.close();
+                let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
                 
-                // --- STITCH FYERS DATA IF DUCKDB RETURNED A BOUNDARY GAP ---
-                const earliestDuckTimeMs = bars[0].time;
-                const requestedFromMs = from * 1000;
-                if (earliestDuckTimeMs > requestedFromMs && window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
-                    const gapTo = Math.floor(earliestDuckTimeMs / 1000) - 1;
-                    let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                    if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
-                        const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
-                        if (baseTickerMatch) {
-                            const baseTicker = baseTickerMatch[1] + '_INDEX';
-                            const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
-                            if (baseExpiries.length > 0) {
-                                baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-                                const now = Date.now();
-                                let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
-                                if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
-                                const yy = activeExp.dateStr.slice(2,4);
-                                const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                                fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
-                            }
-                        }
-                    }
-                    
-                    try {
-                        DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
-                        let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
-                        let deepBars = Array.isArray(res) ? res : (res.data || []);
-                        deepBars = alignFyersDwmTime(deepBars, resolution);
-                        
-                        const resString = resolution ? resolution.toString() : '';
-                        const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-                        
-                        if (isDWM) deepBars = deepBars.filter(b => b.time < earliestDuckTimeMs);
-                        
-                        if (deepBars.length > 0) {
-                            DFLog.info('getBars', `Stitched ${deepBars.length} Fyers bars to DuckDB result.`);
-                            bars = deepBars.concat(bars);
-                        }
-                    } catch (e) {
-                        DFLog.error('getBars', 'Fyers stitching failed', e);
-                    }
-                }
-                // -------------------------------------------------------------
-                
-                DFLog.info('getBars', `Returning ${bars.length} bars to TV. Range: ${new Date(bars[0].time).toISOString()} → ${new Date(bars[bars.length - 1].time).toISOString()}`);
-                safeHistoryCallback(bars, onHistoryCallback, resolution);
-                return;
+                DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
+                return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
             }
-
-            // 5. Range returned 0 bars — two different strategies:
-            //
-            //    A) firstDataRequest=true (initial chart load):
-            //       TV needs SOMETHING to display. Return the latest countBack
-            //       bars from wherever they exist in the file.
-            //
-            //    B) firstDataRequest=false (user scrolling left):
-            //       TV is looking for data BEFORE `from`. Return older bars
-            //       that come before the requested range. If none exist,
-            //       return noData:true to stop further backward requests.
-
-            if (firstDataRequest) {
-                // Strategy A: Initial load — get the newest countBack bars
-                DFLog.warn('getBars', `First request, 0 bars in range. Getting latest ${countBack} bars from file...`);
-
-                let latestBars;
-                try {
-                    const latestSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;
-                    const latestResult = await conn.query(latestSQL);
-                    latestBars = arrowToTVBars(latestResult, resolution);
-                } catch (wasmErr) {
-                    // DuckDB-WASM may crash on ORDER BY DESC + LIMIT.
-                    // Fallback: fetch ALL rows and sort/slice in JavaScript.
-                    DFLog.warn('getBars', `WASM ORDER BY crashed, falling back to JS sort...`);
-                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                    `;
-                    const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult, resolution);
-                    DFLog.info('getBars', `Fetched all ${allBars.length} bars, sorting in JS...`);
-                    allBars.sort((a, b) => b.time - a.time);
-                    latestBars = allBars.slice(0, countBack);
-                }
-
-                await conn.close();
-                conn = null;
-
-                if (latestBars.length > 0) {
-                    latestBars.reverse(); // TV requires ascending order
-                    
-                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
-                        const unique = new Map();
-                        latestBars.forEach(b => {
-                            const d = new Date(b.time);
-                            d.setUTCHours(0, 0, 0, 0);
-                            b.time = d.getTime();
-                            unique.set(b.time, b);
-                        });
-                        latestBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
-                    }
-                    
-                    // --- STITCH FYERS DATA IF DUCKDB RETURNED A BOUNDARY GAP ---
-                    const earliestDuckTimeMs = latestBars[0].time;
-                    const requestedFromMs = from * 1000;
-                    if (earliestDuckTimeMs > requestedFromMs && window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
-                        const gapTo = Math.floor(earliestDuckTimeMs / 1000) - 1;
-                        let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                        if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
-                            const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\\d/);
-                            if (baseTickerMatch) {
-                                const baseTicker = baseTickerMatch[1] + '_INDEX';
-                                const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
-                                if (baseExpiries.length > 0) {
-                                    baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-                                    const now = Date.now();
-                                    let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
-                                    if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
-                                    const yy = activeExp.dateStr.slice(2,4);
-                                    const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                                    fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
-                                }
-                            }
-                        }
-                        
-                        try {
-                            DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
-                            let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
-                            let deepBars = Array.isArray(res) ? res : (res.data || []);
-                            deepBars = alignFyersDwmTime(deepBars, resolution);
-                            
-                            const resString = resolution ? resolution.toString() : '';
-                            const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                            const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-                            
-                            if (isDWM) deepBars = deepBars.filter(b => b.time < earliestDuckTimeMs);
-                            
-                            if (deepBars.length > 0) {
-                                DFLog.info('getBars', `Stitched ${deepBars.length} Fyers bars to DuckDB result.`);
-                                latestBars = deepBars.concat(latestBars);
-                            }
-                        } catch (e) {
-                            DFLog.error('getBars', 'Fyers stitching failed', e);
-                        }
-                    }
-                    // -------------------------------------------------------------\n                    DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(latestBars, onHistoryCallback, resolution);
-                    return;
-                }
-
-                DFLog.warn('getBars', `File has no data at all.`);
-                onHistoryCallback([], { noData: true });
-                return;
-
-            } else {
-                // Strategy B: Scroll-back — get bars BEFORE `from`
-                DFLog.info('getBars', `Scroll-back, 0 bars in range. Querying ${countBack} bars before timestamp ${from}...`);
-
-                let olderBars;
-                try {
-                    const olderSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;
-                    const olderResult = await conn.query(olderSQL);
-                    olderBars = arrowToTVBars(olderResult, resolution);
-                } catch (wasmErr) {
-                    DFLog.warn('getBars', `WASM ORDER BY crashed on scroll-back, falling back to JS...`);
-                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                    `;
-                    const allResult = await conn.query(allSQL);
-                    const allBars = arrowToTVBars(allResult, resolution);
-                    allBars.sort((a, b) => b.time - a.time);
-                    olderBars = allBars.slice(0, countBack);
-                }
-
-                await conn.close();
-                conn = null;
-
-                if (olderBars.length > 0) {
-                    olderBars.reverse(); // TV requires ascending order
-                    
-                    if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
-                        const unique = new Map();
-                        olderBars.forEach(b => {
-                            const d = new Date(b.time);
-                            d.setUTCHours(0, 0, 0, 0);
-                            b.time = d.getTime();
-                            unique.set(b.time, b);
-                        });
-                        olderBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
-                    }
-                    
-                    // --- STITCH FYERS DATA IF DUCKDB RETURNED A BOUNDARY GAP ---
-                    const earliestDuckTimeMs = olderBars[0].time;
-                    const requestedFromMs = from * 1000;
-                    if (earliestDuckTimeMs > requestedFromMs && window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
-                        const gapTo = Math.floor(earliestDuckTimeMs / 1000) - 1;
-                        let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                        if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
-                            const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\\d/);
-                            if (baseTickerMatch) {
-                                const baseTicker = baseTickerMatch[1] + '_INDEX';
-                                const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
-                                if (baseExpiries.length > 0) {
-                                    baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-                                    const now = Date.now();
-                                    let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
-                                    if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
-                                    const yy = activeExp.dateStr.slice(2,4);
-                                    const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                                    fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
-                                }
-                            }
-                        }
-                        
-                        try {
-                            DFLog.info('getBars', `Parquet gap detected from ${new Date(requestedFromMs).toISOString()} to ${new Date(earliestDuckTimeMs).toISOString()}. Stitching Fyers...`);
-                            let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, from, gapTo);
-                            let deepBars = Array.isArray(res) ? res : (res.data || []);
-                            deepBars = alignFyersDwmTime(deepBars, resolution);
-                            
-                            const resString = resolution ? resolution.toString() : '';
-                            const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                            const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-                            
-                            if (isDWM) deepBars = deepBars.filter(b => b.time < earliestDuckTimeMs);
-                            
-                            if (deepBars.length > 0) {
-                                DFLog.info('getBars', `Stitched ${deepBars.length} Fyers bars to DuckDB result.`);
-                                olderBars = deepBars.concat(olderBars);
-                            }
-                        } catch (e) {
-                            DFLog.error('getBars', 'Fyers stitching failed', e);
-                        }
-                    }
-                    // -------------------------------------------------------------\n                    DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(olderBars, onHistoryCallback, resolution);
-                    return;
-                }
-
-                if (!firstDataRequest && rawTo < startOfTodayUTC && window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
-                    DFLog.info('getBars', `No older Parquet data exists. Falling back to Fyers Deep History...`);
-                    
-                    let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
-                    if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
-                        const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
-                        if (baseTickerMatch) {
-                            const baseTicker = baseTickerMatch[1] + '_INDEX';
-                            const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
-                            if (baseExpiries.length > 0) {
-                                baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
-                                const now = Date.now();
-                                let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
-                                if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
-                                
-                                const yy = activeExp.dateStr.slice(2,4);
-                                const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                                fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
-                            }
-                        }
-                    }
-                    
-                    try {
-                        let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
-                        let deepBars = Array.isArray(res) ? res : (res.data || []);
-                        let isEnd = res.isEnd || false;
-                        
-                        deepBars = alignFyersDwmTime(deepBars, resolution);
-                        
-                        const resString = resolution ? resolution.toString() : '';
-                        const sfx = resolution ? resolutionToSuffix(resolution) : '';
-                        const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
-                        
-                        if (rawTo && isDWM) {
-                            const toMs = rawTo * 1000;
-                            deepBars = deepBars.filter(b => b.time < toMs);
-                        }
-                        
-                        if (deepBars && deepBars.length > 0) {
-                            DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                            safeHistoryCallback(deepBars, onHistoryCallback, resolution);
-                            return;
-                        } else {
-                            DFLog.info('getBars', `Deep history returned 0 bars. isEndOfHistory=${isEnd}`);
-                            if (!isEnd && rawFrom > 0) {
-                                DFLog.info('getBars', 'Injecting dummy bar to visually span the void');
-                                let dummyBar = { time: rawFrom * 1000, open: 100, high: 100, low: 100, close: 100, volume: 0 };
-                                return onHistoryCallback([dummyBar], { noData: false });
-                            }
-                            return onHistoryCallback([], { noData: isEnd });
-                        }
-                    } catch(e) {
-                        DFLog.error('getBars', 'Deep History fallback failed', e);
-                    }
-                }
-                
-                // No more older data exists anywhere
-                DFLog.info('getBars', `No older data exists in Parquet or Fyers. Returning noData:true`);
-                onHistoryCallback([], { noData: true });
-                return;
-            }
+            
+            return onHistoryCallback([], { noData: isEnd || true });
 
         } catch (error) {
             if (conn) { try { await conn.close(); } catch (_) {} }
