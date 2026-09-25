@@ -729,3 +729,19 @@ const Datafeed = {
         }
     }
 };
+
+// Listen for Parquet database updates from Hugging Face
+let tvReloadTimer = null;
+window.addEventListener('hf_expiry_updated', () => {
+    if (tvReloadTimer) clearTimeout(tvReloadTimer);
+    tvReloadTimer = setTimeout(() => {
+        console.log("[Datafeed] New Parquet file downloaded! Forcing TradingView to reload chart history...");
+        if (window.FyersAPI && window.FyersAPI.subscribers) {
+            window.FyersAPI.subscribers.forEach((subs, symbol) => {
+                subs.forEach(sub => {
+                    if (sub.resetCb) sub.resetCb();
+                });
+            });
+        }
+    }, 2000);
+});
