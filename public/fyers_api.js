@@ -147,7 +147,20 @@ connectWebSocket() {
                     const res = await fetch(qUrl, {
                         headers: { 'Authorization': this.token }
                     });
-                    const data = await res.json();
+                                        const data = await res.json();
+                    
+                    if (data.s === 'error' && (data.code === -15 || data.message.toLowerCase().includes('token'))) {
+                        console.error("Fyers Auth Error:", data.message);
+                        this.isPolling = false;
+                        this.pollInterval = null;
+                        this.token = null;
+                        localStorage.removeItem('fyers_token');
+                        
+                        // Show visual alert on the UI
+                        alert("Fyers Live Data Disconnected: Your access token has expired or is invalid.\n\nPlease click the Broker button to provide a new token.");
+                        
+                        return; // Stop the polling loop completely
+                    }
                     
                     if (data.s === 'ok' && data.d) {
                         data.d.forEach(item => {
