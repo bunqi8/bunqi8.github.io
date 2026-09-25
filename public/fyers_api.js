@@ -381,7 +381,7 @@ class FyersEngine {
                                             close: item.v.lp,
                                             volume: item.v.volume || item.v.vol || item.v.v || 0
                                         };
-                                        subs.forEach(cb => cb(tick));
+                                        subs.forEach(sub => sub.cb(tick));
                                     }
                                 }
                             });
@@ -419,6 +419,13 @@ class FyersEngine {
                                     symbols.forEach(sym => {
                                         if (this.getSegmentKey(sym) === segKey) {
                                             this.symbolLastTickTime.set(sym, Date.now());
+                                            // Trigger TradingView to reload history to fetch the missing gap!
+                                            const subs = this.subscribers.get(sym);
+                                            if (subs) {
+                                                subs.forEach(sub => {
+                                                    if (sub.resetCb) sub.resetCb();
+                                                });
+                                            }
                                         }
                                     });
                                 }
@@ -441,12 +448,11 @@ class FyersEngine {
     _handleWsMessage(msg) { }
     _sendWsCommand(command, symbols) { }
 
-    subscribe(symbol, callback) {
+    subscribe(symbol, callback, resetCallback) {
         if (!this.subscribers.has(symbol)) {
             this.subscribers.set(symbol, new Set());
-            
         }
-        this.subscribers.get(symbol).add(callback);
+        this.subscribers.get(symbol).add({ cb: callback, resetCb: resetCallback });
         
         if (!this.pollInterval) {
             this.connectWebSocket();
@@ -455,7 +461,13 @@ class FyersEngine {
     
     unsubscribe(symbol, callback) {
         if (this.subscribers.has(symbol)) {
-            this.subscribers.get(symbol).delete(callback);
+            const subs = this.subscribers.get(symbol);
+            for (let sub of subs) {
+                if (sub.cb === callback) {
+                    subs.delete(sub);
+                    break;
+                }
+            }
             if (this.subscribers.get(symbol).size === 0) {
                 
                 this.subscribers.delete(symbol);

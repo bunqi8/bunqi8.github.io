@@ -717,7 +717,7 @@ const Datafeed = {
             onRealtimeCallback({ ...lastBar });
         };
         window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
-        window.FyersAPI.subscribe(fyersSymbol, cb);
+        window.FyersAPI.subscribe(fyersSymbol, cb, onResetCacheNeededCallback);
     },
 
     unsubscribeBars: (subscriberUID) => {
