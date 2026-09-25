@@ -539,9 +539,10 @@ const Datafeed = {
                 try {
                     let fyersBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, Math.max(rawFrom, startOfTodayUTC), rawTo);
                     if (fyersBars.length > 0) {
-                        // Merge, sort, and strictly deduplicate by time (Fyers takes precedence for live day)
-                        const fyersTimes = new Set(fyersBars.map(b => b.time));
-                        bars = bars.filter(b => !fyersTimes.has(b.time)).concat(fyersBars).sort((a,b) => a.time - b.time);
+                        // Merge, sort, and strictly deduplicate by time (DuckDB/Parquet takes precedence)
+                        const duckdbTimes = new Set(bars.map(b => b.time));
+                        const filteredFyers = fyersBars.filter(b => !duckdbTimes.has(b.time));
+                        bars = bars.concat(filteredFyers).sort((a,b) => a.time - b.time);
                     }
                 } catch(e) {
                     DFLog.error('getBars', 'Failed to fetch Fyers live bars for stitching', e);
@@ -658,8 +659,38 @@ const Datafeed = {
                     return;
                 }
 
-                // No more older data exists in the file
-                DFLog.info('getBars', `No older data exists. Returning noData:true to stop backward requests.`);
+                if (window.FyersAPI && (symbolInfo.type === 'index' || symbolInfo.type === 'futures')) {
+                    DFLog.info('getBars', `No older Parquet data exists. Falling back to Fyers Deep History...`);
+                    
+                    let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+                    if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
+                        const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
+                        if (baseTickerMatch) {
+                            const baseTicker = baseTickerMatch[1] + '_INDEX';
+                            const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
+                            if (baseExpiries.length > 0) {
+                                baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+                                const now = Date.now();
+                                let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
+                                if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
+                                
+                                const yy = activeExp.dateStr.slice(2,4);
+                                const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                                fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
+                            }
+                        }
+                    }
+                    
+                    const deepBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                    if (deepBars && deepBars.length > 0) {
+                        DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
+                        onHistoryCallback(deepBars, { noData: false });
+                        return;
+                    }
+                }
+                
+                // No more older data exists anywhere
+                DFLog.info('getBars', `No older data exists in Parquet or Fyers. Returning noData:true`);
                 onHistoryCallback([], { noData: true });
                 return;
             }
