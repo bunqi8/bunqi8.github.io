@@ -21,7 +21,7 @@ class FyersEngine {
     
     async initCacheDB() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open('fyers_cache_db', 3);
+            const request = indexedDB.open('fyers_cache_db', 4);
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains('history')) {
@@ -197,12 +197,18 @@ class FyersEngine {
                             this.token = null;
                             localStorage.removeItem('fyers_token');
                             alert("Fyers Deep History: Token expired. Please re-authenticate via Broker button.");
-                        } else {
+                        }
+                        
+                        if (data.s === 'no_data' || (data.message && data.message.toLowerCase().includes('no data'))) {
                             chunkIsEnd = true;
+                        } else {
+                            // Rate limit or server error! Do not cache this as end of data.
+                            console.error("Fyers API Error:", data);
+                            break;
                         }
                     }
                     
-                    if (fetchedBars.length === 0 && (currentTo - currentFrom) >= (maxRangeSec - 86400)) {
+                    if (fetchedBars.length === 0 && data.s === 'ok' && (currentTo - currentFrom) >= (maxRangeSec - 86400)) {
                         chunkIsEnd = true;
                     }
                     
