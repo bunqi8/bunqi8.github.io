@@ -131,7 +131,8 @@ function alignFyersDwmTime(bars, resolution) {
 
 
 
-function safeHistoryCallback(bars, cb, resolution, toMs = null) {
+
+function safeHistoryCallback(bars, cb, resolution) {
     let safeBars = bars;
     const resString = resolution ? resolution.toString() : 'undefined';
     const sfx = resolution ? resolutionToSuffix(resolution) : 'undefined';
@@ -152,16 +153,6 @@ function safeHistoryCallback(bars, cb, resolution, toMs = null) {
     const dedupedBars = [];
     let lastTime = -1;
     for (let b of safeBars) {
-        // PREVENT TRADINGVIEW CACHE OVERLAP BUG:
-        // When scrolling left, TV passes `to` as the exact unaligned midnight timestamp of its first cached bar.
-        // If we return a bar matching this exact timestamp, TV's `splice` deduplication fails because
-        // TV has already mutated its cached bar to session start (e.g. 03:45 UTC).
-        // This causes TV to forcefully inject a duplicate bar and crash the engine.
-        // We fix this by dropping the overlapping bar here.
-        if (toMs && isDWM && b.time >= toMs) {
-                        continue;
-        }
-
         if (b.time > lastTime) {
             dedupedBars.push(b);
             lastTime = b.time;
@@ -170,6 +161,7 @@ function safeHistoryCallback(bars, cb, resolution, toMs = null) {
     
     cb(dedupedBars, { noData: dedupedBars.length === 0 });
 }
+
 
 
 
@@ -624,9 +616,29 @@ const Datafeed = {
                 }
             }
             
+            
             DFLog.info('getBars', `Range query returned ${bars.length} bars`);
 
+            // PREVENT TRADINGVIEW CACHE OVERLAP BUG
+            // When scrolling backwards (!firstDataRequest), TV requests exactly up to its cache boundary.
+            // If DuckDB returns a DWM bar precisely at `rawTo`, TV will fail to splice it, crashing the engine.
+            // By stripping overlapping bars HERE, if `bars` becomes empty, we correctly fall through to the Deep History fallback!
+            if (!firstDataRequest && rawTo) {
+                const toMs = rawTo * 1000;
+                const resString = resolution ? resolution.toString() : '';
+                const sfx = resolution ? resolutionToSuffix(resolution) : '';
+                const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+                if (isDWM) {
+                    const beforeFilter = bars.length;
+                    bars = bars.filter(b => b.time < toMs);
+                    if (beforeFilter !== bars.length) {
+                        DFLog.info('getBars', `Stripped ${beforeFilter - bars.length} overlapping bars at the cache boundary.`);
+                    }
+                }
+            }
+
             if (bars.length > 0) {
+
                 // NUCLEAR ZEROING FOR TV CRASH
                 if (resolution && (resolution.toString().includes('D') || resolution.toString().includes('W') || resolution.toString().includes('M'))) {
                     const unique = new Map();
@@ -641,7 +653,7 @@ const Datafeed = {
                 
                 await conn.close();
                 DFLog.info('getBars', `Returning ${bars.length} bars to TV`);
-                safeHistoryCallback(bars, onHistoryCallback, resolution, rawTo * 1000);
+                safeHistoryCallback(bars, onHistoryCallback, resolution);
                 return;
             }
 
@@ -707,7 +719,7 @@ const Datafeed = {
                     }
                     
                     DFLog.info('getBars', `Returning ${latestBars.length} latest bars. Range: ${new Date(latestBars[0].time).toISOString()} → ${new Date(latestBars[latestBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(latestBars, onHistoryCallback, resolution, rawTo * 1000);
+                    safeHistoryCallback(latestBars, onHistoryCallback, resolution);
                     return;
                 }
 
@@ -765,7 +777,7 @@ const Datafeed = {
                     }
                     
                     DFLog.info('getBars', `Returning ${olderBars.length} older bars. Range: ${new Date(olderBars[0].time).toISOString()} → ${new Date(olderBars[olderBars.length - 1].time).toISOString()}`);
-                    safeHistoryCallback(olderBars, onHistoryCallback, resolution, rawTo * 1000);
+                    safeHistoryCallback(olderBars, onHistoryCallback, resolution);
                     return;
                 }
 
@@ -795,7 +807,7 @@ const Datafeed = {
                     deepBars = alignFyersDwmTime(deepBars, resolution);
                     if (deepBars && deepBars.length > 0) {
                         DFLog.info('getBars', `Returning ${deepBars.length} deep history bars from Fyers API`);
-                        safeHistoryCallback(deepBars, onHistoryCallback, resolution, rawTo * 1000);
+                        safeHistoryCallback(deepBars, onHistoryCallback, resolution);
                         return;
                     }
                 }
