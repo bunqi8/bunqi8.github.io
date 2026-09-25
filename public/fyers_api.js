@@ -120,18 +120,27 @@ class FyersEngine {
     }
     
 
-    connectWebSocket() {
+connectWebSocket() {
         if (!this.token) return;
-        this.isConnected = true; // Assume true since token exists, profile is checked separately
+        this.isConnected = true; 
         
-        if (this.pollInterval) clearInterval(this.pollInterval);
+        if (this.isPolling) return;
+        this.isPolling = true;
         
-        this.pollInterval = setInterval(async () => {
+        const poll = async () => {
             const symbols = Array.from(this.subscribers.keys());
-            if (symbols.length === 0) { clearInterval(this.pollInterval); this.pollInterval = null; return; }
+            if (symbols.length === 0) { 
+                this.isPolling = false;
+                this.pollInterval = null; // for compatibility with subscribe check
+                return; 
+            }
+            
+            // Fyers rate limit: 200/min. We target 150/min max.
+            // 50 symbols per request.
+            const numChunks = Math.ceil(symbols.length / 50);
+            const dynamicDelayMs = Math.max(1000, numChunks * 400);
             
             try {
-                // Chunk into arrays of 50
                 for (let i = 0; i < symbols.length; i += 50) {
                     const chunk = symbols.slice(i, i + 50);
                     const qUrl = `https://api-t1.fyers.in/data/quotes?symbols=${chunk.join(',')}`;
@@ -162,9 +171,14 @@ class FyersEngine {
             } catch (err) {
                 console.error("Fyers Polling Error", err);
             }
-        }, 1000);
+            
+            setTimeout(poll, dynamicDelayMs);
+        };
+        
+        this.pollInterval = true; // Flag that polling is active
+        poll();
     }
-    
+
     _handleWsMessage(msg) { }
     _sendWsCommand(command, symbols) { }
 
