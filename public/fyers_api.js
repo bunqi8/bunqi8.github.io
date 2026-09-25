@@ -146,7 +146,7 @@ class FyersEngine {
                                 const subs = this.subscribers.get(item.n);
                                 if (subs) {
                                     const tick = {
-                                        time: (item.v.tt * 1000) || Date.now(),
+                                        time: Date.now(),
                                         open: item.v.o || item.v.lp,
                                         high: item.v.h || item.v.lp,
                                         low: item.v.l || item.v.lp,
