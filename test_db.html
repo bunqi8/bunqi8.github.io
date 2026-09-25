@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+    const request = indexedDB.open('TradingViewCacheDB', 1);
+    request.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('expiries', 'readonly');
+        const store = tx.objectStore('expiries');
+        store.getAll().onsuccess = (e) => {
+            const expiries = e.target.result;
+            const files = expiries.flatMap(e => e.files.map(f => f.path));
+            const futures = files.filter(f => f.includes('FUT_'));
+            document.body.innerHTML = futures.slice(0, 10).join('<br>');
+        };
+    };
+</script>
+</body>
+</html>
