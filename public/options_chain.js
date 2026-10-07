@@ -729,7 +729,8 @@ async function selectExpiry(expiry) {
     
     // 2. Background ATM price fetch
     // We fetch if we don't have a cached price, or if it's the absolute nearest expiry (which could still be actively trading)
-    const isNearest = expiries.length > 0 && expiries[0].dateStr === expiry.dateStr;
+    const validExps = expiries.filter(e => !e.isDummy);
+    const isNearest = validExps.length > 0 && validExps[validExps.length - 1].dateStr === expiry.dateStr;
     
     if (indexFile && (!expiry.atmPrice || isNearest)) {
         (async () => {
@@ -747,7 +748,7 @@ async function selectExpiry(expiry) {
                     if (expiry.atmPrice !== newAtmPrice) {
                         expiry.atmPrice = newAtmPrice;
                         if (window.SyncManager) {
-                            await window.SyncManager.saveExpiry(expiry);
+                            try { await window.SyncManager.saveExpiry(expiry); } catch (e) { console.warn("Failed to save ATM price to cache", e); }
                         }
                         
                         // Re-render with updated ATM highlighting if they are still viewing this tab
@@ -759,17 +760,44 @@ async function selectExpiry(expiry) {
                 await conn.close();
             } catch(e) { console.error("ATM fetch failed", e); }
         })();
-    } else if (expiry.isLiveTarget && window.FyersAPI) {
+    } else if (expiry.isLiveTarget) {
         (async () => {
             try {
-                const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
-                const symbol = `${exchange}:${base}-INDEX`;
-                const today = new Date();
-                today.setHours(0,0,0,0);
-                const bars = await window.FyersAPI.getHistory(symbol, '1', today.getTime()/1000, Date.now()/1000);
-                if (bars && bars.length > 0) {
-                    const newAtmPrice = bars[bars.length - 1].close;
+                let newAtmPrice = null;
+                if (window.FyersAPI) {
+                    const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                    const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
+                    const symbol = `${exchange}:${base}-INDEX`;
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const bars = await window.FyersAPI.getHistory(symbol, '1', today.getTime()/1000, Date.now()/1000);
+                    if (bars && bars.length > 0) {
+                        newAtmPrice = bars[bars.length - 1].close;
+                    }
+                }
+                
+                // Fallback to last valid parquet if live data failed (offline/disconnected)
+                if (!newAtmPrice) {
+                    const validList = (window.HF_EXPIRIES || []).filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
+                    const lastValid = validList[validList.length - 1];
+                    if (lastValid && lastValid.files) {
+                        let idxF = lastValid.files.find(f => f.path.includes('-INDEX_D_') || f.path.includes('-INDEX_1_'));
+                        if (idxF) {
+                            while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
+                            const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${idxF.path}`;
+                            const vfsName = await window.ensureParquetLoaded(indexUrl);
+                            const conn = await window.db.connect();
+                            const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
+                            const rows = result.toArray();
+                            if (rows.length > 0) {
+                                newAtmPrice = rows[0].close;
+                            }
+                            await conn.close();
+                        }
+                    }
+                }
+
+                if (newAtmPrice && expiry.atmPrice !== newAtmPrice) {
                     expiry.atmPrice = newAtmPrice;
                     if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
                         renderTable(sortedStrikes, symbols, newAtmPrice);
