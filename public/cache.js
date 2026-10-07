@@ -312,12 +312,21 @@ const SyncManager = {
                     if (!trRes.ok) return;
                     const text = await trRes.text();
                     
-                    const lines = text.trim().split('\n').slice(1); // skip header
+                    const allLines = text.trim().split('\n');
+                    if (allLines.length < 2) return;
+                    const header = allLines[0].split(',').map(h => h.trim());
+                    const lines = allLines.slice(1);
+                    
+                    const getCol = (parts, name) => {
+                        const idx = header.indexOf(name);
+                        return idx !== -1 ? parts[idx] : null;
+                    };
+                    
                     for (const line of lines) {
                         const parts = line.split(',');
                         if (parts.length < 9) continue;
                         
-                        const run_name = parts[0];
+                        const run_name = getCol(parts, 'run_name') || parts[0];
                         // Extract dateStr and timeStr from run_name e.g. NSE_NIFTY50_INDEX_20261006_131747
                         const match = run_name.match(/_(\d{8})_(\d{6})$/);
                         if (match) {
@@ -327,15 +336,21 @@ const SyncManager = {
                             
                             const trackerData = {
                                 run_name: run_name,
-                                ticker: parts[1],
-                                symbol: parts[2],
-                                rounding_multiple: parseInt(parts[3], 10),
-                                index_available: parts[4] === 'True',
-                                futures_available: parts[5] === 'True',
-                                lowest_strike: parseInt(parts[6], 10),
-                                highest_strike: parseInt(parts[7], 10),
-                                timeframes: parts[8]
+                                ticker: getCol(parts, 'ticker') || parts[1],
+                                symbol: getCol(parts, 'symbol') || parts[2],
+                                rounding_multiple: parseInt(getCol(parts, 'rounding_multiple') || parts[3], 10),
+                                index_available: (getCol(parts, 'index_available') || parts[4]) === 'True',
+                                futures_available: (getCol(parts, 'futures_available') || parts[5]) === 'True',
+                                lowest_strike: parseInt(getCol(parts, 'lowest_strike') || parts[6], 10),
+                                highest_strike: parseInt(getCol(parts, 'highest_strike') || parts[7], 10),
+                                timeframes: getCol(parts, 'timeframes') || parts[8]
                             };
+                            
+                            const startDate = getCol(parts, 'start_date');
+                            if (startDate) trackerData.start_date = startDate;
+                            
+                            const endDate = getCol(parts, 'end_date');
+                            if (endDate) trackerData.end_date = endDate;
                             
                             if (!this.latestFolders[id] || timeStr > this.latestFolders[id].timeStr) {
                                 this.latestFolders[id] = {
