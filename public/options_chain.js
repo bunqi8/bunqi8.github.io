@@ -685,6 +685,7 @@ async function selectExpiry(expiry) {
         } else {
             tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Failed to determine strike gap from previous expiry.</div>';
             return;
+        }
     } else {
         await window.SyncManager.ensureFilesLoaded(expiry);
         
