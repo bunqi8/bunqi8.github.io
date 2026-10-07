@@ -353,9 +353,12 @@ function updateExpiryStrip() {
     
     combined.sort((a,b) => a.dateObjValue - b.dateObjValue);
     
+    const nowMs = Date.now();
     let liveTargetId = null;
     for (const exp of combined) {
-        if (exp.isDummy) {
+        // An expiry is 'live' if the current time is before the end of the expiry day.
+        // exp.dateObjValue is midnight at the start of the expiry day.
+        if ((exp.dateObjValue + 86400000) > nowMs) {
             liveTargetId = exp.id;
             break;
         }
