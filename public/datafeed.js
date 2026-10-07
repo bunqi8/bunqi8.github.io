@@ -442,8 +442,9 @@ const Datafeed = {
                     }
                 }
                 
-                // Only fetch files if the chart timeframe intersects with this folder's time coverage
-                if (endT >= qFrom && startT <= qTo) {
+                // Eagerly fetch folders slightly older than qFrom so we can seamlessly append past files
+                const fetchQFrom = qFrom - (60 * 86400);
+                if (endT >= fetchQFrom && startT <= qTo) {
                     await window.SyncManager.ensureFilesLoaded(exp);
                     
                     for (let f of (exp.files || [])) {
@@ -520,7 +521,7 @@ const Datafeed = {
             if (symbolInfo.type === 'futures' || symbolInfo.type === 'index') {
                 if (selected.length > 0) {
                     let oldestStart = Math.min(...selected.map(f => f.fStart));
-                    let olderFiles = allFiles.filter(f => f.fEnd <= oldestStart);
+                    let olderFiles = allFiles.filter(f => f.fStart < oldestStart);
                     olderFiles.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
                     for (let of of olderFiles) {
                         if (selected.length >= 4) break;
