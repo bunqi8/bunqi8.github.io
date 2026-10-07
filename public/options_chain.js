@@ -686,9 +686,10 @@ async function selectExpiry(expiry) {
         } else {
             tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Failed to determine strike gap from previous expiry.</div>';
             return;
-        }
     } else {
-        for (let f of expiry.files) {
+        await window.SyncManager.ensureFilesLoaded(expiry);
+        
+        for (let f of (expiry.files || [])) {
             const filename = f.path.split('/').pop();
             
             if (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_')) {

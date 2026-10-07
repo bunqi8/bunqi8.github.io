@@ -196,6 +196,33 @@ const SyncManager = {
         });
     },
 
+    async ensureFilesLoaded(expiry) {
+        if (expiry.files && expiry.files.length > 0) return expiry.files;
+        if (expiry.isDummy) return [];
+        try {
+            const url = `https://huggingface.co/api/datasets/deep776/FYERS_${expiry.baseTicker}/tree/main/${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}`;
+            let currentUrl = url;
+            let allFiles = [];
+            while(currentUrl) {
+                const res = await fetch(currentUrl);
+                if(!res.ok) break;
+                const chunk = await res.json();
+                allFiles = allFiles.concat(chunk);
+                const linkHeader = res.headers.get('link');
+                if (linkHeader && linkHeader.includes('rel="next"')) {
+                    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                    currentUrl = match ? match[1] : null;
+                } else currentUrl = null;
+            }
+            expiry.files = allFiles;
+            try { await this.saveExpiry(expiry); } catch(e){}
+            return allFiles;
+        } catch(e) {
+            console.error("Failed to lazy load files for", expiry.id, e);
+            return [];
+        }
+    },
+    
     async forceSyncExpiry(id) {
         const remote = this.latestFolders && this.latestFolders[id];
         if (!remote) return false;
@@ -221,27 +248,7 @@ const SyncManager = {
     
     async _fetchAndSaveExpiry(id, remote) {
         try {
-            let currentUrl = `https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/${remote.folderPath}`;
-            let allFiles = [];
-            while (currentUrl) {
-                const res = await fetch(currentUrl);
-                if (!res.ok) break;
-                const chunk = await res.json();
-                allFiles = allFiles.concat(chunk);
-                
-                const linkHeader = res.headers.get('link');
-                if (linkHeader && linkHeader.includes('rel="next"')) {
-                    const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-                    if (match) {
-                        currentUrl = match[1];
-                    } else {
-                        currentUrl = null;
-                    }
-                } else {
-                    currentUrl = null;
-                }
-            }
-            const files = allFiles;
+            const files = []; // We now resolve files on-demand in datafeed.js
             
             const year = parseInt(remote.dateStr.slice(0,4), 10);
             const monthNum = parseInt(remote.dateStr.slice(4,6), 10);
@@ -262,6 +269,7 @@ const SyncManager = {
                 dateStr: remote.dateStr,
                 timeStr: remote.timeStr,
                 folderPath: remote.folderPath,
+                trackerData: remote.trackerData,
                 files: files,
                 dateObjValue: dateObj.getTime(),
                 monthLabel: monthLabel,
@@ -278,17 +286,19 @@ const SyncManager = {
 
     async syncRoot() {
         try {
-            console.log("[SyncManager] Fetching root HF directory...");
-            const res = await fetch(ROOT_URL);
+            console.log("[SyncManager] Fetching root HF datasets...");
+            const res = await fetch("https://huggingface.co/api/datasets?author=deep776");
             if (!res.ok) throw new Error("Fetch failed");
-            const data = await res.json();
+            const datasets = await res.json();
             
             this.latestFolders = {};
             const baseTickers = [];
             
-            for (let item of data) {
-                if (item.type === 'directory' && (item.path.startsWith('NSE_') || item.path.startsWith('BSE_') || item.path.startsWith('MCX_'))) {
-                    baseTickers.push(item.path);
+            for (let item of datasets) {
+                const id = item.id;
+                if (id && (id.startsWith('deep776/FYERS_NSE_') || id.startsWith('deep776/FYERS_BSE_') || id.startsWith('deep776/FYERS_MCX_'))) {
+                    const baseTicker = id.replace('deep776/FYERS_', '');
+                    baseTickers.push(baseTicker);
                 }
             }
             
@@ -297,28 +307,45 @@ const SyncManager = {
             
             await Promise.all(baseTickers.map(async (baseTicker) => {
                 try {
-                    const exRes = await fetch(`${ROOT_URL}/${baseTicker}/option_data/parquet`);
-                    if (!exRes.ok) return;
-                    const exData = await exRes.json();
+                    const trackerUrl = `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${baseTicker}/${baseTicker}_tracker.csv`;
+                    const trRes = await fetch(trackerUrl);
+                    if (!trRes.ok) return;
+                    const text = await trRes.text();
                     
-                    for (let item of exData) {
-                        if (item.type === 'directory') {
-                            const folderName = item.path.split('/').pop();
-                            const match = folderName.match(/_(\d{8})_(\d{6})$/);
-                            if (match) {
-                                const dateStr = match[1];
-                                const timeStr = match[2];
-                                const id = `${baseTicker}_${dateStr}`;
-                                if (!this.latestFolders[id] || timeStr > this.latestFolders[id].timeStr) {
-                                    this.latestFolders[id] = {
-                                        id, baseTicker, dateStr, timeStr, folderPath: item.path
-                                    };
-                                }
+                    const lines = text.trim().split('\n').slice(1); // skip header
+                    for (const line of lines) {
+                        const parts = line.split(',');
+                        if (parts.length < 9) continue;
+                        
+                        const run_name = parts[0];
+                        // Extract dateStr and timeStr from run_name e.g. NSE_NIFTY50_INDEX_20261006_131747
+                        const match = run_name.match(/_(\d{8})_(\d{6})$/);
+                        if (match) {
+                            const dateStr = match[1];
+                            const timeStr = match[2];
+                            const id = `${baseTicker}_${dateStr}`;
+                            
+                            const trackerData = {
+                                run_name: run_name,
+                                ticker: parts[1],
+                                symbol: parts[2],
+                                rounding_multiple: parseInt(parts[3], 10),
+                                index_available: parts[4] === 'True',
+                                futures_available: parts[5] === 'True',
+                                lowest_strike: parseInt(parts[6], 10),
+                                highest_strike: parseInt(parts[7], 10),
+                                timeframes: parts[8]
+                            };
+                            
+                            if (!this.latestFolders[id] || timeStr > this.latestFolders[id].timeStr) {
+                                this.latestFolders[id] = {
+                                    id, baseTicker, dateStr, timeStr, folderPath: run_name, trackerData
+                                };
                             }
                         }
                     }
                 } catch (e) {
-                    console.error("Failed to fetch expiries for", baseTicker, e);
+                    console.error("Failed to fetch tracker for", baseTicker, e);
                 }
             }));
 
