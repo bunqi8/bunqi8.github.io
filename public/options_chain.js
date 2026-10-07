@@ -1,4 +1,3 @@
-const HF_BASE = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main/NSE_NIFTY50_INDEX/option_data/parquet";
 
 let expiries = []; // { dateStr, folderPath, dateObj, monthLabel, day, year }
 let currentExpiry = null;
@@ -627,7 +626,7 @@ async function selectExpiry(expiry) {
                     
                     let indexD = lastValid.files.find(f => f.path.includes('-INDEX_D_') || f.path.includes('-INDEX_1_'));
                     if (indexD) {
-                        const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexD.path}`;
+                        const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${indexD.path}`;
                         const vfsName = await window.ensureParquetLoaded(indexUrl);
                         const conn = await window.db.connect();
                         
@@ -737,7 +736,7 @@ async function selectExpiry(expiry) {
         (async () => {
             try {
                 while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-                const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${indexFile.path}`;
+                const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${indexFile.path}`;
                 const vfsName = await window.ensureParquetLoaded(indexUrl);
                 const conn = await window.db.connect();
                 const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
@@ -785,7 +784,7 @@ async function selectExpiry(expiry) {
                         let idxF = lastValid.files.find(f => f.path.includes('-INDEX_D_') || f.path.includes('-INDEX_1_'));
                         if (idxF) {
                             while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-                            const indexUrl = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${idxF.path}`;
+                            const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${idxF.path}`;
                             const vfsName = await window.ensureParquetLoaded(indexUrl);
                             const conn = await window.db.connect();
                             const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);

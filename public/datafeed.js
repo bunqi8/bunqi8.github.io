@@ -531,7 +531,10 @@ const Datafeed = {
                 }
             }
             
-            return selected.map(f => `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${f.path}`);
+            return selected.map(f => {
+                const baseTicker = f.path.split('/')[0];
+                return `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${f.path}`;
+            });
             
         } catch(e) {
             console.error("Resolve error", e);

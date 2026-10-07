@@ -1,6 +1,5 @@
 const DB_NAME = 'TradingViewCacheDB';
-const DB_VERSION = 7;
-const ROOT_URL = "https://huggingface.co/api/datasets/deep776/fyers-market-data/tree/main";
+const DB_VERSION = 8;
 
 const SyncManager = {
     db: null,
@@ -67,7 +66,7 @@ const SyncManager = {
     async syncCsvExpiries(baseTickers) {
         for (const bt of baseTickers) {
             try {
-                const url = `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${bt}/${bt}_expiries.csv`;
+                const url = `https://huggingface.co/datasets/deep776/FYERS_${bt}/resolve/main/${bt}/${bt}_expiries.csv`;
                 const res = await fetch(url);
                 if (!res.ok) continue;
                 const text = await res.text();
