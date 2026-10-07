@@ -429,46 +429,55 @@ const Datafeed = {
         try {
             const expiries = await window.SyncManager.getAllExpiries();
             for (let exp of expiries) {
-                for (let f of exp.files) {
-                    const filename = f.path.split('/').pop();
+                // Determine approximate time bounds for this folder
+                const endT = Math.floor(exp.dateObjValue / 1000) + 86400;
+                const startT = endT - (120 * 86400); // Assume files cover at most 120 days backwards
+                
+                // Only fetch files if the chart timeframe intersects with this folder's time coverage
+                if (endT >= qFrom && startT <= qTo) {
+                    await window.SyncManager.ensureFilesLoaded(exp);
                     
-                    const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
-                    if (!dateMatch) continue;
-                    
-                    if (!filename.includes(`_${fileSuffix}_`)) {
-                        if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
-                        else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
-                        else continue;
-                    }
-                    
-                    const fStart = new Date(dateMatch[1]).getTime() / 1000;
-                    const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
-                    
-                    let isMatch = false;
-                    let priority = 0;
-                    
-                    if (symbolInfo.type === 'futures') {
-                        if (filename.startsWith(symbolInfo.name)) {
-                            isMatch = true; priority = 10;
-                        } else if (filename.includes('FUT_')) {
-                            const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
-                            if (filename.startsWith(prefix)) {
-                                isMatch = true; priority = 1;
+                    for (let f of (exp.files || [])) {
+                        const filename = f.path.split('/').pop();
+                        
+                        const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
+                        if (!dateMatch) continue;
+                        
+                        if (!filename.includes(`_${fileSuffix}_`)) {
+                            if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
+                            else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
+                            else continue;
+                        }
+                        
+                        const fStart = new Date(dateMatch[1]).getTime() / 1000;
+                        const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
+                        
+                        let isMatch = false;
+                        let priority = 0;
+                        
+                        if (symbolInfo.type === 'futures') {
+                            if (filename.startsWith(symbolInfo.name)) {
+                                isMatch = true; priority = 10;
+                            } else if (filename.includes('FUT_')) {
+                                const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
+                                if (filename.startsWith(prefix)) {
+                                    isMatch = true; priority = 1;
+                                }
+                            }
+                        } else if (symbolInfo.type === 'index') {
+                            if (filename.startsWith(symbolInfo.name)) {
+                                isMatch = true; priority = 10;
+                            }
+                        } else { // Option
+                            if (filename.startsWith(symbolInfo.name)) {
+                                isMatch = true; priority = 10;
                             }
                         }
-                    } else if (symbolInfo.type === 'index') {
-                        if (filename.startsWith(symbolInfo.name)) {
-                            isMatch = true; priority = 10;
-                        }
-                    } else { // Option
-                        if (filename.startsWith(symbolInfo.name)) {
-                            isMatch = true; priority = 10;
-                        }
-                    }
-                    
-                    if (isMatch) {
-                        if (!allFiles.find(x => x.path === f.path)) {
-                            allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                        
+                        if (isMatch) {
+                            if (!allFiles.find(x => x.path === f.path)) {
+                                allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                            }
                         }
                     }
                 }
