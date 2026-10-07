@@ -430,8 +430,17 @@ const Datafeed = {
             const expiries = await window.SyncManager.getAllExpiries();
             for (let exp of expiries) {
                 // Determine approximate time bounds for this folder
-                const endT = Math.floor(exp.dateObjValue / 1000) + 86400;
-                const startT = endT - (120 * 86400); // Assume files cover at most 120 days backwards
+                let endT = Math.floor(exp.dateObjValue / 1000) + 86400;
+                let startT = endT - (100 * 86400); // Default to 100 days
+                
+                if (exp.trackerData) {
+                    if (exp.trackerData.start_date) {
+                        startT = new Date(exp.trackerData.start_date).getTime() / 1000;
+                    }
+                    if (exp.trackerData.end_date) {
+                        endT = new Date(exp.trackerData.end_date).getTime() / 1000 + 86400;
+                    }
+                }
                 
                 // Only fetch files if the chart timeframe intersects with this folder's time coverage
                 if (endT >= qFrom && startT <= qTo) {
