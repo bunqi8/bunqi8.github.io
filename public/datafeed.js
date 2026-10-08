@@ -165,7 +165,15 @@ function safeHistoryCallback(bars, cb, resolution) {
         }
     }
     
-    cb(dedupedBars, { noData: dedupedBars.length === 0 });
+    if (dedupedBars.length === 0) {
+        if (bars.length > 0) {
+            cb([], { noData: true, nextTime: bars[0].time - 86400000 });
+        } else {
+            cb([], { noData: true });
+        }
+    } else {
+        cb(dedupedBars, { noData: false });
+    }
 }
 
 
@@ -685,7 +693,7 @@ const Datafeed = {
                     return onHistoryCallback([], { noData: true }); // Halt pagination to prevent 50-request infinite EOD loop
                 }
                 
-                return onHistoryCallback([], { noData: true, nextTime: rawFrom - 86400 });
+                return onHistoryCallback([], { noData: true, nextTime: (rawFrom - 86400) * 1000 });
             }
 
         } catch (error) {
