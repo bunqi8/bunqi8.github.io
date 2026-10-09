@@ -740,7 +740,38 @@ async function selectExpiry(expiry) {
             tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Failed to determine strike gap from previous expiry.</div>';
             return;
         }
+    } else if (expiry.trackerData && expiry.trackerData.lowest_strike && expiry.trackerData.highest_strike && expiry.trackerData.rounding_multiple) {
+        // FAST PATH: Construct strikes mathematically from trackerData (0 Tree API calls!)
+        const minL = expiry.trackerData.lowest_strike;
+        const maxH = expiry.trackerData.highest_strike;
+        const gap = expiry.trackerData.rounding_multiple;
+        const sym = expiry.trackerData.symbol || 'NIFTY';
+        const yy = expiry.dateStr ? expiry.dateStr.slice(2, 4) : '';
+        const expCode = expiry.expiryCode || (expiry.dateStr ? expiry.dateStr.slice(4) : '');
+        
+        for (let s = minL; s <= maxH; s += gap) {
+            strikes.add(s);
+            symbols[`${s}_CE`] = `${sym}${yy}${expCode}${s}CE`;
+            symbols[`${s}_PE`] = `${sym}${yy}${expCode}${s}PE`;
+        }
+        
+        futSymbol = `${sym}${yy}${expiry.expiryCode || 'FUT'}FUT`;
+        
+        let endDateStr = expiry.trackerData.end_date || (expiry.dateStr ? `${expiry.dateStr.slice(0,4)}-${expiry.dateStr.slice(4,6)}-${expiry.dateStr.slice(6,8)}` : '');
+        let startDateStr = expiry.trackerData.start_date;
+        if (!startDateStr && endDateStr) {
+            const parts = endDateStr.split('-').map(Number);
+            const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+            d.setUTCDate(d.getUTCDate() - 100);
+            startDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+        }
+        
+        const idxTicker = expiry.trackerData.ticker || `${sym}50-INDEX`;
+        indexFile = {
+            path: `${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}/${idxTicker}_D_${startDateStr}_to_${endDateStr}.parquet`
+        };
     } else {
+        // Fallback: If tracker.csv metadata is missing, query the 1000 files from HF Tree API
         await window.SyncManager.ensureFilesLoaded(expiry);
         
         for (let f of (expiry.files || [])) {
