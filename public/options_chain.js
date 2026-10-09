@@ -3,6 +3,53 @@ let expiries = []; // { dateStr, folderPath, dateObj, monthLabel, day, year }
 let currentExpiry = null;
 let modalOverlay = null;
 
+function getBaseTickerFromSymbol(symbol, possibleList) {
+    if (!symbol || !possibleList || !possibleList.length) return (possibleList && possibleList[0]) || '';
+    let sym = symbol.replace(/^[A-Z]+:/, '').toUpperCase();
+    
+    // Check specific known prefixes (specific first, general last)
+    if (sym.startsWith('FINNIFTY')) {
+        let m = possibleList.find(p => p.includes('FINNIFTY'));
+        if (m) return m;
+    }
+    if (sym.startsWith('BANKNIFTY') || sym.startsWith('NIFTYBANK')) {
+        let m = possibleList.find(p => p.includes('NIFTYBANK') || p.includes('BANKNIFTY'));
+        if (m) return m;
+    }
+    if (sym.startsWith('MIDCPNIFTY')) {
+        let m = possibleList.find(p => p.includes('MIDCPNIFTY'));
+        if (m) return m;
+    }
+    if (sym.startsWith('NIFTYNXT50')) {
+        let m = possibleList.find(p => p.includes('NIFTYNXT50'));
+        if (m) return m;
+    }
+    if (sym.startsWith('NIFTY50') || sym.startsWith('NIFTY')) {
+        let m = possibleList.find(p => p.includes('NIFTY50') || p.includes('_NIFTY_') || p.endsWith('_NIFTY'));
+        if (m) return m;
+    }
+    if (sym.startsWith('SENSEX')) {
+        let m = possibleList.find(p => p.includes('SENSEX'));
+        if (m) return m;
+    }
+    if (sym.startsWith('BANKEX')) {
+        let m = possibleList.find(p => p.includes('BANKEX'));
+        if (m) return m;
+    }
+    if (sym.startsWith('CRUDEOIL')) {
+        let m = possibleList.find(p => p.includes('CRUDEOIL'));
+        if (m) return m;
+    }
+    
+    let basePrefix = sym.split('-')[0].replace(/\d.*$/, '');
+    let found = possibleList.find(p => {
+        let cleanP = p.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+        return cleanP === basePrefix;
+    });
+    return found || possibleList[0];
+}
+window.getBaseTickerFromSymbol = getBaseTickerFromSymbol;
+
 const style = document.createElement('style');
 style.innerHTML = `
     .oc-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 1000; display: none; align-items: center; justify-content: center; }
@@ -159,12 +206,10 @@ window.openOptionsChainModal = function() {
     
     // Auto-detect Base Ticker from current chart symbol
     try {
-        let chartSym = window.tvWidget.activeChart().symbol();
-        if (chartSym.includes(':')) chartSym = chartSym.split(':')[1];
-        
+        let chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
         if (expiries && expiries.length > 0) {
             const possible = [...new Set(expiries.map(e => e.baseTicker))];
-            let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
+            let found = getBaseTickerFromSymbol(chartSym, possible);
             if (found && window.ACTIVE_BASE_TICKER !== found) {
                 window.ACTIVE_BASE_TICKER = found;
                 currentExpiry = null; // force re-selection
@@ -172,11 +217,16 @@ window.openOptionsChainModal = function() {
         }
     } catch(e) {}
 
+    // Ensure currentExpiry belongs to the active base ticker
+    if (currentExpiry && currentExpiry.baseTicker !== window.ACTIVE_BASE_TICKER) {
+        currentExpiry = null;
+    }
+
     let targetExpiry = currentExpiry;
     
-    // Auto-detect expiry from current chart symbol
+    // Auto-detect expiry from current chart symbol if it is an option contract
     try {
-        const symbol = window.tvWidget.activeChart().symbol();
+        const symbol = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
         const match = symbol.match(/^[A-Z]+(\d{2})([1-9OND])(\d{2})\d{5}[CP]E/);
         if (match) {
             let y = match[1];
@@ -251,8 +301,7 @@ async function fetchExpiries() {
                 if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol();
                 if (chartSym.includes(':')) chartSym = chartSym.split(':')[1];
             } catch(e) {}
-            let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
-            window.ACTIVE_BASE_TICKER = found || possible[0];
+            window.ACTIVE_BASE_TICKER = getBaseTickerFromSymbol(chartSym, possible);
         }
         
         updateExpiryStrip();
