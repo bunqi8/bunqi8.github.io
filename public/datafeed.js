@@ -35,6 +35,49 @@ const DFLog = {
 // -----------------------------------------------------------------------
 const parquetCache = {};
 
+async function resolveParquetUrlWithFallback(url) {
+    try {
+        const m = url.match(/datasets\/deep776\/FYERS_([A-Z0-9_]+)\/resolve\/main\/([A-Z0-9_]+)\/option_data\/parquet\/([A-Z0-9_]+)\/([^/]+)$/);
+        if (!m) return null;
+        
+        const baseTicker = m[1];
+        const folder = m[3];
+        const requestedFile = m[4];
+        
+        if (window.SyncManager) {
+            const expiries = await window.SyncManager.getAllExpiries();
+            let exp = expiries.find(e => e.folderPath === folder || (e.id && e.id.includes(folder)));
+            if (!exp) {
+                exp = { baseTicker, folderPath: folder, id: folder };
+            }
+            
+            DFLog.warn('cache', `[404 Fallback] Requesting manual Tree API check (1000 files) for ${folder}...`);
+            const realFiles = await window.SyncManager.ensureFilesLoaded(exp);
+            
+            if (realFiles && realFiles.length > 0) {
+                const prefixMatch = requestedFile.match(/^([A-Z0-9\-]+_[A-Z0-9]+)_/);
+                const prefix = prefixMatch ? prefixMatch[1] + '_' : requestedFile.split('_')[0];
+                
+                const matched = realFiles.find(f => {
+                    const fn = f.path.split('/').pop();
+                    return fn.startsWith(prefix);
+                });
+                
+                if (matched) {
+                    const realUrl = `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${matched.path}`;
+                    DFLog.info('cache', `[404 Fallback] Found confirmed real file in Tree API: ${matched.path}`);
+                    return realUrl;
+                } else {
+                    DFLog.error('cache', `[404 Fallback] 100% Confirmation: File starting with "${prefix}" does NOT exist in ${folder}`);
+                }
+            }
+        }
+    } catch(e) {
+        DFLog.error('cache', 'Error during fallback resolution', e);
+    }
+    return null;
+}
+
 async function ensureParquetLoaded(url) {
     if (parquetCache[url]) {
         DFLog.debug('cache', `HIT (Memory): ${url.split('/').pop()}`);
@@ -55,7 +98,18 @@ async function ensureParquetLoaded(url) {
         DFLog.info('cache', `HIT (IndexedDB): ${url.split('/').pop()} in ${(performance.now() - t0).toFixed(0)}ms`);
     } else {
         DFLog.info('cache', `MISS — downloading: ${url.split('/').pop()}`);
-        const response = await fetch(url);
+        let response = await fetch(url);
+        
+        // 404 Fallback: If dynamic URL was not found, manually check the Tree API for confirmed dates!
+        if (!response.ok && response.status === 404) {
+            DFLog.warn('cache', `404 for ${url}. Attempting Tree API search fallback...`);
+            const fallbackUrl = await resolveParquetUrlWithFallback(url);
+            if (fallbackUrl && fallbackUrl !== url) {
+                url = fallbackUrl;
+                response = await fetch(url);
+            }
+        }
+
         if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
         buffer = await response.arrayBuffer();
         
@@ -453,48 +507,74 @@ const Datafeed = {
                 // Eagerly fetch folders slightly older than qFrom so we can seamlessly append past files
                 const fetchQFrom = qFrom - (60 * 86400);
                 if (endT >= fetchQFrom && startT <= qTo) {
-                    await window.SyncManager.ensureFilesLoaded(exp);
-                    
-                    for (let f of (exp.files || [])) {
-                        const filename = f.path.split('/').pop();
-                        
-                        const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
-                        if (!dateMatch) continue;
-                        
-                        if (!filename.includes(`_${fileSuffix}_`)) {
-                            if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
-                            else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
-                            else continue;
-                        }
-                        
-                        const fStart = new Date(dateMatch[1]).getTime() / 1000;
-                        const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
-                        
-                        let isMatch = false;
-                        let priority = 0;
-                        
-                        if (symbolInfo.type === 'futures') {
-                            if (filename.startsWith(symbolInfo.name)) {
-                                isMatch = true; priority = 10;
-                            } else if (filename.includes('FUT_')) {
-                                const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
-                                if (filename.startsWith(prefix)) {
-                                    isMatch = true; priority = 1;
+                    if (exp.files && exp.files.length > 0) {
+                        for (let f of exp.files) {
+                            const filename = f.path.split('/').pop();
+                            
+                            const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
+                            if (!dateMatch) continue;
+                            
+                            if (!filename.includes(`_${fileSuffix}_`)) {
+                                if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
+                                else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
+                                else continue;
+                            }
+                            
+                            const fStart = new Date(dateMatch[1]).getTime() / 1000;
+                            const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
+                            
+                            let isMatch = false;
+                            let priority = 0;
+                            
+                            if (symbolInfo.type === 'futures') {
+                                if (filename.startsWith(symbolInfo.name)) {
+                                    isMatch = true; priority = 10;
+                                } else if (filename.includes('FUT_')) {
+                                    const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
+                                    if (filename.startsWith(prefix)) {
+                                        isMatch = true; priority = 1;
+                                    }
+                                }
+                            } else if (symbolInfo.type === 'index') {
+                                if (filename.startsWith(symbolInfo.name)) {
+                                    isMatch = true; priority = 10;
+                                }
+                            } else { // Option
+                                if (filename.startsWith(symbolInfo.name)) {
+                                    isMatch = true; priority = 10;
                                 }
                             }
-                        } else if (symbolInfo.type === 'index') {
-                            if (filename.startsWith(symbolInfo.name)) {
-                                isMatch = true; priority = 10;
-                            }
-                        } else { // Option
-                            if (filename.startsWith(symbolInfo.name)) {
-                                isMatch = true; priority = 10;
+                            
+                            if (isMatch && !allFiles.find(x => x.path === f.path)) {
+                                allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
                             }
                         }
+                    } else {
+                        // FAST PATH: Construct dynamic Parquet filename from tracker metadata (0 Tree API calls!)
+                        let endDateStr = '';
+                        let startDateStr = '';
+                        if (exp.trackerData && exp.trackerData.end_date) {
+                            endDateStr = exp.trackerData.end_date;
+                        } else if (exp.dateStr) {
+                            endDateStr = `${exp.dateStr.slice(0,4)}-${exp.dateStr.slice(4,6)}-${exp.dateStr.slice(6,8)}`;
+                        }
+                        if (exp.trackerData && exp.trackerData.start_date) {
+                            startDateStr = exp.trackerData.start_date;
+                        } else if (endDateStr) {
+                            const parts = endDateStr.split('-').map(Number);
+                            const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                            d.setUTCDate(d.getUTCDate() - 100);
+                            startDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+                        }
                         
-                        if (isMatch) {
-                            if (!allFiles.find(x => x.path === f.path)) {
-                                allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                        const fStart = new Date(startDateStr).getTime() / 1000;
+                        const fEnd = (new Date(endDateStr).getTime() / 1000) + 86400;
+                        
+                        if (startDateStr && endDateStr) {
+                            const filename = `${symbolInfo.name}_${fileSuffix}_${startDateStr}_to_${endDateStr}.parquet`;
+                            const path = `${exp.baseTicker}/option_data/parquet/${exp.folderPath}/${filename}`;
+                            if (!allFiles.find(x => x.path === path)) {
+                                allFiles.push({ path, fStart, fEnd, priority: 10, filename });
                             }
                         }
                     }
