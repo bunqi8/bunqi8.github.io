@@ -388,8 +388,17 @@ const SyncManager = {
                         let chartSym = urlParams.get('symbol') || 'NIFTY50-INDEX';
                         try { if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol(); } catch(e) {}
                         const possible = [...new Set(outdated.map(o => o.remote.baseTicker))];
-                        activeBase = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
-                        if (!activeBase) activeBase = possible.find(p => p.includes('NIFTY50'));
+                        if (window.getBaseTickerFromSymbol) {
+                            activeBase = window.getBaseTickerFromSymbol(chartSym, possible);
+                        } else {
+                            let sym = chartSym.replace(/^[A-Z]+:/, '').toUpperCase();
+                            if (sym.startsWith('FINNIFTY')) activeBase = possible.find(p => p.includes('FINNIFTY'));
+                            else if (sym.startsWith('BANKNIFTY') || sym.startsWith('NIFTYBANK')) activeBase = possible.find(p => p.includes('NIFTYBANK') || p.includes('BANKNIFTY'));
+                            else if (sym.startsWith('SENSEX')) activeBase = possible.find(p => p.includes('SENSEX'));
+                            else if (sym.startsWith('BANKEX')) activeBase = possible.find(p => p.includes('BANKEX'));
+                            else activeBase = possible.find(p => p.includes('NIFTY50') || p.includes('_NIFTY_'));
+                            if (!activeBase) activeBase = possible[0];
+                        }
                     } catch(e) {}
                 }
                 
