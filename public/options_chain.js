@@ -159,7 +159,9 @@ window.openOptionsChainModal = function() {
     
     // Auto-detect Base Ticker from current chart symbol
     try {
-        const chartSym = window.tvWidget.activeChart().symbol();
+        let chartSym = window.tvWidget.activeChart().symbol();
+        if (chartSym.includes(':')) chartSym = chartSym.split(':')[1];
+        
         if (expiries && expiries.length > 0) {
             const possible = [...new Set(expiries.map(e => e.baseTicker))];
             let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
@@ -245,7 +247,10 @@ async function fetchExpiries() {
         const possible = [...new Set(window.HF_EXPIRIES.map(e => e.baseTicker))];
         if (!window.ACTIVE_BASE_TICKER && possible.length > 0) {
             let chartSym = 'NIFTY50-INDEX';
-            try { if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol(); } catch(e) {}
+            try { 
+                if (window.tvWidget) chartSym = window.tvWidget.activeChart().symbol();
+                if (chartSym.includes(':')) chartSym = chartSym.split(':')[1];
+            } catch(e) {}
             let found = possible.find(p => p.includes(chartSym.split('-')[0]) || p.includes(chartSym.replace(/\d.*/, '')));
             window.ACTIVE_BASE_TICKER = found || possible[0];
         }
