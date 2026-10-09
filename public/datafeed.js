@@ -501,45 +501,34 @@ const Datafeed = {
                 }
             }
             
-            // Files that intersect the requested range
-            console.log("[resolveSymbolFiles] allFiles:", allFiles);
-            let intersecting = allFiles.filter(f => f.fEnd >= qFrom && f.fStart <= qTo);
-            console.log("[resolveSymbolFiles] intersecting:", intersecting);
+            // For index and futures:
+            // Continuous symbols across multiple expiries should have candidate files sorted newest first.
+            if (symbolInfo.type === 'index' || symbolInfo.type === 'futures') {
+                let candidateFiles = allFiles.filter(f => f.fStart <= qTo);
+                if (candidateFiles.length === 0) {
+                    candidateFiles = allFiles;
+                }
+                candidateFiles.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
+                let selected = candidateFiles.slice(0, 4);
+                console.log("[resolveSymbolFiles] index/futures selected:", selected);
+                return selected.map(f => {
+                    const baseTicker = f.path.split('/')[0];
+                    return `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${f.path}`;
+                });
+            }
             
-            // If no intersection (e.g. asking for today, but latest data is 1 month ago),
-            // find the newest files that are BEFORE qTo
+            // For options:
+            let intersecting = allFiles.filter(f => f.fEnd >= qFrom && f.fStart <= qTo);
             if (intersecting.length === 0) {
                 let pastFiles = allFiles.filter(f => f.fStart <= qTo);
                 if (pastFiles.length > 0) {
-                    pastFiles.sort((a,b) => b.fEnd - a.fEnd); // Sort newest first
-                    // Take the most recent block of files
+                    pastFiles.sort((a, b) => b.fEnd - a.fEnd);
                     const newestEnd = pastFiles[0].fEnd;
                     intersecting = pastFiles.filter(f => f.fEnd === newestEnd);
                 }
             }
-            
             intersecting.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
-            
-            // Limit to top 4 files to prevent DuckDB OOM during UNION
             let selected = intersecting.slice(0, 4);
-            
-            // If we are looking for Futures, and the exact match didn't fill the quota,
-            // we ALSO want to grab the next older future month so the user can scroll smoothly!
-            // To do this, if we have less than 4 files, we can grab files that ended just before our selected files started.
-            if (symbolInfo.type === 'futures' || symbolInfo.type === 'index') {
-                if (selected.length > 0) {
-                    let oldestStart = Math.min(...selected.map(f => f.fStart));
-                    let olderFiles = allFiles.filter(f => f.fStart < oldestStart);
-                    olderFiles.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
-                    for (let of of olderFiles) {
-                        if (selected.length >= 4) break;
-                        if (!selected.find(s => s.path === of.path)) {
-                            selected.push(of);
-                        }
-                    }
-                }
-            }
-            
             return selected.map(f => {
                 const baseTicker = f.path.split('/')[0];
                 return `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${f.path}`;
@@ -551,10 +540,42 @@ const Datafeed = {
         }
     },
 
+    // Returns the absolute earliest timestamp (in seconds) across all Parquet files for a symbol
+    getEarliestParquetTime: async (symbolInfo) => {
+        try {
+            const expiries = await window.SyncManager.getAllExpiries();
+            let earliest = Infinity;
+            for (let exp of expiries) {
+                if (exp.files && exp.files.length > 0) {
+                    for (let f of exp.files) {
+                        const filename = f.path.split('/').pop();
+                        if (!filename.startsWith(symbolInfo.name)) continue;
+                        const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_/);
+                        if (dateMatch) {
+                            const fStart = new Date(dateMatch[1]).getTime() / 1000;
+                            if (fStart < earliest) earliest = fStart;
+                        }
+                    }
+                } else if (exp.trackerData && exp.trackerData.start_date) {
+                    const startT = new Date(exp.trackerData.start_date).getTime() / 1000;
+                    if (startT < earliest) earliest = startT;
+                } else if (exp.dateObjValue) {
+                    let endT = Math.floor(exp.dateObjValue / 1000) + 86400;
+                    let startT = endT - (100 * 86400);
+                    if (startT < earliest) earliest = startT;
+                }
+            }
+            return earliest;
+        } catch(e) {
+            return Infinity;
+        }
+    },
+
     getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
         let { from, to, countBack, firstDataRequest } = periodParams;
         const rawFrom = from;
         const rawTo = to;
+        countBack = countBack || 300;
         
         // 1. Live Options (No Parquet)
         if (symbolInfo.isLive && window.FyersAPI) {
@@ -595,47 +616,80 @@ const Datafeed = {
                     for (let url of fileUrls) {
                         vfsNames.push(await window.ensureParquetLoaded(url));
                     }
-                    const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
+                    const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ALL ');
                     
                     conn = await window.db.connect();
                     
-                    // We query wider to ensure boundaries are caught cleanly
+                    const resString = resolution ? resolution.toString() : '';
+                    const sfx = resolution ? resolutionToSuffix(resolution) : '';
+                    const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+                    const timeShift = isDWM ? 0 : 19800; // Intraday parquet stores pseudo-UTC (IST)
+                    
+                    // Fetch bars strictly prior to rawTo, with sufficient margin to satisfy countBack
+                    const fetchLimit = Math.max(countBack * 3, 1000);
                     const rangeSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
                         FROM (${unionStmts})
-                        WHERE time >= ${rawFrom - 86400} AND time <= ${rawTo + 86400}
-                        ORDER BY time ASC
+                        WHERE time < ${rawTo + timeShift}
+                        ORDER BY time DESC
+                        LIMIT ${fetchLimit}
                     `;
                     const rangeResult = await conn.query(rangeSQL);
+                    try { await conn.close(); } catch(_) {}
+                    conn = null;
+                    
                     let parquetBars = arrowToTVBars(rangeResult, resolution);
                     
                     if (parquetBars.length > 0) {
                         duckdbHit = true;
                         
-                        let coreBars = parquetBars.filter(b => b.time >= rawFrom * 1000 && b.time <= rawTo * 1000);
-                        let earliestParquet = coreBars.length > 0 ? coreBars[0].time / 1000 : (parquetBars[0].time / 1000);
-                        let latestParquet = coreBars.length > 0 ? coreBars[coreBars.length - 1].time / 1000 : (parquetBars[parquetBars.length - 1].time / 1000);
+                        // Deduplicate by timestamp
+                        const dedupMap = new Map();
+                        for (let b of parquetBars) {
+                            if (!dedupMap.has(b.time)) {
+                                dedupMap.set(b.time, b);
+                            }
+                        }
+                        let sortedBars = Array.from(dedupMap.values()).sort((a, b) => a.time - b.time);
                         
-                        finalBars = coreBars;
+                        // Step 1: Bars in [from, to)
+                        let inRangeBars = sortedBars.filter(b => b.time >= rawFrom * 1000 && b.time < rawTo * 1000);
                         
-                        // LEFT GAP: Fetch Deep History if TV wants older data than Parquet has
-                        if (rawFrom < earliestParquet && window.FyersAPI) {
-                            try {
-                                DFLog.info('getBars', `Fetching LEFT GAP from Fyers: ${rawFrom} to ${earliestParquet}`);
-                                let leftBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, earliestParquet);
-                                leftBars = alignFyersDwmTime(Array.isArray(leftBars) ? leftBars : (leftBars.data || []), resolution);
-                                finalBars = leftBars.concat(finalBars);
-                            } catch(e) { DFLog.error('getBars', 'Left gap fetch failed', e); }
+                        let chosenBars = [];
+                        if (inRangeBars.length >= countBack) {
+                            chosenBars = inRangeBars;
+                        } else {
+                            // Fulfill countBack by including earlier bars prior to rawFrom
+                            let needed = countBack - inRangeBars.length;
+                            let olderBars = sortedBars.filter(b => b.time < rawFrom * 1000);
+                            let prependBars = olderBars.slice(-needed);
+                            chosenBars = prependBars.concat(inRangeBars);
                         }
                         
-                        // RIGHT GAP: Fetch Recent History if TV wants newer data than Parquet has (Fixes missing days before today!)
-                        if (rawTo > latestParquet && window.FyersAPI) {
-                            try {
-                                DFLog.info('getBars', `Fetching RIGHT GAP from Fyers: ${latestParquet} to ${rawTo}`);
-                                let rightBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, latestParquet, rawTo);
-                                rightBars = alignFyersDwmTime(Array.isArray(rightBars) ? rightBars : (rightBars.data || []), resolution);
-                                finalBars = finalBars.concat(rightBars);
-                            } catch(e) { DFLog.error('getBars', 'Right gap fetch failed', e); }
+                        if (chosenBars.length > 0) {
+                            finalBars = chosenBars;
+                            let earliestParquet = finalBars[0].time / 1000;
+                            let latestParquet = finalBars[finalBars.length - 1].time / 1000;
+                            
+                            // LEFT GAP: Fetch Deep History if TV wants older data than Parquet has
+                            if (rawFrom < earliestParquet && window.FyersAPI && window.FyersAPI.token) {
+                                try {
+                                    DFLog.info('getBars', `Fetching LEFT GAP from Fyers: ${rawFrom} to ${earliestParquet}`);
+                                    let leftBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, earliestParquet);
+                                    leftBars = alignFyersDwmTime(Array.isArray(leftBars) ? leftBars : (leftBars.data || []), resolution);
+                                    finalBars = leftBars.concat(finalBars);
+                                } catch(e) { DFLog.error('getBars', 'Left gap fetch failed', e); }
+                            }
+                            
+                            // RIGHT GAP: Fetch Recent History if TV wants newer data than Parquet has
+                            if (rawTo > latestParquet && window.FyersAPI && window.FyersAPI.token) {
+                                try {
+                                    DFLog.info('getBars', `Fetching RIGHT GAP from Fyers: ${latestParquet} to ${rawTo}`);
+                                    let rightBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, latestParquet, rawTo);
+                                    rightBars = alignFyersDwmTime(Array.isArray(rightBars) ? rightBars : (rightBars.data || []), resolution);
+                                    finalBars = finalBars.concat(rightBars);
+                                } catch(e) { DFLog.error('getBars', 'Right gap fetch failed', e); }
+                            }
                         }
                     }
                 }
@@ -643,7 +697,7 @@ const Datafeed = {
             
             // 4. If DuckDB returned absolutely nothing for this range
             let isEnd = false;
-            if (!duckdbHit && window.FyersAPI) {
+            if (!duckdbHit && window.FyersAPI && window.FyersAPI.token) {
                 DFLog.info('getBars', `No Parquet data found for range. Falling back to Fyers Deep History.`);
                 let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
                 let deepBars = Array.isArray(res) ? res : (res.data || []);
@@ -652,12 +706,11 @@ const Datafeed = {
                 finalBars = alignFyersDwmTime(deepBars, resolution);
             }
 
-            // 5. Final Deduplication and Time Filtering (Bulletproof Pipeline)
+            // 5. Final Deduplication and Time Filtering
             if (finalBars.length > 0) {
-                // TradingView strictly requires bars to NOT exceed rawTo
-                finalBars = finalBars.filter(b => b.time <= rawTo * 1000);
+                // Strictly guarantee bars do NOT exceed rawTo
+                finalBars = finalBars.filter(b => b.time < rawTo * 1000);
                 
-                // Pure deduplication by exact timestamp (Parquet + Fyers overlap perfectly deduplicated)
                 const uniqueMap = new Map();
                 for (let b of finalBars) {
                     uniqueMap.set(b.time, b);
@@ -665,36 +718,37 @@ const Datafeed = {
                 
                 let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
                 
-                if (!window._tvLastBar) window._tvLastBar = {};
-                const cacheKey = `${fyersSymbol}_${resolution}`;
-                const currentLastBar = window._tvLastBar[cacheKey];
-                const batchLastBar = cleanBars[cleanBars.length - 1];
-                if (!currentLastBar || batchLastBar.time > currentLastBar.time) {
-                    window._tvLastBar[cacheKey] = { ...batchLastBar };
+                if (cleanBars.length > 0) {
+                    if (!window._tvLastBar) window._tvLastBar = {};
+                    const cacheKey = `${fyersSymbol}_${resolution}`;
+                    const currentLastBar = window._tvLastBar[cacheKey];
+                    const batchLastBar = cleanBars[cleanBars.length - 1];
+                    if (!currentLastBar || batchLastBar.time > currentLastBar.time) {
+                        window._tvLastBar[cacheKey] = { ...batchLastBar };
+                    }
+                    
+                    DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
+                    return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
                 }
-                
-                DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
-                return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
             }
             
+            // 6. No data at all — determine whether to halt or continue pagination
             if (isEnd) {
                 return onHistoryCallback([], { noData: true });
-            } else {
-                // To prevent infinite fast-forward loops when broker is offline, we must check if there is ANY realistic chance of older data existing.
-                let absoluteEarliest = Infinity;
-                if (Datafeed.getEarliestParquetTime) {
-                    absoluteEarliest = await Datafeed.getEarliestParquetTime(symbolInfo);
-                }
-                
-                // If Fyers is offline (!window.FyersAPI || !window.FyersAPI.token), AND we are already querying a time BEFORE the absolute earliest Parquet file...
-                const fyersOffline = !window.FyersAPI || !window.FyersAPI.token;
-                if (fyersOffline && rawFrom < absoluteEarliest) {
-                    DFLog.info('getBars', 'Broker offline & hit Parquet absolute inception date. Halting pagination.');
-                    return onHistoryCallback([], { noData: true }); // Halt pagination to prevent 50-request infinite EOD loop
-                }
-                
-                return onHistoryCallback([], { noData: true, nextTime: (rawFrom - 86400) * 1000 });
             }
+            
+            // Calculate absolute earliest time from Parquet metadata
+            const absoluteEarliest = await Datafeed.getEarliestParquetTime(symbolInfo);
+            const fyersOffline = !window.FyersAPI || !window.FyersAPI.token;
+            
+            if (fyersOffline && absoluteEarliest !== Infinity && rawFrom < absoluteEarliest) {
+                DFLog.info('getBars', `Broker offline & past Parquet inception (${new Date(absoluteEarliest * 1000).toISOString()}). Halting.`);
+                return onHistoryCallback([], { noData: true });
+            }
+            
+            // Tell TV to look one day earlier (in milliseconds as per TV docs)
+            DFLog.info('getBars', `No data in range. Sending nextTime = ${new Date((rawFrom - 86400) * 1000).toISOString()}`);
+            return onHistoryCallback([], { noData: true, nextTime: (rawFrom - 86400) * 1000 });
 
         } catch (error) {
             if (conn) { try { await conn.close(); } catch (_) {} }
