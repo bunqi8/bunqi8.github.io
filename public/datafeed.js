@@ -507,6 +507,14 @@ const Datafeed = {
                 // Eagerly fetch folders slightly older than qFrom so we can seamlessly append past files
                 const fetchQFrom = qFrom - (60 * 86400);
                 if (endT >= fetchQFrom && startT <= qTo) {
+                    // For options contracts, skip folders that belong to a different expiry
+                    if (symbolInfo.type !== 'index' && symbolInfo.type !== 'futures') {
+                        const expCode = exp.expiryCode || (exp.dateStr ? exp.dateStr.slice(4) : '');
+                        if (expCode && !symbolInfo.name.includes(expCode)) {
+                            continue;
+                        }
+                    }
+
                     if (exp.files && exp.files.length > 0) {
                         for (let f of exp.files) {
                             const filename = f.path.split('/').pop();

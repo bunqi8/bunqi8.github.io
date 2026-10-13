@@ -394,6 +394,8 @@ function updateExpiryStrip() {
         exp.isGolden = false;
         const ce = csvMap.get(exp.dateStr);
         if (ce) {
+            if (!exp.expiryCode && ce.expiryCode) exp.expiryCode = ce.expiryCode;
+            if (!exp.expiryType && ce.expiryType) exp.expiryType = ce.expiryType;
             if (now >= ce.dateObjValue) {
                 const nextMidnightUTC = new Date(ce.dateObjValue);
                 nextMidnightUTC.setUTCHours(24, 0, 0, 0);
@@ -402,6 +404,13 @@ function updateExpiryStrip() {
                 }
             }
         }
+        if (!exp.expiryCode && exp.dateStr && exp.dateStr.length === 8) {
+            const m = parseInt(exp.dateStr.slice(4, 6), 10);
+            const d = exp.dateStr.slice(6, 8);
+            const weeklyMonthChars = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'O', 'N', 'D'];
+            const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+            exp.expiryCode = (exp.expiryType === 'M') ? (monthNames[m] || '') : `${weeklyMonthChars[m]}${d}`;
+        }
     }
     
     combined.sort((a,b) => a.dateObjValue - b.dateObjValue);
@@ -409,16 +418,15 @@ function updateExpiryStrip() {
     const nowMs = Date.now();
     let liveTargetId = null;
     for (const exp of combined) {
-        // An expiry is 'live' if the current time is before the end of the expiry day.
-        // exp.dateObjValue is midnight at the start of the expiry day.
-        if ((exp.dateObjValue + 86400000) > nowMs) {
+        // An expiry is 'live' only if it is a placeholder/dummy that has NOT been downloaded yet
+        if (exp.isDummy && (exp.dateObjValue + 86400000) > nowMs) {
             liveTargetId = exp.id;
             break;
         }
     }
     
     for (const exp of combined) {
-        if (exp.id === liveTargetId) exp.isLiveTarget = true;
+        exp.isLiveTarget = (exp.id === liveTargetId);
     }
     
     // Update Title & Index button
@@ -642,105 +650,24 @@ async function selectExpiry(expiry) {
     let indexFile = null;
     let futSymbol = null;
 
-    if (!expiry.files || expiry.files.length === 0) {
-        if (!expiry.isLiveTarget) {
-            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">No files found</div>';
-            return;
+    // Ensure expiryCode and expiryType are attached
+    if (!expiry.expiryCode || !expiry.expiryType) {
+        const csvList = window.CSV_EXPIRIES_CACHE[expiry.baseTicker] || [];
+        const ce = csvList.find(c => c.dateStr === expiry.dateStr);
+        if (ce) {
+            if (!expiry.expiryCode && ce.expiryCode) expiry.expiryCode = ce.expiryCode;
+            if (!expiry.expiryType && ce.expiryType) expiry.expiryType = ce.expiryType;
         }
-        
-        // Fabricate LIVE rows
-        const validExpiries = (window.HF_EXPIRIES || []).filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
-        const lastValid = validExpiries[validExpiries.length - 1];
-        if (!lastValid) {
-            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Cannot generate live chain: No historical reference data found.</div>';
-            return;
-        }
-        
-        let lastStrikes = [];
-        for (let f of lastValid.files) {
-            const match = f.path.split('/').pop().match(/[A-Z]+.+?(\d{5})([CP]E)_/);
-            if (match) lastStrikes.push(parseInt(match[1], 10));
-        }
-        lastStrikes = [...new Set(lastStrikes)].sort((a,b) => a-b);
-        
-        if (lastStrikes.length >= 2) {
-            const gap = lastStrikes[1] - lastStrikes[0];
-            const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-            const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
-            const yy = expiry.dateStr.slice(2,4); 
-            
-            tbody.innerHTML = '<div style="padding: 40px; text-align: center;">Calculating limits from 6-month history...</div>';
-            
-            (async () => {
-                let minL = lastStrikes[0] - (gap * 15);
-                let maxH = lastStrikes[lastStrikes.length - 1] + (gap * 15);
-                
-                try {
-                    while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-                    
-                    let indexD = lastValid.files.find(f => f.path.includes('-INDEX_D_') || f.path.includes('-INDEX_1_'));
-                    if (indexD) {
-                        const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${indexD.path}`;
-                        const vfsName = await window.ensureParquetLoaded(indexUrl);
-                        const conn = await window.db.connect();
-                        
-                        // Use max date in parquet as proxy for "now" for 6 month lookback to support simulated history
-                        const metaRes = await conn.query(`SELECT MAX(time) as t FROM read_parquet('${vfsName}')`);
-                        const maxT = Number(metaRes.toArray()[0].t) || Math.floor(Date.now() / 1000);
-                        const sixMonthsAgo = maxT - (180 * 24 * 60 * 60);
-                        
-                        const result = await conn.query(`SELECT MIN(low) as minL, MAX(high) as maxH FROM read_parquet('${vfsName}') WHERE time >= ${sixMonthsAgo}`);
-                        const rows = result.toArray();
-                        if (rows.length > 0 && rows[0].minL && rows[0].maxH) {
-                            minL = Math.floor(rows[0].minL / gap) * gap;
-                            maxH = Math.ceil(rows[0].maxH / gap) * gap;
-                            
-                            // Add 5% buffer padding for extreme intraday spikes on new expiries
-                            minL = Math.floor((minL * 0.95) / gap) * gap;
-                            maxH = Math.ceil((maxH * 1.05) / gap) * gap;
-                        }
-                        await conn.close();
-                    }
-                } catch(e) {
-                    console.error("Failed 6-month limit check, fallback to static gap math", e);
-                }
-                
-                for (let s = minL; s <= maxH; s += gap) {
-                    strikes.add(s);
-                    const strikeStr = s.toString();
-                    symbols[`${s}_CE`] = `${exchange}:${base}${yy}${expiry.expiryCode}${strikeStr}CE|LIVE`;
-                    symbols[`${s}_PE`] = `${exchange}:${base}${yy}${expiry.expiryCode}${strikeStr}PE|LIVE`;
-                }
-                
-                const sortedStrikes = Array.from(strikes).sort((a,b) => a - b);
-                
-                // Immediately render the skeleton
-                renderTable(sortedStrikes, symbols, expiry.atmPrice || null);
-                
-                // Kick off live ATM fetch
-                if (window.FyersAPI) {
-                    try {
-                        const symbol = `${exchange}:${base}-INDEX`;
-                        const today = new Date();
-                        today.setHours(0,0,0,0);
-                        const bars = await window.FyersAPI.getHistory(symbol, '1', today.getTime()/1000, Date.now()/1000);
-                        if (bars && bars.length > 0) {
-                            const newAtmPrice = bars[bars.length - 1].close;
-                            expiry.atmPrice = newAtmPrice;
-                            if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
-                                renderTable(sortedStrikes, symbols, newAtmPrice);
-                            }
-                        }
-                    } catch (e) { console.error("Live ATM fetch failed", e); }
-                }
-            })();
-            
-            return;
-        } else {
-            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Failed to determine strike gap from previous expiry.</div>';
-            return;
-        }
-    } else if (expiry.trackerData && expiry.trackerData.lowest_strike && expiry.trackerData.highest_strike && expiry.trackerData.rounding_multiple) {
+    }
+    if (!expiry.expiryCode && expiry.dateStr && expiry.dateStr.length === 8) {
+        const m = parseInt(expiry.dateStr.slice(4, 6), 10);
+        const d = expiry.dateStr.slice(6, 8);
+        const weeklyMonthChars = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'O', 'N', 'D'];
+        const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        expiry.expiryCode = (expiry.expiryType === 'M') ? (monthNames[m] || '') : `${weeklyMonthChars[m]}${d}`;
+    }
+
+    if (expiry.trackerData && expiry.trackerData.lowest_strike && expiry.trackerData.highest_strike && expiry.trackerData.rounding_multiple) {
         // FAST PATH: Construct strikes mathematically from trackerData (0 Tree API calls!)
         const minL = expiry.trackerData.lowest_strike;
         const maxH = expiry.trackerData.highest_strike;
@@ -755,7 +682,20 @@ async function selectExpiry(expiry) {
             symbols[`${s}_PE`] = `${sym}${yy}${expCode}${s}PE`;
         }
         
-        futSymbol = `${sym}${yy}${expiry.expiryCode || 'FUT'}FUT`;
+        // Resolve futures contract: Indian index futures expire on monthly contracts (M)
+        let monthlyCode = expiry.expiryType === 'M' ? expCode : null;
+        if (!monthlyCode) {
+            const csvList = window.CSV_EXPIRIES_CACHE[expiry.baseTicker] || [];
+            const nextMonthly = csvList.find(c => c.expiryType === 'M' && c.dateObjValue >= expiry.dateObjValue);
+            if (nextMonthly && nextMonthly.expiryCode) {
+                monthlyCode = nextMonthly.expiryCode;
+            } else {
+                const m = parseInt(expiry.dateStr.slice(4, 6), 10);
+                const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                monthlyCode = monthNames[m] || 'OCT';
+            }
+        }
+        futSymbol = `${sym}${yy}${monthlyCode}FUT`;
         
         let endDateStr = expiry.trackerData.end_date || (expiry.dateStr ? `${expiry.dateStr.slice(0,4)}-${expiry.dateStr.slice(4,6)}-${expiry.dateStr.slice(6,8)}` : '');
         let startDateStr = expiry.trackerData.start_date;
@@ -770,9 +710,16 @@ async function selectExpiry(expiry) {
         indexFile = {
             path: `${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}/${idxTicker}_D_${startDateStr}_to_${endDateStr}.parquet`
         };
-    } else {
-        // Fallback: If tracker.csv metadata is missing, query the 1000 files from HF Tree API
-        await window.SyncManager.ensureFilesLoaded(expiry);
+    } else if (!expiry.isLiveTarget) {
+        // Fallback: If tracker.csv metadata is missing, query the files from HF Tree API
+        if (!expiry.files || expiry.files.length === 0) {
+            await window.SyncManager.ensureFilesLoaded(expiry);
+        }
+        
+        if (!expiry.files || expiry.files.length === 0) {
+            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">No files found</div>';
+            return;
+        }
         
         for (let f of (expiry.files || [])) {
             const filename = f.path.split('/').pop();
@@ -795,6 +742,120 @@ async function selectExpiry(expiry) {
                 symbols[`${strike}_${type}`] = symbol;
             }
         }
+    } else if (expiry.isLiveTarget) {
+        // Fabricate LIVE rows for un-downloaded live target
+        const validExpiries = (window.HF_EXPIRIES || []).filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
+        const lastValid = validExpiries[validExpiries.length - 1];
+        if (!lastValid) {
+            tbody.innerHTML = '<div style="padding: 40px; text-align: center; color: red;">Cannot generate live chain: No historical reference data found.</div>';
+            return;
+        }
+        
+        let gap = 50;
+        const base = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '');
+        if (base.includes('BANKNIFTY') || base.includes('NIFTYBANK') || base.includes('SENSEX') || base.includes('BANKEX')) {
+            gap = 100;
+        } else if (base.includes('MIDCPNIFTY')) {
+            gap = 25;
+        }
+        
+        if (lastValid.trackerData && lastValid.trackerData.rounding_multiple) {
+            gap = lastValid.trackerData.rounding_multiple;
+        } else if (lastValid.files && lastValid.files.length > 0) {
+            let lastStrikes = [];
+            for (let f of lastValid.files) {
+                const match = f.path.split('/').pop().match(/[A-Z]+.+?(\d{5})([CP]E)_/);
+                if (match) lastStrikes.push(parseInt(match[1], 10));
+            }
+            lastStrikes = [...new Set(lastStrikes)].sort((a,b) => a-b);
+            if (lastStrikes.length >= 2) gap = lastStrikes[1] - lastStrikes[0];
+        }
+        
+        const exchange = expiry.baseTicker.startsWith('BSE') ? 'BSE' : 'NSE';
+        const yy = expiry.dateStr.slice(2,4); 
+        const expCode = expiry.expiryCode || (expiry.dateStr ? expiry.dateStr.slice(4) : '');
+        
+        tbody.innerHTML = '<div style="padding: 40px; text-align: center;">Calculating limits from 6-month history...</div>';
+        
+        (async () => {
+            let refStrike = 24000;
+            if (lastValid.trackerData && lastValid.trackerData.lowest_strike && lastValid.trackerData.highest_strike) {
+                refStrike = Math.round(((lastValid.trackerData.lowest_strike + lastValid.trackerData.highest_strike) / 2) / gap) * gap;
+            }
+            let minL = refStrike - (gap * 30);
+            let maxH = refStrike + (gap * 30);
+            
+            try {
+                while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
+                
+                let indexDPath = null;
+                if (lastValid.trackerData) {
+                    let endD = lastValid.trackerData.end_date || (lastValid.dateStr ? `${lastValid.dateStr.slice(0,4)}-${lastValid.dateStr.slice(4,6)}-${lastValid.dateStr.slice(6,8)}` : '');
+                    let startD = lastValid.trackerData.start_date;
+                    if (!startD && endD) {
+                        const parts = endD.split('-').map(Number);
+                        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                        d.setUTCDate(d.getUTCDate() - 100);
+                        startD = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+                    }
+                    const idxTicker = lastValid.trackerData.ticker || `${lastValid.trackerData.symbol || 'NIFTY'}50-INDEX`;
+                    indexDPath = `${lastValid.baseTicker}/option_data/parquet/${lastValid.folderPath}/${idxTicker}_D_${startD}_to_${endD}.parquet`;
+                } else {
+                    if (!lastValid.files || lastValid.files.length === 0) {
+                        await window.SyncManager.ensureFilesLoaded(lastValid);
+                    }
+                    let indexD = (lastValid.files || []).find(f => f.path.includes('-INDEX_D_') || f.path.includes('-INDEX_1_'));
+                    if (indexD) indexDPath = indexD.path;
+                }
+                
+                if (indexDPath) {
+                    const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${indexDPath}`;
+                    const vfsName = await window.ensureParquetLoaded(indexUrl);
+                    const conn = await window.db.connect();
+                    const metaRes = await conn.query(`SELECT MAX(time) as t FROM read_parquet('${vfsName}')`);
+                    const maxT = Number(metaRes.toArray()[0].t) || Math.floor(Date.now() / 1000);
+                    const sixMonthsAgo = maxT - (180 * 24 * 60 * 60);
+                    const result = await conn.query(`SELECT MIN(low) as minL, MAX(high) as maxH FROM read_parquet('${vfsName}') WHERE time >= ${sixMonthsAgo}`);
+                    const rows = result.toArray();
+                    if (rows.length > 0 && rows[0].minL && rows[0].maxH) {
+                        minL = Math.floor(rows[0].minL / gap) * gap;
+                        maxH = Math.ceil(rows[0].maxH / gap) * gap;
+                        minL = Math.floor((minL * 0.95) / gap) * gap;
+                        maxH = Math.ceil((maxH * 1.05) / gap) * gap;
+                    }
+                    await conn.close();
+                }
+            } catch(e) {
+                console.error("Failed 6-month limit check, fallback to static gap math", e);
+            }
+            
+            for (let s = minL; s <= maxH; s += gap) {
+                strikes.add(s);
+                const strikeStr = s.toString();
+                symbols[`${s}_CE`] = `${exchange}:${base}${yy}${expCode}${strikeStr}CE|LIVE`;
+                symbols[`${s}_PE`] = `${exchange}:${base}${yy}${expCode}${strikeStr}PE|LIVE`;
+            }
+            
+            const sortedStrikes = Array.from(strikes).sort((a,b) => a - b);
+            renderTable(sortedStrikes, symbols, expiry.atmPrice || null);
+            
+            if (window.FyersAPI) {
+                try {
+                    const symbol = `${exchange}:${base}-INDEX`;
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const bars = await window.FyersAPI.getHistory(symbol, '1', today.getTime()/1000, Date.now()/1000);
+                    if (bars && bars.length > 0) {
+                        const newAtmPrice = bars[bars.length - 1].close;
+                        expiry.atmPrice = newAtmPrice;
+                        if (currentExpiry && currentExpiry.dateStr === expiry.dateStr) {
+                            renderTable(sortedStrikes, symbols, newAtmPrice);
+                        }
+                    }
+                } catch (e) { console.error("Live ATM fetch failed", e); }
+            }
+        })();
+        return;
     }
     
     const sortedStrikes = Array.from(strikes).sort((a,b) => a - b);
@@ -815,7 +876,7 @@ async function selectExpiry(expiry) {
     
     // 2. Background ATM price fetch
     // We fetch if we don't have a cached price, or if it's the absolute nearest expiry (which could still be actively trading)
-    const validExps = expiries.filter(e => !e.isDummy);
+    const validExps = expiries.filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
     const isNearest = validExps.length > 0 && validExps[validExps.length - 1].dateStr === expiry.dateStr;
     
     if (indexFile && (!expiry.atmPrice || isNearest)) {
