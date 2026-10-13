@@ -97,6 +97,7 @@ const SyncManager = {
                             day: dParts[0],
                             monthLabel: monthLabel,
                             isDummy: true,
+                            expiryType: parts[3] ? parts[3].trim() : '',
                             expiryCode: parts[4] ? parts[4].trim() : ''
                         });
                     }
@@ -262,6 +263,26 @@ const SyncManager = {
                 monthLabel += " '" + (year % 100).toString().padStart(2, '0');
             }
             
+            let expiryCode = remote.expiryCode;
+            let expiryType = remote.expiryType;
+            if (!expiryCode) {
+                try {
+                    const csvList = await this.getCsvExpiries(remote.baseTicker);
+                    const ce = csvList ? csvList.find(c => c.dateStr === remote.dateStr) : null;
+                    if (ce) {
+                        expiryCode = ce.expiryCode;
+                        expiryType = ce.expiryType;
+                    }
+                } catch(e) {}
+            }
+            if (!expiryCode && remote.dateStr && remote.dateStr.length === 8) {
+                const m = parseInt(remote.dateStr.slice(4, 6), 10);
+                const d = remote.dateStr.slice(6, 8);
+                const weeklyMonthChars = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'O', 'N', 'D'];
+                const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                expiryCode = (expiryType === 'M') ? (monthNames[m] || '') : `${weeklyMonthChars[m]}${d}`;
+            }
+
             const expiryData = {
                 id: id,
                 baseTicker: remote.baseTicker,
@@ -273,7 +294,9 @@ const SyncManager = {
                 dateObjValue: dateObj.getTime(),
                 monthLabel: monthLabel,
                 day: day,
-                year: year
+                year: year,
+                expiryCode: expiryCode || '',
+                expiryType: expiryType || ''
             };
             
             await this.saveExpiry(expiryData);
