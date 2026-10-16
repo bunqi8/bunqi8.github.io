@@ -435,9 +435,87 @@
 
             this.lastResults = results;
 
+            // Render execution arrows & trade labels (B: id @ price Q: qty) on chart
+            this.renderTradeShapesOnChart(executedTrades);
+
             // Dispatch global event for Strategy Tester UI
             window.dispatchEvent(new CustomEvent('strategy_performance_updated', { detail: results }));
             return results;
+        },
+
+        _activeShapeIds: [],
+
+        clearTradeShapesOnChart() {
+            if (!window.tvWidget) return;
+            try {
+                const chart = window.tvWidget.activeChart();
+                if (!chart) return;
+                for (const id of this._activeShapeIds) {
+                    try {
+                        chart.removeEntity(id, { disableUndo: true });
+                    } catch (_) {}
+                }
+            } catch (_) {}
+            this._activeShapeIds = [];
+        },
+
+        renderTradeShapesOnChart(executedTrades) {
+            this.clearTradeShapesOnChart();
+            if (!executedTrades || executedTrades.length === 0) return;
+
+            const drawShapes = () => {
+                if (!window.tvWidget) return;
+                try {
+                    const chart = window.tvWidget.activeChart();
+                    if (!chart || typeof chart.createShape !== 'function') return;
+
+                    executedTrades.forEach(trade => {
+                        const isBuy = trade.action === 'BUY';
+                        const timeSec = trade.time > 1e11 ? Math.floor(trade.time / 1000) : Number(trade.time);
+                        const price = Number(trade.price);
+                        if (!price || isNaN(price) || !timeSec || isNaN(timeSec)) return;
+
+                        const priceFormatted = price % 1 === 0 ? price : price.toFixed(2);
+                        const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+
+                        chart.createShape({ time: timeSec, price: price }, {
+                            shape: isBuy ? 'arrow_up' : 'arrow_down',
+                            text: labelText,
+                            lock: true,
+                            disableSelection: true,
+                            disableSave: true,
+                            overrides: {
+                                color: isBuy ? '#089981' : '#f23645',
+                                arrowColor: isBuy ? '#089981' : '#f23645',
+                                fontsize: 11,
+                                bold: true
+                            }
+                        }).then(id => {
+                            if (id) this._activeShapeIds.push(id);
+                        }).catch(() => {});
+                    });
+                } catch (e) {
+                    console.warn("[StrategyEngine] Failed to render trade shapes:", e);
+                }
+            };
+
+            try {
+                const chart = window.tvWidget && window.tvWidget.activeChart();
+                if (chart && chart.createShape) {
+                    drawShapes();
+                } else {
+                    setTimeout(drawShapes, 400);
+                }
+            } catch (_) {
+                setTimeout(drawShapes, 400);
+            }
+        },
+
+        clearAll() {
+            this.instances.clear();
+            this.activeStrategyName = null;
+            this.lastResults = null;
+            this.clearTradeShapesOnChart();
         }
     };
 
