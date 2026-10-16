@@ -64,12 +64,22 @@
             const isEnd = !!order.isEnd;
             const tag = order.tag || '';
 
+            const bar = this.currentBar || {};
+            const candleHigh = Number(order.high !== undefined ? order.high : (bar.high !== undefined ? bar.high : price));
+            const candleLow = Number(order.low !== undefined ? order.low : (bar.low !== undefined ? bar.low : price));
+            const candleClose = Number(bar.close !== undefined ? bar.close : price);
+            const candleOpen = Number(bar.open !== undefined ? bar.open : price);
+
             const trade = {
                 barIndex: this.barIndex,
-                time: this.currentBar ? this.currentBar.time : Date.now(),
+                time: bar.time || Date.now(),
                 chainId,
                 action: 'BUY',
                 price,
+                candleHigh,
+                candleLow,
+                candleClose,
+                candleOpen,
                 qty,
                 isEnd,
                 tag
@@ -97,12 +107,22 @@
             const isEnd = !!order.isEnd;
             const tag = order.tag || '';
 
+            const bar = this.currentBar || {};
+            const candleHigh = Number(order.high !== undefined ? order.high : (bar.high !== undefined ? bar.high : price));
+            const candleLow = Number(order.low !== undefined ? order.low : (bar.low !== undefined ? bar.low : price));
+            const candleClose = Number(bar.close !== undefined ? bar.close : price);
+            const candleOpen = Number(bar.open !== undefined ? bar.open : price);
+
             const trade = {
                 barIndex: this.barIndex,
-                time: this.currentBar ? this.currentBar.time : Date.now(),
+                time: bar.time || Date.now(),
                 chainId,
                 action: 'SELL',
                 price,
+                candleHigh,
+                candleLow,
+                candleClose,
+                candleOpen,
                 qty,
                 isEnd,
                 tag
@@ -472,13 +492,23 @@
                     executedTrades.forEach(trade => {
                         const isBuy = trade.action === 'BUY';
                         const timeSec = trade.time > 1e11 ? Math.floor(trade.time / 1000) : Number(trade.time);
-                        const price = Number(trade.price);
-                        if (!price || isNaN(price) || !timeSec || isNaN(timeSec)) return;
+                        const execPrice = Number(trade.price);
+                        if (!execPrice || isNaN(execPrice) || !timeSec || isNaN(timeSec)) return;
 
-                        const priceFormatted = price % 1 === 0 ? price : price.toFixed(2);
+                        const high = Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
+                        const low = Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
+                        const candleRange = Math.max(high - low, execPrice * 0.001);
+
+                        // Position arrow tip cleanly outside the candle & any indicator shape label:
+                        // For BUY: arrow tip is placed below candle low & below any indicator "Buy" label, pointing UP
+                        // For SELL: arrow tip is placed above candle high & above any indicator "Sell" label, pointing DOWN
+                        const margin = Math.max(candleRange * 0.95, execPrice * 0.0028);
+                        const shapePrice = isBuy ? (low - margin) : (high + margin);
+
+                        const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
                         const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
 
-                        chart.createShape({ time: timeSec, price: price }, {
+                        chart.createShape({ time: timeSec, price: shapePrice }, {
                             shape: isBuy ? 'arrow_up' : 'arrow_down',
                             text: labelText,
                             lock: true,
