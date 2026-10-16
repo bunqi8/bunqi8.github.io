@@ -286,6 +286,149 @@ window.getCustomIndicators = function (PineJS) {
                         ];
                     };
                 }
+            },
+            {
+                name: "SuperTrend Strategy (Trade Chains)",
+                metainfo: {
+                    _metainfoVersion: 52,
+                    isTVScript: false,
+                    is_hidden_study: false,
+                    defaults: {
+                        styles: {
+                            plot_up: { plottype: 7, linewidth: 2, color: "#089981" },
+                            plot_down: { plottype: 7, linewidth: 2, color: "#f23645" },
+                            plot_buy_label: { plottype: "shape_label_up", location: "BelowBar", color: "#089981", textColor: "#ffffff", size: "auto" },
+                            plot_sell_label: { plottype: "shape_label_down", location: "AboveBar", color: "#f23645", textColor: "#ffffff", size: "auto" }
+                        },
+                        inputs: {
+                            in_period: 10,
+                            in_multiplier: 3.0
+                        }
+                    },
+                    plots: [
+                        { id: "plot_up", type: "line" },
+                        { id: "plot_down", type: "line" },
+                        { id: "plot_buy_label", type: "shapes" },
+                        { id: "plot_sell_label", type: "shapes" }
+                    ],
+                    styles: {
+                        plot_up: { title: "Up Trend", histogramBase: 0, joinPoints: false },
+                        plot_down: { title: "Down Trend", histogramBase: 0, joinPoints: false },
+                        plot_buy_label: { title: "Buy Signal (Chain Entry)", isHidden: false },
+                        plot_sell_label: { title: "Sell Signal (Chain Exit)", isHidden: false }
+                    },
+                    description: "SuperTrend Strategy (Trade Chains)",
+                    shortDescription: "SuperTrend Strat",
+                    is_price_study: true,
+                    inputs: [
+                        { id: "in_period", name: "ATR Period", defval: 10, type: "integer", min: 1 },
+                        { id: "in_multiplier", name: "ATR Multiplier", defval: 3.0, type: "float", min: 0.1, step: 0.1 }
+                    ],
+                    id: "SuperTrend_Strategy@tv-basicstudies-1",
+                    scriptIdPart: "",
+                    name: "SuperTrend Strategy (Trade Chains)",
+                    format: { precision: 2, type: "price" }
+                },
+                constructor: function () {
+                    this.init = function(ctx, get_input) {
+                        this._context = ctx;
+                        this._input = get_input;
+                        this._chainCounter = 1;
+                    };
+
+                    this.main = function (ctx, get_input) {
+                        this._context = ctx || this._context;
+                        this._input = get_input || this._input;
+                        
+                        var periods = this._input(0);
+                        var multiplier = this._input(1);
+
+                        var high = PineJS.Std.high(this._context);
+                        var low = PineJS.Std.low(this._context);
+                        var close = PineJS.Std.close(this._context);
+                        var hl2 = (high + low) / 2.0;
+
+                        var prev_close = this._context.new_var(close).get(1);
+                        if (isNaN(prev_close)) prev_close = close;
+
+                        var tr = Math.max(
+                            high - low,
+                            Math.abs(high - prev_close),
+                            Math.abs(low - prev_close)
+                        );
+
+                        var trSeries = this._context.new_var(tr);
+                        var atrVal = PineJS.Std.rma(trSeries, periods, this._context);
+
+                        var upVal = hl2 - (multiplier * atrVal);
+                        var dnVal = hl2 + (multiplier * atrVal);
+                        
+                        var final_upper = this._context.new_var();
+                        var final_lower = this._context.new_var();
+                        var trend = this._context.new_var();
+                        
+                        var prev_final_upper = final_upper.get(1);
+                        var prev_final_lower = final_lower.get(1);
+                        var prev_trend = trend.get(1);
+
+                        if (isNaN(prev_final_upper)) prev_final_upper = upVal;
+                        if (isNaN(prev_final_lower)) prev_final_lower = dnVal;
+                        if (isNaN(prev_trend)) prev_trend = 1;
+
+                        var curr_up = (prev_close > prev_final_upper) ? Math.max(upVal, prev_final_upper) : upVal;
+                        var curr_dn = (prev_close < prev_final_lower) ? Math.min(dnVal, prev_final_lower) : dnVal;
+
+                        final_upper.set(curr_up);
+                        final_lower.set(curr_dn);
+
+                        var curr_trend = prev_trend;
+                        if (curr_trend === -1 && close > prev_final_lower) {
+                            curr_trend = 1;
+                        } else if (curr_trend === 1 && close < prev_final_upper) {
+                            curr_trend = -1;
+                        }
+                        trend.set(curr_trend);
+
+                        var buySignal = (curr_trend === 1 && prev_trend === -1);
+                        var sellSignal = (curr_trend === -1 && prev_trend === 1);
+
+                        if (!this._chainCounter) this._chainCounter = 1;
+
+                        // Strategy Trade Chain Execution
+                        if (this.strategy) {
+                            if (buySignal) {
+                                this.strategy.buy({
+                                    id: this._chainCounter,
+                                    price: close,
+                                    qty: 1,
+                                    tag: "SuperTrend Bullish Entry"
+                                });
+                            } else if (sellSignal) {
+                                this.strategy.sell({
+                                    id: this._chainCounter,
+                                    price: close,
+                                    qty: 1,
+                                    isEnd: true,
+                                    tag: "SuperTrend Bearish Exit"
+                                });
+                                this._chainCounter++;
+                            }
+                        }
+
+                        var upPlot = curr_trend === 1 ? curr_up : NaN;
+                        var dnPlot = curr_trend === 1 ? NaN : curr_dn;
+
+                        var buyLabel = buySignal ? { value: low, text: "B: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };
+                        var sellLabel = sellSignal ? { value: high, text: "S: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };
+
+                        return [
+                            { value: upPlot },
+                            { value: dnPlot },
+                            buyLabel,
+                            sellLabel
+                        ];
+                    };
+                }
             }
         ];
 
@@ -308,6 +451,56 @@ window.getCustomIndicators = function (PineJS) {
             console.error("Failed to read tv_local_indicators", e);
         }
 
-        resolve([...hardcodedIndicators, ...localIndicators]);
+        const allList = [...hardcodedIndicators, ...localIndicators];
+        
+        // Wrap all indicators with StrategyEngine context
+        allList.forEach(ind => {
+            if (!ind || !ind.constructor) return;
+            const origConstructor = ind.constructor;
+            ind.constructor = function() {
+                const instance = new origConstructor();
+                if (window.StrategyEngine) {
+                    const strategyContext = window.StrategyEngine.getOrCreateContext(ind.name);
+                    instance.strategy = strategyContext;
+                    let barCount = 0;
+                    
+                    const origInit = instance.init;
+                    instance.init = function(ctx, get_input) {
+                        barCount = 0;
+                        if (instance.strategy) instance.strategy.reset();
+                        if (origInit) origInit.call(instance, ctx, get_input);
+                    };
+
+                    const origMain = instance.main;
+                    instance.main = function(ctx, get_input) {
+                        instance._context = ctx || instance._context;
+                        if (instance.strategy) {
+                            let time = 0, open = 0, high = 0, low = 0, close = 0, volume = 0;
+                            try {
+                                time = PineJS.Std.time(instance._context);
+                                open = PineJS.Std.open(instance._context);
+                                high = PineJS.Std.high(instance._context);
+                                low = PineJS.Std.low(instance._context);
+                                close = PineJS.Std.close(instance._context);
+                                volume = PineJS.Std.volume(instance._context);
+                            } catch(_) {}
+                            instance.strategy.onBarStart(barCount++, { time, open, high, low, close, volume });
+                        }
+                        return origMain.call(instance, ctx, get_input);
+                    };
+                }
+                return instance;
+            };
+        });
+
+        resolve(allList);
     });
 };
+
+window.isStrategyScript = function(code) {
+    if (!code || typeof code !== 'string') return false;
+    const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
+    const hasSell = /this\.strategy\.sell|strategy\.sell|action\s*:\s*['"]SELL['"]/i.test(code);
+    return hasBuy && hasSell;
+};
+

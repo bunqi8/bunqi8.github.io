@@ -432,7 +432,7 @@ function setupCustomIndicatorsDialog(widget) {
             renderList(searchInput.value);
         }
         
-        function showEditor(existingCode = '', existingName = null) {
+        function showEditor(existingCode = '', existingName = null, isStrategyTemplate = false) {
             isEditing = true;
             listWrapper.innerHTML = '';
             
@@ -442,7 +442,7 @@ function setupCustomIndicatorsDialog(widget) {
             const titleRow = document.createElement('div');
             titleRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600; color:#131722;';
             titleRow.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#2962FF"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg> 
-                                  <span>${existingName ? 'Edit: ' + existingName : 'New Local Indicator'}</span>`;
+                                  <span>${existingName ? 'Edit: ' + existingName : (isStrategyTemplate ? 'New Local Strategy (Trade Chains)' : 'New Local Indicator')}</span>`;
             
             const btnRow = document.createElement('div');
             btnRow.style.cssText = 'display:flex; gap:8px;';
@@ -473,6 +473,15 @@ function setupCustomIndicatorsDialog(widget) {
                     
                     if (!obj || !obj.name) throw new Error("Exported script object must have a 'name' property.");
                     
+                    const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
+                    const hasSell = /this\.strategy\.sell|strategy\.sell|action\s*:\s*['"]SELL['"]/i.test(code);
+                    if (hasBuy && !hasSell) {
+                        throw new Error("Invalid Strategy: Found Buy logic but no Sell logic. A strategy must contain both Buy and Sell operations.");
+                    }
+                    if (hasSell && !hasBuy) {
+                        throw new Error("Invalid Strategy: Found Sell logic but no Buy logic. A strategy must contain both Buy and Sell operations.");
+                    }
+
                     let stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
                     if (existingName && existingName !== obj.name) {
                         delete stored[existingName];
@@ -483,7 +492,7 @@ function setupCustomIndicatorsDialog(widget) {
                     sessionStorage.setItem('tv_auto_reload_study', obj.name);
                     location.reload();
                 } catch (err) {
-                    errorDiv.textContent = 'Syntax Error: ' + err.message;
+                    errorDiv.textContent = 'Validation / Syntax Error: ' + err.message;
                     errorDiv.style.display = 'block';
                 }
             };
@@ -500,14 +509,18 @@ function setupCustomIndicatorsDialog(widget) {
             listWrapper.appendChild(errorDiv);
             listWrapper.appendChild(editorContainer);
             
-            const defaultCode = `{\n    name: "My Script",\n    metainfo: {\n        _metainfoVersion: 52,\n        isTVScript: false,\n        is_hidden_study: false,\n        defaults: {\n            styles: { plot_0: { plottype: 0, linewidth: 2, color: "#2962FF" } },\n            inputs: {}\n        },\n        plots: [{ id: "plot_0", type: "line" }],\n        styles: { plot_0: { title: "Plot" } },\n        description: "My Script",\n        shortDescription: "My Script",\n        is_price_study: true,\n        inputs: [],\n        id: "My_Script@tv-basicstudies-1",\n        scriptIdPart: "",\n        name: "My Script"\n    },\n    constructor: function() {\n        this.init = function(ctx, input) { this._context = ctx; };\n        this.main = function(ctx, input) {\n            this._context = ctx || this._context;\n            return [{ value: PineJS.Std.close(this._context) }];\n        };\n    }\n}`;
+            const defaultIndicatorCode = `{\n    name: "My Script",\n    metainfo: {\n        _metainfoVersion: 52,\n        isTVScript: false,\n        is_hidden_study: false,\n        defaults: {\n            styles: { plot_0: { plottype: 0, linewidth: 2, color: "#2962FF" } },\n            inputs: {}\n        },\n        plots: [{ id: "plot_0", type: "line" }],\n        styles: { plot_0: { title: "Plot" } },\n        description: "My Script",\n        shortDescription: "My Script",\n        is_price_study: true,\n        inputs: [],\n        id: "My_Script@tv-basicstudies-1",\n        scriptIdPart: "",\n        name: "My Script"\n    },\n    constructor: function() {\n        this.init = function(ctx, input) { this._context = ctx; };\n        this.main = function(ctx, input) {\n            this._context = ctx || this._context;\n            return [{ value: PineJS.Std.close(this._context) }];\n        };\n    }\n}`;
+
+            const defaultStrategyCode = `{\n    name: "My Strategy (Trade Chains)",\n    metainfo: {\n        _metainfoVersion: 52,\n        isTVScript: false,\n        is_hidden_study: false,\n        defaults: {\n            styles: {\n                plot_ma: { plottype: 0, linewidth: 2, color: "#2962FF" },\n                plot_buy: { plottype: "shape_label_up", location: "BelowBar", color: "#089981", textColor: "#ffffff", size: "auto" },\n                plot_sell: { plottype: "shape_label_down", location: "AboveBar", color: "#f23645", textColor: "#ffffff", size: "auto" }\n            },\n            inputs: {\n                fastPeriod: 9,\n                slowPeriod: 21\n            }\n        },\n        plots: [\n            { id: "plot_ma", type: "line" },\n            { id: "plot_buy", type: "shapes" },\n            { id: "plot_sell", type: "shapes" }\n        ],\n        styles: {\n            plot_ma: { title: "Fast MA", isHidden: false },\n            plot_buy: { title: "Buy Signal (Chain Entry)", isHidden: false },\n            plot_sell: { title: "Sell Signal (Chain Exit)", isHidden: false }\n        },\n        description: "My Strategy (Trade Chains)",\n        shortDescription: "My Strategy",\n        is_price_study: true,\n        inputs: [\n            { id: "fastPeriod", name: "Fast MA Period", defval: 9, type: "integer", min: 1 },\n            { id: "slowPeriod", name: "Slow MA Period", defval: 21, type: "integer", min: 1 }\n        ],\n        id: "My_Strategy@tv-basicstudies-1",\n        scriptIdPart: "",\n        name: "My Strategy (Trade Chains)",\n        format: { type: "price", precision: 2 }\n    },\n    constructor: function() {\n        this.init = function(ctx, get_input) {\n            this._context = ctx;\n            this._input = get_input;\n            this._chainCounter = 1;\n        };\n        this.main = function(ctx, get_input) {\n            this._context = ctx || this._context;\n            this._input = get_input || this._input;\n            \n            var fastLen = this._input(0);\n            var slowLen = this._input(1);\n            \n            var close = PineJS.Std.close(this._context);\n            var closeSeries = this._context.new_var(close);\n            var high = PineJS.Std.high(this._context);\n            var low = PineJS.Std.low(this._context);\n            \n            var fastMA = PineJS.Std.sma(closeSeries, fastLen, this._context);\n            var slowMA = PineJS.Std.sma(closeSeries, slowLen, this._context);\n            \n            var fastSeries = this._context.new_var(fastMA);\n            var slowSeries = this._context.new_var(slowMA);\n            \n            var fastPrev = fastSeries.get(1);\n            var slowPrev = slowSeries.get(1);\n            \n            var buySignal = (fastPrev <= slowPrev && fastMA > slowMA);\n            var sellSignal = (fastPrev >= slowPrev && fastMA < slowMA);\n            \n            if (!this._chainCounter) this._chainCounter = 1;\n            \n            if (this.strategy) {\n                if (buySignal) {\n                    this.strategy.buy({\n                        id: this._chainCounter,\n                        price: close,\n                        qty: 1,\n                        tag: "MA Bullish Entry"\n                    });\n                } else if (sellSignal) {\n                    this.strategy.sell({\n                        id: this._chainCounter,\n                        price: close,\n                        qty: 1,\n                        isEnd: true,\n                        tag: "MA Bearish Exit"\n                    });\n                    this._chainCounter++;\n                }\n            }\n            \n            var buyLabel = buySignal ? { value: low, text: "B: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };\n            var sellLabel = sellSignal ? { value: high, text: "S: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };\n            \n            return [\n                { value: fastMA },\n                buyLabel,\n                sellLabel\n            ];\n        };\n    }\n}`;
             
+            const initialCode = existingCode || (isStrategyTemplate ? defaultStrategyCode : defaultIndicatorCode);
+
             if (window.require && !window.monaco) {
                 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
                 require(['vs/editor/editor.main'], function() {
                     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
                     monacoEditorInstance = monaco.editor.create(editorContainer, {
-                        value: existingCode || defaultCode, language: 'javascript', theme: 'vs-light',
+                        value: initialCode, language: 'javascript', theme: 'vs-light',
                         minimap: { enabled: true, scale: 0.75 }, automaticLayout: true, fontSize: 13,
                         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", scrollBeyondLastLine: false,
                         roundedSelection: false, padding: { top: 16 }
@@ -515,7 +528,7 @@ function setupCustomIndicatorsDialog(widget) {
                 });
             } else if (window.monaco) {
                 monacoEditorInstance = monaco.editor.create(editorContainer, {
-                    value: existingCode || defaultCode, language: 'javascript', theme: 'vs-light',
+                    value: initialCode, language: 'javascript', theme: 'vs-light',
                     minimap: { enabled: true, scale: 0.75 }, automaticLayout: true, fontSize: 13,
                     scrollBeyondLastLine: false, padding: { top: 16 }
                 });
@@ -549,7 +562,7 @@ function setupCustomIndicatorsDialog(widget) {
             try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
             let localNames = Object.keys(stored);
             
-            let hardcodedNames = ["SuperTrend Custom", "5 EMA Crossover"];
+            let hardcodedNames = ["SuperTrend Custom", "5 EMA Crossover", "SuperTrend Strategy (Trade Chains)"];
             let allCustomNames = Array.from(new Set([...hardcodedNames, ...localNames]));
             
             let items = [];
@@ -573,13 +586,26 @@ function setupCustomIndicatorsDialog(widget) {
             }
             
             if (activeTab === 'custom' && !searchQuery) {
-                const addBtn = document.createElement('div');
-                addBtn.style.cssText = 'padding:14px; margin:8px 0 16px 0; cursor:pointer; font-size:14px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafe; transition:all 0.1s ease;';
-                addBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" style="margin-right:8px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Create Local Indicator';
-                addBtn.onmouseover = () => { addBtn.style.background = '#2962FF'; addBtn.style.color = '#fff'; };
-                addBtn.onmouseout = () => { addBtn.style.background = '#f8fafe'; addBtn.style.color = '#2962FF'; };
-                addBtn.onclick = () => showEditor();
-                listContainer.appendChild(addBtn);
+                const btnContainer = document.createElement('div');
+                btnContainer.style.cssText = 'display:flex; gap:10px; margin:8px 0 16px 0;';
+
+                const addIndBtn = document.createElement('div');
+                addIndBtn.style.cssText = 'flex:1; padding:12px 14px; cursor:pointer; font-size:13px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafe; transition:all 0.1s ease;';
+                addIndBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 18 18" style="margin-right:6px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Create Indicator';
+                addIndBtn.onmouseover = () => { addIndBtn.style.background = '#2962FF'; addIndBtn.style.color = '#fff'; };
+                addIndBtn.onmouseout = () => { addIndBtn.style.background = '#f8fafe'; addIndBtn.style.color = '#2962FF'; };
+                addIndBtn.onclick = () => showEditor();
+
+                const addStratBtn = document.createElement('div');
+                addStratBtn.style.cssText = 'flex:1; padding:12px 14px; cursor:pointer; font-size:13px; color:#7B1FA2; display:flex; align-items:center; border:1px dashed #7B1FA2; border-radius:8px; font-weight:600; justify-content:center; background:#fdf7ff; transition:all 0.1s ease;';
+                addStratBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" style="margin-right:6px;" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg> Create Strategy';
+                addStratBtn.onmouseover = () => { addStratBtn.style.background = '#7B1FA2'; addStratBtn.style.color = '#fff'; };
+                addStratBtn.onmouseout = () => { addStratBtn.style.background = '#fdf7ff'; addStratBtn.style.color = '#7B1FA2'; };
+                addStratBtn.onclick = () => showEditor('', null, true);
+
+                btnContainer.appendChild(addIndBtn);
+                btnContainer.appendChild(addStratBtn);
+                listContainer.appendChild(btnContainer);
             }
             
             // Fragment for faster DOM injection
@@ -588,6 +614,8 @@ function setupCustomIndicatorsDialog(widget) {
             items.forEach(study => {
                 const isLocal = localNames.includes(study);
                 const isFav = favs.includes(study);
+                const code = stored[study] || "";
+                const isStrat = study.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                 const displayName = (study === "SuperTrend Custom") ? "SuperTrend" : study;
                 
                 const item = document.createElement('div');
@@ -604,8 +632,15 @@ function setupCustomIndicatorsDialog(widget) {
                 item.appendChild(star);
                 
                 const titleSpan = document.createElement('span');
+                titleSpan.style.cssText = 'flex:1; display:flex; align-items:center; gap:8px;';
                 titleSpan.textContent = displayName;
-                titleSpan.style.flex = "1";
+
+                const badge = document.createElement('span');
+                badge.style.cssText = isStrat
+                    ? 'font-size:10px; font-weight:700; background:#e8f0fe; color:#2962FF; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.3px;'
+                    : 'font-size:10px; font-weight:600; background:#f0f3fa; color:#787b86; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.3px;';
+                badge.textContent = isStrat ? 'Strategy' : 'Indicator';
+                titleSpan.appendChild(badge);
                 item.appendChild(titleSpan);
                 
                 if (isLocal) {
@@ -626,7 +661,7 @@ function setupCustomIndicatorsDialog(widget) {
                     delBtn.onmouseout = () => { delBtn.style.color = '#b2b5be'; delBtn.style.background = 'transparent'; };
                     delBtn.onclick = (e) => { 
                         e.stopPropagation(); 
-                        if(confirm("Delete local indicator '" + study + "'?")) {
+                        if(confirm("Delete local script '" + study + "'?")) {
                             delete stored[study];
                             localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                             let fs = getFavorites();
@@ -646,6 +681,9 @@ function setupCustomIndicatorsDialog(widget) {
                 item.onmouseout = () => { item.style.background = 'transparent'; item.style.borderColor = 'transparent'; };
                 item.onclick = () => {
                     widget.chart().createStudy(study, false, false);
+                    if (isStrat && window.StrategyTesterUI) {
+                        window.StrategyTesterUI.show();
+                    }
                     closeModal();
                 };
                 fragment.appendChild(item);
