@@ -36,8 +36,36 @@ function getBaseTickerFromSymbol(symbol, possibleList) {
         let m = possibleList.find(p => p.includes('BANKEX'));
         if (m) return m;
     }
+    if (sym.startsWith('CRUDEOILM')) {
+        let m = possibleList.find(p => p.includes('CRUDEOILM'));
+        if (m) return m;
+    }
     if (sym.startsWith('CRUDEOIL')) {
-        let m = possibleList.find(p => p.includes('CRUDEOIL'));
+        let m = possibleList.find(p => p.includes('CRUDEOIL') && !p.includes('CRUDEOILM'));
+        if (m) return m;
+    }
+    if (sym.startsWith('NATGASMINI')) {
+        let m = possibleList.find(p => p.includes('NATGASMINI'));
+        if (m) return m;
+    }
+    if (sym.startsWith('NATURALGAS')) {
+        let m = possibleList.find(p => p.includes('NATURALGAS'));
+        if (m) return m;
+    }
+    if (sym.startsWith('GOLDM')) {
+        let m = possibleList.find(p => p.includes('GOLDM'));
+        if (m) return m;
+    }
+    if (sym.startsWith('GOLD')) {
+        let m = possibleList.find(p => p.includes('GOLD') && !p.includes('GOLDM'));
+        if (m) return m;
+    }
+    if (sym.startsWith('SILVERM')) {
+        let m = possibleList.find(p => p.includes('SILVERM'));
+        if (m) return m;
+    }
+    if (sym.startsWith('SILVER')) {
+        let m = possibleList.find(p => p.includes('SILVER') && !p.includes('SILVERM'));
         if (m) return m;
     }
     
@@ -227,11 +255,21 @@ window.openOptionsChainModal = function() {
     // Auto-detect expiry from current chart symbol if it is an option contract
     try {
         const symbol = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
-        const match = symbol.match(/^[A-Z]+(\d{2})([1-9OND])(\d{2})\d{5}[CP]E/);
-        if (match) {
-            let y = match[1];
-            let mStr = match[2];
-            let d = match[3];
+        const matchMonthly = symbol.match(/^[A-Z]+(\d{2})([A-Z]{3})(\d{3,6})[CP]E/);
+        const matchWeekly = symbol.match(/^[A-Z]+(\d{2})([1-9OND])(\d{2})(\d{3,6})[CP]E/);
+        if (matchMonthly) {
+            let y = matchMonthly[1];
+            let mStr = matchMonthly[2]; // e.g. OCT
+            const filteredExpiries = expiries.filter(e => e.baseTicker === window.ACTIVE_BASE_TICKER);
+            const found = filteredExpiries.find(e => {
+                const emCode = e.expiryCode || (e.monthLabel ? e.monthLabel.toUpperCase().slice(0, 3) : '');
+                return emCode === mStr && e.dateStr && e.dateStr.startsWith(`20${y}`);
+            });
+            if (found) targetExpiry = found;
+        } else if (matchWeekly) {
+            let y = matchWeekly[1];
+            let mStr = matchWeekly[2];
+            let d = matchWeekly[3];
             
             let m = mStr;
             if (mStr === 'O') m = '10';
@@ -438,12 +476,19 @@ function updateExpiryStrip() {
     
     const btnIndex = document.getElementById('btn_index');
     if (btnIndex && window.ACTIVE_BASE_TICKER) {
-        let idxSymbol = window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
-        if (!idxSymbol.endsWith('-INDEX')) idxSymbol += '-INDEX';
-        btnIndex.onclick = () => {
-            window.loadSymbol(idxSymbol);
-            window.closeOptionsChainModal();
-        };
+        const hasIndex = !window.ACTIVE_BASE_TICKER.startsWith('MCX_');
+        if (hasIndex) {
+            btnIndex.style.display = 'block';
+            let idxSymbol = window.ACTIVE_BASE_TICKER.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+            if (!idxSymbol.endsWith('-INDEX')) idxSymbol += '-INDEX';
+            btnIndex.onclick = () => {
+                window.loadSymbol(idxSymbol);
+                window.closeOptionsChainModal();
+            };
+        } else {
+            btnIndex.style.display = 'none';
+            btnIndex.onclick = null;
+        }
     }
 
     let lastMonthLabel = null;
@@ -648,7 +693,11 @@ async function selectExpiry(expiry) {
     const strikes = new Set();
     const symbols = {}; 
     let indexFile = null;
+    let futFile = null;
     let futSymbol = null;
+
+    const isMcx = expiry.baseTicker.startsWith('MCX_');
+    const hasIndex = expiry.trackerData ? expiry.trackerData.index_available === true : !isMcx;
 
     // Ensure expiryCode and expiryType are attached
     if (!expiry.expiryCode || !expiry.expiryType) {
@@ -682,20 +731,41 @@ async function selectExpiry(expiry) {
             symbols[`${s}_PE`] = `${sym}${yy}${expCode}${s}PE`;
         }
         
-        // Resolve futures contract: Indian index futures expire on monthly contracts (M)
-        let monthlyCode = expiry.expiryType === 'M' ? expCode : null;
-        if (!monthlyCode) {
-            const csvList = window.CSV_EXPIRIES_CACHE[expiry.baseTicker] || [];
-            const nextMonthly = csvList.find(c => c.expiryType === 'M' && c.dateObjValue >= expiry.dateObjValue);
-            if (nextMonthly && nextMonthly.expiryCode) {
-                monthlyCode = nextMonthly.expiryCode;
-            } else {
-                const m = parseInt(expiry.dateStr.slice(4, 6), 10);
-                const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-                monthlyCode = monthNames[m] || 'OCT';
+        // Resolve futures contract
+        if (expiry.files && expiry.files.length > 0) {
+            const fFile = expiry.files.find(f => f.path.includes('FUT_'));
+            if (fFile) {
+                futSymbol = fFile.path.split('/').pop().split('_')[0];
             }
         }
-        futSymbol = `${sym}${yy}${monthlyCode}FUT`;
+        
+        if (!futSymbol) {
+            if (isMcx) {
+                // In MCX commodities (e.g. Crude Oil), options expire in the month prior to their underlying futures
+                const m = parseInt(expiry.dateStr.slice(4, 6), 10);
+                const nextM = (m % 12) + 1;
+                let yyNum = parseInt(yy, 10);
+                if (m === 12) yyNum = (yyNum + 1) % 100;
+                const yyStr = String(yyNum).padStart(2, '0');
+                const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                const nextMonthName = monthNames[nextM];
+                futSymbol = `${sym}${yyStr}${nextMonthName}FUT`;
+            } else {
+                let monthlyCode = expiry.expiryType === 'M' ? expCode : null;
+                if (!monthlyCode) {
+                    const csvList = window.CSV_EXPIRIES_CACHE[expiry.baseTicker] || [];
+                    const nextMonthly = csvList.find(c => c.expiryType === 'M' && c.dateObjValue >= expiry.dateObjValue);
+                    if (nextMonthly && nextMonthly.expiryCode) {
+                        monthlyCode = nextMonthly.expiryCode;
+                    } else {
+                        const m = parseInt(expiry.dateStr.slice(4, 6), 10);
+                        const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                        monthlyCode = monthNames[m] || 'OCT';
+                    }
+                }
+                futSymbol = `${sym}${yy}${monthlyCode}FUT`;
+            }
+        }
         
         let endDateStr = expiry.trackerData.end_date || (expiry.dateStr ? `${expiry.dateStr.slice(0,4)}-${expiry.dateStr.slice(4,6)}-${expiry.dateStr.slice(6,8)}` : '');
         let startDateStr = expiry.trackerData.start_date;
@@ -706,10 +776,18 @@ async function selectExpiry(expiry) {
             startDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
         }
         
-        const idxTicker = expiry.trackerData.ticker || `${sym}50-INDEX`;
-        indexFile = {
-            path: `${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}/${idxTicker}_D_${startDateStr}_to_${endDateStr}.parquet`
-        };
+        if (hasIndex) {
+            const idxTicker = expiry.trackerData.ticker || `${sym}50-INDEX`;
+            indexFile = {
+                path: `${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}/${idxTicker}_D_${startDateStr}_to_${endDateStr}.parquet`
+            };
+        }
+        
+        if (futSymbol) {
+            futFile = {
+                path: `${expiry.baseTicker}/option_data/parquet/${expiry.folderPath}/${futSymbol}_D_${startDateStr}_to_${endDateStr}.parquet`
+            };
+        }
     } else if (!expiry.isLiveTarget) {
         // Fallback: If tracker.csv metadata is missing, query the files from HF Tree API
         if (!expiry.files || expiry.files.length === 0) {
@@ -724,16 +802,19 @@ async function selectExpiry(expiry) {
         for (let f of (expiry.files || [])) {
             const filename = f.path.split('/').pop();
             
-            if (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_')) {
+            if (hasIndex && (filename.includes('-INDEX_D_') || filename.includes('-INDEX_1_'))) {
                 if (!indexFile || filename.includes('_D_')) {
                     indexFile = f;
                 }
             }
             if (filename.includes('FUT_')) {
                 futSymbol = filename.split('_')[0];
+                if (!futFile || filename.includes('_D_')) {
+                    futFile = f;
+                }
             }
             
-            const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
+            const match = filename.match(/[A-Z]+.+?(\d{3,6})([CP]E)_/);
             if (match) {
                 const strike = parseInt(match[1], 10);
                 const type = match[2];
@@ -860,6 +941,21 @@ async function selectExpiry(expiry) {
     
     const sortedStrikes = Array.from(strikes).sort((a,b) => a - b);
     
+    const btnIndex = document.getElementById('btn_index');
+    if (btnIndex) {
+        btnIndex.style.display = hasIndex ? 'block' : 'none';
+        if (hasIndex) {
+            let idxSymbol = expiry.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+            if (!idxSymbol.endsWith('-INDEX')) idxSymbol += '-INDEX';
+            btnIndex.onclick = () => {
+                window.loadSymbol(idxSymbol);
+                window.closeOptionsChainModal();
+            };
+        } else {
+            btnIndex.onclick = null;
+        }
+    }
+    
     const btnFutures = document.getElementById('btn_futures');
     if (futSymbol) {
         btnFutures.style.display = 'block';
@@ -879,12 +975,13 @@ async function selectExpiry(expiry) {
     const validExps = expiries.filter(e => e.baseTicker === expiry.baseTicker && !e.isDummy);
     const isNearest = validExps.length > 0 && validExps[validExps.length - 1].dateStr === expiry.dateStr;
     
-    if (indexFile && (!expiry.atmPrice || isNearest)) {
+    const refFile = indexFile || futFile;
+    if (refFile && (!expiry.atmPrice || isNearest)) {
         (async () => {
             try {
                 while(!window.db) { await new Promise(r => setTimeout(r, 100)); }
-                const indexUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${indexFile.path}`;
-                const vfsName = await window.ensureParquetLoaded(indexUrl);
+                const refUrl = `https://huggingface.co/datasets/deep776/FYERS_${expiry.baseTicker}/resolve/main/${refFile.path}`;
+                const vfsName = await window.ensureParquetLoaded(refUrl);
                 const conn = await window.db.connect();
                 const result = await conn.query(`SELECT close FROM read_parquet('${vfsName}') ORDER BY time DESC LIMIT 1`);
                 const rows = result.toArray();
@@ -1018,6 +1115,17 @@ function renderTable(strikes, symbols, atmPrice) {
         `;
         tbody.appendChild(row);
     });
+    
+    if (atmPrice && atmIndex >= strikes.length) {
+        const atmRow = document.createElement('div');
+        atmRow.className = 'atm-row';
+        atmRow.id = 'atm-marker-row';
+        atmRow.innerHTML = `
+            <div class="atm-line"></div>
+            <div class="atm-marker">${(window.ACTIVE_BASE_TICKER || '').replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '')} ${atmPrice.toFixed(2)}</div>
+        `;
+        tbody.appendChild(atmRow);
+    }
     
     if (atmPrice && atmIndex >= 0) {
         setTimeout(() => {
