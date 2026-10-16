@@ -415,7 +415,15 @@ const SyncManager = {
                             activeBase = window.getBaseTickerFromSymbol(chartSym, possible);
                         } else {
                             let sym = chartSym.replace(/^[A-Z]+:/, '').toUpperCase();
-                            if (sym.startsWith('FINNIFTY')) activeBase = possible.find(p => p.includes('FINNIFTY'));
+                            if (sym.startsWith('CRUDEOILM')) activeBase = possible.find(p => p.includes('CRUDEOILM'));
+                            else if (sym.startsWith('CRUDEOIL')) activeBase = possible.find(p => p.includes('CRUDEOIL') && !p.includes('CRUDEOILM'));
+                            else if (sym.startsWith('NATGASMINI')) activeBase = possible.find(p => p.includes('NATGASMINI'));
+                            else if (sym.startsWith('NATURALGAS')) activeBase = possible.find(p => p.includes('NATURALGAS'));
+                            else if (sym.startsWith('GOLDM')) activeBase = possible.find(p => p.includes('GOLDM'));
+                            else if (sym.startsWith('GOLD')) activeBase = possible.find(p => p.includes('GOLD') && !p.includes('GOLDM'));
+                            else if (sym.startsWith('SILVERM')) activeBase = possible.find(p => p.includes('SILVERM'));
+                            else if (sym.startsWith('SILVER')) activeBase = possible.find(p => p.includes('SILVER') && !p.includes('SILVERM'));
+                            else if (sym.startsWith('FINNIFTY')) activeBase = possible.find(p => p.includes('FINNIFTY'));
                             else if (sym.startsWith('BANKNIFTY') || sym.startsWith('NIFTYBANK')) activeBase = possible.find(p => p.includes('NIFTYBANK') || p.includes('BANKNIFTY'));
                             else if (sym.startsWith('SENSEX')) activeBase = possible.find(p => p.includes('SENSEX'));
                             else if (sym.startsWith('BANKEX')) activeBase = possible.find(p => p.includes('BANKEX'));

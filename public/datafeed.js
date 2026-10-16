@@ -305,14 +305,26 @@ const Datafeed = {
             if (!query) {
                 const uniqueTickers = [...new Set(expiries.map(e => e.baseTicker))];
                 uniqueTickers.forEach(bt => {
-                    const idxSymbol = bt.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '') + '-INDEX';
-                    results.push({
-                        symbol: idxSymbol,
-                        full_name: idxSymbol,
-                        description: `${idxSymbol.replace('-INDEX', '')} Index`,
-                        exchange: (bt || "NSE_").split('_')[0],
-                        type: "index"
-                    });
+                    const isMcx = bt.startsWith('MCX_');
+                    if (isMcx) {
+                        const rawSymbol = bt.replace('MCX_', '');
+                        results.push({
+                            symbol: rawSymbol,
+                            full_name: rawSymbol,
+                            description: `${rawSymbol} Futures`,
+                            exchange: 'MCX',
+                            type: "futures"
+                        });
+                    } else {
+                        const idxSymbol = bt.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') + '-INDEX';
+                        results.push({
+                            symbol: idxSymbol,
+                            full_name: idxSymbol,
+                            description: `${idxSymbol.replace('-INDEX', '')} Index`,
+                            exchange: (bt || "NSE_").split('_')[0],
+                            type: "index"
+                        });
+                    }
                 });
                 
                 results.sort((a, b) => {
@@ -323,8 +335,6 @@ const Datafeed = {
                 
                 return onResultReadyCallback(results);
             }
-
-        
 
         
             for (let exp of expiries) {
@@ -366,7 +376,7 @@ const Datafeed = {
                         }
                     }
                     
-                    const match = filename.match(/[A-Z]+.+?(\d{5})([CP]E)_/);
+                    const match = filename.match(/[A-Z]+.+?(\d{3,6})([CP]E)_/);
                     if (match) {
                         const symbol = filename.split('_')[0];
                         if (symbol.includes(query) && !results.find(r => r.symbol === symbol)) {
@@ -438,9 +448,17 @@ const Datafeed = {
         
         if (actualName.includes('SENSEX') || actualName.includes('BANKEX')) {
             exchange = 'BSE';
-        } else if (actualName.includes('CRUDE') || actualName.includes('GOLD') || actualName.includes('SILVER') || actualName.includes('NATURALGAS')) {
+        } else if (actualName.includes('CRUDE') || actualName.includes('GOLD') || actualName.includes('SILVER') || actualName.includes('NATURALGAS') || actualName.includes('NATGASMINI')) {
             exchange = 'MCX';
             session = '0900-2330'; // Standard MCX trading hours
+        }
+
+        const isMcx = exchange === 'MCX';
+        let symType = 'option';
+        if (actualName.includes('INDEX')) {
+            symType = 'index';
+        } else if (actualName.includes('FUT') || (isMcx && !actualName.endsWith('CE') && !actualName.endsWith('PE'))) {
+            symType = 'futures';
         }
 
         const symbolInfo = {
@@ -448,7 +466,7 @@ const Datafeed = {
             full_name: actualName,
             isLive: isLive,
             description: actualName,
-            type: actualName.includes('INDEX') ? 'index' : (actualName.includes('FUT') ? 'futures' : 'option'),
+            type: symType,
             exchange: exchange,
             session: session,
             timezone: 'Asia/Kolkata',
@@ -490,6 +508,9 @@ const Datafeed = {
         let allFiles = [];
         try {
             const expiries = await window.SyncManager.getAllExpiries();
+            const cleanSym = symbolInfo.name.replace(/^[A-Z]+:/, '');
+            const isMcx = symbolInfo.exchange === 'MCX';
+
             for (let exp of expiries) {
                 // Determine approximate time bounds for this folder
                 let endT = Math.floor(exp.dateObjValue / 1000) + 86400;
@@ -503,87 +524,148 @@ const Datafeed = {
                         endT = new Date(exp.trackerData.end_date).getTime() / 1000 + 86400;
                     }
                 }
+
+                // Check base asset match!
+                const expBase = exp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+                const expSym = (exp.trackerData && exp.trackerData.symbol) ? exp.trackerData.symbol : expBase;
+
+                let matchesBase = false;
+                if (cleanSym.startsWith(expSym)) {
+                    if (expSym === 'CRUDEOIL' && cleanSym.startsWith('CRUDEOILM')) {
+                        matchesBase = false;
+                    } else if (expSym === 'GOLD' && cleanSym.startsWith('GOLDM')) {
+                        matchesBase = false;
+                    } else if (expSym === 'SILVER' && cleanSym.startsWith('SILVERM')) {
+                        matchesBase = false;
+                    } else if (expSym === 'NATURALGAS' && cleanSym.startsWith('NATGASMINI')) {
+                        matchesBase = false;
+                    } else {
+                        matchesBase = true;
+                    }
+                } else if (expBase && cleanSym.startsWith(expBase)) {
+                    if (expBase === 'CRUDEOIL' && cleanSym.startsWith('CRUDEOILM')) {
+                        matchesBase = false;
+                    } else if (expBase === 'GOLD' && cleanSym.startsWith('GOLDM')) {
+                        matchesBase = false;
+                    } else if (expBase === 'SILVER' && cleanSym.startsWith('SILVERM')) {
+                        matchesBase = false;
+                    } else if (expBase === 'NATURALGAS' && cleanSym.startsWith('NATGASMINI')) {
+                        matchesBase = false;
+                    } else {
+                        matchesBase = true;
+                    }
+                }
+                if (!matchesBase) continue;
                 
-                // Eagerly fetch folders slightly older than qFrom so we can seamlessly append past files
-                const fetchQFrom = qFrom - (60 * 86400);
-                if (endT >= fetchQFrom && startT <= qTo) {
-                    // For options contracts, skip folders that belong to a different expiry
-                    if (symbolInfo.type !== 'index' && symbolInfo.type !== 'futures') {
-                        const expCode = exp.expiryCode || (exp.dateStr ? exp.dateStr.slice(4) : '');
-                        if (expCode && !symbolInfo.name.includes(expCode)) {
-                            continue;
+                // For options contracts, check expiry matching
+                if (symbolInfo.type !== 'index' && symbolInfo.type !== 'futures') {
+                    let expCode = exp.expiryCode;
+                    let monthCode = null;
+                    if (exp.dateStr && exp.dateStr.length >= 6) {
+                        const m = parseInt(exp.dateStr.slice(4, 6), 10);
+                        const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                        monthCode = monthNames[m];
+                    }
+                    
+                    let matchesExp = false;
+                    if (expCode && cleanSym.includes(expCode)) {
+                        matchesExp = true;
+                    }
+                    if (monthCode && cleanSym.includes(monthCode)) {
+                        matchesExp = true;
+                    }
+                    if (exp.dateStr && exp.dateStr.length >= 4) {
+                        const yy = exp.dateStr.slice(2, 4);
+                        if (!cleanSym.includes(yy)) {
+                            matchesExp = false;
                         }
                     }
+                    if (!matchesExp) continue;
+                }
 
-                    if (exp.files && exp.files.length > 0) {
-                        for (let f of exp.files) {
-                            const filename = f.path.split('/').pop();
-                            
-                            const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
-                            if (!dateMatch) continue;
-                            
-                            if (!filename.includes(`_${fileSuffix}_`)) {
-                                if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
-                                else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
-                                else continue;
-                            }
-                            
-                            const fStart = new Date(dateMatch[1]).getTime() / 1000;
-                            const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
-                            
-                            let isMatch = false;
-                            let priority = 0;
-                            
-                            if (symbolInfo.type === 'futures') {
-                                if (filename.startsWith(symbolInfo.name)) {
-                                    isMatch = true; priority = 10;
-                                } else if (filename.includes('FUT_')) {
-                                    const prefix = symbolInfo.name.replace(/\d{2}[A-Z]{3}FUT/, '');
-                                    if (filename.startsWith(prefix)) {
-                                        isMatch = true; priority = 1;
-                                    }
-                                }
-                            } else if (symbolInfo.type === 'index') {
-                                if (filename.startsWith(symbolInfo.name)) {
-                                    isMatch = true; priority = 10;
-                                }
-                            } else { // Option
-                                if (filename.startsWith(symbolInfo.name)) {
-                                    isMatch = true; priority = 10;
-                                }
-                            }
-                            
-                            if (isMatch && !allFiles.find(x => x.path === f.path)) {
-                                allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
-                            }
-                        }
-                    } else {
-                        // FAST PATH: Construct dynamic Parquet filename from tracker metadata (0 Tree API calls!)
-                        let endDateStr = '';
-                        let startDateStr = '';
-                        if (exp.trackerData && exp.trackerData.end_date) {
-                            endDateStr = exp.trackerData.end_date;
-                        } else if (exp.dateStr) {
-                            endDateStr = `${exp.dateStr.slice(0,4)}-${exp.dateStr.slice(4,6)}-${exp.dateStr.slice(6,8)}`;
-                        }
-                        if (exp.trackerData && exp.trackerData.start_date) {
-                            startDateStr = exp.trackerData.start_date;
-                        } else if (endDateStr) {
-                            const parts = endDateStr.split('-').map(Number);
-                            const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-                            d.setUTCDate(d.getUTCDate() - 100);
-                            startDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+                if (exp.files && exp.files.length > 0) {
+                    for (let f of exp.files) {
+                        const filename = f.path.split('/').pop();
+                        
+                        const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})\.parquet/);
+                        if (!dateMatch) continue;
+                        
+                        if (!filename.includes(`_${fileSuffix}_`)) {
+                            if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
+                            else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
+                            else continue;
                         }
                         
-                        const fStart = new Date(startDateStr).getTime() / 1000;
-                        const fEnd = (new Date(endDateStr).getTime() / 1000) + 86400;
+                        const fStart = new Date(dateMatch[1]).getTime() / 1000;
+                        const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
                         
-                        if (startDateStr && endDateStr) {
-                            const filename = `${symbolInfo.name}_${fileSuffix}_${startDateStr}_to_${endDateStr}.parquet`;
-                            const path = `${exp.baseTicker}/option_data/parquet/${exp.folderPath}/${filename}`;
-                            if (!allFiles.find(x => x.path === path)) {
-                                allFiles.push({ path, fStart, fEnd, priority: 10, filename });
+                        let isMatch = false;
+                        let priority = 0;
+                        
+                        if (symbolInfo.type === 'futures') {
+                            if (filename.startsWith(cleanSym + '_')) {
+                                isMatch = true; priority = 10;
+                            } else if (filename.includes('FUT_')) {
+                                const prefix = cleanSym.replace(/\d{2}[A-Z]{3}FUT/, '');
+                                if (filename.startsWith(prefix)) {
+                                    isMatch = true; priority = 1;
+                                }
                             }
+                        } else if (symbolInfo.type === 'index') {
+                            if (filename.startsWith(cleanSym + '_')) {
+                                isMatch = true; priority = 10;
+                            }
+                        } else { // Option
+                            if (filename.startsWith(cleanSym + '_')) {
+                                isMatch = true; priority = 10;
+                            }
+                        }
+                        
+                        if (isMatch && !allFiles.find(x => x.path === f.path)) {
+                            allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                        }
+                    }
+                } else {
+                    // FAST PATH: Construct dynamic Parquet filename from tracker metadata (0 Tree API calls!)
+                    let endDateStr = '';
+                    let startDateStr = '';
+                    if (exp.trackerData && exp.trackerData.end_date) {
+                        endDateStr = exp.trackerData.end_date;
+                    } else if (exp.dateStr) {
+                        endDateStr = `${exp.dateStr.slice(0,4)}-${exp.dateStr.slice(4,6)}-${exp.dateStr.slice(6,8)}`;
+                    }
+                    if (exp.trackerData && exp.trackerData.start_date) {
+                        startDateStr = exp.trackerData.start_date;
+                    } else if (endDateStr) {
+                        const parts = endDateStr.split('-').map(Number);
+                        const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                        d.setUTCDate(d.getUTCDate() - 100);
+                        startDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+                    }
+                    
+                    const fStart = new Date(startDateStr).getTime() / 1000;
+                    const fEnd = (new Date(endDateStr).getTime() / 1000) + 86400;
+                    
+                    if (startDateStr && endDateStr) {
+                        let targetSym = cleanSym;
+                        if (symbolInfo.type === 'futures' && !targetSym.endsWith('FUT')) {
+                            if (isMcx) {
+                                const m = parseInt(exp.dateStr.slice(4, 6), 10);
+                                const nextM = (m % 12) + 1;
+                                let yyNum = parseInt(exp.dateStr.slice(2, 4), 10);
+                                if (m === 12) yyNum = (yyNum + 1) % 100;
+                                const yyStr = String(yyNum).padStart(2, '0');
+                                const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                                targetSym = `${expSym}${yyStr}${monthNames[nextM]}FUT`;
+                            } else {
+                                const yy = exp.dateStr.slice(2, 4);
+                                targetSym = `${expSym}${yy}${exp.expiryCode || 'OCT'}FUT`;
+                            }
+                        }
+                        const filename = `${targetSym}_${fileSuffix}_${startDateStr}_to_${endDateStr}.parquet`;
+                        const path = `${exp.baseTicker}/option_data/parquet/${exp.folderPath}/${filename}`;
+                        if (!allFiles.find(x => x.path === path)) {
+                            allFiles.push({ path, fStart, fEnd, priority: 10, filename });
                         }
                     }
                 }
@@ -615,6 +697,9 @@ const Datafeed = {
                     intersecting = pastFiles.filter(f => f.fEnd === newestEnd);
                 }
             }
+            if (intersecting.length === 0 && allFiles.length > 0) {
+                intersecting = allFiles;
+            }
             intersecting.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
             let selected = intersecting.slice(0, 4);
             return selected.map(f => {
@@ -632,12 +717,17 @@ const Datafeed = {
     getEarliestParquetTime: async (symbolInfo) => {
         try {
             const expiries = await window.SyncManager.getAllExpiries();
+            const cleanSym = symbolInfo.name.replace(/^[A-Z]+:/, '');
             let earliest = Infinity;
             for (let exp of expiries) {
+                const expBase = exp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('MCX_', '').replace('_INDEX', '');
+                const expSym = (exp.trackerData && exp.trackerData.symbol) ? exp.trackerData.symbol : expBase;
+                if (!cleanSym.startsWith(expSym) && !cleanSym.startsWith(expBase)) continue;
+
                 if (exp.files && exp.files.length > 0) {
                     for (let f of exp.files) {
                         const filename = f.path.split('/').pop();
-                        if (!filename.startsWith(symbolInfo.name)) continue;
+                        if (!filename.startsWith(cleanSym)) continue;
                         const dateMatch = filename.match(/_(\d{4}-\d{2}-\d{2})_to_/);
                         if (dateMatch) {
                             const fStart = new Date(dateMatch[1]).getTime() / 1000;
@@ -682,16 +772,30 @@ const Datafeed = {
             if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
                 const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
                 if (baseTickerMatch) {
-                    const baseTicker = baseTickerMatch[1] + '_INDEX';
-                    const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
+                    const rawBase = baseTickerMatch[1];
+                    const isMcx = symbolInfo.exchange === 'MCX';
+                    const baseExpiries = window.HF_EXPIRIES.filter(e => {
+                        if (isMcx) return e.baseTicker === `MCX_${rawBase}`;
+                        return e.baseTicker.includes(rawBase) && e.expiryType === 'M' && !e.isDummy;
+                    });
                     if (baseExpiries.length > 0) {
                         baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
                         const now = Date.now();
                         let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
                         if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
                         const yy = activeExp.dateStr.slice(2,4);
-                        const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
-                        fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
+                        const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '').replace('MCX_', '');
+                        if (isMcx) {
+                            const m = parseInt(activeExp.dateStr.slice(4, 6), 10);
+                            const nextM = (m % 12) + 1;
+                            let yyNum = parseInt(yy, 10);
+                            if (m === 12) yyNum = (yyNum + 1) % 100;
+                            const yyStr = String(yyNum).padStart(2, '0');
+                            const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+                            fyersSymbol = `${symbolInfo.exchange}:${base}${yyStr}${monthNames[nextM]}FUT`;
+                        } else {
+                            fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
+                        }
                     }
                 }
             }
