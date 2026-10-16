@@ -314,8 +314,8 @@ window.getCustomIndicators = function (PineJS) {
                     styles: {
                         plot_up: { title: "Up Trend", histogramBase: 0, joinPoints: false },
                         plot_down: { title: "Down Trend", histogramBase: 0, joinPoints: false },
-                        plot_buy_label: { title: "Buy Signal (Chain Entry)", isHidden: false },
-                        plot_sell_label: { title: "Sell Signal (Chain Exit)", isHidden: false }
+                        plot_buy_label: { title: "Buy Signal (Chain Entry)", isHidden: false, text: "Buy" },
+                        plot_sell_label: { title: "Sell Signal (Chain Exit)", isHidden: false, text: "Sell" }
                     },
                     description: "SuperTrend Strategy (Trade Chains)",
                     shortDescription: "SuperTrend Strat",
@@ -418,14 +418,14 @@ window.getCustomIndicators = function (PineJS) {
                         var upPlot = curr_trend === 1 ? curr_up : NaN;
                         var dnPlot = curr_trend === 1 ? NaN : curr_dn;
 
-                        var buyLabel = buySignal ? { value: low, text: "B: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };
-                        var sellLabel = sellSignal ? { value: high, text: "S: " + this._chainCounter + " @ " + close.toFixed(0) } : { value: NaN };
+                        var buyPlotVal = buySignal ? 1 : NaN;
+                        var sellPlotVal = sellSignal ? 1 : NaN;
 
                         return [
                             { value: upPlot },
                             { value: dnPlot },
-                            buyLabel,
-                            sellLabel
+                            { value: buyPlotVal },
+                            { value: sellPlotVal }
                         ];
                     };
                 }
