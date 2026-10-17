@@ -55,21 +55,27 @@
 
         bindResponsiveObserver() {
             if (!this.container) return;
-            const updateNarrow = () => {
+            const updateResponsive = () => {
                 const width = this.container.offsetWidth;
-                if (width > 0 && width < 820) {
+                if (width <= 0) return;
+                if (width < 650) {
+                    this.container.classList.add('st-mobile');
+                    this.container.classList.add('st-narrow');
+                } else if (width < 1080) {
+                    this.container.classList.remove('st-mobile');
                     this.container.classList.add('st-narrow');
                 } else {
+                    this.container.classList.remove('st-mobile');
                     this.container.classList.remove('st-narrow');
                 }
             };
             if (window.ResizeObserver) {
-                const ro = new ResizeObserver(() => updateNarrow());
+                const ro = new ResizeObserver(() => updateResponsive());
                 ro.observe(this.container);
             } else {
-                window.addEventListener('resize', updateNarrow);
+                window.addEventListener('resize', updateResponsive);
             }
-            updateNarrow();
+            updateResponsive();
         }
 
         saveState() {
@@ -187,7 +193,7 @@
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
             });
-            if (isNeg) return `-₹${absStr}`;
+            if (isNeg) return `\u2212₹${absStr}`;
             if (showPlus && val > 0) return `+₹${absStr}`;
             return `₹${absStr}`;
         }
@@ -739,13 +745,11 @@
                     font-size: 11px;
                     color: #64748b;
                     font-weight: 600;
-                    white-space: nowrap;
+                    white-space: nowrap !important;
                     display: flex;
                     align-items: center;
                     gap: 6px;
-                    max-width: 280px;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
+                    flex-shrink: 0;
                 }
 
                 /* Range loading progress bar & spinner */
@@ -816,10 +820,10 @@
                     box-sizing: border-box;
                 }
 
-                /* Metric Cards Grid */
+                /* Metric Cards Grid (6 cards perfectly balanced) */
                 .st-metrics-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+                    grid-template-columns: repeat(6, 1fr);
                     gap: 10px;
                     margin-bottom: 12px;
                     flex-shrink: 0;
@@ -834,6 +838,8 @@
                     flex-direction: column;
                     gap: 4px;
                     box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+                    min-width: 0;
+                    overflow: hidden;
                 }
 
                 .st-metric-label {
@@ -842,15 +848,31 @@
                     color: #64748b;
                     text-transform: uppercase;
                     letter-spacing: 0.4px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
                 }
 
                 .st-metric-value {
-                    font-size: 17px;
+                    font-size: 16px;
                     font-weight: 700;
                     color: #0f172a;
                     display: flex;
                     align-items: baseline;
-                    gap: 6px;
+                    gap: 5px;
+                    white-space: nowrap !important;
+                    flex-wrap: nowrap !important;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .st-metric-num {
+                    white-space: nowrap !important;
+                }
+
+                .st-metric-sub {
+                    white-space: nowrap !important;
+                    flex-shrink: 0;
                 }
 
                 .st-metric-value.profit { color: #089981; }
@@ -1018,232 +1040,252 @@
                     transform: translateY(-2px);
                 }
 
-                /* Mobile & Small Screen Responsive Optimization */
-                @media (max-width: 820px), #strategy-tester-panel.st-narrow {
-                    #strategy-tester-panel.detached {
-                        min-width: 260px !important;
-                        min-height: 180px !important;
-                        max-width: 98vw !important;
-                        max-height: 95vh !important;
-                        border-radius: 8px !important;
-                        box-shadow: 0 10px 36px rgba(0, 0, 0, 0.3) !important;
+                /* Medium / Narrow Screens & Popups (650px to 1079px, including ~880px default popup) */
+                #strategy-tester-panel.st-narrow {
+                    /* Detached popup sizing */
+                }
+                #strategy-tester-panel.st-narrow.detached {
+                    min-width: 320px !important;
+                    min-height: 200px !important;
+                    max-width: 98vw !important;
+                    max-height: 95vh !important;
+                    border-radius: 8px !important;
+                    box-shadow: 0 10px 36px rgba(0, 0, 0, 0.3) !important;
+                }
+                #strategy-tester-panel.st-narrow .st-popup-resizer {
+                    width: 28px !important;
+                    height: 28px !important;
+                    touch-action: none !important;
+                }
+                #strategy-tester-panel.st-narrow .st-resizer {
+                    height: 10px !important;
+                    top: -5px !important;
+                    touch-action: none !important;
+                }
+                #strategy-tester-panel.st-narrow .st-header {
+                    flex-direction: column !important;
+                    height: auto !important;
+                    padding: 0 !important;
+                    gap: 0 !important;
+                    overflow: visible !important;
+                }
+                #strategy-tester-panel.st-narrow .st-header-top {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    width: 100% !important;
+                    height: 38px !important;
+                    padding: 0 10px 0 12px !important;
+                    border-bottom: 1px solid #e2e8f0 !important;
+                    box-sizing: border-box !important;
+                    background: #f8fafc !important;
+                    flex-shrink: 0 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-header-bottom {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    width: 100% !important;
+                    height: 36px !important;
+                    padding: 0 10px !important;
+                    box-sizing: border-box !important;
+                    background: #ffffff !important;
+                    gap: 6px !important;
+                    flex-shrink: 0 !important;
+                    border-bottom: 1px solid #edf2f7 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-title-area {
+                    order: initial !important;
+                    flex: 1 1 auto !important;
+                    max-width: calc(100% - 110px) !important;
+                    min-width: 0 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-title {
+                    max-width: 100% !important;
+                    font-size: 13px !important;
+                }
+                #strategy-tester-panel.st-narrow #st-strategy-name {
+                    font-size: 13px !important;
+                    font-weight: 700 !important;
+                    white-space: nowrap !important;
+                    overflow: hidden !important;
+                    text-overflow: ellipsis !important;
+                }
+                #strategy-tester-panel.st-narrow .st-strategy-select {
+                    max-width: 240px !important;
+                    font-size: 12px !important;
+                    padding: 2px 20px 2px 6px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-badge {
+                    display: none !important;
+                }
+                #strategy-tester-panel.st-narrow .st-actions {
+                    order: initial !important;
+                    margin-left: auto !important;
+                    gap: 3px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-icon-btn {
+                    width: 26px !important;
+                    height: 26px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-tabs {
+                    order: initial !important;
+                    margin: 0 !important;
+                    flex: 1 1 auto !important;
+                    min-width: 0 !important;
+                    overflow-x: auto !important;
+                    gap: 4px !important;
+                    scrollbar-width: none !important;
+                    -webkit-overflow-scrolling: touch !important;
+                }
+                #strategy-tester-panel.st-narrow .st-tabs::-webkit-scrollbar {
+                    display: none !important;
+                }
+                #strategy-tester-panel.st-narrow .st-tab {
+                    padding: 4px 10px !important;
+                    font-size: 11.5px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-mode-toggle-group {
+                    order: initial !important;
+                    flex-shrink: 0 !important;
+                    padding: 1px !important;
+                    gap: 1px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-mode-seg-btn {
+                    padding: 3px 8px !important;
+                    font-size: 11px !important;
+                    gap: 3px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-range-bar {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    flex-wrap: wrap !important;
+                    padding: 6px 12px !important;
+                    gap: 8px !important;
+                    background: #f8fafc !important;
+                }
+                #strategy-tester-panel.st-narrow .st-range-left {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                    flex-shrink: 0 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-range-right {
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 8px !important;
+                    flex-shrink: 0 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-range-status {
+                    display: flex !important;
+                    font-size: 11px !important;
+                    white-space: nowrap !important;
+                    flex-shrink: 0 !important;
+                }
+                #strategy-tester-panel.st-narrow .st-metrics-grid {
+                    grid-template-columns: repeat(3, 1fr) !important;
+                    gap: 8px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-metric-card {
+                    padding: 8px 12px !important;
+                }
+                #strategy-tester-panel.st-narrow .st-metric-value {
+                    font-size: 15px !important;
+                    white-space: nowrap !important;
+                    flex-wrap: nowrap !important;
+                }
+
+                /* Mobile Layout (< 650px) */
+                @media (max-width: 650px), #strategy-tester-panel.st-mobile {
+                    #strategy-tester-panel.st-mobile #st-strategy-name {
+                        font-size: 12px !important;
                     }
-                    .st-popup-resizer {
-                        width: 28px !important;
-                        height: 28px !important;
-                        touch-action: none !important;
-                    }
-                    .st-resizer {
-                        height: 10px !important;
-                        top: -5px !important;
-                        touch-action: none !important;
-                    }
-                    .st-header {
-                        flex-direction: column !important;
-                        height: auto !important;
-                        padding: 0 !important;
-                        gap: 0 !important;
-                        overflow: visible !important;
-                    }
-                    .st-header-top {
-                        display: flex !important;
-                        align-items: center !important;
-                        justify-content: space-between !important;
-                        width: 100% !important;
-                        height: 38px !important;
-                        padding: 0 8px 0 12px !important;
-                        border-bottom: 1px solid #e2e8f0 !important;
-                        box-sizing: border-box !important;
-                        background: #f8fafc !important;
-                        flex-shrink: 0 !important;
-                    }
-                    .st-header-bottom {
-                        display: flex !important;
-                        align-items: center !important;
-                        justify-content: space-between !important;
-                        width: 100% !important;
-                        height: 36px !important;
-                        padding: 0 8px !important;
-                        box-sizing: border-box !important;
-                        background: #ffffff !important;
-                        gap: 6px !important;
-                        flex-shrink: 0 !important;
-                        border-bottom: 1px solid #edf2f7 !important;
-                    }
-                    .st-title-area {
-                        order: initial !important;
-                        flex: 1 1 auto !important;
-                        max-width: calc(100% - 105px) !important;
-                        min-width: 0 !important;
-                    }
-                    .st-title {
-                        max-width: 100% !important;
-                        font-size: 13px !important;
-                    }
-                    #st-strategy-name {
-                        font-size: 12.5px !important;
-                        font-weight: 700 !important;
-                    }
-                    .st-strategy-select {
-                        max-width: 180px !important;
-                        font-size: 11.5px !important;
-                        padding: 2px 20px 2px 6px !important;
-                    }
-                    .st-badge {
-                        display: none !important;
-                    }
-                    .st-actions {
-                        order: initial !important;
-                        margin-left: auto !important;
-                        gap: 2px !important;
-                    }
-                    .st-icon-btn {
-                        width: 26px !important;
-                        height: 26px !important;
-                    }
-                    .st-tabs {
-                        order: initial !important;
-                        margin: 0 !important;
-                        flex: 1 1 auto !important;
-                        min-width: 0 !important;
-                        overflow-x: auto !important;
-                        gap: 3px !important;
-                        scrollbar-width: none !important;
-                        -webkit-overflow-scrolling: touch !important;
-                    }
-                    .st-tabs::-webkit-scrollbar {
-                        display: none !important;
-                    }
-                    .st-tab {
-                        padding: 4px 8px !important;
+                    #strategy-tester-panel.st-mobile .st-strategy-select {
+                        max-width: 170px !important;
                         font-size: 11px !important;
                     }
-                    .st-mode-toggle-group {
-                        order: initial !important;
-                        flex-shrink: 0 !important;
-                        padding: 1px !important;
-                        gap: 1px !important;
-                    }
-                    .st-mode-seg-btn {
-                        padding: 3px 6px !important;
+                    #strategy-tester-panel.st-mobile .st-tab {
+                        padding: 3px 7px !important;
                         font-size: 10.5px !important;
-                        gap: 3px !important;
                     }
-                    .st-mode-text-full {
+                    #strategy-tester-panel.st-mobile .st-mode-text-full {
                         display: none !important;
                     }
-                    .st-mode-text-short {
+                    #strategy-tester-panel.st-mobile .st-mode-text-short {
                         display: inline !important;
                     }
-
-                    /* Range Bar on Mobile */
-                    .st-range-bar {
+                    #strategy-tester-panel.st-mobile .st-mode-seg-btn {
+                        padding: 3px 6px !important;
+                        font-size: 10px !important;
+                        gap: 2px !important;
+                    }
+                    #strategy-tester-panel.st-mobile .st-range-bar {
                         flex-direction: column !important;
                         align-items: stretch !important;
                         padding: 6px 10px !important;
                         gap: 6px !important;
-                        background: #f8fafc !important;
                     }
-                    .st-range-left {
+                    #strategy-tester-panel.st-mobile .st-range-left {
                         width: 100% !important;
-                        display: flex !important;
-                        align-items: center !important;
-                        gap: 6px !important;
                         overflow-x: auto !important;
                         scrollbar-width: none !important;
                         -webkit-overflow-scrolling: touch !important;
                     }
-                    .st-range-left::-webkit-scrollbar {
-                        display: none !important;
-                    }
-                    .st-range-label {
-                        font-size: 9.5px !important;
-                        flex-shrink: 0 !important;
-                    }
-                    .st-range-presets {
-                        display: flex !important;
-                        align-items: center !important;
-                        gap: 3px !important;
-                        flex-shrink: 0 !important;
-                    }
-                    .st-range-btn {
-                        padding: 3px 6px !important;
-                        font-size: 10px !important;
-                    }
-                    .st-range-right {
+                    #strategy-tester-panel.st-mobile .st-range-right {
                         width: 100% !important;
-                        display: flex !important;
-                        align-items: center !important;
                         justify-content: space-between !important;
                         gap: 4px !important;
                     }
-                    .st-range-inputs {
-                        display: flex !important;
-                        align-items: center !important;
-                        gap: 4px !important;
-                        flex: 1 1 auto !important;
-                        min-width: 0 !important;
-                        justify-content: flex-start !important;
-                    }
-                    .st-date-input {
-                        width: 84px !important;
-                        max-width: 88px !important;
+                    #strategy-tester-panel.st-mobile .st-date-input {
+                        width: 82px !important;
+                        max-width: 86px !important;
                         padding: 2px 4px !important;
                         font-size: 10px !important;
-                        box-sizing: border-box !important;
                     }
-                    .st-date-input::-webkit-calendar-picker-indicator {
-                        width: 12px !important;
-                        height: 12px !important;
-                    }
-                    .st-range-live-toggle {
-                        font-size: 10px !important;
-                        gap: 3px !important;
-                        margin-left: 2px !important;
-                        white-space: nowrap !important;
-                    }
-                    .st-live-text-full {
+                    #strategy-tester-panel.st-mobile .st-live-text-full {
                         display: none !important;
                     }
-                    .st-live-text-short {
+                    #strategy-tester-panel.st-mobile .st-live-text-short {
                         display: inline !important;
                     }
-                    .st-range-apply-btn {
-                        padding: 3px 9px !important;
-                        font-size: 10.5px !important;
+                    #strategy-tester-panel.st-mobile .st-range-apply-btn {
+                        padding: 3px 8px !important;
+                        font-size: 10px !important;
                         font-weight: 700 !important;
-                        margin-left: auto !important;
-                        flex-shrink: 0 !important;
                     }
-                    .st-range-status {
+                    #strategy-tester-panel.st-mobile .st-range-status {
                         display: none !important;
                     }
-                    .st-metrics-grid {
+                    #strategy-tester-panel.st-mobile .st-metrics-grid {
                         grid-template-columns: repeat(2, 1fr) !important;
                         gap: 6px !important;
                     }
-                    .st-metric-card {
-                        padding: 8px 10px !important;
+                    #strategy-tester-panel.st-mobile .st-metric-card {
+                        padding: 7px 9px !important;
                     }
-                    .st-metric-label {
+                    #strategy-tester-panel.st-mobile .st-metric-label {
                         font-size: 9.5px !important;
                     }
-                    .st-metric-value {
-                        font-size: 14px !important;
-                        flex-wrap: wrap !important;
+                    #strategy-tester-panel.st-mobile .st-metric-value {
+                        font-size: 13.5px !important;
+                        white-space: nowrap !important;
+                        flex-wrap: nowrap !important;
                     }
-                    .st-body {
-                        padding: 10px 10px !important;
+                    #strategy-tester-panel.st-mobile .st-body {
+                        padding: 8px 8px !important;
                         -webkit-overflow-scrolling: touch !important;
                     }
-                    .st-table {
+                    #strategy-tester-panel.st-mobile .st-table {
                         min-width: 520px !important;
                         white-space: nowrap !important;
                     }
-                    .st-table th, .st-table td {
-                        padding: 7px 9px !important;
-                        font-size: 11px !important;
+                    #strategy-tester-panel.st-mobile .st-table th,
+                    #strategy-tester-panel.st-mobile .st-table td {
+                        padding: 6px 8px !important;
+                        font-size: 10.5px !important;
                     }
+                }
                     #st-launcher-pill {
                         bottom: 12px !important;
                         right: 12px !important;
@@ -2180,8 +2222,8 @@
                 const dr = data.dateRange;
                 const statusEl = document.getElementById('st-range-status-text');
                 if (statusEl && !this.isLoading) {
-                    const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (data.summary ? data.summary.totalChains : dr.totalTradesInRange);
-                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
+                    statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
+                    statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
                 }
 
                 const startInput = document.getElementById('st-range-start-date');
@@ -2257,34 +2299,40 @@
                         <div class="st-metric-card">
                             <div class="st-metric-label">Net Profit</div>
                             <div class="st-metric-value ${isProfit ? 'profit' : 'loss'}">
-                                ${this.formatCurrency(s.netProfit, true)}
-                                <span style="font-size:12px; font-weight:600; opacity:0.85;">(${s.netProfitPct >= 0 ? '+' : ''}${s.netProfitPct.toFixed(2)}%)</span>
+                                <span class="st-metric-num" style="white-space:nowrap;">${this.formatCurrency(s.netProfit, true)}</span>
+                                <span class="st-metric-sub" style="font-size:12px; font-weight:600; opacity:0.85; white-space:nowrap;">(${s.netProfitPct >= 0 ? '+' : '\u2212'}${Math.abs(s.netProfitPct).toFixed(2)}%)</span>
                             </div>
                         </div>
                         <div class="st-metric-card">
                             <div class="st-metric-label">Profit Factor</div>
-                            <div class="st-metric-value">${s.profitFactor.toFixed(2)}</div>
+                            <div class="st-metric-value">
+                                <span class="st-metric-num" style="white-space:nowrap;">${s.profitFactor.toFixed(2)}</span>
+                            </div>
                         </div>
                         <div class="st-metric-card">
                             <div class="st-metric-label">Win Rate</div>
-                            <div class="st-metric-value">${s.winRate.toFixed(1)}% <span style="font-size:11px; font-weight:500; color:#64748b;">(${s.winningChains}/${s.totalChains})</span></div>
+                            <div class="st-metric-value">
+                                <span class="st-metric-num" style="white-space:nowrap;">${s.winRate.toFixed(1)}%</span>
+                                <span class="st-metric-sub" style="font-size:11px; font-weight:500; color:#64748b; white-space:nowrap;">(${s.winningChains}/${s.totalChains})</span>
+                            </div>
                         </div>
                         <div class="st-metric-card">
                             <div class="st-metric-label">Total Trade Chains</div>
-                            <div class="st-metric-value">${s.totalChains}</div>
+                            <div class="st-metric-value">
+                                <span class="st-metric-num" style="white-space:nowrap;">${s.totalChains}</span>
+                            </div>
                         </div>
                         <div class="st-metric-card">
                             <div class="st-metric-label">Max Drawdown</div>
-                            <div class="st-metric-value loss">${this.formatCurrency(s.maxDrawdownAbs)} <span style="font-size:12px; font-weight:600;">(${s.maxDrawdownPct.toFixed(2)}%)</span></div>
+                            <div class="st-metric-value loss">
+                                <span class="st-metric-num" style="white-space:nowrap;">${this.formatCurrency(s.maxDrawdownAbs)}</span>
+                                <span class="st-metric-sub" style="font-size:12px; font-weight:600; white-space:nowrap;">(${s.maxDrawdownPct.toFixed(2)}%)</span>
+                            </div>
                         </div>
                         <div class="st-metric-card">
                             <div class="st-metric-label">Sharpe Ratio</div>
-                            <div class="st-metric-value">${s.sharpeRatio}</div>
-                        </div>
-                        <div class="st-metric-card" style="cursor:pointer;" onclick="window.StrategyTesterUI.switchTab('settings')" title="Execution Mode: Click to configure in Settings">
-                            <div class="st-metric-label">Execution Mode</div>
-                            <div class="st-metric-value" style="font-size:14px; font-weight:700; color:${s.allowConcurrentChains ? '#b45309' : '#15803d'};">
-                                ${s.allowConcurrentChains ? 'Overlapping' : 'Sequential'}
+                            <div class="st-metric-value">
+                                <span class="st-metric-num" style="white-space:nowrap;">${s.sharpeRatio}</span>
                             </div>
                         </div>
                     </div>
@@ -3023,8 +3071,8 @@
                 if (statusEl) {
                     if (this.currentData && this.currentData.dateRange) {
                         const dr = this.currentData.dateRange;
-                        const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (this.currentData.summary ? this.currentData.summary.totalChains : dr.totalTradesInRange);
-                        statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
+                        statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
+                        statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
                     } else {
                         statusEl.innerHTML = `Range: Active`;
                     }
