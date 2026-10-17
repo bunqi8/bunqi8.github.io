@@ -479,6 +479,36 @@
             this._activeShapeIds = [];
         },
 
+        hasPineShapePlot(type) {
+            try {
+                const context = this.instances.get(this.activeStrategyName);
+                if (context && context.indicatorMeta) {
+                    const meta = context.indicatorMeta;
+                    const plots = meta.plots || [];
+                    const styles = (meta.defaults && meta.defaults.styles) || meta.styles || {};
+                    for (const p of plots) {
+                        if (p.type === 'shapes') {
+                            const s = styles[p.id];
+                            const plottype = s && s.plottype;
+                            const loc = s && s.location;
+                            const idLower = (p.id || '').toLowerCase();
+                            if (type === 'buy') {
+                                if (idLower.includes('buy') || plottype === 'shape_label_up' || loc === 'BelowBar') {
+                                    return true;
+                                }
+                            } else if (type === 'sell') {
+                                if (idLower.includes('sell') || plottype === 'shape_label_down' || loc === 'AboveBar') {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }
+            } catch (_) {}
+            return true;
+        },
+
         renderTradeShapesOnChart(executedTrades) {
             this.clearTradeShapesOnChart();
             if (!executedTrades || executedTrades.length === 0) return;
@@ -489,40 +519,119 @@
                     const chart = window.tvWidget.activeChart();
                     if (!chart || typeof chart.createShape !== 'function') return;
 
-                    executedTrades.forEach(trade => {
-                        const isBuy = trade.action === 'BUY';
-                        const timeSec = trade.time > 1e11 ? Math.floor(trade.time / 1000) : Number(trade.time);
-                        const execPrice = Number(trade.price);
-                        if (!execPrice || isNaN(execPrice) || !timeSec || isNaN(timeSec)) return;
+                    let priceScale = null;
+                    let firstValue = null;
+                    let mainSeries = null;
+                    let chartData = null;
+                    let timeScale = null;
 
-                        const high = Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
-                        const low = Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
-                        const candleRange = Math.max(high - low, execPrice * 0.001);
-
-                        // Position arrow tip cleanly outside the candle & any indicator shape label:
-                        // For BUY: arrow tip is placed below candle low & below any indicator "Buy" label, pointing UP
-                        // For SELL: arrow tip is placed above candle high & above any indicator "Sell" label, pointing DOWN
-                        const margin = Math.max(candleRange * 0.95, execPrice * 0.0028);
-                        const shapePrice = isBuy ? (low - margin) : (high + margin);
-
-                        const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
-                        const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
-
-                        chart.createShape({ time: timeSec, price: shapePrice }, {
-                            shape: isBuy ? 'arrow_up' : 'arrow_down',
-                            text: labelText,
-                            lock: true,
-                            disableSelection: true,
-                            disableSave: true,
-                            overrides: {
-                                color: isBuy ? '#089981' : '#f23645',
-                                arrowColor: isBuy ? '#089981' : '#f23645',
-                                fontsize: 11,
-                                bold: true
+                    try {
+                        const model = typeof chart.chartModel === 'function' ? chart.chartModel() : null;
+                        if (model) {
+                            mainSeries = typeof model.mainSeries === 'function' ? model.mainSeries() : null;
+                            timeScale = typeof model.timeScale === 'function' ? model.timeScale() : null;
+                            if (mainSeries) {
+                                priceScale = typeof mainSeries.priceScale === 'function' ? mainSeries.priceScale() : null;
+                                firstValue = typeof mainSeries.firstValue === 'function' ? mainSeries.firstValue() : null;
+                                chartData = typeof mainSeries.data === 'function' ? mainSeries.data() : null;
                             }
-                        }).then(id => {
-                            if (id) this._activeShapeIds.push(id);
-                        }).catch(() => {});
+                        }
+                    } catch (e) {
+                        console.warn("[StrategyEngine] Failed to acquire mainSeries / priceScale:", e);
+                    }
+
+                    const hasBuyLabel = this.hasPineShapePlot('buy');
+                    const hasSellLabel = this.hasPineShapePlot('sell');
+
+                    // Group trades by bar timestamp to support clean vertical stacking on identical bars
+                    const tradesByTime = new Map();
+                    executedTrades.forEach(trade => {
+                        const timeSec = trade.time > 1e11 ? Math.floor(trade.time / 1000) : Number(trade.time);
+                        if (!timeSec || isNaN(timeSec)) return;
+                        if (!tradesByTime.has(timeSec)) tradesByTime.set(timeSec, []);
+                        tradesByTime.get(timeSec).push(trade);
+                    });
+
+                    tradesByTime.forEach((tradesOnBar, timeSec) => {
+                        // Resolve exact bar high and low from TradingView's mainSeries data cache
+                        let barHigh = NaN;
+                        let barLow = NaN;
+
+                        if (timeScale && chartData) {
+                            try {
+                                const barIdx = timeScale.timePointToIndex(timeSec);
+                                if (barIdx !== null && typeof chartData.valueAt === 'function') {
+                                    const barArr = chartData.valueAt(barIdx);
+                                    if (barArr && barArr.length >= 5) {
+                                        // TradingView bar format: [index, open, high, low, close, volume]
+                                        barHigh = Number(barArr[2]);
+                                        barLow = Number(barArr[3]);
+                                    }
+                                }
+                            } catch (_) {}
+                        }
+
+                        tradesOnBar.forEach((trade, tradeIdx) => {
+                            const isBuy = trade.action === 'BUY';
+                            const execPrice = Number(trade.price);
+                            if (!execPrice || isNaN(execPrice)) return;
+
+                            const high = isFinite(barHigh) ? barHigh : Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
+                            const low = isFinite(barLow) ? barLow : Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
+
+                            let shapePrice;
+                            const canUseCoordinates = priceScale && firstValue !== null && 
+                                                      typeof priceScale.priceToCoordinate === 'function' && 
+                                                      typeof priceScale.coordinateToPrice === 'function';
+
+                            if (canUseCoordinates) {
+                                const stackPixelOffset = tradeIdx * 24;
+
+                                if (isBuy) {
+                                    // In screen coordinates: Y=0 is top, moving DOWN is increasing Y.
+                                    // If PineJS Buy label exists below bar (~24px pill), place arrow tip below it (~30px).
+                                    // If no Buy label exists, place arrow tip right below low wick (~6px).
+                                    const lowY = priceScale.priceToCoordinate(low, firstValue);
+                                    const targetY = lowY + (hasBuyLabel ? 30 : 6) + stackPixelOffset;
+                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
+                                } else {
+                                    // In screen coordinates: moving UP is decreasing Y.
+                                    // If PineJS Sell label exists above bar (~24px pill), place arrow tip above it (~30px).
+                                    // If no Sell label exists, place arrow tip right above high wick (-6px).
+                                    const highY = priceScale.priceToCoordinate(high, firstValue);
+                                    const targetY = highY - (hasSellLabel ? 30 : 6) - stackPixelOffset;
+                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
+                                }
+                            }
+
+                            // High-precision fallback if priceScale coordinates are temporarily unavailable
+                            if (!isFinite(shapePrice) || isNaN(shapePrice)) {
+                                const candleRange = Math.max(high - low, Math.max(execPrice * 0.0005, 1));
+                                const baseOffset = (isBuy ? hasBuyLabel : hasSellLabel) ? candleRange * 0.75 : candleRange * 0.25;
+                                const stackOffset = tradeIdx * candleRange * 0.5;
+                                shapePrice = isBuy ? (low - (baseOffset + stackOffset)) : (high + (baseOffset + stackOffset));
+                            }
+
+                            const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
+                            const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+
+                            chart.createShape({ time: timeSec, price: shapePrice }, {
+                                shape: isBuy ? 'arrow_up' : 'arrow_down',
+                                text: labelText,
+                                lock: true,
+                                disableSelection: true,
+                                disableSave: true,
+                                disableUndo: true,
+                                overrides: {
+                                    color: isBuy ? '#089981' : '#f23645',
+                                    arrowColor: isBuy ? '#089981' : '#f23645',
+                                    fontsize: 11,
+                                    bold: true
+                                }
+                            }).then(id => {
+                                if (id) this._activeShapeIds.push(id);
+                            }).catch(() => {});
+                        });
                     });
                 } catch (e) {
                     console.warn("[StrategyEngine] Failed to render trade shapes:", e);

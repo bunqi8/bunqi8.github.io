@@ -461,6 +461,7 @@ window.getCustomIndicators = function (PineJS) {
                 const instance = new origConstructor();
                 if (window.StrategyEngine) {
                     const strategyContext = window.StrategyEngine.getOrCreateContext(ind.name);
+                    strategyContext.indicatorMeta = ind.metainfo;
                     instance.strategy = strategyContext;
                     let barCount = 0;
                     
