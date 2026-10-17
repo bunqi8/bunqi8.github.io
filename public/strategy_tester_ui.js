@@ -1817,7 +1817,8 @@
                 const dr = data.dateRange;
                 const statusEl = document.getElementById('st-range-status-text');
                 if (statusEl && !this.isLoading) {
-                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${dr.totalTradesInRange} trades</span>`;
+                    const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (data.summary ? data.summary.totalChains : dr.totalTradesInRange);
+                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
                 }
 
                 const startInput = document.getElementById('st-range-start-date');
@@ -2574,7 +2575,8 @@
                 if (statusEl) {
                     if (this.currentData && this.currentData.dateRange) {
                         const dr = this.currentData.dateRange;
-                        statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${dr.totalTradesInRange} trades</span>`;
+                        const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (this.currentData.summary ? this.currentData.summary.totalChains : dr.totalTradesInRange);
+                        statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
                     } else {
                         statusEl.innerHTML = `Range: Active`;
                     }

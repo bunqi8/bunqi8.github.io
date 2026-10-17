@@ -30,6 +30,9 @@
         reset() {
             this.rawTrades = [];
             this.barIndex = 0;
+            this.currentBar = null;
+            this.firstBarTime = null;
+            this.lastBarTime = null;
             this.pendingPlotBuy = NaN;
             this.pendingPlotBuyText = '';
             this.pendingPlotSell = NaN;
@@ -47,6 +50,17 @@
         onBarStart(barIndex, barData) {
             this.barIndex = barIndex;
             this.currentBar = barData; // { time, open, high, low, close, volume }
+            if (barData && barData.time) {
+                const bTime = Number(barData.time) < 1e12 ? Number(barData.time) * 1000 : Number(barData.time);
+                if (bTime > 0) {
+                    if (this.firstBarTime === null || bTime < this.firstBarTime) {
+                        this.firstBarTime = bTime;
+                    }
+                    if (this.lastBarTime === null || bTime > this.lastBarTime) {
+                        this.lastBarTime = bTime;
+                    }
+                }
+            }
             this.pendingPlotBuy = NaN;
             this.pendingPlotBuyText = '';
             this.pendingPlotSell = NaN;
@@ -69,10 +83,11 @@
             const candleLow = Number(order.low !== undefined ? order.low : (bar.low !== undefined ? bar.low : price));
             const candleClose = Number(bar.close !== undefined ? bar.close : price);
             const candleOpen = Number(bar.open !== undefined ? bar.open : price);
+            const tradeTime = bar && bar.time ? (Number(bar.time) < 1e12 ? Number(bar.time) * 1000 : Number(bar.time)) : Date.now();
 
             const trade = {
                 barIndex: this.barIndex,
-                time: bar.time || Date.now(),
+                time: tradeTime,
                 chainId,
                 action: 'BUY',
                 price,
@@ -112,10 +127,11 @@
             const candleLow = Number(order.low !== undefined ? order.low : (bar.low !== undefined ? bar.low : price));
             const candleClose = Number(bar.close !== undefined ? bar.close : price);
             const candleOpen = Number(bar.open !== undefined ? bar.open : price);
+            const tradeTime = bar && bar.time ? (Number(bar.time) < 1e12 ? Number(bar.time) * 1000 : Number(bar.time)) : Date.now();
 
             const trade = {
                 barIndex: this.barIndex,
-                time: bar.time || Date.now(),
+                time: tradeTime,
                 chainId,
                 action: 'SELL',
                 price,
@@ -255,45 +271,77 @@
             const commissionType = config.commissionType || 'none';
             const commissionValue = Number(config.commissionValue) || 0;
 
-            // --- DATE RANGE RESOLUTION & FILTERING ---
-            let startMs = 0;
-            let endMs = Infinity;
+            // Helper to ensure timestamps are in milliseconds
+            const normalizeMs = (t) => {
+                const n = Number(t);
+                if (!n || isNaN(n)) return 0;
+                return n < 1e12 ? n * 1000 : n;
+            };
+
+            // Determine the true temporal bounds of the chart candles & executed trades:
+            let earliestDataMs = context.firstBarTime ? normalizeMs(context.firstBarTime) : 0;
+            let latestDataMs = context.lastBarTime ? normalizeMs(context.lastBarTime) : 0;
+
+            if (allRawTrades.length > 0) {
+                const firstTradeTime = normalizeMs(allRawTrades[0].time);
+                const lastTradeTime = normalizeMs(allRawTrades[allRawTrades.length - 1].time);
+                if (!earliestDataMs || (firstTradeTime > 0 && firstTradeTime < earliestDataMs)) {
+                    earliestDataMs = firstTradeTime;
+                }
+                if (!latestDataMs || (lastTradeTime > 0 && lastTradeTime > latestDataMs)) {
+                    latestDataMs = lastTradeTime;
+                }
+            }
+
+            if (!latestDataMs) latestDataMs = Date.now();
+            if (!earliestDataMs) earliestDataMs = latestDataMs;
+
+            let filterStartMs = 0;
+            let filterEndMs = Infinity;
             const isLiveEnd = config.isLiveEnd !== false;
 
-            if (config.startDate && config.startDate !== 'max') {
+            if (config.rangePreset === 'custom' && config.startDate) {
                 const parsedStart = new Date(config.startDate).getTime();
-                if (!isNaN(parsedStart) && parsedStart > 0) startMs = parsedStart;
-            } else if (config.rangePreset === 'max' || config.startDate === 'max') {
-                startMs = 0;
+                if (!isNaN(parsedStart) && parsedStart > 0) filterStartMs = parsedStart;
+            } else if (config.rangePreset === '1Y') {
+                filterStartMs = latestDataMs - (365 * 24 * 3600 * 1000);
+            } else if (config.rangePreset === '6M') {
+                filterStartMs = latestDataMs - (182 * 24 * 3600 * 1000);
+            } else if (config.rangePreset === '3M') {
+                filterStartMs = latestDataMs - (91 * 24 * 3600 * 1000);
+            } else if (config.rangePreset === '1M') {
+                filterStartMs = latestDataMs - (30 * 24 * 3600 * 1000);
             } else {
-                // Default: 1 Year or 40,000 bars or max data (whichever covers more historical data / reaches further back)
-                let currentRes = '1D';
-                try {
-                    if (window.tvWidget && window.tvWidget.activeChart) {
-                        currentRes = window.tvWidget.activeChart().resolution();
-                    }
-                } catch (_) {}
-                const resSec = this.getResolutionInSeconds(currentRes);
-                const fortyKBarsAgo = Date.now() - (40000 * resSec * 1000);
-                const oneYearAgo = Date.now() - (365 * 24 * 3600 * 1000);
-                startMs = Math.min(oneYearAgo, fortyKBarsAgo);
-                if (allRawTrades.length > 0 && allRawTrades[0].time < startMs) {
-                    startMs = Math.min(startMs, allRawTrades[0].time);
-                }
+                // 'default' (Max / 40k bars) covers entire available data
+                filterStartMs = 0;
             }
 
             if (!isLiveEnd && config.endDate) {
                 const parsedEnd = new Date(config.endDate).getTime();
                 if (!isNaN(parsedEnd) && parsedEnd > 0) {
-                    endMs = parsedEnd < 1e12 ? parsedEnd * 1000 : parsedEnd;
+                    filterEndMs = parsedEnd < 1e12 ? parsedEnd * 1000 : parsedEnd;
                     if (typeof config.endDate === 'string' && config.endDate.length === 10) {
-                        endMs += (24 * 3600 * 1000) - 1;
+                        filterEndMs += (24 * 3600 * 1000) - 1;
                     }
                 }
+            } else {
+                filterEndMs = Infinity;
             }
 
             // Filter raw trades strictly within the configured date range
-            const rawTrades = allRawTrades.filter(t => t.time >= startMs && (isLiveEnd || t.time <= endMs));
+            const rawTrades = allRawTrades.filter(t => {
+                const tTime = normalizeMs(t.time);
+                return tTime >= filterStartMs && (isLiveEnd || tTime <= filterEndMs);
+            });
+
+            // Effective actual dates of backtested candles/trades:
+            const effectiveStartMs = (filterStartMs > 0 && filterStartMs > earliestDataMs) 
+                ? filterStartMs 
+                : (earliestDataMs > 0 ? earliestDataMs : (rawTrades.length > 0 ? normalizeMs(rawTrades[0].time) : latestDataMs));
+
+            const effectiveEndMs = (!isLiveEnd && filterEndMs < latestDataMs)
+                ? filterEndMs
+                : latestDataMs;
 
             let currentEquity = initialCapital;
             let peakEquity = initialCapital;
@@ -505,20 +553,30 @@
                 }
             }
 
+            const startDateFormatted = effectiveStartMs > 0 
+                ? new Date(effectiveStartMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) 
+                : 'Max Data';
+            const endDateFormatted = isLiveEnd 
+                ? `${new Date(effectiveEndMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} (Live 🟢)` 
+                : new Date(effectiveEndMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const startDateStr = effectiveStartMs > 0 ? new Date(effectiveStartMs).toISOString().split('T')[0] : '';
+            const endDateStr = effectiveEndMs > 0 ? new Date(effectiveEndMs).toISOString().split('T')[0] : '';
+
             const results = {
                 strategyName: context.strategyName,
                 config,
                 dateRange: {
-                    startMs,
-                    endMs: isLiveEnd ? Date.now() : endMs,
+                    startMs: effectiveStartMs,
+                    endMs: effectiveEndMs,
                     isLiveEnd,
                     preset: config.rangePreset || 'default',
-                    startDateStr: startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : (allRawTrades[0] ? new Date(allRawTrades[0].time).toISOString().split('T')[0] : 'Max'),
-                    endDateStr: isLiveEnd ? 'Live' : new Date(endMs).toISOString().split('T')[0],
-                    startDateFormatted: startMs > 0 ? new Date(startMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (allRawTrades[0] ? new Date(allRawTrades[0].time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Max Data'),
-                    endDateFormatted: isLiveEnd ? 'Now (Live 🟢)' : new Date(endMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    startDateStr,
+                    endDateStr,
+                    startDateFormatted,
+                    endDateFormatted,
                     totalTradesInRange: rawTrades.length,
-                    totalTradesAllTime: allRawTrades.length
+                    totalTradesAllTime: allRawTrades.length,
+                    totalChainsInRange: totalChains
                 },
                 summary: {
                     initialCapital,
