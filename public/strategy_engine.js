@@ -180,10 +180,52 @@
         }
 
         /**
-         * Explicitly closes a trade chain
+         * Explicitly closes a trade chain (flattens open position)
          */
         close(order = {}) {
-            return this.sell({ ...order, isEnd: true });
+            const chainId = order.id !== undefined ? String(order.id) : '1';
+            const price = Number(order.price) || (this.currentBar ? this.currentBar.close : 0);
+            const qty = Number(order.qty) > 0 ? Number(order.qty) : null;
+            const tag = order.tag || 'Strategy Close';
+
+            const bar = this.currentBar || {};
+            const candleHigh = Number(order.high !== undefined ? order.high : (bar.high !== undefined ? bar.high : price));
+            const candleLow = Number(order.low !== undefined ? order.low : (bar.low !== undefined ? bar.low : price));
+            const candleClose = Number(bar.close !== undefined ? bar.close : price);
+            const candleOpen = Number(bar.open !== undefined ? bar.open : price);
+            const tradeTime = bar && bar.time ? (Number(bar.time) < 1e12 ? Number(bar.time) * 1000 : Number(bar.time)) : Date.now();
+
+            const trade = {
+                barIndex: this.barIndex,
+                time: tradeTime,
+                chainId,
+                action: order.action || 'CLOSE',
+                price,
+                candleHigh,
+                candleLow,
+                candleClose,
+                candleOpen,
+                qty,
+                isEnd: true,
+                isManual: !!order.isManual,
+                tag
+            };
+
+            this.rawTrades.push(trade);
+
+            const labelText = `C: ${chainId} @ ${price % 1 === 0 ? price : price.toFixed(2)}`;
+            this.pendingPlotSell = price;
+            this.pendingPlotSellText = labelText;
+
+            this._scheduleFinalize();
+            return trade;
+        }
+
+        /**
+         * Manual exit method for a trade chain (usable in live market or interactive session)
+         */
+        manualExit(order = {}) {
+            return this.close({ ...order, isManual: true, tag: order.tag || 'Manual User Exit' });
         }
 
         /**
@@ -393,19 +435,19 @@
 
             for (const trade of rawTrades) {
                 let targetChainId = trade.chainId;
+                const isExitOrder = !!trade.isEnd || trade.action === 'CLOSE' || (trade.tag && (trade.tag.toLowerCase().includes('exit') || trade.tag.toLowerCase().includes('close')));
 
                 if (!allowConcurrentChains) {
                     // Sequential Mode: Only one trade chain can be active at a time.
                     // Subsequent trade chains cannot start until the active chain is fully closed.
                     if (activeSequentialChainId !== null) {
                         const activeChain = openChains.get(activeSequentialChainId);
-                        if (!activeChain || activeChain.status === 'CLOSED') {
+                        if (!activeChain || activeChain.status === 'CLOSED' || activeChain.openQty <= 0) {
                             activeSequentialChainId = null;
                         } else {
-                            // An active chain is open.
-                            // Does this trade belong to the active chain?
-                            const isExitAction = (activeChain.direction === 'LONG' && trade.action === 'SELL') ||
-                                                 (activeChain.direction === 'SHORT' && trade.action === 'BUY') ||
+                            // An active chain is open with openQty > 0.
+                            const isExitAction = (activeChain.direction === 'LONG' && (trade.action === 'SELL' || trade.action === 'CLOSE')) ||
+                                                 (activeChain.direction === 'SHORT' && (trade.action === 'BUY' || trade.action === 'CLOSE')) ||
                                                  trade.isEnd;
 
                             if (trade.chainId === activeSequentialChainId) {
@@ -424,41 +466,26 @@
 
                     if (activeSequentialChainId === null) {
                         // No active chain is open.
-                        // If this trade is an exit without an open position, ignore it.
-                        if (trade.isEnd && (trade.qty === 0 || !trade.qty)) {
+                        // If this trade is an exit order without an open position, ignore it (e.g. manual exit already closed it).
+                        if (isExitOrder) {
                             continue;
                         }
                     }
                 } else {
                     // Concurrent / Overlapping Mode:
-                    // If an exit arrives for a chainId that isn't open, ignore it.
-                    if (!openChains.has(targetChainId) && trade.isEnd && (trade.qty === 0 || !trade.qty)) {
+                    // If an exit arrives for a chainId that isn't open, ignore it!
+                    if (!openChains.has(targetChainId) && isExitOrder) {
                         continue;
                     }
                 }
 
                 let chain = openChains.get(targetChainId);
 
-                // Compute slippage-adjusted execution price
-                let effectivePrice = trade.price;
-                if (slippage > 0) {
-                    effectivePrice = trade.action === 'BUY' ? trade.price + slippage : trade.price - slippage;
-                }
-
-                // Compute commission for this trade leg
-                let tradeCommission = 0;
-                if (commissionType === 'fixed') {
-                    tradeCommission = commissionValue;
-                } else if (commissionType === 'percent') {
-                    tradeCommission = (effectivePrice * trade.qty * commissionValue) / 100;
-                }
-
                 if (!chain) {
-                    // If it's an exit order when no chain exists, skip creating an empty chain
-                    const isExitWithoutPosition = (trade.action === 'SELL' && trade.isEnd && (trade.qty === 0 || !trade.qty));
-                    if (isExitWithoutPosition) continue;
+                    // If this is an exit order when no chain exists, DO NOT create a phantom chain
+                    if (isExitOrder) continue;
 
-                    // New Trade Chain begins
+                    // New Trade Chain begins with an entry order (BUY or SELL)
                     chain = {
                         chainNumber: chainCounter++,
                         chainId: targetChainId,
@@ -483,15 +510,52 @@
                     }
                 }
 
+                // Resolve action: if trade.action === 'CLOSE', resolve to opposite of direction
+                const resolvedAction = trade.action === 'CLOSE'
+                    ? (chain.direction === 'LONG' ? 'SELL' : 'BUY')
+                    : trade.action;
+
+                // Compute slippage-adjusted execution price
+                let effectivePrice = trade.price;
+                if (slippage > 0) {
+                    effectivePrice = resolvedAction === 'BUY' ? trade.price + slippage : trade.price - slippage;
+                }
+
+                const isEntryAction = (chain.direction === 'LONG' && resolvedAction === 'BUY') ||
+                                     (chain.direction === 'SHORT' && resolvedAction === 'SELL');
+
+                const isExitAction = (chain.direction === 'LONG' && resolvedAction === 'SELL') ||
+                                    (chain.direction === 'SHORT' && resolvedAction === 'BUY');
+
+                // Determine quantity to trade:
+                let tradeQty = Number(trade.qty) > 0 ? Number(trade.qty) : (isExitAction ? chain.openQty : 1);
+                if (isExitAction && (trade.isEnd || trade.action === 'CLOSE' || tradeQty >= chain.openQty)) {
+                    // Full close: close all remaining open quantity in the chain
+                    tradeQty = chain.openQty;
+                }
+
+                // If exit quantity is 0 (already flat), skip
+                if (isExitAction && tradeQty <= 0) {
+                    continue;
+                }
+
+                // Compute commission for this trade leg
+                let tradeCommission = 0;
+                if (commissionType === 'fixed') {
+                    tradeCommission = commissionValue;
+                } else if (commissionType === 'percent') {
+                    tradeCommission = (effectivePrice * tradeQty * commissionValue) / 100;
+                }
+
                 const leg = {
                     tradeNumber: tradeCounter++,
                     chainId: targetChainId,
-                    action: trade.action,
+                    action: resolvedAction,
                     time: trade.time,
                     barIndex: trade.barIndex,
                     price: effectivePrice,
                     rawPrice: trade.price,
-                    qty: trade.qty,
+                    qty: tradeQty,
                     commission: tradeCommission,
                     tag: trade.tag,
                     pnl: 0,
@@ -501,20 +565,17 @@
                 chain.legs.push(leg);
                 chain.totalCommission += tradeCommission;
 
-                const isEntryAction = (chain.direction === 'LONG' && trade.action === 'BUY') ||
-                                     (chain.direction === 'SHORT' && trade.action === 'SELL');
-
                 if (isEntryAction) {
                     // Scale in / Add to position
                     const priorQty = chain.openQty;
                     const priorCost = priorQty * chain.avgEntryPrice;
-                    const addCost = trade.qty * effectivePrice;
-                    chain.openQty = priorQty + trade.qty;
+                    const addCost = tradeQty * effectivePrice;
+                    chain.openQty = priorQty + tradeQty;
                     chain.avgEntryPrice = (priorCost + addCost) / chain.openQty;
-                    chain.entries.push({ price: effectivePrice, qty: trade.qty, time: trade.time });
-                } else {
+                    chain.entries.push({ price: effectivePrice, qty: tradeQty, time: trade.time });
+                } else if (isExitAction) {
                     // Exit action (reducing position)
-                    const exitQty = Math.min(trade.qty, chain.openQty);
+                    const exitQty = Math.min(tradeQty, chain.openQty);
                     let legPnL = 0;
                     if (chain.direction === 'LONG') {
                         legPnL = (effectivePrice - chain.avgEntryPrice) * exitQty;
@@ -536,8 +597,13 @@
 
                 executedTrades.push(leg);
 
-                // Check if Chain Ends: net quantity is 0 or explicit isEnd flag
-                if (chain.openQty <= 0 || trade.isEnd) {
+                // Check if Chain Ends:
+                // Rule 1: Net open quantity must be 0 (every buy has had a sell, or short has had a buy).
+                // Rule 2: At least one entry AND at least one exit must exist.
+                // Rule 3: If openQty > 0, IT IS NOT AN END (chain remains OPEN until open positions are closed).
+                const isFullyClosed = (chain.openQty === 0 && chain.entries.length > 0 && chain.exits.length > 0);
+
+                if (isFullyClosed) {
                     chain.status = 'CLOSED';
                     chain.endTime = trade.time;
                     chain.endBar = trade.barIndex;
@@ -569,6 +635,28 @@
                     });
                 }
             }
+
+            // For any open chains (still open at the end of the data/chart),
+            // calculate mark-to-market unrealized PnL using the latest available candle close
+            const latestClose = context.currentBar ? Number(context.currentBar.close) : (rawTrades.length > 0 ? rawTrades[rawTrades.length - 1].price : 0);
+            let totalUnrealizedPnL = 0;
+            openChains.forEach(c => {
+                c.status = 'OPEN';
+                c.endBar = context.barIndex;
+                c.bars = Math.max(1, (context.barIndex || 0) - c.startBar);
+                if (latestClose > 0 && c.avgEntryPrice > 0 && c.openQty > 0) {
+                    if (c.direction === 'LONG') {
+                        c.unrealizedPnL = (latestClose - c.avgEntryPrice) * c.openQty;
+                    } else {
+                        c.unrealizedPnL = (c.avgEntryPrice - latestClose) * c.openQty;
+                    }
+                    c.unrealizedReturnPct = (c.unrealizedPnL / (c.avgEntryPrice * c.openQty)) * 100;
+                    totalUnrealizedPnL += c.unrealizedPnL;
+                } else {
+                    c.unrealizedPnL = 0;
+                    c.unrealizedReturnPct = 0;
+                }
+            });
 
             // Calculate overall performance summary statistics
             const totalChains = closedChains.length;
@@ -660,7 +748,8 @@
                     endDateFormatted,
                     totalTradesInRange: rawTrades.length,
                     totalTradesAllTime: allRawTrades.length,
-                    totalChainsInRange: totalChains
+                    totalChainsInRange: totalChains,
+                    totalOpenChains: openChains.size
                 },
                 summary: {
                     initialCapital,
@@ -673,6 +762,9 @@
                     profitFactor,
                     winRate,
                     totalChains,
+                    totalOpenChains: openChains.size,
+                    unrealizedPnL: totalUnrealizedPnL,
+                    markToMarketEquity: currentEquity + totalUnrealizedPnL,
                     winningChains: winningChains.length,
                     losingChains: losingChains.length,
                     breakEvenChains: breakEvenChains.length,
@@ -903,6 +995,44 @@
             } catch (_) {
                 setTimeout(drawShapes, 400);
             }
+        },
+
+        /**
+         * Allows manually exiting an open trade chain at current market price (live or backtest)
+         */
+        manualExit(strategyName, chainId) {
+            const name = strategyName || this.activeStrategyName;
+            const ctx = this.getContext(name);
+            if (!ctx) return false;
+            const results = this.resultsByStrategy.get(name);
+            const openChains = results && results.openChains ? results.openChains : [];
+            const targetChain = chainId !== undefined 
+                ? openChains.find(c => String(c.chainId) === String(chainId)) 
+                : openChains[0];
+            if (!targetChain) return false;
+
+            const lastBar = ctx.currentBar || {};
+            const exitPrice = Number(lastBar.close) || targetChain.avgEntryPrice;
+            const exitAction = targetChain.direction === 'LONG' ? 'SELL' : 'BUY';
+
+            ctx.rawTrades.push({
+                barIndex: ctx.barIndex,
+                time: lastBar.time ? (Number(lastBar.time) < 1e12 ? Number(lastBar.time) * 1000 : Number(lastBar.time)) : Date.now(),
+                chainId: String(targetChain.chainId),
+                action: exitAction,
+                price: exitPrice,
+                candleHigh: lastBar.high || exitPrice,
+                candleLow: lastBar.low || exitPrice,
+                candleClose: exitPrice,
+                candleOpen: lastBar.open || exitPrice,
+                qty: targetChain.openQty,
+                isEnd: true,
+                isManual: true,
+                tag: 'Manual User Exit'
+            });
+
+            this.calculateAndEmit(ctx);
+            return true;
         },
 
         clearAll() {

@@ -2223,8 +2223,10 @@
                 const statusEl = document.getElementById('st-range-status-text');
                 if (statusEl && !this.isLoading) {
                     const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (data.summary ? data.summary.totalChains : dr.totalTradesInRange);
-                    statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
-                    statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
+                    const openCount = data.summary && data.summary.totalOpenChains ? data.summary.totalOpenChains : 0;
+                    const openBadge = openCount > 0 ? ` <span style="color:#2563eb; font-weight:600;">(+${openCount} open)</span>` : '';
+                    statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains${openBadge} (${dr.totalTradesInRange} trades)</span>`;
+                    statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} closed chains${openCount > 0 ? ` + ${openCount} open` : ''} (${dr.totalTradesInRange} trades)`;
                 }
 
                 const startInput = document.getElementById('st-range-start-date');
@@ -2321,6 +2323,7 @@
                             <div class="st-metric-label">Total Trade Chains</div>
                             <div class="st-metric-value">
                                 <span class="st-metric-num" style="white-space:nowrap;">${s.totalChains}</span>
+                                ${s.totalOpenChains > 0 ? `<span class="st-metric-sub" style="font-size:11px; font-weight:600; color:#089981; white-space:nowrap;">(+${s.totalOpenChains} open)</span>` : ''}
                             </div>
                         </div>
                         <div class="st-metric-card">
@@ -2636,16 +2639,20 @@
         }
 
         renderTradeChains(body) {
-            const chains = this.currentData.closedChains || [];
-            if (chains.length === 0) {
-                body.innerHTML = '<div style="color:#64748b; text-align:center; padding:40px;">No trade chains closed yet.</div>';
+            const closedChains = this.currentData.closedChains || [];
+            const openChains = this.currentData.openChains || [];
+            const allChains = [...openChains, ...closedChains];
+
+            if (allChains.length === 0) {
+                body.innerHTML = '<div style="color:#64748b; text-align:center; padding:40px;">No trade chains recorded yet.</div>';
                 return;
             }
 
+            const stratName = (this.currentData && this.currentData.strategyName) || (window.StrategyEngine && window.StrategyEngine.activeStrategyName);
             const isConcurrent = !!(this.currentData.config && this.currentData.config.allowConcurrentChains);
 
             let html = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:9px 13px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:9px 13px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:12px; flex-wrap:wrap; gap:8px;">
                     <div style="display:flex; align-items:center; gap:6px;">
                         <span style="color:#475569; font-weight:600;">Execution Mode:</span> 
                         <span style="font-weight:700; color:${isConcurrent ? '#b45309' : '#15803d'};">
@@ -2659,6 +2666,28 @@
                         Configure in Settings
                     </button>
                 </div>
+            `;
+
+            if (openChains.length > 0) {
+                openChains.forEach(oc => {
+                    const isProf = (oc.unrealizedPnL || 0) >= 0;
+                    html += `
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px #10b981;"></span>
+                                <strong style="color:#15803d; font-size:12px;">Active Open Position:</strong>
+                                <span style="color:#166534; font-size:12px; font-weight:600;">Chain #${oc.chainNumber} (${oc.chainId}) &bull; ${oc.direction} ${oc.openQty} qty @ ${oc.avgEntryPrice.toFixed(2)}</span>
+                                <span style="font-weight:700; font-size:12px; color:${isProf ? '#15803d' : '#b91c1c'};">(${this.formatCurrency(oc.unrealizedPnL || 0, true)} Floating)</span>
+                            </div>
+                            <button onclick="window.StrategyEngine.manualExit('${stratName}', '${oc.chainId}')" style="background:#ef4444; color:#ffffff; border:none; padding:4px 12px; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer;" title="Manually exit this open position now (market close)">
+                                ⚡ Close Position
+                            </button>
+                        </div>
+                    `;
+                });
+            }
+
+            html += `
                 <table class="st-table">
                     <thead>
                         <tr>
@@ -2676,30 +2705,40 @@
                     <tbody>
             `;
 
-            chains.forEach((c, idx) => {
-                const isProf = c.netPnL >= 0;
+            allChains.forEach((c, idx) => {
+                const isOpen = c.status === 'OPEN';
+                const pnl = isOpen ? (c.unrealizedPnL || 0) : c.netPnL;
+                const retPct = isOpen ? (c.unrealizedReturnPct || 0) : c.returnPct;
+                const isProf = pnl >= 0;
                 const startDateStr = new Date(c.startTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
-                const endDateStr = c.endTime ? new Date(c.endTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Open';
+                const endDateStr = isOpen ? '<span style="color:#059669; font-weight:700;">Open (Live 🟢)</span>' : (c.endTime ? new Date(c.endTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Open');
                 const dirBadge = c.direction === 'LONG' ? '<span class="st-tag-long">LONG</span>' : '<span class="st-tag-short">SHORT</span>';
                 const entryPrice = (c.entries && c.entries[0]) ? c.entries[0].price : 0;
                 const chainDisplayNum = c.chainNumber || (idx + 1);
 
+                const statusBadge = isOpen
+                    ? '<span class="st-badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; font-weight:700;">● OPEN</span>'
+                    : `<span class="st-badge">${c.status}</span>`;
+
                 html += `
-                    <tr class="st-chain-row" onclick="window.StrategyTesterUI.toggleChainLegsAndJump(${idx}, ${c.startTime}, '${c.direction}', ${entryPrice}, '${c.chainId}')" style="cursor:pointer;" title="Click to inspect legs & view candle on chart">
+                    <tr class="st-chain-row" onclick="window.StrategyTesterUI.toggleChainLegsAndJump(${idx}, ${c.startTime}, '${c.direction}', ${entryPrice}, '${c.chainId}')" style="cursor:pointer; ${isOpen ? 'background:#f0fdf4;' : ''}" title="Click to inspect legs & view candle on chart">
                         <td><strong>#${chainDisplayNum} <span style="font-size:11px; font-weight:500; color:#64748b;">(${c.chainId})</span></strong></td>
                         <td>${dirBadge}</td>
                         <td>${startDateStr}</td>
                         <td>${endDateStr}</td>
                         <td>${c.bars || 1}</td>
-                        <td>${c.entries.length} / ${c.exits.length}</td>
-                        <td class="${isProf ? 'profit' : 'loss'}"><strong>${this.formatCurrency(c.netPnL, true)}</strong></td>
-                        <td class="${isProf ? 'profit' : 'loss'}">${c.returnPct >= 0 ? '+' : ''}${c.returnPct.toFixed(2)}%</td>
-                        <td><span class="st-badge">${c.status}</span></td>
+                        <td>${c.entries.length} / ${c.exits.length}${isOpen ? ` (Open: ${c.openQty})` : ''}</td>
+                        <td class="${isProf ? 'profit' : 'loss'}"><strong>${this.formatCurrency(pnl, true)}</strong>${isOpen ? ' <span style="font-size:10px; opacity:0.8;">(Unrealized)</span>' : ''}</td>
+                        <td class="${isProf ? 'profit' : 'loss'}">${retPct >= 0 ? '+' : ''}${retPct.toFixed(2)}%</td>
+                        <td>${statusBadge}</td>
                     </tr>
                     <tr id="st-chain-legs-${idx}" style="display:none;">
                         <td colspan="9">
                             <div class="st-leg-subtable">
-                                <div style="font-weight:700; margin-bottom:6px; font-size:11px; color:#64748b;">INDIVIDUAL TRADE LEGS IN CHAIN ${c.chainId} (Click row to jump on chart)</div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                    <div style="font-weight:700; font-size:11px; color:#64748b;">INDIVIDUAL TRADE LEGS IN CHAIN ${c.chainId} (Click row to jump on chart)</div>
+                                    ${isOpen ? `<button onclick="event.stopPropagation(); window.StrategyEngine.manualExit('${stratName}', '${c.chainId}')" style="background:#ef4444; color:#fff; border:none; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700; cursor:pointer;">⚡ Close Position</button>` : ''}
+                                </div>
                                 <table style="width:100%; font-size:11px;">
                                     <thead><tr><th>#</th><th>Action</th><th>Date & Time</th><th>Price</th><th>Qty</th><th>PnL</th></tr></thead>
                                     <tbody>
@@ -3073,8 +3112,10 @@
                     if (this.currentData && this.currentData.dateRange) {
                         const dr = this.currentData.dateRange;
                         const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (this.currentData.summary ? this.currentData.summary.totalChains : dr.totalTradesInRange);
-                        statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
-                        statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
+                        const openCount = this.currentData.summary && this.currentData.summary.totalOpenChains ? this.currentData.summary.totalOpenChains : 0;
+                        const openBadge = openCount > 0 ? ` <span style="color:#2563eb; font-weight:600;">(+${openCount} open)</span>` : '';
+                        statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains${openBadge} (${dr.totalTradesInRange} trades)</span>`;
+                        statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} closed chains${openCount > 0 ? ` + ${openCount} open` : ''} (${dr.totalTradesInRange} trades)`;
                     } else {
                         statusEl.innerHTML = `Range: Active`;
                     }
