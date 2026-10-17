@@ -187,6 +187,9 @@
         setActiveStrategy(strategyName) {
             if (!strategyName) return;
             this.activeStrategyName = strategyName;
+            try {
+                localStorage.setItem('tv_active_strategy', strategyName);
+            } catch (_) {}
             const res = this.resultsByStrategy.get(strategyName);
             if (res) {
                 this.lastResults = res;
@@ -489,6 +492,9 @@
                 this.lastResults = results;
                 this.renderTradeShapesOnChart(executedTrades);
                 window.dispatchEvent(new CustomEvent('strategy_performance_updated', { detail: results }));
+                try {
+                    localStorage.setItem('tv_active_strategy', context.strategyName);
+                } catch (_) {}
             }
 
             this.emitStrategyListUpdate();

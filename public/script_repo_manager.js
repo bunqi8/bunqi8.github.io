@@ -621,6 +621,8 @@
                         indicatorObj._repoName = item.repoName;
                         indicatorObj._isRemoteSynced = true;
                         indicatorObj._remoteKey = key;
+                        indicatorObj.isStrategy = !!item.isStrategy;
+                        indicatorObj._isStrat = !!item.isStrategy;
                         list.push(indicatorObj);
                     }
                 } catch (e) {

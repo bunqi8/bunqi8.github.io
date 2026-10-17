@@ -38,6 +38,30 @@ function setupCustomIndicatorsDialog(widget) {
             }, 1500);
         }
 
+        // --- 1b. AUTO RESTORE STRATEGY ON RELOAD ---
+        const savedStrat = localStorage.getItem('tv_active_strategy');
+        if (savedStrat) {
+            setTimeout(() => {
+                try {
+                    const chart = widget.chart();
+                    const studies = chart.getAllStudies() || [];
+                    const targetLower = savedStrat.trim().toLowerCase();
+                    const exists = studies.some(s => {
+                        const sName = (s.name || '').trim().toLowerCase();
+                        const sDesc = (s.description || '').trim().toLowerCase();
+                        return sName === targetLower || sName.includes(targetLower) || targetLower.includes(sName) ||
+                               sDesc === targetLower || sDesc.includes(targetLower);
+                    });
+                    if (!exists) {
+                        console.log("[Strategy Engine] Restoring active strategy on chart reload:", savedStrat);
+                        chart.createStudy(savedStrat, false, false);
+                    }
+                } catch (e) {
+                    console.warn("[Strategy Engine] Could not auto-restore strategy:", e);
+                }
+            }, 1800);
+        }
+
         // --- 2. INJECT "{ }" BUTTON INTO LEGEND (Robust Polling) ---
         setInterval(() => {
             try {
@@ -1288,8 +1312,19 @@ function setupCustomIndicatorsDialog(widget) {
 
                     try {
                         widget.chart().createStudy(item.name, false, false);
-                        if (item.isStrat && window.StrategyTesterUI) {
-                            window.StrategyTesterUI.show();
+                        if (item.isStrat) {
+                            localStorage.setItem('tv_active_strategy', item.name);
+                            if (window.StrategyEngine) {
+                                window.StrategyEngine.setActiveStrategy(item.name);
+                            }
+                            if (window.StrategyTesterUI) {
+                                window.StrategyTesterUI.show();
+                            }
+                            try {
+                                if (typeof widget.save === 'function') {
+                                    widget.save(function() {});
+                                }
+                            } catch (_) {}
                         }
                     } catch (err) {
                         console.error("Failed to add study:", err);
