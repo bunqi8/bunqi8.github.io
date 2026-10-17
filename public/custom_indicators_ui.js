@@ -274,7 +274,13 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-modal {
                 background: #ffffff; width: 880px; height: 680px; max-width: 95%; max-height: 95%;
                 border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,0.22); overflow: hidden;
-                touch-action: auto !important;
+                touch-action: auto !important; box-sizing: border-box;
+            }
+            .tv-custom-modal-header {
+                padding: 16px 24px 12px 24px; display: flex; justify-content: space-between; align-items: center; background: #ffffff; flex-shrink: 0;
+            }
+            .tv-search-container {
+                padding: 0 24px 12px 24px; background: #ffffff; flex-shrink: 0;
             }
             .tv-custom-modal-body {
                 display: flex; flex: 1; overflow: hidden; border-top: 1px solid #e0e3eb; min-height: 0;
@@ -284,7 +290,7 @@ function setupCustomIndicatorsDialog(widget) {
             }
             .tv-custom-modal-tab {
                 padding: 10px 14px; margin-bottom: 4px; font-size: 13.5px; cursor: pointer; color: #131722; font-weight: 500;
-                border-radius: 8px; transition: background 0.1s ease; display: flex; align-items: center; gap: 10px; border: 1px solid transparent;
+                border-radius: 8px; transition: background 0.1s ease; display: flex; align-items: center; gap: 10px; border: 1px solid transparent; user-select: none;
             }
             .tv-custom-modal-tab:hover {
                 background: #f0f3fa;
@@ -293,7 +299,7 @@ function setupCustomIndicatorsDialog(widget) {
                 background: #ffffff; color: #2962FF; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e0e3eb; font-weight: 600;
             }
             .tv-editor-header {
-                display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff;
+                display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff; flex-shrink: 0;
             }
             
             .tv-list-container { -webkit-overflow-scrolling: touch; touch-action: pan-y !important; }
@@ -301,24 +307,26 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-list-container::-webkit-scrollbar-thumb { background: #d1d4dc; border-radius: 3px; }
             .tv-list-container::-webkit-scrollbar-track { background: transparent; }
 
-            .tv-star-icon { color: #b2b5be; transition: color 0.1s ease; margin-right: 12px; flex-shrink: 0; }
+            .tv-star-icon { color: #b2b5be; transition: color 0.1s ease; margin-right: 10px; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; }
             .tv-star-icon:hover { color: #FFB300; }
             .tv-star-icon.active { color: #FFB300; fill: #FFB300; }
 
-            /* Filter Bar & Chips */
+            /* Filter Bar & Chips with Smooth Touch Scroll */
             .tv-filter-container {
-                display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+                display: flex; flex-direction: column; gap: 6px; margin-top: 8px;
             }
             .tv-filter-row {
-                display: flex; align-items: center; gap: 6px; overflow-x: auto; flex-wrap: wrap;
+                display: flex; align-items: center; gap: 6px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
+                scrollbar-width: none; padding-bottom: 2px;
             }
+            .tv-filter-row::-webkit-scrollbar { display: none; }
             .tv-filter-label {
-                font-size: 11px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.4px; min-width: 52px; user-select: none;
+                font-size: 10.5px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.5px; min-width: 46px; user-select: none; flex-shrink: 0;
             }
             .tv-filter-chip {
-                padding: 3px 10px; border-radius: 12px; font-size: 11.5px; font-weight: 500; cursor: pointer;
+                padding: 4px 10px; border-radius: 12px; font-size: 11.5px; font-weight: 500; cursor: pointer;
                 border: 1px solid #e0e3eb; background: #f8fafe; color: #475569; transition: all 0.12s ease;
-                user-select: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+                user-select: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
             }
             .tv-filter-chip:hover {
                 background: #f0f3fa; border-color: #b2b5be; color: #131722;
@@ -330,36 +338,56 @@ function setupCustomIndicatorsDialog(widget) {
 
             /* Badges */
             .tv-badge-pill {
-                font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+                font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
                 text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center;
-                gap: 4px; white-space: nowrap; line-height: 1.2;
+                gap: 3px; white-space: nowrap; line-height: 1.2; flex-shrink: 0;
             }
-            .tv-badge-type-strat {
-                background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff;
+            .tv-badge-type-strat { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+            .tv-badge-type-ind { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+            .tv-badge-source-default { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+            .tv-badge-source-local { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+            .tv-badge-source-github { background: #0f172a; color: #f8fafc; border: 1px solid #334155; }
+            .tv-badge-source-hf { background: #fffbeb; color: #b45309; border: 1px solid #fef08a; }
+            .tv-badge-active { background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25); }
+
+            /* Responsive Script Row Layout - Never Truncates Names to 2-3 Letters */
+            .tv-script-row {
+                padding: 10px 14px; cursor: pointer; font-size: 14px; color: #131722; display: flex;
+                align-items: center; border-radius: 8px; margin-bottom: 4px; border: 1px solid transparent;
+                transition: all 0.12s ease; gap: 10px; box-sizing: border-box; min-width: 0;
             }
-            .tv-badge-type-ind {
-                background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+            .tv-script-row:hover {
+                background: #f8fafe; border-color: #e0e3eb;
             }
-            .tv-badge-source-default {
-                background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+            .tv-script-main {
+                flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; justify-content: center;
             }
-            .tv-badge-source-local {
-                background: #fef3c7; color: #b45309; border: 1px solid #fde68a;
+            .tv-script-title-wrap {
+                display: flex; align-items: center; min-width: 0;
             }
-            .tv-badge-source-github {
-                background: #0f172a; color: #f8fafc; border: 1px solid #334155;
+            .tv-script-title {
+                font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35; word-break: break-word;
             }
-            .tv-badge-source-hf {
-                background: #fffbeb; color: #b45309; border: 1px solid #fef08a;
+            .tv-script-meta-wrap {
+                display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0;
             }
-            .tv-badge-active {
-                background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25);
+            .tv-script-actions {
+                display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
+            }
+
+            /* Custom Action Bar in Custom Scripts Tab */
+            .tv-custom-actions-bar {
+                display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 6px 0 14px 0;
+            }
+            .tv-custom-action-btn {
+                padding: 9px 10px; cursor: pointer; font-size: 12.5px; font-weight: 600; border-radius: 8px;
+                display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; box-sizing: border-box; text-align: center;
             }
 
             /* Action Buttons inside list item */
             .tv-item-action-btn {
                 cursor: pointer; color: #787b86; display: flex; align-items: center; padding: 4px 8px;
-                border-radius: 4px; font-size: 11.5px; font-weight: 600; transition: 0.15s; border: 1px solid transparent;
+                border-radius: 4px; font-size: 11px; font-weight: 600; transition: 0.15s; border: 1px solid transparent; flex-shrink: 0;
             }
             .tv-item-action-btn:hover {
                 background: #f0f3fa; color: #2962FF; border-color: #e0e3eb;
@@ -384,39 +412,86 @@ function setupCustomIndicatorsDialog(widget) {
                 border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,0.25); overflow: hidden;
             }
             .tv-repo-tab-bar {
-                display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid #e0e3eb; background: #fafbfc;
+                display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid #e0e3eb; background: #fafbfc; flex-shrink: 0;
             }
             .tv-repo-tab-item {
-                padding: 12px 16px; font-size: 13.5px; font-weight: 600; color: #787b86; cursor: pointer;
-                border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 8px; transition: 0.15s;
+                padding: 12px 16px; font-size: 13px; font-weight: 600; color: #787b86; cursor: pointer;
+                border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 8px; transition: 0.15s; user-select: none;
             }
-            .tv-repo-tab-item:hover {
-                color: #131722;
-            }
-            .tv-repo-tab-item.active {
-                color: #2962FF; border-bottom-color: #2962FF;
-            }
+            .tv-repo-tab-item:hover { color: #131722; }
+            .tv-repo-tab-item.active { color: #2962FF; border-bottom-color: #2962FF; }
             .tv-repo-card {
                 border: 1px solid #e0e3eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;
-                background: #ffffff; transition: all 0.15s ease; display: flex; align-items: center; justify-content: space-between;
+                background: #ffffff; transition: all 0.15s ease; display: flex; align-items: center; justify-content: space-between; gap: 12px;
             }
             .tv-repo-card:hover {
                 border-color: #b2b5be; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
             }
-            .tv-spin {
-                animation: tvSpinAnim 1s linear infinite;
-            }
-            @keyframes tvSpinAnim {
-                100% { transform: rotate(360deg); }
+            .tv-spin { animation: tvSpinAnim 1s linear infinite; }
+            @keyframes tvSpinAnim { 100% { transform: rotate(360deg); } }
+
+            /* Desktop layout enhancement: align title and badges side by side if width allows */
+            @media (min-width: 640px) {
+                .tv-script-main {
+                    flex-direction: row; align-items: center; gap: 10px;
+                }
             }
 
+            /* Mobile & Small Device Optimization (Full bleed, no cut-offs) */
             @media (max-width: 768px) {
-                .tv-custom-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
-                .tv-custom-modal-body { flex-direction: column; }
-                .tv-custom-modal-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid #e0e3eb; padding: 8px; background: #ffffff; overflow-x: auto; touch-action: pan-x !important; }
-                .tv-custom-modal-tab { flex: 1; justify-content: center; margin-bottom: 0; margin-right: 4px; padding: 10px 8px; font-size: 13px; white-space: nowrap; }
-                .tv-editor-header { padding: 12px; }
-                .tv-repo-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
+                .tv-custom-modal-overlay {
+                    padding: 0 !important; align-items: stretch !important; justify-content: stretch !important;
+                }
+                .tv-custom-modal {
+                    width: 100vw !important; height: 100% !important; max-width: 100vw !important; max-height: 100% !important;
+                    border-radius: 0 !important; box-shadow: none !important;
+                }
+                .tv-custom-modal-header {
+                    padding: 12px 16px 8px 16px !important;
+                }
+                .tv-custom-modal-header > div:first-child {
+                    font-size: 16px !important;
+                }
+                .tv-search-container {
+                    padding: 0 16px 8px 16px !important;
+                }
+                .tv-custom-modal-tabs {
+                    width: 100% !important; flex-direction: row !important; border-right: none !important;
+                    border-bottom: 1px solid #e0e3eb !important; padding: 6px 12px !important; background: #ffffff !important;
+                    overflow-x: auto !important; touch-action: pan-x !important; flex-shrink: 0 !important;
+                }
+                .tv-custom-modal-tab {
+                    flex: 1 !important; justify-content: center !important; margin-bottom: 0 !important;
+                    margin-right: 4px !important; padding: 7px 8px !important; font-size: 12px !important; white-space: nowrap !important;
+                }
+                .tv-custom-actions-bar {
+                    grid-template-columns: 1fr 1fr !important; gap: 6px !important;
+                }
+                .tv-custom-actions-bar .tv-repo-btn-span {
+                    grid-column: span 2 !important;
+                }
+                .tv-custom-action-btn {
+                    padding: 8px !important; font-size: 11.5px !important;
+                }
+                .tv-list-container {
+                    padding: 0 10px 12px 10px !important;
+                }
+                .tv-editor-header {
+                    padding: 10px 14px !important;
+                }
+                .tv-repo-modal {
+                    width: 100vw !important; height: 100% !important; max-width: 100vw !important; max-height: 100% !important;
+                    border-radius: 0 !important;
+                }
+                .tv-repo-card {
+                    flex-direction: column !important; align-items: flex-start !important; gap: 10px !important;
+                }
+                .tv-repo-card-actions {
+                    width: 100% !important; justify-content: flex-end !important;
+                }
+                .tv-form-row-2col {
+                    flex-direction: column !important; gap: 8px !important;
+                }
             }
         `;
         document.head.appendChild(style);
@@ -429,14 +504,14 @@ function setupCustomIndicatorsDialog(widget) {
         modal.className = 'tv-custom-modal';
         
         const header = document.createElement('div');
-        header.style.cssText = 'padding:16px 24px 12px 24px; display:flex; justify-content:space-between; align-items:center; background: #ffffff;';
+        header.className = 'tv-custom-modal-header'; header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background: #ffffff;';
         header.innerHTML = '<div style="font-size:18px; font-weight:700; color:#131722; letter-spacing:-0.2px;">Indicators, metrics, and strategies</div><div id="tv-close-modal" style="cursor:pointer; color:#787b86; padding:16px; margin:-10px; border-radius:4px; transition:0.2s; display:flex; align-items:center; justify-content:center;"><svg width="18" height="18" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l12 12m0-12L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>';
         header.querySelector('#tv-close-modal').onmouseover = function() { this.style.background = '#f0f3fa'; this.style.color = '#131722'; };
         header.querySelector('#tv-close-modal').onmouseout = function() { this.style.background = 'transparent'; this.style.color = '#787b86'; };
 
         // --- SEARCH CONTAINER & FILTER BAR ---
         const searchContainer = document.createElement('div');
-        searchContainer.style.cssText = 'padding:0 24px 14px 24px; background: #ffffff;';
+        searchContainer.className = 'tv-search-container';
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.placeholder = 'Search';
@@ -623,7 +698,7 @@ function setupCustomIndicatorsDialog(widget) {
             edHeader.className = 'tv-editor-header';
             
             const titleRow = document.createElement('div');
-            titleRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600; color:#131722;';
+            titleRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#131722; min-width:0; flex:1; overflow:hidden;';
             let headerText = 'New Local Indicator';
             if (isFork) {
                 headerText = `Fork & Edit: ${forkTitle || existingName}`;
@@ -632,11 +707,11 @@ function setupCustomIndicatorsDialog(widget) {
             } else if (isStrategyTemplate) {
                 headerText = 'New Local Strategy (Trade Chains)';
             }
-            titleRow.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#2962FF"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg> 
-                                  <span>${headerText}</span>`;
+            titleRow.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#2962FF; flex-shrink:0;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg> 
+                                  <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${headerText}</span>`;
             
             const btnRow = document.createElement('div');
-            btnRow.style.cssText = 'display:flex; gap:8px;';
+            btnRow.style.cssText = 'display:flex; gap:8px; flex-shrink:0;';
             
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel';
@@ -892,26 +967,29 @@ function setupCustomIndicatorsDialog(widget) {
             // Top action buttons in Custom scripts tab
             if (activeTab === 'custom' && !searchQuery) {
                 const btnContainer = document.createElement('div');
-                btnContainer.style.cssText = 'display:flex; gap:8px; margin:8px 0 16px 0; flex-wrap:wrap;';
+                btnContainer.className = 'tv-custom-actions-bar';
 
                 const addIndBtn = document.createElement('div');
-                addIndBtn.style.cssText = 'flex:1; min-width:140px; padding:10px 12px; cursor:pointer; font-size:13px; color:#2962FF; display:flex; align-items:center; border:1px dashed #2962FF; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafe; transition:all 0.1s ease;';
-                addIndBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 18 18" style="margin-right:6px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Create Indicator';
+                addIndBtn.className = 'tv-custom-action-btn';
+                addIndBtn.style.cssText = 'color:#2962FF; border:1px dashed #2962FF; background:#f8fafe;';
+                addIndBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 18 18" style="margin-right:5px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> Create Indicator';
                 addIndBtn.onmouseover = () => { addIndBtn.style.background = '#2962FF'; addIndBtn.style.color = '#fff'; };
                 addIndBtn.onmouseout = () => { addIndBtn.style.background = '#f8fafe'; addIndBtn.style.color = '#2962FF'; };
                 addIndBtn.onclick = () => showEditor();
 
                 const addStratBtn = document.createElement('div');
-                addStratBtn.style.cssText = 'flex:1; min-width:140px; padding:10px 12px; cursor:pointer; font-size:13px; color:#7B1FA2; display:flex; align-items:center; border:1px dashed #7B1FA2; border-radius:8px; font-weight:600; justify-content:center; background:#fdf7ff; transition:all 0.1s ease;';
-                addStratBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" style="margin-right:6px;" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg> Create Strategy';
+                addStratBtn.className = 'tv-custom-action-btn';
+                addStratBtn.style.cssText = 'color:#7B1FA2; border:1px dashed #7B1FA2; background:#fdf7ff;';
+                addStratBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg> Create Strategy';
                 addStratBtn.onmouseover = () => { addStratBtn.style.background = '#7B1FA2'; addStratBtn.style.color = '#fff'; };
                 addStratBtn.onmouseout = () => { addStratBtn.style.background = '#fdf7ff'; addStratBtn.style.color = '#7B1FA2'; };
                 addStratBtn.onclick = () => showEditor('', null, true);
 
                 const repoCount = (window.ScriptRepoManager && window.ScriptRepoManager.repos) ? window.ScriptRepoManager.repos.length : 0;
                 const repoBtn = document.createElement('div');
-                repoBtn.style.cssText = 'flex:1; min-width:160px; padding:10px 12px; cursor:pointer; font-size:13px; color:#0f172a; display:flex; align-items:center; border:1px solid #cbd5e1; border-radius:8px; font-weight:600; justify-content:center; background:#f8fafc; transition:all 0.1s ease;';
-                repoBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/></svg> Repositories & Sync ${repoCount > 0 ? `<span style="margin-left:6px; background:#0f172a; color:#fff; border-radius:10px; font-size:10px; padding:1px 6px;">${repoCount}</span>` : ''}`;
+                repoBtn.className = 'tv-custom-action-btn tv-repo-btn-span';
+                repoBtn.style.cssText = 'color:#0f172a; border:1px solid #cbd5e1; background:#f8fafc;';
+                repoBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:5px;"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/></svg> Repositories & Sync ${repoCount > 0 ? `<span style="margin-left:5px; background:#0f172a; color:#fff; border-radius:10px; font-size:10px; padding:1px 5px;">${repoCount}</span>` : ''}`;
                 repoBtn.onmouseover = () => { repoBtn.style.background = '#0f172a'; repoBtn.style.color = '#fff'; };
                 repoBtn.onmouseout = () => { repoBtn.style.background = '#f8fafc'; repoBtn.style.color = '#0f172a'; };
                 repoBtn.onclick = () => openRepoManagerModal();
@@ -943,7 +1021,7 @@ function setupCustomIndicatorsDialog(widget) {
                 });
                 
                 const row = document.createElement('div');
-                row.style.cssText = 'padding:11px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; border-radius:8px; margin-bottom:4px; border:1px solid transparent; transition:background 0.1s;';
+                row.className = 'tv-script-row';
                 
                 // Star Icon
                 const star = document.createElement('div');
@@ -954,42 +1032,48 @@ function setupCustomIndicatorsDialog(widget) {
                 star.onclick = (e) => { e.stopPropagation(); toggleFavorite(item.name); };
                 row.appendChild(star);
                 
-                // Title and Badges
-                const titleSpan = document.createElement('span');
-                titleSpan.style.cssText = 'flex:1; display:flex; align-items:center; gap:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
-                
+                // Main Content (Title and Badges in responsive structure)
+                const mainContent = document.createElement('div');
+                mainContent.className = 'tv-script-main';
+
+                const titleWrap = document.createElement('div');
+                titleWrap.className = 'tv-script-title-wrap';
                 const nameLabel = document.createElement('span');
-                nameLabel.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+                nameLabel.className = 'tv-script-title';
                 nameLabel.textContent = item.displayName;
-                titleSpan.appendChild(nameLabel);
+                titleWrap.appendChild(nameLabel);
+                mainContent.appendChild(titleWrap);
+
+                const badgesWrap = document.createElement('div');
+                badgesWrap.className = 'tv-script-meta-wrap';
 
                 // Type Badge
                 const typeBadge = document.createElement('span');
                 typeBadge.className = 'tv-badge-pill ' + (item.isStrat ? 'tv-badge-type-strat' : 'tv-badge-type-ind');
                 typeBadge.textContent = item.isStrat ? 'Strategy' : 'Indicator';
-                titleSpan.appendChild(typeBadge);
+                badgesWrap.appendChild(typeBadge);
 
                 // Source Badge
                 if (item.sourceType === 'default') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-default';
                     srcBadge.textContent = 'Default';
-                    titleSpan.appendChild(srcBadge);
+                    badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'local') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-local';
                     srcBadge.textContent = item.name.includes('(Local Copy)') ? 'Local Copy' : 'Local';
-                    titleSpan.appendChild(srcBadge);
+                    badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'github') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-github';
-                    srcBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style="margin-right:2px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub: ${item.repoName || ''}`;
-                    titleSpan.appendChild(srcBadge);
+                    srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:2px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub: ${item.repoName || ''}`;
+                    badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'huggingface') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-hf';
                     srcBadge.textContent = `🤗 HF: ${item.repoName || ''}`;
-                    titleSpan.appendChild(srcBadge);
+                    badgesWrap.appendChild(srcBadge);
                 }
 
                 // Active Badge
@@ -997,14 +1081,15 @@ function setupCustomIndicatorsDialog(widget) {
                     const activeBadge = document.createElement('span');
                     activeBadge.className = 'tv-badge-pill tv-badge-active';
                     activeBadge.textContent = 'Active';
-                    titleSpan.appendChild(activeBadge);
+                    badgesWrap.appendChild(activeBadge);
                 }
 
-                row.appendChild(titleSpan);
+                mainContent.appendChild(badgesWrap);
+                row.appendChild(mainContent);
                 
                 // Action Buttons
                 const actions = document.createElement('div');
-                actions.style.cssText = 'display:flex; gap:6px; align-items:center;';
+                actions.className = 'tv-script-actions';
 
                 if (item.isLocal) {
                     const editBtn = document.createElement('div');
@@ -1420,7 +1505,7 @@ function setupCustomIndicatorsDialog(widget) {
                             </div>
                         </div>
                     </div>
-                    <div style="display:flex; gap:6px; align-items:center;">
+                    <div class="tv-repo-card-actions" style="display:flex; gap:6px; align-items:center;">
                         <button class="tv-repo-sync-btn" title="Sync this repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; font-weight:600; color:#1e293b; display:flex; align-items:center; gap:4px;">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                             <span>Sync</span>
@@ -1491,7 +1576,7 @@ function setupCustomIndicatorsDialog(widget) {
                             <input id="tv-form-repo-url" type="text" value="${existingRepo ? existingRepo.url : ''}" placeholder="e.g. https://github.com/owner/repo or huggingface.co/datasets/owner/repo" style="width:100%; padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box; outline:none;" />
                             <div id="tv-form-repo-detected" style="font-size:11.5px; color:#2962FF; margin-top:3px; font-weight:600; min-height:16px;"></div>
                         </div>
-                        <div style="display:flex; gap:12px;">
+                        <div class="tv-form-row-2col" style="display:flex; gap:12px;">
                             <div style="flex:1;">
                                 <label style="font-size:12px; font-weight:600; color:#475569; display:block; margin-bottom:4px;">
                                     Branch
@@ -1676,7 +1761,7 @@ function setupCustomIndicatorsDialog(widget) {
                             </div>
                         </div>
                     </div>
-                    <div style="display:flex; gap:6px; align-items:center;">
+                    <div class="tv-repo-card-actions" style="display:flex; gap:6px; align-items:center;">
                         <button class="tv-token-edit-btn" title="Edit token" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#64748b;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </button>
@@ -1717,7 +1802,7 @@ function setupCustomIndicatorsDialog(widget) {
                         ${isEdit ? 'Edit Access Token' : 'Add Access Token'}
                     </div>
                     <div style="display:flex; flex-direction:column; gap:12px;">
-                        <div style="display:flex; gap:12px;">
+                        <div class="tv-form-row-2col" style="display:flex; gap:12px;">
                             <div style="flex:2;">
                                 <label style="font-size:12px; font-weight:600; color:#475569; display:block; margin-bottom:4px;">
                                     Token Label / Name *
