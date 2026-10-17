@@ -902,6 +902,8 @@
                 } else {
                     this.container.classList.remove('collapsed');
                 }
+                this.updateChartLayout();
+                setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             };
 
             // Range presets
@@ -943,6 +945,36 @@
             };
         }
 
+        updateChartLayout(overrideHeight = null) {
+            const chartContainer = document.getElementById('tv_chart_container');
+            if (!chartContainer) return;
+
+            // In popup (detached) mode, or when hidden, or destroyed:
+            // "while in popup mode do as doing now"
+            if (this.isDetached || this.container.style.display === 'none') {
+                chartContainer.style.bottom = '0px';
+                chartContainer.style.height = '100%';
+                return;
+            }
+
+            if (this.isFullscreen) {
+                chartContainer.style.bottom = '0px';
+                chartContainer.style.height = '0px';
+                return;
+            }
+
+            if (this.isCollapsed) {
+                chartContainer.style.bottom = '42px';
+                chartContainer.style.height = 'calc(100% - 42px)';
+                return;
+            }
+
+            // In docked panel mode: chart shrinks and fits the area left by the panel!
+            const panelHeight = overrideHeight !== null ? overrideHeight : (this.height || 320);
+            chartContainer.style.bottom = `${panelHeight}px`;
+            chartContainer.style.height = `calc(100% - ${panelHeight}px)`;
+        }
+
         toggleDetach() {
             this.isDetached = !this.isDetached;
             if (this.isFullscreen) {
@@ -981,6 +1013,8 @@
                 this.container.style.bottom = '0';
                 this.container.style.transform = '';
             }
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
         toggleMaximize() {
@@ -1006,6 +1040,8 @@
                 }
             }
             this.updateMaximizeIcon();
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
         updateMaximizeIcon() {
@@ -1061,6 +1097,7 @@
                 if (newHeight >= minH && newHeight <= maxH) {
                     this.height = newHeight;
                     this.container.style.height = `${newHeight}px`;
+                    this.updateChartLayout(newHeight);
                 }
             });
 
@@ -1073,6 +1110,8 @@
                 document.body.classList.remove('st-resizing', 'st-resizing-ns');
                 resizer.classList.remove('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
+                this.updateChartLayout();
+                window.dispatchEvent(new Event('resize'));
             };
 
             resizer.addEventListener('pointerup', stopDrag);
@@ -1339,6 +1378,8 @@
             this.container.style.display = 'none';
             this.launcherPill.style.display = 'none';
             this.currentData = null;
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             if (window.StrategyEngine) {
                 window.StrategyEngine.clearTradeShapesOnChart();
                 window.StrategyEngine.activeStrategyName = null;
@@ -1350,11 +1391,15 @@
         show() {
             this.container.style.display = 'flex';
             this.launcherPill.style.display = 'none';
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             if (this.currentData) this.renderActiveTab();
         }
 
         hide() {
             this.container.style.display = 'none';
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             if (this.currentData) {
                 this.launcherPill.style.display = 'flex';
                 const pnl = this.currentData.summary.netProfit;
@@ -2082,6 +2127,17 @@
                 try {
                     const chart = window.tvWidget.activeChart();
                     if (chart) {
+                        // 1. Remember the exact current chart state / viewport
+                        let savedViewport = null;
+                        try {
+                            if (typeof chart.getVisibleRange === 'function') {
+                                const vr = chart.getVisibleRange();
+                                if (vr && vr.from && vr.to) {
+                                    savedViewport = { from: vr.from, to: vr.to };
+                                }
+                            }
+                        } catch (_) {}
+
                         let currentRes = chart.resolution();
                         const resSec = window.StrategyEngine ? window.StrategyEngine.getResolutionInSeconds(currentRes) : 3600;
 
@@ -2094,25 +2150,32 @@
 
                         const windowSpan = Math.max(resSec * 60, 86400 * 2);
 
-                        // Scroll back chart to start range
+                        let restored = false;
+                        const restoreViewportAndFinalize = () => {
+                            if (restored) return;
+                            restored = true;
+                            try {
+                                window.StrategyEngine.calculateAndEmit(ctx);
+                                // Restore the user's viewport exactly like it was before
+                                if (savedViewport && typeof chart.setVisibleRange === 'function') {
+                                    chart.setVisibleRange(savedViewport, () => {});
+                                }
+                            } catch (e) {
+                                console.warn("[StrategyTesterUI] Failed to restore viewport:", e);
+                            }
+                        };
+
+                        // 2. Scroll back chart to start range to load historical bars
                         chart.setVisibleRange({
                             from: startSec,
                             to: startSec + windowSpan
                         }, () => {
-                            // Wait for TradingView to pull bars & PineJS to process them, then re-calculate
-                            setTimeout(() => {
-                                const updatedRes = window.StrategyEngine.calculateAndEmit(ctx);
-                                const trades = (updatedRes && updatedRes.executedTrades) || [];
-                                const firstTradeTime = trades.length > 0 ? trades[0].time : (startMs > 0 ? startMs : null);
-                                if (firstTradeTime) {
-                                    this.jumpToCandle(firstTradeTime, {
-                                        label: 'Strategy Start / First Trade',
-                                        action: trades[0] ? trades[0].action : 'BUY',
-                                        price: trades[0] ? trades[0].price : null
-                                    });
-                                }
-                            }, 1000);
+                            // 3. After TradingView fetches bars & PineJS processes them, recalculate & restore viewport
+                            setTimeout(restoreViewportAndFinalize, 900);
                         });
+
+                        // Fallback in case setVisibleRange callback is throttled or delayed
+                        setTimeout(restoreViewportAndFinalize, 2200);
                     }
                 } catch (e) {
                     console.warn("[StrategyTesterUI] Failed to scroll chart for historical range:", e);

@@ -8,7 +8,8 @@
     <link rel="alternate icon" type="image/x-icon" href="favicon.ico">
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #tv_chart_container { width: 100%; height: 100dvh; position: fixed; top: 0; left: 0; bottom: 0; right: 0; }
+        #tv_chart_container { width: 100%; height: 100%; position: fixed; top: 0; left: 0; bottom: 0; right: 0; transition: bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1), height 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        body.st-resizing #tv_chart_container { transition: none !important; }
     </style>
     <!-- Load the lightly obfuscated core engine -->
     <script src="chart_engine/core.standalone.js"></script>
@@ -20,7 +21,7 @@
     <script src="custom_indicators.js?v=20261017b"></script>
     <script src="custom_indicators_ui.js?v=20261017f"></script>
     <script src="strategy_engine.js?v=20261017c"></script>
-    <script src="strategy_tester_ui.js?v=20261017e"></script>
+    <script src="strategy_tester_ui.js?v=20261017f"></script>
     
     <!-- Monaco Editor Loader -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs/loader.min.js"></script>
