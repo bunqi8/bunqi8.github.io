@@ -278,24 +278,37 @@
                 .st-body {
                     flex: 1;
                     overflow: auto;
-                    padding: 16px;
+                    padding: 14px 16px;
                     background: #ffffff;
+                    box-sizing: border-box;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
+                }
+
+                .st-overview-tab {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
+                    height: 100%;
                     box-sizing: border-box;
                 }
 
                 /* Metric Cards Grid */
                 .st-metrics-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-                    gap: 12px;
-                    margin-bottom: 16px;
+                    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+                    gap: 10px;
+                    margin-bottom: 12px;
+                    flex-shrink: 0;
                 }
 
                 .st-metric-card {
                     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
                     border: 1px solid #e2e8f0;
                     border-radius: 10px;
-                    padding: 12px 14px;
+                    padding: 10px 12px;
                     display: flex;
                     flex-direction: column;
                     gap: 4px;
@@ -311,7 +324,7 @@
                 }
 
                 .st-metric-value {
-                    font-size: 18px;
+                    font-size: 17px;
                     font-weight: 700;
                     color: #0f172a;
                     display: flex;
@@ -386,15 +399,77 @@
                     background: #ffffff;
                     border: 1px solid #e2e8f0;
                     border-radius: 10px;
-                    padding: 14px;
-                    margin-top: 12px;
+                    padding: 12px 14px;
+                    margin-top: 0;
                     box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+                    flex: 1;
+                    min-height: 180px;
+                    display: flex;
+                    flex-direction: column;
+                    box-sizing: border-box;
+                    overflow: hidden;
+                    position: relative;
                 }
 
-                .st-chart-svg {
+                .st-equity-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                    flex-shrink: 0;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #0f172a;
+                }
+
+                #st-equity-chart {
+                    flex: 1;
                     width: 100%;
-                    height: 150px;
-                    overflow: visible;
+                    min-height: 140px;
+                    position: relative;
+                    overflow: hidden;
+                }
+
+                .st-equity-tooltip {
+                    position: absolute;
+                    background: rgba(15, 23, 42, 0.94);
+                    color: #ffffff;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    font-size: 11px;
+                    pointer-events: none;
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+                    z-index: 10;
+                    display: none;
+                    line-height: 1.4;
+                    white-space: nowrap;
+                    backdrop-filter: blur(4px);
+                    transform: translate(-50%, 0);
+                    margin-top: 0;
+                    transition: opacity 0.1s ease;
+                }
+
+                /* Multi-strategy dropdown */
+                .st-strategy-select {
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #0f172a;
+                    background: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 6px;
+                    padding: 3px 24px 3px 8px;
+                    cursor: pointer;
+                    outline: none;
+                    max-width: 260px;
+                    appearance: none;
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                    background-repeat: no-repeat;
+                    background-position: right 6px center;
+                    transition: border-color 0.15s ease;
+                }
+                .st-strategy-select:hover {
+                    border-color: #2563eb;
                 }
 
                 /* Floating Launcher Pill */
@@ -436,7 +511,8 @@
                         <div class="st-title">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
                             <span id="st-strategy-name">Strategy Tester</span>
-                            <span class="st-badge">Strategy</span>
+                            <select id="st-strategy-select" class="st-strategy-select" style="display:none;" title="Select Active Strategy"></select>
+                            <span class="st-badge" id="st-strategy-badge">Strategy</span>
                         </div>
                         <div class="st-tabs">
                             <div class="st-tab active" data-tab="overview">Overview</div>
@@ -487,6 +563,21 @@
             window.addEventListener('strategy_performance_updated', (e) => {
                 this.updateData(e.detail);
             });
+
+            // Listen for strategy list updates (multi-strategy additions / deletions / selection)
+            window.addEventListener('strategy_list_updated', (e) => {
+                this.syncStrategySelector(e.detail);
+            });
+
+            const selectEl = document.getElementById('st-strategy-select');
+            if (selectEl) {
+                selectEl.addEventListener('change', (e) => {
+                    const val = e.target.value;
+                    if (window.StrategyEngine) {
+                        window.StrategyEngine.setActiveStrategy(val);
+                    }
+                });
+            }
 
             // Tab switching
             this.container.querySelectorAll('.st-tab').forEach(tab => {
@@ -757,6 +848,28 @@
             }, 800);
         }
 
+        syncStrategySelector(detail) {
+            const selectEl = document.getElementById('st-strategy-select');
+            const nameEl = document.getElementById('st-strategy-name');
+            const badgeEl = document.getElementById('st-strategy-badge');
+            if (!selectEl || !nameEl) return;
+
+            const strats = (detail && detail.strategies) || (window.StrategyEngine ? window.StrategyEngine.getActiveStrategyNames() : []);
+            const active = (detail && detail.activeStrategy) || (window.StrategyEngine ? window.StrategyEngine.activeStrategyName : '');
+
+            if (strats.length > 1) {
+                nameEl.style.display = 'none';
+                selectEl.style.display = 'inline-block';
+                selectEl.innerHTML = strats.map(s => `<option value="${s}" ${s === active ? 'selected' : ''}>${s}</option>`).join('');
+                if (badgeEl) badgeEl.textContent = `Active (${strats.length})`;
+            } else {
+                selectEl.style.display = 'none';
+                nameEl.style.display = 'inline';
+                nameEl.textContent = active || (strats[0] || 'Strategy Tester');
+                if (badgeEl) badgeEl.textContent = 'Strategy';
+            }
+        }
+
         checkStrategyPresence() {
             if (!window.tvWidget) return;
             try {
@@ -764,27 +877,59 @@
                 if (!chart) return;
                 const studies = chart.getAllStudies() || [];
 
-                const activeName = (window.StrategyEngine && window.StrategyEngine.activeStrategyName) || '';
-                if (!activeName) {
+                if (!window.StrategyEngine) return;
+                const instances = window.StrategyEngine.instances;
+                if (!instances || instances.size === 0) {
                     if (this.currentData || this.container.style.display !== 'none' || this.launcherPill.style.display !== 'none') {
                         this.destroyAll();
                     }
                     return;
                 }
 
-                const actLower = activeName.toLowerCase();
-                const hasMatchingStudy = studies.some(s => {
-                    const sName = (s.name || '').toLowerCase();
-                    return sName.includes(actLower) || actLower.includes(sName);
-                });
+                // Check which strategies are still present on the chart
+                const removed = [];
+                for (const stratName of instances.keys()) {
+                    const stratLower = stratName.toLowerCase();
+                    const exists = studies.some(s => {
+                        const sName = (s.name || '').toLowerCase();
+                        const sDesc = (s.description || '').toLowerCase();
+                        return sName === stratLower || sName.includes(stratLower) || stratLower.includes(sName) ||
+                               sDesc === stratLower || sDesc.includes(stratLower);
+                    });
+                    if (!exists) {
+                        removed.push(stratName);
+                    }
+                }
 
-                if (!hasMatchingStudy) {
-                    this.destroyAll();
+                if (removed.length > 0) {
+                    for (const r of removed) {
+                        instances.delete(r);
+                        if (window.StrategyEngine.resultsByStrategy) {
+                            window.StrategyEngine.resultsByStrategy.delete(r);
+                        }
+                    }
+
+                    if (instances.size === 0) {
+                        this.destroyAll();
+                        return;
+                    }
+
+                    // If the active strategy was removed, switch to another existing strategy
+                    if (removed.includes(window.StrategyEngine.activeStrategyName)) {
+                        const nextStrat = instances.keys().next().value;
+                        window.StrategyEngine.setActiveStrategy(nextStrat);
+                    } else {
+                        window.StrategyEngine.emitStrategyListUpdate();
+                    }
                 }
             } catch (_) {}
         }
 
         destroyAll() {
+            if (this._chartResizeObserver) {
+                this._chartResizeObserver.disconnect();
+                this._chartResizeObserver = null;
+            }
             this.container.style.display = 'none';
             this.launcherPill.style.display = 'none';
             this.currentData = null;
@@ -792,6 +937,7 @@
                 window.StrategyEngine.clearTradeShapesOnChart();
                 window.StrategyEngine.activeStrategyName = null;
                 window.StrategyEngine.lastResults = null;
+                window.StrategyEngine.emitStrategyListUpdate();
             }
         }
 
@@ -814,7 +960,12 @@
 
         updateData(data) {
             this.currentData = data;
-            document.getElementById('st-strategy-name').textContent = data.strategyName || 'Strategy Tester';
+            const nameEl = document.getElementById('st-strategy-name');
+            if (nameEl) nameEl.textContent = data.strategyName || 'Strategy Tester';
+            this.syncStrategySelector({
+                strategies: window.StrategyEngine ? window.StrategyEngine.getActiveStrategyNames() : [data.strategyName],
+                activeStrategy: data.strategyName
+            });
             this.show();
             this.renderActiveTab();
         }
@@ -847,101 +998,297 @@
             const isProfit = s.netProfit >= 0;
 
             body.innerHTML = `
-                <div class="st-metrics-grid">
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Net Profit</div>
-                        <div class="st-metric-value ${isProfit ? 'profit' : 'loss'}">
-                            ${this.formatCurrency(s.netProfit, true)}
-                            <span style="font-size:12px; font-weight:600; opacity:0.85;">(${s.netProfitPct >= 0 ? '+' : ''}${s.netProfitPct.toFixed(2)}%)</span>
+                <div class="st-overview-tab">
+                    <div class="st-metrics-grid">
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Net Profit</div>
+                            <div class="st-metric-value ${isProfit ? 'profit' : 'loss'}">
+                                ${this.formatCurrency(s.netProfit, true)}
+                                <span style="font-size:12px; font-weight:600; opacity:0.85;">(${s.netProfitPct >= 0 ? '+' : ''}${s.netProfitPct.toFixed(2)}%)</span>
+                            </div>
+                        </div>
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Profit Factor</div>
+                            <div class="st-metric-value">${s.profitFactor.toFixed(2)}</div>
+                        </div>
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Win Rate</div>
+                            <div class="st-metric-value">${s.winRate.toFixed(1)}% <span style="font-size:11px; font-weight:500; color:#64748b;">(${s.winningChains}/${s.totalChains})</span></div>
+                        </div>
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Total Trade Chains</div>
+                            <div class="st-metric-value">${s.totalChains}</div>
+                        </div>
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Max Drawdown</div>
+                            <div class="st-metric-value loss">${this.formatCurrency(s.maxDrawdownAbs)} <span style="font-size:12px; font-weight:600;">(${s.maxDrawdownPct.toFixed(2)}%)</span></div>
+                        </div>
+                        <div class="st-metric-card">
+                            <div class="st-metric-label">Sharpe Ratio</div>
+                            <div class="st-metric-value">${s.sharpeRatio}</div>
                         </div>
                     </div>
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Profit Factor</div>
-                        <div class="st-metric-value">${s.profitFactor.toFixed(2)}</div>
-                    </div>
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Win Rate</div>
-                        <div class="st-metric-value">${s.winRate.toFixed(1)}% <span style="font-size:11px; font-weight:500; color:#64748b;">(${s.winningChains}/${s.totalChains})</span></div>
-                    </div>
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Total Trade Chains</div>
-                        <div class="st-metric-value">${s.totalChains}</div>
-                    </div>
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Max Drawdown</div>
-                        <div class="st-metric-value loss">${this.formatCurrency(s.maxDrawdownAbs)} <span style="font-size:12px; font-weight:600;">(${s.maxDrawdownPct.toFixed(2)}%)</span></div>
-                    </div>
-                    <div class="st-metric-card">
-                        <div class="st-metric-label">Sharpe Ratio</div>
-                        <div class="st-metric-value">${s.sharpeRatio}</div>
-                    </div>
-                </div>
 
-                <div class="st-equity-container">
-                    <div style="font-size:12px; font-weight:700; color:#0f172a; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-                        <span>Equity Curve (Compounding Capital)</span>
-                        <span style="color:#64748b; font-weight:600; font-size:12px;">Ending Equity: <strong style="color:${isProfit ? '#089981' : '#f23645'};">${this.formatCurrency(s.endingEquity)}</strong></span>
+                    <div class="st-equity-container">
+                        <div class="st-equity-header">
+                            <span>Equity Curve (Compounding Capital)</span>
+                            <span style="color:#64748b; font-weight:600; font-size:12px;">Ending Equity: <strong style="color:${isProfit ? '#089981' : '#f23645'};">${this.formatCurrency(s.endingEquity)}</strong></span>
+                        </div>
+                        <div id="st-equity-chart">
+                            <canvas id="st-equity-canvas"></canvas>
+                            <div class="st-equity-tooltip" id="st-equity-tooltip"></div>
+                        </div>
                     </div>
-                    <div id="st-equity-chart">${this.renderEquitySVG(this.currentData.equitySeries, s.initialCapital)}</div>
                 </div>
             `;
+
+            const chartContainer = document.getElementById('st-equity-chart');
+            if (chartContainer) {
+                this.initEquityChart(chartContainer, this.currentData.equitySeries, s.initialCapital);
+            }
         }
 
-        renderEquitySVG(series, initialCapital = 100000) {
+        formatCurrencyCompact(num) {
+            if (num === null || num === undefined || isNaN(num)) return '₹0';
+            const val = Math.round(Number(num));
+            return `₹${val.toLocaleString('en-IN')}`;
+        }
+
+        initEquityChart(chartContainer, series, initialCapital = 100000) {
+            if (this._chartResizeObserver) {
+                this._chartResizeObserver.disconnect();
+                this._chartResizeObserver = null;
+            }
+
             if (!series || series.length < 2) {
-                return '<div style="color:#64748b; font-size:12px; padding:30px; text-align:center;">Not enough trades executed to plot equity curve.</div>';
+                chartContainer.innerHTML = '<div style="color:#64748b; font-size:12px; padding:40px; text-align:center;">Not enough trades executed to plot equity curve.</div>';
+                return;
             }
 
-            const width = 860;
-            const height = 150;
-            const padding = { top: 15, right: 30, bottom: 25, left: 60 };
+            const canvas = chartContainer.querySelector('#st-equity-canvas');
+            const tooltip = chartContainer.querySelector('#st-equity-tooltip');
+            if (!canvas || !tooltip) return;
 
-            const values = series.map(d => d.equity);
-            let min = Math.min(...values, initialCapital);
-            let max = Math.max(...values, initialCapital);
-            const range = max - min || 1;
-            min -= range * 0.05;
-            max += range * 0.05;
+            let hoveredIndex = null;
 
-            const getX = (i) => padding.left + (i / (series.length - 1)) * (width - padding.left - padding.right);
-            const getY = (val) => padding.top + (1 - (val - min) / (max - min)) * (height - padding.top - padding.bottom);
+            const drawChart = () => {
+                const rect = chartContainer.getBoundingClientRect();
+                const width = Math.max(200, Math.floor(rect.width || chartContainer.clientWidth || 800));
+                const height = Math.max(120, Math.floor(rect.height || chartContainer.clientHeight || 200));
+                const dpr = window.devicePixelRatio || 1;
 
-            let pathD = `M ${getX(0).toFixed(1)} ${getY(values[0]).toFixed(1)}`;
-            for (let i = 1; i < values.length; i++) {
-                pathD += ` L ${getX(i).toFixed(1)} ${getY(values[i]).toFixed(1)}`;
-            }
+                canvas.width = Math.floor(width * dpr);
+                canvas.height = Math.floor(height * dpr);
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
 
-            const bottomY = height - padding.bottom;
-            const areaD = `${pathD} L ${getX(values.length - 1).toFixed(1)} ${bottomY} L ${getX(0).toFixed(1)} ${bottomY} Z`;
+                const ctx = canvas.getContext('2d');
+                ctx.resetTransform && ctx.resetTransform();
+                ctx.scale(dpr, dpr);
 
-            const baselineY = getY(initialCapital);
-            const isProfit = series[series.length - 1].equity >= initialCapital;
-            const strokeColor = isProfit ? '#2563eb' : '#f43f5e';
-            const gradId = isProfit ? 'stEquityGradBlue' : 'stEquityGradRed';
+                const padLeft = 82;
+                const padRight = 20;
+                const padTop = 16;
+                const padBottom = 26;
+                const plotW = Math.max(10, width - padLeft - padRight);
+                const plotH = Math.max(10, height - padTop - padBottom);
 
-            return `
-                <svg class="st-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-                    <defs>
-                        <linearGradient id="stEquityGradBlue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.22"/>
-                            <stop offset="100%" stop-color="#2563eb" stop-opacity="0.0"/>
-                        </linearGradient>
-                        <linearGradient id="stEquityGradRed" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.22"/>
-                            <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0"/>
-                        </linearGradient>
-                    </defs>
-                    <!-- Baseline at Initial Capital -->
-                    <line x1="${padding.left}" y1="${baselineY.toFixed(1)}" x2="${width - padding.right}" y2="${baselineY.toFixed(1)}" stroke="#cbd5e1" stroke-dasharray="4" stroke-width="1.5" />
-                    <!-- Area & Curve -->
-                    <path d="${areaD}" fill="url(#${gradId})" />
-                    <path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-                    <!-- Labels -->
-                    <text x="${padding.left - 8}" y="${getY(max).toFixed(1) + 4}" font-size="10" font-weight="600" fill="#94a3b8" text-anchor="end">₹${Math.round(max).toLocaleString('en-IN')}</text>
-                    <text x="${padding.left - 8}" y="${baselineY.toFixed(1) + 4}" font-size="10" font-weight="600" fill="#64748b" text-anchor="end">₹${Math.round(initialCapital).toLocaleString('en-IN')}</text>
-                    <text x="${padding.left - 8}" y="${getY(min).toFixed(1) + 4}" font-size="10" font-weight="600" fill="#94a3b8" text-anchor="end">₹${Math.round(min).toLocaleString('en-IN')}</text>
-                </svg>
-            `;
+                const values = series.map(d => d.equity);
+                let min = Math.min(...values, initialCapital);
+                let max = Math.max(...values, initialCapital);
+                let range = max - min;
+                if (range <= 0) range = initialCapital * 0.02;
+
+                const plotMin = min - range * 0.08;
+                const plotMax = max + range * 0.08;
+                const plotRange = plotMax - plotMin;
+
+                const getX = (i) => padLeft + (i / Math.max(1, series.length - 1)) * plotW;
+                const getY = (val) => padTop + (1 - (val - plotMin) / plotRange) * plotH;
+
+                ctx.clearRect(0, 0, width, height);
+
+                // Gridlines & Y-Axis Labels
+                const gridSteps = 4;
+                const baselineY = getY(initialCapital);
+
+                ctx.lineWidth = 1;
+                ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.textAlign = 'right';
+
+                for (let g = 0; g <= gridSteps; g++) {
+                    const gridVal = plotMin + (g / gridSteps) * plotRange;
+                    const gridY = getY(gridVal);
+
+                    // Dashed grid line
+                    ctx.strokeStyle = '#f1f5f9';
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(padLeft, Math.round(gridY));
+                    ctx.lineTo(width - padRight, Math.round(gridY));
+                    ctx.stroke();
+
+                    // Y-axis label (only if not overlapping the baseline label)
+                    if (Math.abs(gridY - baselineY) > 16) {
+                        ctx.fillStyle = '#94a3b8';
+                        ctx.setLineDash([]);
+                        ctx.fillText(this.formatCurrencyCompact(gridVal), padLeft - 8, gridY + 3.5);
+                    }
+                }
+
+                // Reference Baseline (Initial Capital)
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 4]);
+                ctx.beginPath();
+                ctx.moveTo(padLeft, Math.round(baselineY));
+                ctx.lineTo(width - padRight, Math.round(baselineY));
+                ctx.stroke();
+
+                ctx.fillStyle = '#64748b';
+                ctx.font = '700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.setLineDash([]);
+                ctx.fillText(this.formatCurrencyCompact(initialCapital), padLeft - 8, baselineY + 3.5);
+
+                // Gradient Area under curve
+                const isProfit = series[series.length - 1].equity >= initialCapital;
+                const strokeColor = isProfit ? '#089981' : '#f23645';
+
+                const grad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+                grad.addColorStop(0, isProfit ? 'rgba(8, 153, 129, 0.22)' : 'rgba(242, 54, 69, 0.22)');
+                grad.addColorStop(1, isProfit ? 'rgba(8, 153, 129, 0.0)' : 'rgba(242, 54, 69, 0.0)');
+
+                ctx.beginPath();
+                ctx.moveTo(getX(0), getY(values[0]));
+                for (let i = 1; i < values.length; i++) {
+                    ctx.lineTo(getX(i), getY(values[i]));
+                }
+                ctx.lineTo(getX(values.length - 1), padTop + plotH);
+                ctx.lineTo(getX(0), padTop + plotH);
+                ctx.closePath();
+                ctx.fillStyle = grad;
+                ctx.fill();
+
+                // Equity Line
+                ctx.beginPath();
+                ctx.moveTo(getX(0), getY(values[0]));
+                for (let i = 1; i < values.length; i++) {
+                    ctx.lineTo(getX(i), getY(values[i]));
+                }
+                ctx.strokeStyle = strokeColor;
+                ctx.lineWidth = 2.2;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.stroke();
+
+                // X-axis Timeline Labels at bottom
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+                ctx.textAlign = 'left';
+                const startDt = new Date(series[0].time).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                ctx.fillText(startDt, padLeft, height - 6);
+
+                ctx.textAlign = 'right';
+                const endDt = new Date(series[series.length - 1].time).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                ctx.fillText(endDt, width - padRight, height - 6);
+
+                if (series.length >= 4) {
+                    ctx.textAlign = 'center';
+                    const midIdx = Math.floor(series.length / 2);
+                    const midDt = new Date(series[midIdx].time).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                    ctx.fillText(midDt, (padLeft + width - padRight) / 2, height - 6);
+                }
+
+                // Interactive Crosshair & Point Highlight
+                if (hoveredIndex !== null && hoveredIndex >= 0 && hoveredIndex < series.length) {
+                    const hX = getX(hoveredIndex);
+                    const hY = getY(values[hoveredIndex]);
+
+                    // Vertical guide
+                    ctx.strokeStyle = 'rgba(100, 116, 139, 0.45)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([3, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(hX, padTop);
+                    ctx.lineTo(hX, padTop + plotH);
+                    ctx.stroke();
+
+                    // Glow outer circle
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = isProfit ? 'rgba(8, 153, 129, 0.25)' : 'rgba(242, 54, 69, 0.25)';
+                    ctx.beginPath();
+                    ctx.arc(hX, hY, 7, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Core point circle
+                    ctx.fillStyle = strokeColor;
+                    ctx.beginPath();
+                    ctx.arc(hX, hY, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(hX, hY, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            };
+
+            // Pointer events for interactive hover
+            canvas.onpointermove = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const width = rect.width;
+                const padLeft = 82;
+                const padRight = 20;
+                const plotW = width - padLeft - padRight;
+
+                if (mouseX < padLeft || mouseX > width - padRight) {
+                    hoveredIndex = null;
+                    tooltip.style.display = 'none';
+                    drawChart();
+                    return;
+                }
+
+                const ratio = (mouseX - padLeft) / plotW;
+                hoveredIndex = Math.min(series.length - 1, Math.max(0, Math.round(ratio * (series.length - 1))));
+                const pt = series[hoveredIndex];
+
+                drawChart();
+
+                const pnl = pt.equity - initialCapital;
+                const pnlPct = (pnl / initialCapital) * 100;
+                const dateStr = new Date(pt.time).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+
+                tooltip.innerHTML = `
+                    <div style="font-weight:700; color:#cbd5e1; margin-bottom:3px; font-size:10px;">${pt.chainId ? `Trade Chain #${pt.chainId}` : `Step #${hoveredIndex}`} &bull; ${dateStr}</div>
+                    <div style="font-size:13px; font-weight:700; color:#ffffff;">${this.formatCurrency(pt.equity)}</div>
+                    <div style="color:${pnl >= 0 ? '#34d399' : '#f87171'}; font-weight:600; font-size:11px;">
+                        PnL: ${pnl >= 0 ? '+' : ''}${this.formatCurrency(pnl)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)
+                    </div>
+                    ${pt.drawdown ? `<div style="color:#94a3b8; font-size:10px;">Drawdown: ${this.formatCurrency(pt.drawdown)} (${pt.drawdownPct.toFixed(2)}%)</div>` : ''}
+                `;
+
+                const ptX = padLeft + (hoveredIndex / Math.max(1, series.length - 1)) * plotW;
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${Math.min(width - 100, Math.max(100, ptX))}px`;
+                tooltip.style.top = `24px`;
+            };
+
+            canvas.onpointerleave = () => {
+                hoveredIndex = null;
+                tooltip.style.display = 'none';
+                drawChart();
+            };
+
+            // ResizeObserver to automatically resize and redraw on any dimension change
+            this._chartResizeObserver = new ResizeObserver(() => {
+                drawChart();
+            });
+            this._chartResizeObserver.observe(chartContainer);
+
+            // Initial render
+            drawChart();
         }
 
         renderPerformance(body) {

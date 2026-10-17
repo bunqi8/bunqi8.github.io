@@ -423,6 +423,28 @@ function setupCustomIndicatorsDialog(widget) {
         modalOverlay.appendChild(modal);
         document.body.appendChild(modalOverlay);
         
+        function showToast(message) {
+            let toast = document.getElementById('tv-custom-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'tv-custom-toast';
+                toast.style.cssText = 'position:fixed; top:24px; left:50%; transform:translateX(-50%) translateY(-20px); background:#0f172a; color:#ffffff; padding:10px 20px; border-radius:8px; font-size:13px; font-weight:600; box-shadow:0 10px 25px rgba(0,0,0,0.25); z-index:100000; display:flex; align-items:center; gap:10px; opacity:0; transition:all 0.25s cubic-bezier(0.16, 1, 0.3, 1); pointer-events:none; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; border:1px solid rgba(255,255,255,0.12);';
+                document.body.appendChild(toast);
+            }
+            toast.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span>${message}</span>
+            `;
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+            
+            if (window._tvToastTimeout) clearTimeout(window._tvToastTimeout);
+            window._tvToastTimeout = setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(-50%) translateY(-20px)';
+            }, 2800);
+        }
+
         let allStudies = [];
         let activeTab = 'custom';
         let isEditing = false;
@@ -615,6 +637,15 @@ function setupCustomIndicatorsDialog(widget) {
                 listContainer.appendChild(btnContainer);
             }
             
+            // Fetch currently applied studies to prevent duplicate strategy instances
+            let currentStudies = [];
+            try {
+                const chart = widget.chart();
+                if (chart && chart.getAllStudies) {
+                    currentStudies = chart.getAllStudies() || [];
+                }
+            } catch (_) {}
+
             // Fragment for faster DOM injection
             const fragment = document.createDocumentFragment();
             
@@ -624,6 +655,14 @@ function setupCustomIndicatorsDialog(widget) {
                 const code = stored[study] || "";
                 const isStrat = study.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                 const displayName = (study === "SuperTrend Custom") ? "SuperTrend" : study;
+                const studyLower = study.toLowerCase();
+
+                const isAlreadyOnChart = isStrat && currentStudies.some(s => {
+                    const sName = (s.name || '').toLowerCase();
+                    const sDesc = (s.description || '').toLowerCase();
+                    return sName === studyLower || sName.includes(studyLower) || studyLower.includes(sName) ||
+                           sDesc === studyLower || sDesc.includes(studyLower);
+                });
                 
                 const item = document.createElement('div');
                 item.style.cssText = 'padding:12px 16px; cursor:pointer; font-size:14px; color:#131722; font-weight:500; display:flex; align-items:center; border-radius:8px; margin-bottom:4px; border:1px solid transparent;';
@@ -648,6 +687,14 @@ function setupCustomIndicatorsDialog(widget) {
                     : 'font-size:10px; font-weight:600; background:#f0f3fa; color:#787b86; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.3px;';
                 badge.textContent = isStrat ? 'Strategy' : 'Indicator';
                 titleSpan.appendChild(badge);
+
+                if (isAlreadyOnChart) {
+                    const activeBadge = document.createElement('span');
+                    activeBadge.style.cssText = 'font-size:10px; font-weight:700; background:rgba(8, 153, 129, 0.12); color:#089981; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:0.3px;';
+                    activeBadge.textContent = 'Active';
+                    titleSpan.appendChild(activeBadge);
+                }
+
                 item.appendChild(titleSpan);
                 
                 if (isLocal) {
@@ -687,6 +734,34 @@ function setupCustomIndicatorsDialog(widget) {
                 item.onmouseover = () => { item.style.background = '#f8fafe'; item.style.borderColor = '#e0e3eb'; };
                 item.onmouseout = () => { item.style.background = 'transparent'; item.style.borderColor = 'transparent'; };
                 item.onclick = () => {
+                    // Block adding the exact same strategy multiple times
+                    if (isStrat) {
+                        let alreadyAdded = false;
+                        try {
+                            const chart = widget.chart();
+                            const existing = (chart && chart.getAllStudies) ? (chart.getAllStudies() || []) : [];
+                            const key = study.toLowerCase();
+                            alreadyAdded = existing.some(s => {
+                                const sName = (s.name || '').toLowerCase();
+                                const sDesc = (s.description || '').toLowerCase();
+                                return sName === key || sName.includes(key) || key.includes(sName) ||
+                                       sDesc === key || sDesc.includes(key);
+                            });
+                        } catch (_) {}
+
+                        if (alreadyAdded) {
+                            showToast(`Strategy "${displayName}" is already active on the chart.`);
+                            if (window.StrategyEngine) {
+                                window.StrategyEngine.setActiveStrategy(study);
+                            }
+                            if (window.StrategyTesterUI) {
+                                window.StrategyTesterUI.show();
+                            }
+                            closeModal();
+                            return;
+                        }
+                    }
+
                     widget.chart().createStudy(study, false, false);
                     if (isStrat && window.StrategyTesterUI) {
                         window.StrategyTesterUI.show();

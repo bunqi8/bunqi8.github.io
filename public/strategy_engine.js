@@ -166,6 +166,7 @@
 
     const StrategyEngine = {
         instances: new Map(),
+        resultsByStrategy: new Map(),
         activeStrategyName: null,
         lastResults: null,
 
@@ -173,12 +174,39 @@
             if (!this.instances.has(strategyName)) {
                 this.instances.set(strategyName, new StrategyContext(strategyName, config));
             }
-            this.activeStrategyName = strategyName;
+            if (!this.activeStrategyName || !this.instances.has(this.activeStrategyName)) {
+                this.activeStrategyName = strategyName;
+            }
             return this.instances.get(strategyName);
         },
 
         getContext(strategyName) {
             return this.instances.get(strategyName);
+        },
+
+        setActiveStrategy(strategyName) {
+            if (!strategyName) return;
+            this.activeStrategyName = strategyName;
+            const res = this.resultsByStrategy.get(strategyName);
+            if (res) {
+                this.lastResults = res;
+                this.renderTradeShapesOnChart(res.executedTrades);
+                window.dispatchEvent(new CustomEvent('strategy_performance_updated', { detail: res }));
+            }
+            this.emitStrategyListUpdate();
+        },
+
+        getActiveStrategyNames() {
+            return Array.from(this.instances.keys());
+        },
+
+        emitStrategyListUpdate() {
+            window.dispatchEvent(new CustomEvent('strategy_list_updated', {
+                detail: {
+                    strategies: this.getActiveStrategyNames(),
+                    activeStrategy: this.activeStrategyName
+                }
+            }));
         },
 
         isStrategyScript(code) {
@@ -453,13 +481,17 @@
                 executedTrades
             };
 
-            this.lastResults = results;
+            this.resultsByStrategy.set(context.strategyName, results);
 
-            // Render execution arrows & trade labels (B: id @ price Q: qty) on chart
-            this.renderTradeShapesOnChart(executedTrades);
+            // If this is the active strategy or no strategy is active, update chart & UI
+            if (!this.activeStrategyName || this.activeStrategyName === context.strategyName || !this.instances.has(this.activeStrategyName)) {
+                this.activeStrategyName = context.strategyName;
+                this.lastResults = results;
+                this.renderTradeShapesOnChart(executedTrades);
+                window.dispatchEvent(new CustomEvent('strategy_performance_updated', { detail: results }));
+            }
 
-            // Dispatch global event for Strategy Tester UI
-            window.dispatchEvent(new CustomEvent('strategy_performance_updated', { detail: results }));
+            this.emitStrategyListUpdate();
             return results;
         },
 
@@ -652,9 +684,11 @@
 
         clearAll() {
             this.instances.clear();
+            this.resultsByStrategy.clear();
             this.activeStrategyName = null;
             this.lastResults = null;
             this.clearTradeShapesOnChart();
+            this.emitStrategyListUpdate();
         }
     };
 
