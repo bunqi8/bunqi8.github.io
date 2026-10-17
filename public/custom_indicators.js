@@ -1,3 +1,10 @@
+window.isStrategyScript = function(code) {
+    if (!code || typeof code !== 'string') return false;
+    const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
+    const hasSell = /this\.strategy\.sell|strategy\.sell|action\s*:\s*['"]SELL['"]/i.test(code);
+    return hasBuy && hasSell;
+};
+
 window.getCustomIndicators = function (PineJS) {
     return new Promise((resolve, reject) => {
         let hardcodedIndicators = [
@@ -443,6 +450,9 @@ window.getCustomIndicators = function (PineJS) {
                     if (indicatorObj && indicatorObj.name) {
                         indicatorObj._sourceType = 'local';
                         indicatorObj._isLocal = true;
+                        const isStrat = key.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
+                        indicatorObj.isStrategy = isStrat;
+                        indicatorObj._isStrat = isStrat;
                         localIndicators.push(indicatorObj);
                     }
                 } catch (e) {
@@ -465,13 +475,31 @@ window.getCustomIndicators = function (PineJS) {
         hardcodedIndicators.forEach(ind => {
             ind._sourceType = 'default';
             ind._isDefault = true;
+            if (ind.name === "SuperTrend Strategy (Trade Chains)") {
+                ind.isStrategy = true;
+                ind._isStrat = true;
+            } else {
+                ind.isStrategy = false;
+                ind._isStrat = false;
+            }
         });
 
         const allList = [...hardcodedIndicators, ...localIndicators, ...remoteIndicators];
         
-        // Wrap all indicators with StrategyEngine context
+        // Wrap ONLY true strategies with StrategyEngine context (leave normal indicators untouched!)
         allList.forEach(ind => {
             if (!ind || !ind.constructor) return;
+            const fnStr = ind.constructor.toString();
+            const isStrat = ind.isStrategy === true ||
+                            ind._isStrat === true ||
+                            (ind.name && ind.name.toLowerCase().includes('strategy')) ||
+                            (window.isStrategyScript && window.isStrategyScript(fnStr));
+
+            if (!isStrat) {
+                // NORMAL INDICATOR: Keep original constructor untouched! Do not register into StrategyEngine!
+                return;
+            }
+
             const origConstructor = ind.constructor;
             ind.constructor = function() {
                 const instance = new origConstructor();
@@ -512,12 +540,5 @@ window.getCustomIndicators = function (PineJS) {
 
         resolve(allList);
     });
-};
-
-window.isStrategyScript = function(code) {
-    if (!code || typeof code !== 'string') return false;
-    const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
-    const hasSell = /this\.strategy\.sell|strategy\.sell|action\s*:\s*['"]SELL['"]/i.test(code);
-    return hasBuy && hasSell;
 };
 

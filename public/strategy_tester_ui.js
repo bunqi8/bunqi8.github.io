@@ -83,6 +83,8 @@
                 body.st-resizing, body.st-resizing * {
                     user-select: none !important;
                     -webkit-user-select: none !important;
+                    -webkit-touch-callout: none !important;
+                    touch-action: none !important;
                 }
                 body.st-resizing-ns {
                     cursor: ns-resize !important;
@@ -102,12 +104,11 @@
                     border: 1px solid #d1d4dc;
                     border-radius: 10px;
                     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
-                    min-width: 280px;
-                    min-height: 260px;
+                    min-width: 260px;
+                    min-height: 180px;
                     max-width: 98vw;
                     max-height: 98vh;
                     overflow: hidden;
-                    resize: both;
                 }
 
                 /* Fullscreen / Maximized Mode */
@@ -135,15 +136,28 @@
 
                 /* Drag Resizer Bar (Docked mode) */
                 .st-resizer {
-                    height: 6px;
+                    height: 8px;
                     background: transparent;
                     cursor: ns-resize;
                     width: 100%;
                     position: absolute;
-                    top: 0;
+                    top: -4px;
                     left: 0;
-                    z-index: 25;
+                    z-index: 35;
                     transition: background 0.15s ease;
+                    touch-action: none !important;
+                    user-select: none !important;
+                    -webkit-user-select: none !important;
+                    -webkit-touch-callout: none !important;
+                }
+                .st-resizer::before {
+                    content: '';
+                    position: absolute;
+                    top: -10px;
+                    bottom: -10px;
+                    left: 0;
+                    right: 0;
+                    touch-action: none;
                 }
                 .st-resizer:hover, .st-resizer.active {
                     background: #2962FF;
@@ -157,21 +171,34 @@
                 .st-popup-resizer {
                     display: none;
                     position: absolute;
-                    right: 2px;
-                    bottom: 2px;
-                    width: 16px;
-                    height: 16px;
+                    right: 0;
+                    bottom: 0;
+                    width: 24px;
+                    height: 24px;
                     cursor: nwse-resize;
-                    z-index: 30;
-                    background: linear-gradient(135deg, transparent 0%, transparent 50%, #94a3b8 50%, #94a3b8 100%);
-                    opacity: 0.6;
+                    z-index: 50;
+                    background: linear-gradient(135deg, transparent 0%, transparent 45%, #94a3b8 45%, #94a3b8 60%, transparent 60%, transparent 75%, #64748b 75%, #64748b 100%);
+                    opacity: 0.7;
                     transition: opacity 0.2s;
+                    touch-action: none !important;
+                    user-select: none !important;
+                    -webkit-user-select: none !important;
+                    -webkit-touch-callout: none !important;
                 }
-                .st-popup-resizer:hover {
+                .st-popup-resizer::before {
+                    content: '';
+                    position: absolute;
+                    top: -12px;
+                    left: -12px;
+                    right: 0;
+                    bottom: 0;
+                    touch-action: none;
+                }
+                .st-popup-resizer:hover, .st-popup-resizer.active {
                     opacity: 1;
                 }
                 #strategy-tester-panel.detached:not(.fullscreen) .st-popup-resizer {
-                    display: block;
+                    display: block !important;
                 }
 
                 /* Header */
@@ -184,8 +211,10 @@
                     background: #f8fafc;
                     border-bottom: 1px solid #e2e8f0;
                     user-select: none;
+                    -webkit-user-select: none;
                     flex-shrink: 0;
                     box-sizing: border-box;
+                    touch-action: none;
                 }
                 #strategy-tester-panel.detached:not(.fullscreen) .st-header {
                     cursor: move;
@@ -500,17 +529,22 @@
                 /* Mobile & Small Screen Responsive Optimization */
                 @media (max-width: 768px) {
                     #strategy-tester-panel.detached {
-                        min-width: 0 !important;
-                        width: 100vw !important;
-                        height: 100% !important;
-                        max-width: 100vw !important;
-                        max-height: 100% !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                        right: 0 !important;
-                        bottom: 0 !important;
-                        border-radius: 0 !important;
-                        border: none !important;
+                        min-width: 260px !important;
+                        min-height: 180px !important;
+                        max-width: 98vw !important;
+                        max-height: 95vh !important;
+                        border-radius: 8px !important;
+                        box-shadow: 0 10px 36px rgba(0, 0, 0, 0.3) !important;
+                    }
+                    .st-popup-resizer {
+                        width: 28px !important;
+                        height: 28px !important;
+                        touch-action: none !important;
+                    }
+                    .st-resizer {
+                        height: 10px !important;
+                        top: -5px !important;
+                        touch-action: none !important;
                     }
                     .st-header {
                         padding: 0 8px !important;
@@ -708,12 +742,11 @@
 
             if (this.isDetached) {
                 this.container.classList.add('detached');
-                // Calculate centered position
                 const isMobile = window.innerWidth <= 768;
-                const width = isMobile ? window.innerWidth : Math.min(880, window.innerWidth * 0.92);
-                const height = isMobile ? window.innerHeight : Math.min(540, window.innerHeight * 0.85);
-                const top = isMobile ? 0 : Math.max(20, Math.floor((window.innerHeight - height) / 2));
-                const left = isMobile ? 0 : Math.max(20, Math.floor((window.innerWidth - width) / 2));
+                const width = isMobile ? Math.min(window.innerWidth - 20, 360) : Math.min(880, window.innerWidth * 0.92);
+                const height = isMobile ? Math.min(window.innerHeight - 80, 420) : Math.min(540, window.innerHeight * 0.85);
+                const top = isMobile ? 30 : Math.max(20, Math.floor((window.innerHeight - height) / 2));
+                const left = isMobile ? Math.max(10, Math.floor((window.innerWidth - width) / 2)) : Math.max(20, Math.floor((window.innerWidth - width) / 2));
 
                 this.popupWidth = width;
                 this.popupHeight = height;
@@ -750,8 +783,15 @@
                     this.container.style.height = `${this.popupHeight}px`;
                     this.container.style.top = `${this.popupTop}px`;
                     this.container.style.left = `${this.popupLeft}px`;
+                    this.container.style.right = 'auto';
+                    this.container.style.bottom = 'auto';
                 } else {
                     this.container.style.height = `${this.height}px`;
+                    this.container.style.width = '';
+                    this.container.style.top = '';
+                    this.container.style.left = '0';
+                    this.container.style.right = '0';
+                    this.container.style.bottom = '0';
                 }
             }
             this.updateMaximizeIcon();
@@ -774,10 +814,17 @@
             let isDragging = false;
             let startY, startHeight;
 
+            const clearSelection = () => {
+                if (window.getSelection) {
+                    try { window.getSelection().removeAllRanges(); } catch (_) {}
+                }
+            };
+
             resizer.addEventListener('pointerdown', (e) => {
                 if (this.isDetached || this.isCollapsed || this.isFullscreen) return;
                 e.preventDefault();
                 e.stopPropagation();
+                clearSelection();
 
                 try { resizer.setPointerCapture(e.pointerId); } catch (_) {}
                 isDragging = true;
@@ -787,16 +834,20 @@
                 document.body.classList.add('st-resizing', 'st-resizing-ns');
                 resizer.classList.add('active');
 
-                // Temporarily disable iframe pointer events so mouse doesn't get trapped in chart
+                // Temporarily disable iframe pointer events so touch/mouse doesn't get trapped in chart
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = 'none');
             });
 
             resizer.addEventListener('pointermove', (e) => {
                 if (!isDragging) return;
                 e.preventDefault();
+                clearSelection();
+
                 const delta = startY - e.clientY;
+                const minH = window.innerWidth <= 768 ? 120 : this.minHeight;
+                const maxH = window.innerHeight * 0.90;
                 let newHeight = startHeight + delta;
-                if (newHeight >= this.minHeight && newHeight <= this.maxHeight) {
+                if (newHeight >= minH && newHeight <= maxH) {
                     this.height = newHeight;
                     this.container.style.height = `${newHeight}px`;
                 }
@@ -805,7 +856,9 @@
             const stopDrag = (e) => {
                 if (!isDragging) return;
                 isDragging = false;
-                try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (e && e.pointerId) {
+                    try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+                }
                 document.body.classList.remove('st-resizing', 'st-resizing-ns');
                 resizer.classList.remove('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
@@ -813,11 +866,19 @@
 
             resizer.addEventListener('pointerup', stopDrag);
             resizer.addEventListener('pointercancel', stopDrag);
+            window.addEventListener('pointerup', stopDrag);
+            window.addEventListener('pointercancel', stopDrag);
         }
 
         bindPopupMoverAndResizer() {
             const header = document.getElementById('st-header');
             const popupResizer = document.getElementById('st-popup-resizer');
+
+            const clearSelection = () => {
+                if (window.getSelection) {
+                    try { window.getSelection().removeAllRanges(); } catch (_) {}
+                }
+            };
 
             // 1. Popup Drag to Move (Header)
             let isMoving = false;
@@ -825,13 +886,14 @@
 
             header.addEventListener('pointerdown', (e) => {
                 if (!this.isDetached || this.isFullscreen) return;
-                // Ignore if clicked on buttons or tabs
-                if (e.target.closest('.st-actions') || e.target.closest('.st-tab') || e.target.closest('input') || e.target.closest('button')) {
+                // Ignore if clicked on buttons, tabs, inputs, or selects
+                if (e.target.closest('.st-actions') || e.target.closest('.st-tabs') || e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
                     return;
                 }
 
                 e.preventDefault();
                 e.stopPropagation();
+                clearSelection();
 
                 try { header.setPointerCapture(e.pointerId); } catch (_) {}
                 isMoving = true;
@@ -847,14 +909,16 @@
             header.addEventListener('pointermove', (e) => {
                 if (!isMoving) return;
                 e.preventDefault();
+                clearSelection();
+
                 const deltaX = e.clientX - moveStartX;
                 const deltaY = e.clientY - moveStartY;
 
-                const maxX = window.innerWidth - this.container.offsetWidth - 10;
-                const maxY = window.innerHeight - this.container.offsetHeight - 10;
+                const maxX = Math.max(0, window.innerWidth - this.container.offsetWidth - 4);
+                const maxY = Math.max(0, window.innerHeight - this.container.offsetHeight - 4);
 
-                const newLeft = Math.max(10, Math.min(maxX, panelStartX + deltaX));
-                const newTop = Math.max(10, Math.min(maxY, panelStartY + deltaY));
+                const newLeft = Math.max(4, Math.min(maxX, panelStartX + deltaX));
+                const newTop = Math.max(4, Math.min(maxY, panelStartY + deltaY));
 
                 this.popupLeft = newLeft;
                 this.popupTop = newTop;
@@ -865,13 +929,17 @@
             const stopMove = (e) => {
                 if (!isMoving) return;
                 isMoving = false;
-                try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (e && e.pointerId) {
+                    try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+                }
                 document.body.classList.remove('st-resizing', 'st-moving-popup');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
             };
 
             header.addEventListener('pointerup', stopMove);
             header.addEventListener('pointercancel', stopMove);
+            window.addEventListener('pointerup', stopMove);
+            window.addEventListener('pointercancel', stopMove);
 
             // 2. Popup Corner Resizer
             let isCornerResizing = false;
@@ -881,6 +949,7 @@
                 if (!this.isDetached || this.isFullscreen) return;
                 e.preventDefault();
                 e.stopPropagation();
+                clearSelection();
 
                 try { popupResizer.setPointerCapture(e.pointerId); } catch (_) {}
                 isCornerResizing = true;
@@ -890,18 +959,25 @@
                 startH = this.container.offsetHeight;
 
                 document.body.classList.add('st-resizing', 'st-resizing-nwse');
+                popupResizer.classList.add('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = 'none');
             });
 
             popupResizer.addEventListener('pointermove', (e) => {
                 if (!isCornerResizing) return;
                 e.preventDefault();
+                clearSelection();
+
                 const deltaX = e.clientX - resizeStartX;
                 const deltaY = e.clientY - resizeStartY;
 
-                const minW = window.innerWidth <= 768 ? 280 : 480;
-                const newW = Math.max(minW, Math.min(window.innerWidth - this.container.offsetLeft - 10, startW + deltaX));
-                const newH = Math.max(200, Math.min(window.innerHeight - this.container.offsetTop - 10, startH + deltaY));
+                const minW = window.innerWidth <= 768 ? 260 : 380;
+                const minH = window.innerWidth <= 768 ? 160 : 200;
+                const maxW = Math.max(minW, window.innerWidth - this.container.offsetLeft - 4);
+                const maxH = Math.max(minH, window.innerHeight - this.container.offsetTop - 4);
+
+                const newW = Math.max(minW, Math.min(maxW, startW + deltaX));
+                const newH = Math.max(minH, Math.min(maxH, startH + deltaY));
 
                 this.popupWidth = newW;
                 this.popupHeight = newH;
@@ -912,16 +988,36 @@
             const stopCornerResize = (e) => {
                 if (!isCornerResizing) return;
                 isCornerResizing = false;
-                try { popupResizer.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (e && e.pointerId) {
+                    try { popupResizer.releasePointerCapture(e.pointerId); } catch (_) {}
+                }
                 document.body.classList.remove('st-resizing', 'st-resizing-nwse');
+                popupResizer.classList.remove('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
             };
 
             popupResizer.addEventListener('pointerup', stopCornerResize);
             popupResizer.addEventListener('pointercancel', stopCornerResize);
+            window.addEventListener('pointerup', stopCornerResize);
+            window.addEventListener('pointercancel', stopCornerResize);
         }
 
         startStrategyRemovalWatcher() {
+            this._chartReadyConfirmed = false;
+            this._emptyStudiesCount = 0;
+
+            const enableWatcher = () => {
+                setTimeout(() => {
+                    this._chartReadyConfirmed = true;
+                }, 3500);
+            };
+
+            if (window.tvWidget && typeof window.tvWidget.chartReady === 'function') {
+                window.tvWidget.chartReady().then(enableWatcher);
+            } else {
+                setTimeout(enableWatcher, 6000);
+            }
+
             // Heartbeat check every 800ms to verify if the strategy is still loaded on the chart
             setInterval(() => {
                 this.checkStrategyPresence();
@@ -951,6 +1047,8 @@
         }
 
         checkStrategyPresence() {
+            // Guard: don't perform destructive removal during boot / reload phase
+            if (!this._chartReadyConfirmed) return;
             if (!window.tvWidget) return;
             try {
                 const chart = window.tvWidget.activeChart();
@@ -966,13 +1064,23 @@
                     return;
                 }
 
+                // If studies array is empty, it could be a transient reload or resolution change
+                if (studies.length === 0 && instances.size > 0) {
+                    this._emptyStudiesCount = (this._emptyStudiesCount || 0) + 1;
+                    if (this._emptyStudiesCount < 4) {
+                        return;
+                    }
+                } else {
+                    this._emptyStudiesCount = 0;
+                }
+
                 // Check which strategies are still present on the chart
                 const removed = [];
                 for (const stratName of instances.keys()) {
-                    const stratLower = stratName.toLowerCase();
+                    const stratLower = stratName.trim().toLowerCase();
                     const exists = studies.some(s => {
-                        const sName = (s.name || '').toLowerCase();
-                        const sDesc = (s.description || '').toLowerCase();
+                        const sName = (s.name || '').trim().toLowerCase();
+                        const sDesc = (s.description || '').trim().toLowerCase();
                         return sName === stratLower || sName.includes(stratLower) || stratLower.includes(sName) ||
                                sDesc === stratLower || sDesc.includes(stratLower);
                     });
@@ -990,6 +1098,7 @@
                     }
 
                     if (instances.size === 0) {
+                        localStorage.removeItem('tv_active_strategy');
                         this.destroyAll();
                         return;
                     }
@@ -997,7 +1106,12 @@
                     // If the active strategy was removed, switch to another existing strategy
                     if (removed.includes(window.StrategyEngine.activeStrategyName)) {
                         const nextStrat = instances.keys().next().value;
-                        window.StrategyEngine.setActiveStrategy(nextStrat);
+                        if (nextStrat) {
+                            window.StrategyEngine.setActiveStrategy(nextStrat);
+                            localStorage.setItem('tv_active_strategy', nextStrat);
+                        } else {
+                            localStorage.removeItem('tv_active_strategy');
+                        }
                     } else {
                         window.StrategyEngine.emitStrategyListUpdate();
                     }
@@ -1033,8 +1147,10 @@
                 this.launcherPill.style.display = 'flex';
                 const pnl = this.currentData.summary.netProfit;
                 const pillPnl = document.getElementById('st-pill-pnl');
-                pillPnl.textContent = this.formatCurrency(pnl, true);
-                pillPnl.style.color = pnl >= 0 ? '#10b981' : '#f43f5e';
+                if (pillPnl) {
+                    pillPnl.textContent = this.formatCurrency(pnl, true);
+                    pillPnl.style.color = pnl >= 0 ? '#10b981' : '#f43f5e';
+                }
             }
         }
 
@@ -1046,7 +1162,17 @@
                 strategies: window.StrategyEngine ? window.StrategyEngine.getActiveStrategyNames() : [data.strategyName],
                 activeStrategy: data.strategyName
             });
-            this.show();
+            // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise show panel
+            if (this.launcherPill.style.display === 'flex' && this.container.style.display === 'none') {
+                const pnl = data.summary.netProfit;
+                const pillPnl = document.getElementById('st-pill-pnl');
+                if (pillPnl) {
+                    pillPnl.textContent = this.formatCurrency(pnl, true);
+                    pillPnl.style.color = pnl >= 0 ? '#10b981' : '#f43f5e';
+                }
+            } else {
+                this.show();
+            }
             this.renderActiveTab();
         }
 
