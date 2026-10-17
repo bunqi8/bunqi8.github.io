@@ -768,7 +768,7 @@ function setupCustomIndicatorsDialog(widget) {
             const defaultScripts = [
                 {
                     name: "SuperTrend Custom",
-                    displayName: "SuperTrend",
+                    displayName: "SuperTrend Custom",
                     isStrat: false,
                     sourceType: "default",
                     isDefault: true,
@@ -935,13 +935,11 @@ function setupCustomIndicatorsDialog(widget) {
             
             items.forEach(item => {
                 const isFav = favs.includes(item.name);
-                const itemLower = item.name.toLowerCase();
+                const targetName = (item.name || '').trim().toLowerCase();
 
                 const isAlreadyOnChart = currentStudies.some(s => {
-                    const sName = (s.name || '').toLowerCase();
-                    const sDesc = (s.description || '').toLowerCase();
-                    return sName === itemLower || sName.includes(itemLower) || itemLower.includes(sName) ||
-                           sDesc === itemLower || sDesc.includes(itemLower);
+                    const sName = (s.name || '').trim().toLowerCase();
+                    return sName === targetName;
                 });
                 
                 const row = document.createElement('div');
@@ -1080,12 +1078,10 @@ function setupCustomIndicatorsDialog(widget) {
                         try {
                             const chart = widget.chart();
                             const existing = (chart && chart.getAllStudies) ? (chart.getAllStudies() || []) : [];
-                            const key = item.name.toLowerCase();
+                            const targetName = (item.name || '').trim().toLowerCase();
                             alreadyAdded = existing.some(s => {
-                                const sName = (s.name || '').toLowerCase();
-                                const sDesc = (s.description || '').toLowerCase();
-                                return sName === key || sName.includes(key) || key.includes(sName) ||
-                                       sDesc === key || sDesc.includes(key);
+                                const sName = (s.name || '').trim().toLowerCase();
+                                return sName === targetName;
                             });
                         } catch (_) {}
 
