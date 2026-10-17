@@ -212,6 +212,28 @@
             }));
         },
 
+        getResolutionInSeconds(res) {
+            if (!res) return 86400;
+            const r = String(res).toUpperCase();
+            if (r.endsWith('S')) {
+                return Math.max(1, parseInt(r, 10));
+            }
+            if (r.endsWith('D')) {
+                const mult = parseInt(r, 10) || 1;
+                return mult * 86400;
+            }
+            if (r.endsWith('W')) {
+                const mult = parseInt(r, 10) || 1;
+                return mult * 7 * 86400;
+            }
+            if (r.endsWith('M')) {
+                const mult = parseInt(r, 10) || 1;
+                return mult * 30 * 86400;
+            }
+            const mins = parseInt(r, 10);
+            return isNaN(mins) ? 86400 : mins * 60;
+        },
+
         isStrategyScript(code) {
             if (!code || typeof code !== 'string') return false;
             // Check if code contains buy and sell operations
@@ -226,12 +248,52 @@
          */
         calculateAndEmit(context) {
             const config = context.config;
-            const rawTrades = context.rawTrades;
+            const allRawTrades = context.rawTrades;
             const initialCapital = Number(config.initialCapital) || 100000;
             const compounding = config.compounding !== false;
             const slippage = Number(config.slippage) || 0;
             const commissionType = config.commissionType || 'none';
             const commissionValue = Number(config.commissionValue) || 0;
+
+            // --- DATE RANGE RESOLUTION & FILTERING ---
+            let startMs = 0;
+            let endMs = Infinity;
+            const isLiveEnd = config.isLiveEnd !== false;
+
+            if (config.startDate && config.startDate !== 'max') {
+                const parsedStart = new Date(config.startDate).getTime();
+                if (!isNaN(parsedStart) && parsedStart > 0) startMs = parsedStart;
+            } else if (config.rangePreset === 'max' || config.startDate === 'max') {
+                startMs = 0;
+            } else {
+                // Default: 1 Year or 40,000 bars or max data (whichever covers more historical data / reaches further back)
+                let currentRes = '1D';
+                try {
+                    if (window.tvWidget && window.tvWidget.activeChart) {
+                        currentRes = window.tvWidget.activeChart().resolution();
+                    }
+                } catch (_) {}
+                const resSec = this.getResolutionInSeconds(currentRes);
+                const fortyKBarsAgo = Date.now() - (40000 * resSec * 1000);
+                const oneYearAgo = Date.now() - (365 * 24 * 3600 * 1000);
+                startMs = Math.min(oneYearAgo, fortyKBarsAgo);
+                if (allRawTrades.length > 0 && allRawTrades[0].time < startMs) {
+                    startMs = Math.min(startMs, allRawTrades[0].time);
+                }
+            }
+
+            if (!isLiveEnd && config.endDate) {
+                const parsedEnd = new Date(config.endDate).getTime();
+                if (!isNaN(parsedEnd) && parsedEnd > 0) {
+                    endMs = parsedEnd < 1e12 ? parsedEnd * 1000 : parsedEnd;
+                    if (typeof config.endDate === 'string' && config.endDate.length === 10) {
+                        endMs += (24 * 3600 * 1000) - 1;
+                    }
+                }
+            }
+
+            // Filter raw trades strictly within the configured date range
+            const rawTrades = allRawTrades.filter(t => t.time >= startMs && (isLiveEnd || t.time <= endMs));
 
             let currentEquity = initialCapital;
             let peakEquity = initialCapital;
@@ -446,6 +508,17 @@
             const results = {
                 strategyName: context.strategyName,
                 config,
+                dateRange: {
+                    startMs,
+                    endMs: isLiveEnd ? Date.now() : endMs,
+                    isLiveEnd,
+                    startDateStr: startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : (allRawTrades[0] ? new Date(allRawTrades[0].time).toISOString().split('T')[0] : 'Max'),
+                    endDateStr: isLiveEnd ? 'Live' : new Date(endMs).toISOString().split('T')[0],
+                    startDateFormatted: startMs > 0 ? new Date(startMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (allRawTrades[0] ? new Date(allRawTrades[0].time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Max Data'),
+                    endDateFormatted: isLiveEnd ? 'Now (Live 🟢)' : new Date(endMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    totalTradesInRange: rawTrades.length,
+                    totalTradesAllTime: allRawTrades.length
+                },
                 summary: {
                     initialCapital,
                     endingEquity: currentEquity,
