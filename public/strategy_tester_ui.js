@@ -364,7 +364,7 @@
                 .st-title-area {
                     display: flex;
                     align-items: center;
-                    gap: 10px;
+                    gap: 12px;
                     min-width: 0;
                     flex: 1 1 auto;
                     overflow: hidden;
@@ -378,15 +378,27 @@
                     align-items: center;
                     gap: 7px;
                     white-space: nowrap;
-                    flex-shrink: 0;
-                    max-width: 240px;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
+                    flex: 0 1 auto;
+                    min-width: 0;
+                    max-width: clamp(160px, 40vw, 500px);
                 }
                 #st-strategy-name {
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
+                    min-width: 0;
+                }
+                .st-strategy-select {
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #0f172a;
+                    background: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 5px;
+                    padding: 3px 8px;
+                    max-width: clamp(160px, 35vw, 360px);
+                    outline: none;
+                    cursor: pointer;
                 }
 
                 .st-badge {
@@ -400,6 +412,63 @@
                     letter-spacing: 0.3px;
                     border: 1px solid #dbeafe;
                     flex-shrink: 0;
+                }
+
+                /* Realtime Mode Toggle Segmented Control */
+                .st-mode-toggle-group {
+                    display: inline-flex;
+                    align-items: center;
+                    background: #f1f5f9;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 6px;
+                    padding: 2px;
+                    gap: 2px;
+                    flex-shrink: 0;
+                    box-sizing: border-box;
+                }
+                .st-mode-seg-btn {
+                    border: none;
+                    background: transparent;
+                    color: #64748b;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 3px 9px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    line-height: 1.2;
+                    transition: all 0.15s ease;
+                    user-select: none;
+                    white-space: nowrap;
+                }
+                .st-mode-seg-btn:hover {
+                    color: #0f172a;
+                    background: rgba(255, 255, 255, 0.6);
+                }
+                .st-mode-seg-btn.active.seq {
+                    background: #ffffff;
+                    color: #15803d;
+                    font-weight: 700;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+                }
+                .st-mode-seg-btn.active.con {
+                    background: #ffffff;
+                    color: #b45309;
+                    font-weight: 700;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+                }
+                .st-mode-dot {
+                    font-size: 8px;
+                    line-height: 1;
+                    display: inline-block;
+                }
+                .st-mode-seg-btn.active.seq .st-mode-dot {
+                    color: #16a34a;
+                }
+                .st-mode-seg-btn.active.con .st-mode-dot {
+                    color: #d97706;
                 }
 
                 /* Tabs Navigation */
@@ -995,7 +1064,14 @@
                             <span id="st-strategy-name">Strategy Tester</span>
                             <select id="st-strategy-select" class="st-strategy-select" style="display:none;" title="Select Active Strategy"></select>
                             <span class="st-badge" id="st-strategy-badge">Strategy</span>
-                            <span class="st-badge" id="st-mode-badge" style="cursor:pointer; font-size:11px; padding:2px 8px; border-radius:12px; font-weight:600; border:1px solid #bbf7d0; background:#f0fdf4; color:#166534;" title="Execution Mode: Sequential (One trade chain at a time). Click to configure in Settings.">Mode: Sequential</span>
+                        </div>
+                        <div class="st-mode-toggle-group" id="st-mode-toggle-group" title="Execution Mode: Sequential vs Overlapping. Click to toggle in real-time!">
+                            <button type="button" class="st-mode-seg-btn active seq" id="st-mode-btn-seq" data-mode="sequential" title="Sequential: Wait for active trade chain to completely close before starting next trade chain">
+                                <span class="st-mode-dot">●</span> Sequential
+                            </button>
+                            <button type="button" class="st-mode-seg-btn" id="st-mode-btn-con" data-mode="concurrent" title="Overlapping: Allow new trade chains to start in parallel whenever strategy logic triggers">
+                                Overlapping
+                            </button>
                         </div>
                         <div class="st-tabs">
                             <div class="st-tab active" data-tab="overview">Overview</div>
@@ -1093,10 +1169,18 @@
                 });
             }
 
-            const modeBadge = document.getElementById('st-mode-badge');
-            if (modeBadge) {
-                modeBadge.addEventListener('click', () => {
-                    this.switchTab('settings');
+            const seqBtn = document.getElementById('st-mode-btn-seq');
+            const conBtn = document.getElementById('st-mode-btn-con');
+            if (seqBtn) {
+                seqBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleExecutionMode('sequential');
+                });
+            }
+            if (conBtn) {
+                conBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleExecutionMode('concurrent');
                 });
             }
 
@@ -1808,6 +1892,61 @@
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
+        setModeToggleState(isConcurrent) {
+            const seqBtn = document.getElementById('st-mode-btn-seq');
+            const conBtn = document.getElementById('st-mode-btn-con');
+            if (seqBtn && conBtn) {
+                if (isConcurrent) {
+                    seqBtn.className = 'st-mode-seg-btn';
+                    seqBtn.innerHTML = 'Sequential';
+                    conBtn.className = 'st-mode-seg-btn active con';
+                    conBtn.innerHTML = '<span class="st-mode-dot">●</span> Overlapping';
+                } else {
+                    seqBtn.className = 'st-mode-seg-btn active seq';
+                    seqBtn.innerHTML = '<span class="st-mode-dot">●</span> Sequential';
+                    conBtn.className = 'st-mode-seg-btn';
+                    conBtn.innerHTML = 'Overlapping';
+                }
+            }
+        }
+
+        toggleExecutionMode(mode) {
+            const stratName = (this.currentData && this.currentData.strategyName) || (window.StrategyEngine && window.StrategyEngine.activeStrategyName);
+            const ctx = window.StrategyEngine && window.StrategyEngine.getContext(stratName);
+            if (!ctx) return;
+
+            const isConcurrent = (mode === 'concurrent');
+            if (ctx.config.allowConcurrentChains === isConcurrent) return;
+
+            ctx.config.allowConcurrentChains = isConcurrent;
+            if (typeof ctx.saveConfig === 'function') {
+                ctx.saveConfig();
+            }
+
+            this.setModeToggleState(isConcurrent);
+
+            // Keep radio in Settings tab in sync if visible
+            const seqRadio = document.querySelector('input[name="st-chain-mode"][value="sequential"]');
+            const conRadio = document.querySelector('input[name="st-chain-mode"][value="concurrent"]');
+            if (seqRadio && conRadio) {
+                seqRadio.checked = !isConcurrent;
+                conRadio.checked = isConcurrent;
+                const seqLabel = document.getElementById('st-mode-label-seq');
+                const conLabel = document.getElementById('st-mode-label-con');
+                if (seqLabel) {
+                    seqLabel.style.borderColor = !isConcurrent ? '#2563eb' : '#cbd5e1';
+                    seqLabel.style.background = !isConcurrent ? '#eff6ff' : '#ffffff';
+                }
+                if (conLabel) {
+                    conLabel.style.borderColor = isConcurrent ? '#2563eb' : '#cbd5e1';
+                    conLabel.style.background = isConcurrent ? '#eff6ff' : '#ffffff';
+                }
+            }
+
+            // Realtime instant recalculation
+            window.StrategyEngine.calculateAndEmit(ctx);
+        }
+
         updateData(data) {
             this.currentData = data;
             const nameEl = document.getElementById('st-strategy-name');
@@ -1820,24 +1959,9 @@
                 activeStrategy: data.strategyName
             });
 
-            // Update Execution Mode Badge in Header
-            const modeBadge = document.getElementById('st-mode-badge');
-            if (modeBadge) {
-                const isConcurrent = !!(data.config && data.config.allowConcurrentChains);
-                if (isConcurrent) {
-                    modeBadge.textContent = 'Mode: Overlapping';
-                    modeBadge.style.background = '#fef3c7';
-                    modeBadge.style.color = '#92400e';
-                    modeBadge.style.borderColor = '#fcd34d';
-                    modeBadge.title = 'Execution Mode: Overlapping / Concurrent (Multiple trade chains can run concurrently). Click to configure in Settings.';
-                } else {
-                    modeBadge.textContent = 'Mode: Sequential';
-                    modeBadge.style.background = '#f0fdf4';
-                    modeBadge.style.color = '#166534';
-                    modeBadge.style.borderColor = '#bbf7d0';
-                    modeBadge.title = 'Execution Mode: Sequential (One trade chain at a time; waits for active chain to finish before starting next). Click to configure in Settings.';
-                }
-            }
+            // Update Execution Mode Segmented Toggle in Header
+            const isConcurrent = !!(data.config && data.config.allowConcurrentChains);
+            this.setModeToggleState(isConcurrent);
 
             // Update Date Range Status Badge & Inputs
             if (data.dateRange) {
@@ -2495,6 +2619,7 @@
                         conLabel.style.borderColor = !isSeq ? '#2563eb' : '#cbd5e1';
                         conLabel.style.background = !isSeq ? '#eff6ff' : '#ffffff';
                     }
+                    this.toggleExecutionMode(isSeq ? 'sequential' : 'concurrent');
                 });
             });
 
