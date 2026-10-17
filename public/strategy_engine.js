@@ -15,6 +15,11 @@
     class StrategyContext {
         constructor(strategyName, config = {}) {
             this.strategyName = strategyName;
+            let savedCfg = {};
+            try {
+                const stored = localStorage.getItem(`tv_strat_cfg_${strategyName}`);
+                if (stored) savedCfg = JSON.parse(stored);
+            } catch (_) {}
             this.config = {
                 initialCapital: 100000,
                 compounding: true,
@@ -22,9 +27,27 @@
                 commissionValue: 0,
                 slippage: 0, // points
                 allowConcurrentChains: false,
+                ...savedCfg,
                 ...config
             };
             this.reset();
+        }
+
+        saveConfig() {
+            try {
+                localStorage.setItem(`tv_strat_cfg_${this.strategyName}`, JSON.stringify({
+                    initialCapital: this.config.initialCapital,
+                    compounding: this.config.compounding,
+                    commissionType: this.config.commissionType,
+                    commissionValue: this.config.commissionValue,
+                    slippage: this.config.slippage,
+                    allowConcurrentChains: this.config.allowConcurrentChains,
+                    rangePreset: this.config.rangePreset,
+                    startDate: this.config.startDate,
+                    endDate: this.config.endDate,
+                    isLiveEnd: this.config.isLiveEnd
+                }));
+            } catch (_) {}
         }
 
         reset() {
@@ -43,6 +66,7 @@
 
         init(userConfig = {}) {
             this.config = { ...this.config, ...userConfig };
+            this.saveConfig();
             this.reset();
         }
 
@@ -348,11 +372,15 @@
             let maxDrawdownAbs = 0;
             let maxDrawdownPct = 0;
 
+            const allowConcurrentChains = !!(context.config && context.config.allowConcurrentChains);
+
             // Group trades into Trade Chains
             // A chain can have multiple entries (averaging) and partial/full exits
             const openChains = new Map(); // chainId -> chainObject
             const closedChains = [];
             const executedTrades = []; // Flat list with calculated individual PnL
+            let activeSequentialChainId = null;
+            let chainCounter = 1;
 
             const equitySeries = [{
                 time: rawTrades.length > 0 ? rawTrades[0].time - 60000 : Date.now(),
@@ -364,8 +392,52 @@
             let tradeCounter = 1;
 
             for (const trade of rawTrades) {
-                const chainId = trade.chainId;
-                let chain = openChains.get(chainId);
+                let targetChainId = trade.chainId;
+
+                if (!allowConcurrentChains) {
+                    // Sequential Mode: Only one trade chain can be active at a time.
+                    // Subsequent trade chains cannot start until the active chain is fully closed.
+                    if (activeSequentialChainId !== null) {
+                        const activeChain = openChains.get(activeSequentialChainId);
+                        if (!activeChain || activeChain.status === 'CLOSED') {
+                            activeSequentialChainId = null;
+                        } else {
+                            // An active chain is open.
+                            // Does this trade belong to the active chain?
+                            const isExitAction = (activeChain.direction === 'LONG' && trade.action === 'SELL') ||
+                                                 (activeChain.direction === 'SHORT' && trade.action === 'BUY') ||
+                                                 trade.isEnd;
+
+                            if (trade.chainId === activeSequentialChainId) {
+                                // Explicitly targets the active chain
+                                targetChainId = activeSequentialChainId;
+                            } else if (isExitAction && (trade.chainId === '1' || trade.isEnd || !openChains.has(trade.chainId))) {
+                                // Exit action with generic or unmatched ID: route exit to active chain
+                                targetChainId = activeSequentialChainId;
+                            } else {
+                                // New trade chain entry or trade for a different chain while active chain is open:
+                                // In Sequential Mode, IGNORE / SUPPRESS this trade so chains never overlap.
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (activeSequentialChainId === null) {
+                        // No active chain is open.
+                        // If this trade is an exit without an open position, ignore it.
+                        if (trade.isEnd && (trade.qty === 0 || !trade.qty)) {
+                            continue;
+                        }
+                    }
+                } else {
+                    // Concurrent / Overlapping Mode:
+                    // If an exit arrives for a chainId that isn't open, ignore it.
+                    if (!openChains.has(targetChainId) && trade.isEnd && (trade.qty === 0 || !trade.qty)) {
+                        continue;
+                    }
+                }
+
+                let chain = openChains.get(targetChainId);
 
                 // Compute slippage-adjusted execution price
                 let effectivePrice = trade.price;
@@ -382,9 +454,14 @@
                 }
 
                 if (!chain) {
+                    // If it's an exit order when no chain exists, skip creating an empty chain
+                    const isExitWithoutPosition = (trade.action === 'SELL' && trade.isEnd && (trade.qty === 0 || !trade.qty));
+                    if (isExitWithoutPosition) continue;
+
                     // New Trade Chain begins
                     chain = {
-                        chainId,
+                        chainNumber: chainCounter++,
+                        chainId: targetChainId,
                         direction: trade.action === 'BUY' ? 'LONG' : 'SHORT',
                         startTime: trade.time,
                         startBar: trade.barIndex,
@@ -400,12 +477,15 @@
                         status: 'OPEN',
                         legs: []
                     };
-                    openChains.set(chainId, chain);
+                    openChains.set(targetChainId, chain);
+                    if (!allowConcurrentChains) {
+                        activeSequentialChainId = targetChainId;
+                    }
                 }
 
                 const leg = {
                     tradeNumber: tradeCounter++,
-                    chainId,
+                    chainId: targetChainId,
                     action: trade.action,
                     time: trade.time,
                     barIndex: trade.barIndex,
@@ -465,7 +545,11 @@
                     chain.returnPct = (chain.netPnL / (chain.avgEntryPrice * (chain.entries[0]?.qty || 1))) * 100;
                     
                     closedChains.push(chain);
-                    openChains.delete(chainId);
+                    openChains.delete(chain.chainId);
+
+                    if (!allowConcurrentChains) {
+                        activeSequentialChainId = null;
+                    }
 
                     // Track High Water Mark & Drawdown
                     if (currentEquity > peakEquity) {
@@ -481,7 +565,7 @@
                         equity: currentEquity,
                         drawdown: dd,
                         drawdownPct: ddPct,
-                        chainId
+                        chainId: chain.chainId
                     });
                 }
             }
@@ -581,6 +665,7 @@
                 summary: {
                     initialCapital,
                     endingEquity: currentEquity,
+                    allowConcurrentChains,
                     netProfit,
                     netProfitPct,
                     grossProfit,
