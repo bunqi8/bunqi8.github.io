@@ -32,6 +32,10 @@
             this.popupTop = null;
             this.popupLeft = null;
 
+            // Date Range & Candle Highlight tracking
+            this._highlightShapeIds = [];
+            this.currentPreset = 'default';
+
             this.init();
         }
 
@@ -301,6 +305,129 @@
                 .st-icon-btn:hover {
                     background: #e2e8f0;
                     color: #0f172a;
+                }
+
+                /* Date Range Control Bar */
+                .st-range-bar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 10px;
+                    padding: 6px 14px;
+                    background: #f8fafc;
+                    border-bottom: 1px solid #e2e8f0;
+                    font-size: 11px;
+                    flex-shrink: 0;
+                    box-sizing: border-box;
+                    overflow-x: auto;
+                }
+                .st-range-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    flex-shrink: 0;
+                }
+                .st-range-label {
+                    font-weight: 700;
+                    color: #475569;
+                    text-transform: uppercase;
+                    font-size: 10px;
+                    letter-spacing: 0.4px;
+                }
+                .st-range-presets {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+                .st-range-btn {
+                    background: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    color: #475569;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 3px 8px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    white-space: nowrap;
+                }
+                .st-range-btn:hover {
+                    background: #e2e8f0;
+                    color: #0f172a;
+                }
+                .st-range-btn.active {
+                    background: #2563eb;
+                    color: #ffffff;
+                    border-color: #2563eb;
+                    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+                }
+                .st-range-right {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-shrink: 0;
+                }
+                .st-range-inputs {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .st-date-input {
+                    background: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 4px;
+                    padding: 3px 6px;
+                    font-size: 11px;
+                    color: #0f172a;
+                    outline: none;
+                    font-family: inherit;
+                    transition: border-color 0.15s ease;
+                }
+                .st-date-input:focus {
+                    border-color: #2563eb;
+                }
+                .st-date-input:disabled {
+                    background: #f1f5f9;
+                    color: #94a3b8;
+                    cursor: not-allowed;
+                }
+                .st-range-live-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    color: #0f172a;
+                    user-select: none;
+                    white-space: nowrap;
+                }
+                .st-range-live-toggle input {
+                    cursor: pointer;
+                    accent-color: #089981;
+                }
+                .st-range-apply-btn {
+                    background: #2563eb;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 3px 10px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background 0.15s ease;
+                    white-space: nowrap;
+                }
+                .st-range-apply-btn:hover {
+                    background: #1d4ed8;
+                }
+                .st-range-status {
+                    font-size: 11px;
+                    color: #64748b;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
                 }
 
                 /* Panel Body Content */
@@ -607,6 +734,30 @@
                         padding: 6px 12px !important;
                         font-size: 11px !important;
                     }
+                    .st-range-bar {
+                        padding: 5px 8px !important;
+                        gap: 6px !important;
+                        flex-wrap: wrap !important;
+                    }
+                    .st-range-presets {
+                        overflow-x: auto !important;
+                        scrollbar-width: none !important;
+                    }
+                    .st-range-presets::-webkit-scrollbar {
+                        display: none !important;
+                    }
+                    .st-range-btn {
+                        padding: 2px 6px !important;
+                        font-size: 10px !important;
+                    }
+                    .st-date-input {
+                        padding: 2px 4px !important;
+                        font-size: 10px !important;
+                        max-width: 105px !important;
+                    }
+                    .st-range-status {
+                        display: none !important;
+                    }
                 }
             `;
             document.head.appendChild(style);
@@ -646,6 +797,34 @@
                         </div>
                         <div class="st-icon-btn" id="st-btn-close" title="Close Panel">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="st-range-bar" id="st-range-bar">
+                    <div class="st-range-left">
+                        <span class="st-range-label">Range:</span>
+                        <div class="st-range-presets" id="st-range-presets">
+                            <button class="st-range-btn active" data-preset="default" title="Default: 40k bars or 1 year or max data">Max / 40k</button>
+                            <button class="st-range-btn" data-preset="1Y" title="Last 1 Year">1Y</button>
+                            <button class="st-range-btn" data-preset="6M" title="Last 6 Months">6M</button>
+                            <button class="st-range-btn" data-preset="3M" title="Last 3 Months">3M</button>
+                            <button class="st-range-btn" data-preset="1M" title="Last 1 Month">1M</button>
+                            <button class="st-range-btn" data-preset="custom" title="Custom Date Range">Custom</button>
+                        </div>
+                    </div>
+                    <div class="st-range-right">
+                        <div class="st-range-inputs" id="st-range-inputs">
+                            <input type="date" id="st-range-start-date" class="st-date-input" title="Start Date" />
+                            <span style="color:#94a3b8; font-size:11px;">to</span>
+                            <input type="date" id="st-range-end-date" class="st-date-input" title="End Date" disabled />
+                            <label class="st-range-live-toggle" title="Keep updating live as new bars form">
+                                <input type="checkbox" id="st-range-live-end" checked />
+                                <span>Now (Live 🟢)</span>
+                            </label>
+                            <button id="st-btn-apply-range" class="st-range-apply-btn">Apply</button>
+                        </div>
+                        <div class="st-range-status" id="st-range-status-badge">
+                            <span id="st-range-status-text">Range: Loading...</span>
                         </div>
                     </div>
                 </div>
@@ -724,6 +903,38 @@
                     this.container.classList.remove('collapsed');
                 }
             };
+
+            // Range presets
+            const presetBtns = this.container.querySelectorAll('.st-range-btn');
+            presetBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const preset = btn.getAttribute('data-preset');
+                    this.applyDateRangePreset(preset);
+                });
+            });
+
+            // Live end date toggle
+            const liveEndCb = document.getElementById('st-range-live-end');
+            const endDateInput = document.getElementById('st-range-end-date');
+            if (liveEndCb && endDateInput) {
+                liveEndCb.addEventListener('change', (e) => {
+                    const isLive = e.target.checked;
+                    endDateInput.disabled = isLive;
+                    if (!isLive && !endDateInput.value) {
+                        endDateInput.value = new Date().toISOString().split('T')[0];
+                    }
+                });
+            }
+
+            // Apply custom range button
+            const applyBtn = document.getElementById('st-btn-apply-range');
+            if (applyBtn) {
+                applyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.applyCustomDateRange();
+                });
+            }
 
             // Close (minimizes to launcher pill)
             document.getElementById('st-btn-close').onclick = (e) => {
@@ -1124,6 +1335,7 @@
                 this._chartResizeObserver.disconnect();
                 this._chartResizeObserver = null;
             }
+            this.clearHighlightCandleOnChart();
             this.container.style.display = 'none';
             this.launcherPill.style.display = 'none';
             this.currentData = null;
@@ -1162,6 +1374,31 @@
                 strategies: window.StrategyEngine ? window.StrategyEngine.getActiveStrategyNames() : [data.strategyName],
                 activeStrategy: data.strategyName
             });
+
+            // Update Date Range Status Badge & Inputs
+            if (data.dateRange) {
+                const dr = data.dateRange;
+                const statusEl = document.getElementById('st-range-status-text');
+                if (statusEl) {
+                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; ${dr.totalTradesInRange} trades`;
+                }
+
+                const startInput = document.getElementById('st-range-start-date');
+                const endInput = document.getElementById('st-range-end-date');
+                const liveCb = document.getElementById('st-range-live-end');
+
+                if (startInput && document.activeElement !== startInput && dr.startDateStr && dr.startDateStr !== 'Max') {
+                    startInput.value = dr.startDateStr;
+                }
+                if (endInput && document.activeElement !== endInput && dr.endDateStr && dr.endDateStr !== 'Live') {
+                    endInput.value = dr.endDateStr;
+                }
+                if (liveCb && dr.isLiveEnd !== undefined) {
+                    liveCb.checked = dr.isLiveEnd;
+                    if (endInput) endInput.disabled = dr.isLiveEnd;
+                }
+            }
+
             // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise show panel
             if (this.launcherPill.style.display === 'flex' && this.container.style.display === 'none') {
                 const pnl = data.summary.netProfit;
@@ -1562,9 +1799,10 @@
                 const startDateStr = new Date(c.startTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
                 const endDateStr = c.endTime ? new Date(c.endTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Open';
                 const dirBadge = c.direction === 'LONG' ? '<span class="st-tag-long">LONG</span>' : '<span class="st-tag-short">SHORT</span>';
+                const entryPrice = (c.entries && c.entries[0]) ? c.entries[0].price : 0;
 
                 html += `
-                    <tr class="st-chain-row" onclick="window.StrategyTesterUI.toggleChainLegs(${idx})" style="cursor:pointer;" title="Click to inspect legs">
+                    <tr class="st-chain-row" onclick="window.StrategyTesterUI.toggleChainLegsAndJump(${idx}, ${c.startTime}, '${c.direction}', ${entryPrice}, '${c.chainId}')" style="cursor:pointer;" title="Click to inspect legs & view candle on chart">
                         <td><strong>${c.chainId}</strong></td>
                         <td>${dirBadge}</td>
                         <td>${startDateStr}</td>
@@ -1583,7 +1821,7 @@
                                     <thead><tr><th>#</th><th>Action</th><th>Date & Time</th><th>Price</th><th>Qty</th><th>PnL</th></tr></thead>
                                     <tbody>
                                         ${c.legs.map(l => `
-                                            <tr onclick="window.StrategyTesterUI.jumpToCandle(${l.time})" style="cursor:pointer;" title="Jump to candle">
+                                            <tr onclick="window.StrategyTesterUI.jumpToCandle(${l.time}, { label: '${l.action} #${l.tradeNumber} (Chain #${c.chainId}) @ ${l.price.toFixed(2)}', price: ${l.price}, action: '${l.action}' })" style="cursor:pointer;" title="Jump to candle on chart">
                                                 <td>${l.tradeNumber}</td>
                                                 <td><span class="${l.action === 'BUY' ? 'st-tag-long' : 'st-tag-short'}">${l.action}</span></td>
                                                 <td>${new Date(l.time).toLocaleString('en-IN')}</td>
@@ -1634,7 +1872,7 @@
                 const typeBadge = t.action === 'BUY' ? '<span class="st-tag-long">BUY</span>' : '<span class="st-tag-short">SELL</span>';
 
                 html += `
-                    <tr onclick="window.StrategyTesterUI.jumpToCandle(${t.time})" style="cursor:pointer;" title="Click to jump to candle on chart">
+                    <tr onclick="window.StrategyTesterUI.jumpToCandle(${t.time}, { label: '${t.action} #${t.tradeNumber} (Chain #${t.chainId}) @ ${t.price.toFixed(2)}', price: ${t.price}, action: '${t.action}' })" style="cursor:pointer;" title="Click to jump to candle on chart">
                         <td>${t.tradeNumber}</td>
                         <td><strong>${t.chainId}</strong></td>
                         <td>${typeBadge}</td>
@@ -1656,6 +1894,24 @@
 
             body.innerHTML = `
                 <div style="max-width:540px; display:flex; flex-direction:column; gap:16px;">
+                    <div style="display:flex; flex-direction:column; gap:6px; border-bottom:1px solid #f1f5f9; padding-bottom:14px;">
+                        <label style="font-size:12px; font-weight:700; color:#0f172a;">Backtest Date Range</label>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                                <label style="font-size:11px; font-weight:600; color:#64748b;">Start Date</label>
+                                <input type="date" id="st-set-start-date" value="${cfg.startDate || ''}" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;" />
+                            </div>
+                            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                                <label style="font-size:11px; font-weight:600; color:#64748b;">End Date</label>
+                                <input type="date" id="st-set-end-date" value="${cfg.endDate || ''}" ${cfg.isLiveEnd !== false ? 'disabled' : ''} style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;" />
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+                            <input type="checkbox" id="st-set-live-end" ${cfg.isLiveEnd !== false ? 'checked' : ''} style="width:16px; height:16px; cursor:pointer;" />
+                            <label for="st-set-live-end" style="font-size:12px; font-weight:600; color:#0f172a; cursor:pointer;">Live / Updating (End date = Now, keeps updating with live candles)</label>
+                        </div>
+                    </div>
+
                     <div style="display:flex; flex-direction:column; gap:5px;">
                         <label style="font-size:12px; font-weight:600; color:#0f172a;">Initial Capital (₹)</label>
                         <input type="number" id="st-set-capital" value="${cfg.initialCapital || 100000}" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px;" />
@@ -1692,6 +1948,17 @@
                 </div>
             `;
 
+            const setLiveEndCb = document.getElementById('st-set-live-end');
+            const setEndDateInput = document.getElementById('st-set-end-date');
+            if (setLiveEndCb && setEndDateInput) {
+                setLiveEndCb.addEventListener('change', (e) => {
+                    setEndDateInput.disabled = e.target.checked;
+                    if (!e.target.checked && !setEndDateInput.value) {
+                        setEndDateInput.value = new Date().toISOString().split('T')[0];
+                    }
+                });
+            }
+
             document.getElementById('st-btn-save-settings').onclick = () => {
                 const capital = parseFloat(document.getElementById('st-set-capital').value) || 100000;
                 const compounding = document.getElementById('st-set-compounding').checked;
@@ -1699,37 +1966,290 @@
                 const commVal = parseFloat(document.getElementById('st-set-comm-val').value) || 0;
                 const slippage = parseFloat(document.getElementById('st-set-slippage').value) || 0;
 
-                const ctx = window.StrategyEngine && window.StrategyEngine.getContext(this.currentData.strategyName);
+                const startDate = document.getElementById('st-set-start-date').value;
+                const isLiveEnd = document.getElementById('st-set-live-end').checked;
+                const endDate = isLiveEnd ? null : document.getElementById('st-set-end-date').value;
+
+                const stratName = (this.currentData && this.currentData.strategyName) || (window.StrategyEngine && window.StrategyEngine.activeStrategyName);
+                const ctx = window.StrategyEngine && window.StrategyEngine.getContext(stratName);
                 if (ctx) {
                     ctx.config.initialCapital = capital;
                     ctx.config.compounding = compounding;
                     ctx.config.commissionType = commType;
                     ctx.config.commissionValue = commVal;
                     ctx.config.slippage = slippage;
-                    window.StrategyEngine.calculateAndEmit(ctx);
+                    ctx.config.startDate = startDate || null;
+                    ctx.config.endDate = endDate || null;
+                    ctx.config.isLiveEnd = isLiveEnd;
+
+                    const startMs = startDate ? new Date(startDate).getTime() : 0;
+                    const endMs = (!isLiveEnd && endDate) ? (new Date(endDate).getTime() + (86400 * 1000 - 1)) : Infinity;
+                    this.loadHistoricalRangeAndSync(startMs, endMs, isLiveEnd, 'custom');
                 }
             };
+        }
+
+        applyDateRangePreset(preset) {
+            this.currentPreset = preset;
+            const presetBtns = this.container.querySelectorAll('.st-range-btn');
+            presetBtns.forEach(btn => {
+                if (btn.getAttribute('data-preset') === preset) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            if (preset === 'custom') {
+                const startInput = document.getElementById('st-range-start-date');
+                if (startInput) startInput.focus();
+                return;
+            }
+
+            let startMs = 0;
+            const now = Date.now();
+            if (preset === '1Y') {
+                startMs = now - (365 * 86400 * 1000);
+            } else if (preset === '6M') {
+                startMs = now - (182 * 86400 * 1000);
+            } else if (preset === '3M') {
+                startMs = now - (91 * 86400 * 1000);
+            } else if (preset === '1M') {
+                startMs = now - (30 * 86400 * 1000);
+            } else {
+                // 'default' (Max / 40k)
+                startMs = 0;
+            }
+
+            const startInput = document.getElementById('st-range-start-date');
+            const endInput = document.getElementById('st-range-end-date');
+            const liveCb = document.getElementById('st-range-live-end');
+
+            if (startInput) {
+                startInput.value = startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : '';
+            }
+            if (liveCb) {
+                liveCb.checked = true;
+            }
+            if (endInput) {
+                endInput.disabled = true;
+                endInput.value = '';
+            }
+
+            this.loadHistoricalRangeAndSync(startMs, Infinity, true, preset);
+        }
+
+        applyCustomDateRange() {
+            const startInput = document.getElementById('st-range-start-date');
+            const endInput = document.getElementById('st-range-end-date');
+            const liveCb = document.getElementById('st-range-live-end');
+
+            const sVal = startInput ? startInput.value : '';
+            const eVal = endInput ? endInput.value : '';
+            const isLive = liveCb ? liveCb.checked : true;
+
+            let startMs = sVal ? new Date(sVal).getTime() : 0;
+            let endMs = (!isLive && eVal) ? (new Date(eVal).getTime() + (86400 * 1000 - 1)) : Infinity;
+
+            this.currentPreset = 'custom';
+            const presetBtns = this.container.querySelectorAll('.st-range-btn');
+            presetBtns.forEach(btn => {
+                if (btn.getAttribute('data-preset') === 'custom') {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            this.loadHistoricalRangeAndSync(startMs, endMs, isLive, 'custom');
+        }
+
+        loadHistoricalRangeAndSync(startMs, endMs, isLiveEnd = true, preset = null) {
+            const stratName = (this.currentData && this.currentData.strategyName) || (window.StrategyEngine && window.StrategyEngine.activeStrategyName);
+            const ctx = window.StrategyEngine && window.StrategyEngine.getContext(stratName);
+            if (!ctx) return;
+
+            ctx.config.startDate = startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : (preset === 'default' ? null : 'max');
+            ctx.config.endDate = isLiveEnd ? null : (endMs && endMs < Infinity ? new Date(endMs).toISOString().split('T')[0] : null);
+            ctx.config.isLiveEnd = isLiveEnd;
+            ctx.config.rangePreset = preset;
+
+            // Recalculate immediate available trades
+            const res = window.StrategyEngine.calculateAndEmit(ctx);
+
+            // If chart widget is present, scroll back to startMs to trigger historical bar loading
+            if (window.tvWidget) {
+                try {
+                    const chart = window.tvWidget.activeChart();
+                    if (chart) {
+                        let currentRes = chart.resolution();
+                        const resSec = window.StrategyEngine ? window.StrategyEngine.getResolutionInSeconds(currentRes) : 3600;
+
+                        let startSec = startMs > 0 ? Math.floor(startMs / 1000) : 0;
+                        if (!startSec || startSec <= 0) {
+                            const fortyKBarsAgo = Math.floor(Date.now() / 1000) - (40000 * resSec);
+                            const oneYearAgo = Math.floor(Date.now() / 1000) - (365 * 86400);
+                            startSec = Math.min(oneYearAgo, fortyKBarsAgo);
+                        }
+
+                        const windowSpan = Math.max(resSec * 60, 86400 * 2);
+
+                        // Scroll back chart to start range
+                        chart.setVisibleRange({
+                            from: startSec,
+                            to: startSec + windowSpan
+                        }, () => {
+                            // Wait for TradingView to pull bars & PineJS to process them, then re-calculate
+                            setTimeout(() => {
+                                const updatedRes = window.StrategyEngine.calculateAndEmit(ctx);
+                                const trades = (updatedRes && updatedRes.executedTrades) || [];
+                                const firstTradeTime = trades.length > 0 ? trades[0].time : (startMs > 0 ? startMs : null);
+                                if (firstTradeTime) {
+                                    this.jumpToCandle(firstTradeTime, {
+                                        label: 'Strategy Start / First Trade',
+                                        action: trades[0] ? trades[0].action : 'BUY',
+                                        price: trades[0] ? trades[0].price : null
+                                    });
+                                }
+                            }, 1000);
+                        });
+                    }
+                } catch (e) {
+                    console.warn("[StrategyTesterUI] Failed to scroll chart for historical range:", e);
+                }
+            }
+        }
+
+        clearHighlightCandleOnChart() {
+            if (!this._highlightShapeIds || this._highlightShapeIds.length === 0) return;
+            try {
+                const chart = window.tvWidget && window.tvWidget.activeChart && window.tvWidget.activeChart();
+                if (chart && typeof chart.removeEntity === 'function') {
+                    for (const id of this._highlightShapeIds) {
+                        try {
+                            chart.removeEntity(id, { disableUndo: true });
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+            this._highlightShapeIds = [];
+        }
+
+        highlightCandleOnChart(timeSec, options = {}) {
+            this.clearHighlightCandleOnChart();
+            if (!window.tvWidget) return;
+
+            try {
+                const chart = window.tvWidget.activeChart();
+                if (!chart || typeof chart.createShape !== 'function') return;
+
+                const action = (options.action || '').toUpperCase();
+                const color = action === 'BUY' ? '#089981' : (action === 'SELL' ? '#f23645' : '#2563eb');
+                const price = Number(options.price) || null;
+                const labelText = options.label || (action ? `${action} Candle` : 'Selected Candle');
+
+                // 1. Draw dashed vertical line through entire height of the candle
+                chart.createShape({ time: timeSec }, {
+                    shape: 'vertical_line',
+                    lock: true,
+                    disableSelection: false,
+                    disableSave: true,
+                    disableUndo: true,
+                    overrides: {
+                        linecolor: color,
+                        linewidth: 2,
+                        linestyle: 1
+                    }
+                }).then(id => {
+                    if (id) this._highlightShapeIds.push(id);
+                }).catch(() => {});
+
+                // 2. If price is given, draw a target balloon or arrow pointing right at the execution price
+                if (price !== null && !isNaN(price)) {
+                    chart.createShape({ time: timeSec, price: price }, {
+                        shape: 'balloon',
+                        text: `🎯 ${labelText}`,
+                        lock: true,
+                        disableSelection: true,
+                        disableSave: true,
+                        disableUndo: true,
+                        overrides: {
+                            backgroundColor: color,
+                            borderColor: color,
+                            textColor: '#ffffff',
+                            fontsize: 11,
+                            bold: true
+                        }
+                    }).then(id => {
+                        if (id) this._highlightShapeIds.push(id);
+                    }).catch(() => {
+                        // Fallback to arrow if balloon is not supported in this bundle
+                        chart.createShape({ time: timeSec, price: price }, {
+                            shape: action === 'BUY' ? 'arrow_up' : 'arrow_down',
+                            text: labelText,
+                            lock: true,
+                            disableSelection: true,
+                            disableSave: true,
+                            disableUndo: true,
+                            overrides: {
+                                color: color,
+                                arrowColor: color,
+                                fontsize: 11,
+                                bold: true
+                            }
+                        }).then(fbId => {
+                            if (fbId) this._highlightShapeIds.push(fbId);
+                        }).catch(() => {});
+                    });
+                }
+            } catch (e) {
+                console.warn("[StrategyTesterUI] Failed to highlight candle on chart:", e);
+            }
+        }
+
+        jumpToCandle(timeMs, options = {}) {
+            if (!window.tvWidget) return;
+            try {
+                const chart = window.tvWidget.activeChart();
+                if (!chart) return;
+                const timeSec = timeMs > 1e11 ? Math.floor(timeMs / 1000) : timeMs;
+
+                let resSec = 3600;
+                try {
+                    const currentRes = chart.resolution();
+                    resSec = window.StrategyEngine ? window.StrategyEngine.getResolutionInSeconds(currentRes) : 3600;
+                } catch (_) {}
+
+                const halfSpan = Math.max(resSec * 40, 3600 * 2);
+                chart.setVisibleRange({
+                    from: timeSec - halfSpan,
+                    to: timeSec + halfSpan
+                }, () => {
+                    this.highlightCandleOnChart(timeSec, options);
+                });
+
+                // Also draw immediately
+                this.highlightCandleOnChart(timeSec, options);
+            } catch (e) {
+                console.warn("[StrategyTesterUI] Failed to jump to candle:", e);
+            }
+        }
+
+        toggleChainLegsAndJump(idx, startTime, direction, entryPrice, chainId) {
+            this.toggleChainLegs(idx);
+            if (startTime) {
+                this.jumpToCandle(startTime, {
+                    label: `Chain #${chainId} (${direction}) Entry`,
+                    action: direction === 'LONG' ? 'BUY' : 'SELL',
+                    price: entryPrice
+                });
+            }
         }
 
         toggleChainLegs(idx) {
             const el = document.getElementById(`st-chain-legs-${idx}`);
             if (el) {
                 el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
-            }
-        }
-
-        jumpToCandle(timeMs) {
-            if (!window.tvWidget) return;
-            try {
-                const chart = window.tvWidget.activeChart();
-                const timeSec = timeMs > 1e11 ? Math.floor(timeMs / 1000) : timeMs;
-                const halfSpan = 3600 * 4; // 4 hours window around candle
-                chart.setVisibleRange({
-                    from: timeSec - halfSpan,
-                    to: timeSec + halfSpan
-                }, () => {});
-            } catch (e) {
-                console.warn("Failed to jump to candle", e);
             }
         }
     }
