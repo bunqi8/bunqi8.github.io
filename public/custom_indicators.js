@@ -441,6 +441,8 @@ window.getCustomIndicators = function (PineJS) {
                     const factory = new Function('PineJS', 'return (' + code + ');');
                     const indicatorObj = factory(PineJS);
                     if (indicatorObj && indicatorObj.name) {
+                        indicatorObj._sourceType = 'local';
+                        indicatorObj._isLocal = true;
                         localIndicators.push(indicatorObj);
                     }
                 } catch (e) {
@@ -451,7 +453,21 @@ window.getCustomIndicators = function (PineJS) {
             console.error("Failed to read tv_local_indicators", e);
         }
 
-        const allList = [...hardcodedIndicators, ...localIndicators];
+        let remoteIndicators = [];
+        if (window.ScriptRepoManager && typeof window.ScriptRepoManager.getRemotePineJSIndicators === 'function') {
+            try {
+                remoteIndicators = window.ScriptRepoManager.getRemotePineJSIndicators(PineJS);
+            } catch (e) {
+                console.error("Failed to load remote indicators:", e);
+            }
+        }
+
+        hardcodedIndicators.forEach(ind => {
+            ind._sourceType = 'default';
+            ind._isDefault = true;
+        });
+
+        const allList = [...hardcodedIndicators, ...localIndicators, ...remoteIndicators];
         
         // Wrap all indicators with StrategyEngine context
         allList.forEach(ind => {
