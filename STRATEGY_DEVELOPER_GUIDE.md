@@ -77,18 +77,25 @@ On each trade execution, the platform renders locked execution shapes directly o
    * BUY: `B: <id> @ <price> Q: <qty>` (e.g., `B: 1 @ 25000 Q: 1`) in green `#089981`.
    * SELL: `S: <id> @ <price> Q: <qty>` (e.g., `S: 1 @ 25200 Q: 1`) in red `#f23645`.
 
-2. **Placement Rules (Never Hiding Behind Candles)**:
+2. **Placement Rules & Native TradingView Techniques**:
+   * **Exact Coordinate Projection via PriceScale**:
+     * Rather than using arbitrary price multipliers or guessing price margins, the engine projects exact screen pixels using TradingView's native `priceScale.priceToCoordinate()` and `priceScale.coordinateToPrice()`.
+     * Exact candle highs and lows are pulled directly from TradingView's `mainSeries.data()` cache (`bar[2]` for high, `bar[3]` for low).
    * **BUY Arrow**:
      * Must be placed **below** the candle's lowest wick (`low`).
-     * If the indicator also defines a PineJS `Buy` shape pill, the arrow tip is placed **below that Buy pill**.
-     * Arrow direction points **UP** towards the candle/signal. The label text hangs downward in open space below the chart.
+     * If the indicator defines a PineJS `Buy` shape pill, the engine detects this from `indicatorMeta` and places the arrow tip **30px below the wick (cleanly beneath the 24px Buy pill)**.
+     * If no PineJS `Buy` pill exists, the arrow tip sits **6px directly below the low wick**.
+     * Arrow direction points **UP** towards the candle/signal. The label text (`B: <id> @ <price> Q: <qty>`) hangs downward in open space below the chart.
    * **SELL Arrow**:
      * Must be placed **above** the candle's highest wick (`high`).
-     * If the indicator defines a PineJS `Sell` shape pill, the arrow tip is placed **above that Sell pill**.
-     * Arrow direction points **DOWN** towards the candle/signal. The label text sits upward in open space above the chart.
+     * If the indicator defines a PineJS `Sell` shape pill, the arrow tip is placed **30px above the wick (cleanly above the 24px Sell pill)**.
+     * If no PineJS `Sell` pill exists, the arrow tip sits **6px directly above the high wick**.
+     * Arrow direction points **DOWN** towards the candle/signal. The label text (`S: <id> @ <price> Q: <qty>`) sits upward in open space above the chart.
+   * **Multiple Trades on the Same Bar**:
+     * When scaling in, pyramiding, or averaging on the same bar, subsequent trades are stacked vertically with a native 24px step (`tradeIdx * 24`), preventing label collisions.
    * **Automatic Lifecycle**:
-     * Trade markers are locked (`lock: true`, `disableSelection: true`) to prevent accidental dragging.
-     * When the strategy recalculates or is removed from the chart, all old markers are automatically cleaned up.
+     * Trade markers are locked (`lock: true`, `disableSelection: true`, `disableSave: true`, `disableUndo: true`) so they behave strictly as native chart graphics.
+     * When the strategy recalculates, timeframes change, or the strategy is removed from the chart, all old markers are cleaned up automatically.
 
 ---
 
