@@ -298,6 +298,9 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-modal-tab.active {
                 background: #ffffff; color: #2962FF; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e0e3eb; font-weight: 600;
             }
+            .tv-custom-modal-tab.hidden {
+                display: none !important;
+            }
             .tv-list-wrapper {
                 flex: 1; display: flex; flex-direction: column; background: #ffffff; min-height: 0; min-width: 0; overflow: hidden;
             }
@@ -513,13 +516,16 @@ function setupCustomIndicatorsDialog(widget) {
                     padding: 0 10px !important;
                     font-size: 12px !important;
                     white-space: nowrap !important;
-                    display: inline-flex !important;
+                    display: inline-flex;
                     align-items: center !important;
                     gap: 5px !important;
                     border-radius: 6px !important;
                     border: 1px solid transparent !important;
                     background: transparent !important;
                     box-shadow: none !important;
+                }
+                .tv-custom-modal-tab.hidden {
+                    display: none !important;
                 }
                 .tv-custom-modal-tab.active {
                     background: #ffffff !important;
@@ -921,14 +927,16 @@ function setupCustomIndicatorsDialog(widget) {
             if (isEditing) return;
             
             const favs = getFavorites();
-            if (favs.length > 0 || activeTab === 'favorites') {
-                tabFavorites.style.display = 'flex';
+            if (favs.length > 0) {
+                tabFavorites.classList.remove('hidden');
+                tabFavorites.style.display = '';
             } else {
+                tabFavorites.classList.add('hidden');
                 tabFavorites.style.display = 'none';
                 if (activeTab === 'favorites') {
                     activeTab = 'custom';
                     tabCustom.className = 'tv-custom-modal-tab active';
-                    tabFavorites.className = 'tv-custom-modal-tab';
+                    tabFavorites.className = 'tv-custom-modal-tab hidden';
                 }
             }
 
@@ -1312,8 +1320,16 @@ function setupCustomIndicatorsDialog(widget) {
             searchInput.value = '';
             isEditing = false;
             restoreListWrapper();
-            activeTab = getFavorites().length > 0 ? 'favorites' : 'custom';
-            tabFavorites.className = activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
+            const favCount = getFavorites().length;
+            activeTab = favCount > 0 ? 'favorites' : 'custom';
+            if (favCount === 0) {
+                tabFavorites.classList.add('hidden');
+                tabFavorites.style.display = 'none';
+            } else {
+                tabFavorites.classList.remove('hidden');
+                tabFavorites.style.display = '';
+            }
+            tabFavorites.className = (activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab') + (favCount === 0 ? ' hidden' : '');
             tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
             renderList();
@@ -1383,10 +1399,16 @@ function setupCustomIndicatorsDialog(widget) {
                 tabCustom.className = 'tv-custom-modal-tab'; tabCustom.style.opacity = '0.5';
                 tabBuiltin.className = 'tv-custom-modal-tab'; tabBuiltin.style.opacity = '0.5';
             } else {
+                const favCount = getFavorites().length;
                 tabFavorites.style.opacity = '1'; tabCustom.style.opacity = '1'; tabBuiltin.style.opacity = '1';
-                tabFavorites.className = activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
+                tabFavorites.className = (activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab') + (favCount === 0 ? ' hidden' : '');
                 tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
                 tabBuiltin.className = activeTab === 'builtin' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
+                if (favCount === 0) {
+                    tabFavorites.style.display = 'none';
+                } else {
+                    tabFavorites.style.display = '';
+                }
             }
             renderList(query);
         });
