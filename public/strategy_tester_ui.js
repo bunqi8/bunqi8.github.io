@@ -2222,6 +2222,7 @@
                 const dr = data.dateRange;
                 const statusEl = document.getElementById('st-range-status-text');
                 if (statusEl && !this.isLoading) {
+                    const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (data.summary ? data.summary.totalChains : dr.totalTradesInRange);
                     statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
                     statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
                 }
@@ -3071,6 +3072,7 @@
                 if (statusEl) {
                     if (this.currentData && this.currentData.dateRange) {
                         const dr = this.currentData.dateRange;
+                        const chainsCount = dr.totalChainsInRange !== undefined ? dr.totalChainsInRange : (this.currentData.summary ? this.currentData.summary.totalChains : dr.totalTradesInRange);
                         statusEl.innerHTML = `<span style="color:#089981; font-weight:700; white-space:nowrap;">● ${chainsCount} trade chains (${dr.totalTradesInRange} trades)</span>`;
                         statusEl.title = `${dr.startDateFormatted} to ${dr.endDateFormatted} • ${chainsCount} trade chains (${dr.totalTradesInRange} trades)`;
                     } else {
