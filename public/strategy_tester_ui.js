@@ -995,6 +995,7 @@
                             <span id="st-strategy-name">Strategy Tester</span>
                             <select id="st-strategy-select" class="st-strategy-select" style="display:none;" title="Select Active Strategy"></select>
                             <span class="st-badge" id="st-strategy-badge">Strategy</span>
+                            <span class="st-badge" id="st-mode-badge" style="cursor:pointer; font-size:11px; padding:2px 8px; border-radius:12px; font-weight:600; border:1px solid #bbf7d0; background:#f0fdf4; color:#166534;" title="Execution Mode: Sequential (One trade chain at a time). Click to configure in Settings.">Mode: Sequential</span>
                         </div>
                         <div class="st-tabs">
                             <div class="st-tab active" data-tab="overview">Overview</div>
@@ -1089,6 +1090,13 @@
                     if (window.StrategyEngine) {
                         window.StrategyEngine.setActiveStrategy(val);
                     }
+                });
+            }
+
+            const modeBadge = document.getElementById('st-mode-badge');
+            if (modeBadge) {
+                modeBadge.addEventListener('click', () => {
+                    this.switchTab('settings');
                 });
             }
 
@@ -1812,6 +1820,25 @@
                 activeStrategy: data.strategyName
             });
 
+            // Update Execution Mode Badge in Header
+            const modeBadge = document.getElementById('st-mode-badge');
+            if (modeBadge) {
+                const isConcurrent = !!(data.config && data.config.allowConcurrentChains);
+                if (isConcurrent) {
+                    modeBadge.textContent = 'Mode: Overlapping';
+                    modeBadge.style.background = '#fef3c7';
+                    modeBadge.style.color = '#92400e';
+                    modeBadge.style.borderColor = '#fcd34d';
+                    modeBadge.title = 'Execution Mode: Overlapping / Concurrent (Multiple trade chains can run concurrently). Click to configure in Settings.';
+                } else {
+                    modeBadge.textContent = 'Mode: Sequential';
+                    modeBadge.style.background = '#f0fdf4';
+                    modeBadge.style.color = '#166534';
+                    modeBadge.style.borderColor = '#bbf7d0';
+                    modeBadge.title = 'Execution Mode: Sequential (One trade chain at a time; waits for active chain to finish before starting next). Click to configure in Settings.';
+                }
+            }
+
             // Update Date Range Status Badge & Inputs
             if (data.dateRange) {
                 const dr = data.dateRange;
@@ -1917,6 +1944,12 @@
                         <div class="st-metric-card">
                             <div class="st-metric-label">Sharpe Ratio</div>
                             <div class="st-metric-value">${s.sharpeRatio}</div>
+                        </div>
+                        <div class="st-metric-card" style="cursor:pointer;" onclick="window.StrategyTesterUI.switchTab('settings')" title="Execution Mode: Click to configure in Settings">
+                            <div class="st-metric-label">Execution Mode</div>
+                            <div class="st-metric-value" style="font-size:14px; font-weight:700; color:${s.allowConcurrentChains ? '#b45309' : '#15803d'};">
+                                ${s.allowConcurrentChains ? 'Overlapping' : 'Sequential'}
+                            </div>
                         </div>
                     </div>
 
@@ -2224,11 +2257,27 @@
                 return;
             }
 
+            const isConcurrent = !!(this.currentData.config && this.currentData.config.allowConcurrentChains);
+
             let html = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:9px 13px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; font-size:12px;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span style="color:#475569; font-weight:600;">Execution Mode:</span> 
+                        <span style="font-weight:700; color:${isConcurrent ? '#b45309' : '#15803d'};">
+                            ${isConcurrent ? 'Overlapping / Concurrent Chains' : 'Sequential (One Chain at a Time)'}
+                        </span>
+                        <span style="color:#64748b; font-size:11px;">
+                            ${isConcurrent ? '— entries can open in parallel' : '— next chain starts only after current chain closes'}
+                        </span>
+                    </div>
+                    <button onclick="window.StrategyTesterUI.switchTab('settings')" style="font-size:11px; font-weight:600; color:#2563eb; background:none; border:none; cursor:pointer; text-decoration:underline;">
+                        Configure in Settings
+                    </button>
+                </div>
                 <table class="st-table">
                     <thead>
                         <tr>
-                            <th>Chain ID</th>
+                            <th>Chain # (ID)</th>
                             <th>Direction</th>
                             <th>Start Date</th>
                             <th>End Date</th>
@@ -2248,10 +2297,11 @@
                 const endDateStr = c.endTime ? new Date(c.endTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Open';
                 const dirBadge = c.direction === 'LONG' ? '<span class="st-tag-long">LONG</span>' : '<span class="st-tag-short">SHORT</span>';
                 const entryPrice = (c.entries && c.entries[0]) ? c.entries[0].price : 0;
+                const chainDisplayNum = c.chainNumber || (idx + 1);
 
                 html += `
                     <tr class="st-chain-row" onclick="window.StrategyTesterUI.toggleChainLegsAndJump(${idx}, ${c.startTime}, '${c.direction}', ${entryPrice}, '${c.chainId}')" style="cursor:pointer;" title="Click to inspect legs & view candle on chart">
-                        <td><strong>${c.chainId}</strong></td>
+                        <td><strong>#${chainDisplayNum} <span style="font-size:11px; font-weight:500; color:#64748b;">(${c.chainId})</span></strong></td>
                         <td>${dirBadge}</td>
                         <td>${startDateStr}</td>
                         <td>${endDateStr}</td>
@@ -2339,9 +2389,43 @@
 
         renderSettings(body) {
             const cfg = this.currentData.config || {};
+            const isConcurrent = !!cfg.allowConcurrentChains;
 
             body.innerHTML = `
                 <div style="max-width:540px; display:flex; flex-direction:column; gap:16px; padding-bottom:32px;">
+                    <div style="display:flex; flex-direction:column; gap:8px; border-bottom:1px solid #f1f5f9; padding-bottom:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label style="font-size:12px; font-weight:700; color:#0f172a;">Trade Chain Execution Mode</label>
+                            <span style="font-size:11px; font-weight:600; color:#64748b;">Sequential vs Overlapping</span>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <label id="st-mode-label-seq" style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:10px 12px; border:1.5px solid ${!isConcurrent ? '#2563eb' : '#cbd5e1'}; background:${!isConcurrent ? '#eff6ff' : '#ffffff'}; border-radius:8px; transition:all 0.15s ease;">
+                                <input type="radio" name="st-chain-mode" value="sequential" ${!isConcurrent ? 'checked' : ''} style="margin-top:2px; cursor:pointer;" />
+                                <div style="flex:1;">
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="font-size:13px; font-weight:700; color:#0f172a;">Sequential (One Chain at a Time)</span>
+                                        <span style="font-size:10px; font-weight:700; color:#1d4ed8; background:#dbeafe; padding:1px 6px; border-radius:4px;">Default / Standard</span>
+                                    </div>
+                                    <div style="font-size:11px; color:#64748b; margin-top:3px; line-height:1.4;">
+                                        Wait for the currently active trade chain to completely close before starting the next trade chain. Ignores/suppresses subsequent entry signals while in position.
+                                    </div>
+                                </div>
+                            </label>
+                            <label id="st-mode-label-con" style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:10px 12px; border:1.5px solid ${isConcurrent ? '#2563eb' : '#cbd5e1'}; background:${isConcurrent ? '#eff6ff' : '#ffffff'}; border-radius:8px; transition:all 0.15s ease;">
+                                <input type="radio" name="st-chain-mode" value="concurrent" ${isConcurrent ? 'checked' : ''} style="margin-top:2px; cursor:pointer;" />
+                                <div style="flex:1;">
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="font-size:13px; font-weight:700; color:#0f172a;">Allow Overlapping / Concurrent Chains</span>
+                                        <span style="font-size:10px; font-weight:700; color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:4px;">Multi-Position</span>
+                                    </div>
+                                    <div style="font-size:11px; color:#64748b; margin-top:3px; line-height:1.4;">
+                                        Allow new trade chains to start in parallel whenever the strategy logic triggers entry signals, even if an existing trade chain is still open.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     <div style="display:flex; flex-direction:column; gap:6px; border-bottom:1px solid #f1f5f9; padding-bottom:14px;">
                         <label style="font-size:12px; font-weight:700; color:#0f172a;">Backtest Date Range</label>
                         <div style="display:flex; gap:12px; align-items:center;">
@@ -2396,6 +2480,24 @@
                 </div>
             `;
 
+            // Radio card visual toggle handler
+            const seqLabel = document.getElementById('st-mode-label-seq');
+            const conLabel = document.getElementById('st-mode-label-con');
+            const radioEls = document.querySelectorAll('input[name="st-chain-mode"]');
+            radioEls.forEach(r => {
+                r.addEventListener('change', () => {
+                    const isSeq = document.querySelector('input[name="st-chain-mode"][value="sequential"]').checked;
+                    if (seqLabel) {
+                        seqLabel.style.borderColor = isSeq ? '#2563eb' : '#cbd5e1';
+                        seqLabel.style.background = isSeq ? '#eff6ff' : '#ffffff';
+                    }
+                    if (conLabel) {
+                        conLabel.style.borderColor = !isSeq ? '#2563eb' : '#cbd5e1';
+                        conLabel.style.background = !isSeq ? '#eff6ff' : '#ffffff';
+                    }
+                });
+            });
+
             const setLiveEndCb = document.getElementById('st-set-live-end');
             const setEndDateInput = document.getElementById('st-set-end-date');
             if (setLiveEndCb && setEndDateInput) {
@@ -2414,6 +2516,9 @@
                 const commVal = parseFloat(document.getElementById('st-set-comm-val').value) || 0;
                 const slippage = parseFloat(document.getElementById('st-set-slippage').value) || 0;
 
+                const selectedMode = document.querySelector('input[name="st-chain-mode"]:checked')?.value || 'sequential';
+                const allowConcurrentChains = (selectedMode === 'concurrent');
+
                 const startDate = document.getElementById('st-set-start-date').value;
                 const isLiveEnd = document.getElementById('st-set-live-end').checked;
                 const endDate = isLiveEnd ? null : document.getElementById('st-set-end-date').value;
@@ -2426,13 +2531,19 @@
                     ctx.config.commissionType = commType;
                     ctx.config.commissionValue = commVal;
                     ctx.config.slippage = slippage;
+                    ctx.config.allowConcurrentChains = allowConcurrentChains;
                     ctx.config.startDate = startDate || null;
                     ctx.config.endDate = endDate || null;
                     ctx.config.isLiveEnd = isLiveEnd;
 
+                    if (typeof ctx.saveConfig === 'function') {
+                        ctx.saveConfig();
+                    }
+
                     const startMs = startDate ? new Date(startDate).getTime() : 0;
                     const endMs = (!isLiveEnd && endDate) ? (new Date(endDate).getTime() + (86400 * 1000 - 1)) : Infinity;
-                    this.loadHistoricalRangeAndSync(startMs, endMs, isLiveEnd, 'custom');
+                    const preset = startDate ? 'custom' : (ctx.config.rangePreset || 'default');
+                    this.loadHistoricalRangeAndSync(startMs, endMs, isLiveEnd, preset);
                 }
             };
         }
