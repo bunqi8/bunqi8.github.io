@@ -42,13 +42,121 @@
         }
 
         init() {
+            this.loadState();
             this.injectStyles();
             this.buildDOM();
             this.bindEvents();
             this.bindDragResizer();
             this.bindPopupMoverAndResizer();
-            this.updateHeaderActionButtons();
+            this.applyStateToDOM();
             this.startStrategyRemovalWatcher();
+        }
+
+        saveState() {
+            try {
+                const state = {
+                    isDetached: this.isDetached,
+                    isCollapsed: this.isCollapsed,
+                    isFullscreen: this.isFullscreen,
+                    activeTab: this.activeTab,
+                    height: this.height,
+                    popupWidth: this.popupWidth,
+                    popupHeight: this.popupHeight,
+                    popupTop: this.popupTop,
+                    popupLeft: this.popupLeft,
+                    currentPreset: this.currentPreset
+                };
+                localStorage.setItem('tv_strategy_tester_state', JSON.stringify(state));
+            } catch (_) {}
+        }
+
+        loadState() {
+            try {
+                const saved = localStorage.getItem('tv_strategy_tester_state');
+                if (!saved) return;
+                const state = JSON.parse(saved);
+                if (typeof state.isDetached === 'boolean') this.isDetached = state.isDetached;
+                if (typeof state.isCollapsed === 'boolean') this.isCollapsed = state.isCollapsed;
+                if (typeof state.isFullscreen === 'boolean') this.isFullscreen = state.isFullscreen;
+                if (state.activeTab) this.activeTab = state.activeTab;
+                if (Number(state.height) >= 140) this.height = Number(state.height);
+                if (Number(state.popupWidth) >= 260) this.popupWidth = Number(state.popupWidth);
+                if (Number(state.popupHeight) >= 160) this.popupHeight = Number(state.popupHeight);
+                if (state.popupTop !== null && state.popupTop !== undefined && !isNaN(state.popupTop)) {
+                    this.popupTop = Math.max(10, Math.min(window.innerHeight - 80, Number(state.popupTop)));
+                }
+                if (state.popupLeft !== null && state.popupLeft !== undefined && !isNaN(state.popupLeft)) {
+                    this.popupLeft = Math.max(10, Math.min(window.innerWidth - 80, Number(state.popupLeft)));
+                }
+                if (state.currentPreset) this.currentPreset = state.currentPreset;
+            } catch (_) {}
+        }
+
+        applyStateToDOM() {
+            // 1. Detached popup vs docked bottom panel
+            if (this.isDetached) {
+                this.container.classList.add('detached');
+                const isMobile = window.innerWidth <= 768;
+                const width = this.popupWidth || (isMobile ? Math.min(window.innerWidth - 20, 360) : Math.min(880, window.innerWidth * 0.92));
+                const height = this.popupHeight || (isMobile ? Math.min(window.innerHeight - 80, 420) : Math.min(540, window.innerHeight * 0.85));
+                const top = this.popupTop !== null ? this.popupTop : (isMobile ? 30 : Math.max(20, Math.floor((window.innerHeight - height) / 2)));
+                const left = this.popupLeft !== null ? this.popupLeft : (isMobile ? Math.max(10, Math.floor((window.innerWidth - width) / 2)) : Math.max(20, Math.floor((window.innerWidth - width) / 2)));
+
+                this.popupWidth = width;
+                this.popupHeight = height;
+                this.popupTop = top;
+                this.popupLeft = left;
+
+                this.container.style.width = `${width}px`;
+                this.container.style.height = `${height}px`;
+                this.container.style.top = `${top}px`;
+                this.container.style.left = `${left}px`;
+                this.container.style.right = 'auto';
+                this.container.style.bottom = 'auto';
+                this.container.style.transform = 'none';
+            } else {
+                this.container.classList.remove('detached');
+                this.container.style.width = '';
+                this.container.style.height = `${this.height || 320}px`;
+                this.container.style.top = '';
+                this.container.style.left = '0';
+                this.container.style.right = '0';
+                this.container.style.bottom = '0';
+                this.container.style.transform = '';
+            }
+
+            // 2. Fullscreen mode
+            if (this.isFullscreen) {
+                this.container.classList.add('fullscreen');
+            } else {
+                this.container.classList.remove('fullscreen');
+            }
+
+            // 3. Collapsed mode
+            if (this.isCollapsed && !this.isFullscreen) {
+                this.container.classList.add('collapsed');
+            } else {
+                this.container.classList.remove('collapsed');
+            }
+
+            // 4. Active tab
+            if (this.activeTab) {
+                this.container.querySelectorAll('.st-tab').forEach(t => {
+                    if (t.getAttribute('data-tab') === this.activeTab) {
+                        t.classList.add('active');
+                    } else {
+                        t.classList.remove('active');
+                    }
+                });
+            }
+
+            // 5. Preset button
+            if (this.currentPreset) {
+                this.setPresetActive(this.currentPreset);
+            }
+
+            this.updateHeaderActionButtons();
+            this.updateChartLayout();
         }
 
         formatCurrency(num, showPlus = false) {
@@ -143,9 +251,15 @@
                     resize: none !important;
                 }
                 #strategy-tester-panel.collapsed #st-range-bar,
+                #strategy-tester-panel.collapsed #st-loading-bar-container,
                 #strategy-tester-panel.collapsed #st-body,
-                #strategy-tester-panel.collapsed #st-popup-resizer {
+                #strategy-tester-panel.collapsed #st-popup-resizer,
+                #strategy-tester-panel.collapsed #st-btn-close {
                     display: none !important;
+                }
+                #strategy-tester-panel.collapsed .st-header,
+                #strategy-tester-panel.collapsed .st-title-area {
+                    cursor: pointer !important;
                 }
 
                 /* Fullscreen mode hides collapse/minimize button */
@@ -991,9 +1105,36 @@
                     tab.classList.add('active');
                     this.activeTab = tab.getAttribute('data-tab');
                     tab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+
+                    // When minimized in bottom panel, clicking any tab expands the panel for instant viewing
+                    if (this.isCollapsed) {
+                        this.isCollapsed = false;
+                        this.container.classList.remove('collapsed');
+                        this.updateHeaderActionButtons();
+                        this.updateChartLayout();
+                        setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+                    }
+
+                    this.saveState();
                     this.renderActiveTab();
                 });
             });
+
+            // Expand when clicking header bar in collapsed state
+            const header = document.getElementById('st-header');
+            if (header) {
+                header.addEventListener('click', (e) => {
+                    if (e.target.closest('.st-actions') || e.target.closest('.st-tab') || e.target.closest('select') || e.target.closest('button') || e.target.closest('input')) return;
+                    if (this.isCollapsed && !this.isDetached) {
+                        this.isCollapsed = false;
+                        this.container.classList.remove('collapsed');
+                        this.updateHeaderActionButtons();
+                        this.updateChartLayout();
+                        this.saveState();
+                        setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+                    }
+                });
+            }
 
             // Detach / Dock
             document.getElementById('st-btn-detach').onclick = (e) => {
@@ -1027,6 +1168,7 @@
                         }
                         this.updateHeaderActionButtons();
                         this.updateChartLayout();
+                        this.saveState();
                         setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
                     }
                 };
@@ -1062,6 +1204,7 @@
                 const markCustom = () => {
                     this.isDateManuallyEdited = true;
                     this.setPresetActive('custom');
+                    this.saveState();
                 };
                 startDateInput.addEventListener('input', markCustom);
                 startDateInput.addEventListener('change', markCustom);
@@ -1070,6 +1213,7 @@
                 const markCustom = () => {
                     this.isDateManuallyEdited = true;
                     this.setPresetActive('custom');
+                    this.saveState();
                 };
                 endDateInput.addEventListener('input', markCustom);
                 endDateInput.addEventListener('change', markCustom);
@@ -1095,10 +1239,33 @@
                 });
             }
 
-            // Close completely (dismisses panel AND hides launcher pill)
+            // Close button:
+            // "closing the stretegy popup will just make it to a panel and mininmize it and will not close it fully"
             document.getElementById('st-btn-close').onclick = (e) => {
                 e.stopPropagation();
-                this.close();
+                if (this.isDetached) {
+                    // Dock to bottom panel
+                    this.isDetached = false;
+                    this.container.classList.remove('detached');
+                    this.container.style.width = '';
+                    this.container.style.height = `${this.height || 320}px`;
+                    this.container.style.top = '';
+                    this.container.style.left = '0';
+                    this.container.style.right = '0';
+                    this.container.style.bottom = '0';
+                    this.container.style.transform = '';
+                }
+                if (this.isFullscreen) {
+                    this.container.classList.remove('fullscreen');
+                    this.isFullscreen = false;
+                }
+                // Minimize/collapse to bottom bar
+                this.isCollapsed = true;
+                this.container.classList.add('collapsed');
+                this.updateHeaderActionButtons();
+                this.updateChartLayout();
+                this.saveState();
+                setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             };
         }
 
@@ -1249,7 +1416,12 @@
             // 3. Close button
             const closeBtn = document.getElementById('st-btn-close');
             if (closeBtn) {
-                closeBtn.title = "Close Strategy Tester";
+                if (this.isCollapsed && !this.isDetached) {
+                    closeBtn.style.display = 'none';
+                } else {
+                    closeBtn.style.display = 'flex';
+                }
+                closeBtn.title = this.isDetached ? "Dock to Bottom Panel & Minimize" : "Collapse to Bottom Bar";
             }
         }
 
@@ -1312,6 +1484,7 @@
                 resizer.classList.remove('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
                 this.updateChartLayout();
+                this.saveState();
                 window.dispatchEvent(new Event('resize'));
             };
 
@@ -1385,6 +1558,7 @@
                 }
                 document.body.classList.remove('st-resizing', 'st-moving-popup');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
+                this.saveState();
             };
 
             header.addEventListener('pointerup', stopMove);
@@ -1445,6 +1619,7 @@
                 document.body.classList.remove('st-resizing', 'st-resizing-nwse');
                 popupResizer.classList.remove('active');
                 document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
+                this.saveState();
             };
 
             popupResizer.addEventListener('pointerup', stopCornerResize);
@@ -2159,7 +2334,7 @@
             const cfg = this.currentData.config || {};
 
             body.innerHTML = `
-                <div style="max-width:540px; display:flex; flex-direction:column; gap:16px;">
+                <div style="max-width:540px; display:flex; flex-direction:column; gap:16px; padding-bottom:32px;">
                     <div style="display:flex; flex-direction:column; gap:6px; border-bottom:1px solid #f1f5f9; padding-bottom:14px;">
                         <label style="font-size:12px; font-weight:700; color:#0f172a;">Backtest Date Range</label>
                         <div style="display:flex; gap:12px; align-items:center;">
@@ -2324,7 +2499,13 @@
             const eVal = endInput ? endInput.value.trim() : '';
             const isLive = liveCb ? liveCb.checked : true;
 
-            // If user did not manually edit dates and a preset (e.g. 'default', '1Y') is selected:
+            // If user has 'default' (Max / 40k) active and didn't manually edit the text:
+            if (this.currentPreset === 'default' && (!sVal || !this.isDateManuallyEdited)) {
+                this.applyDateRangePreset('default');
+                return;
+            }
+
+            // If user did not manually edit dates and a preset (e.g. '1Y', '6M', '3M', '1M') is selected:
             if (!this.isDateManuallyEdited && this.currentPreset && this.currentPreset !== 'custom') {
                 this.applyDateRangePreset(this.currentPreset);
                 return;
@@ -2341,6 +2522,7 @@
 
             this.isDateManuallyEdited = true;
             this.setPresetActive('custom');
+            this.saveState();
             this.loadHistoricalRangeAndSync(startMs, endMs, isLive, 'custom');
         }
 
@@ -2397,12 +2579,16 @@
             ctx.config.rangePreset = preset;
 
             const loadingMsg = preset === 'default' 
-                ? 'Fetching historical data (up to 40k bars)...' 
-                : 'Fetching historical data for selected range...';
+                ? 'Step 1/3: Requesting up to 40,000 historical bars...' 
+                : 'Step 1/3: Requesting historical bars for selected range...';
             this.setLoadingState(true, loadingMsg);
 
             // Recalculate immediate available trades
-            window.StrategyEngine.calculateAndEmit(ctx);
+            try {
+                window.StrategyEngine.calculateAndEmit(ctx);
+            } catch (e) {
+                console.warn("[StrategyTesterUI] calculateAndEmit initial notice:", e);
+            }
 
             // If chart widget is present, scroll back to startMs to trigger historical bar loading
             if (window.tvWidget) {
@@ -2414,23 +2600,33 @@
                         try {
                             if (typeof chart.getVisibleRange === 'function') {
                                 const vr = chart.getVisibleRange();
-                                if (vr && vr.from && vr.to) {
+                                if (vr && typeof vr.from === 'number' && typeof vr.to === 'number' && vr.from < vr.to) {
                                     savedViewport = { from: vr.from, to: vr.to };
                                 }
                             }
                         } catch (_) {}
 
-                        let currentRes = chart.resolution();
+                        let currentRes = '1D';
+                        try {
+                            currentRes = chart.resolution();
+                        } catch (_) {}
                         const resSec = window.StrategyEngine ? window.StrategyEngine.getResolutionInSeconds(currentRes) : 3600;
 
+                        const nowSec = Math.floor(Date.now() / 1000);
                         let startSec = startMs > 0 ? Math.floor(startMs / 1000) : 0;
                         if (!startSec || startSec <= 0) {
-                            const fortyKBarsAgo = Math.floor(Date.now() / 1000) - (40000 * resSec);
-                            const oneYearAgo = Math.floor(Date.now() / 1000) - (365 * 86400);
+                            const fortyKBarsAgo = nowSec - (40000 * resSec);
+                            const oneYearAgo = nowSec - (365 * 86400);
                             startSec = Math.min(oneYearAgo, fortyKBarsAgo);
                         }
 
-                        const windowSpan = Math.max(resSec * 60, 86400 * 2);
+                        // IMPORTANT: In TradingView's setVisibleRange, if 'to' is also in the distant past before any loaded bars,
+                        // TradingView's internal indexOfTime(to) returns -1 or null, which causes `h > l` check to fail with:
+                        // "Uncaught (in promise) Error: Invalid visible range".
+                        // To trigger historical bar paging safely, targetTo must be the known current loaded bar time
+                        // (savedViewport.to or nowSec), and targetFrom is startSec (clamped so targetFrom < targetTo).
+                        const targetTo = (savedViewport && savedViewport.to > startSec) ? savedViewport.to : nowSec;
+                        const targetFrom = Math.min(startSec, targetTo - (resSec * 20));
 
                         let restored = false;
                         const restoreViewportAndFinalize = () => {
@@ -2438,38 +2634,61 @@
                             restored = true;
                             try {
                                 const statusEl = document.getElementById('st-range-status-text');
-                                if (statusEl) statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Calculating strategy & trade chains...</strong>`;
+                                if (statusEl) {
+                                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Step 3/3: Finalizing trades & restoring viewport...</strong>`;
+                                }
                                 window.StrategyEngine.calculateAndEmit(ctx);
+
                                 // Restore the user's viewport exactly like it was before
                                 if (savedViewport && typeof chart.setVisibleRange === 'function') {
-                                    chart.setVisibleRange(savedViewport, () => {});
+                                    const p = chart.setVisibleRange(savedViewport, () => {});
+                                    if (p && typeof p.catch === 'function') {
+                                        p.catch(() => {});
+                                    }
                                 }
                             } catch (e) {
                                 console.warn("[StrategyTesterUI] Failed to restore viewport:", e);
                             } finally {
-                                setTimeout(() => this.setLoadingState(false), 200);
+                                setTimeout(() => this.setLoadingState(false), 250);
                             }
                         };
 
                         // Update loading message while bars load
                         setTimeout(() => {
-                            if (this.isLoading) {
+                            if (this.isLoading && !restored) {
                                 const statusEl = document.getElementById('st-range-status-text');
-                                if (statusEl) statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Processing data & calculating trades...</strong>`;
+                                if (statusEl) {
+                                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Step 2/3: Calculating strategy logic & trade chains...</strong>`;
+                                }
                             }
-                        }, 600);
+                        }, 500);
 
-                        // 2. Scroll back chart to start range to load historical bars
-                        chart.setVisibleRange({
-                            from: startSec,
-                            to: startSec + windowSpan
-                        }, () => {
-                            // 3. After TradingView fetches bars & PineJS processes them, recalculate & restore viewport
-                            setTimeout(restoreViewportAndFinalize, 900);
-                        });
+                        // 2. Request range from TradingView to page back history
+                        try {
+                            const p = chart.setVisibleRange({
+                                from: targetFrom,
+                                to: targetTo
+                            }, () => {
+                                // 3. After TradingView fetches bars & PineJS processes them, recalculate & restore viewport
+                                setTimeout(restoreViewportAndFinalize, 800);
+                            });
 
-                        // Fallback in case setVisibleRange callback is throttled or delayed
-                        setTimeout(restoreViewportAndFinalize, 2400);
+                            if (p && typeof p.then === 'function') {
+                                p.then(() => {
+                                    setTimeout(restoreViewportAndFinalize, 800);
+                                }).catch(err => {
+                                    console.warn("[StrategyTesterUI] chart.setVisibleRange notice:", err && err.message ? err.message : err);
+                                    // Even if rejected due to missing bars in datafeed, still finalize gracefully
+                                    restoreViewportAndFinalize();
+                                });
+                            }
+                        } catch (err) {
+                            console.warn("[StrategyTesterUI] chart.setVisibleRange sync error:", err);
+                            restoreViewportAndFinalize();
+                        }
+
+                        // Safety fallback timer in case callbacks are delayed or throttled
+                        setTimeout(restoreViewportAndFinalize, 2000);
                         return;
                     }
                 } catch (e) {
@@ -2478,7 +2697,12 @@
             }
 
             // Fallback if no chart widget
-            setTimeout(() => this.setLoadingState(false), 300);
+            setTimeout(() => {
+                try {
+                    window.StrategyEngine.calculateAndEmit(ctx);
+                } catch (_) {}
+                this.setLoadingState(false);
+            }, 300);
         }
 
         clearHighlightCandleOnChart() {
@@ -2582,12 +2806,22 @@
                 } catch (_) {}
 
                 const halfSpan = Math.max(resSec * 40, 3600 * 2);
-                chart.setVisibleRange({
-                    from: timeSec - halfSpan,
-                    to: timeSec + halfSpan
-                }, () => {
+                try {
+                    const p = chart.setVisibleRange({
+                        from: timeSec - halfSpan,
+                        to: timeSec + halfSpan
+                    }, () => {
+                        this.highlightCandleOnChart(timeSec, options);
+                    });
+                    if (p && typeof p.catch === 'function') {
+                        p.catch(err => {
+                            console.warn("[StrategyTesterUI] jumpToCandle setVisibleRange notice:", err && err.message ? err.message : err);
+                            this.highlightCandleOnChart(timeSec, options);
+                        });
+                    }
+                } catch (_) {
                     this.highlightCandleOnChart(timeSec, options);
-                });
+                }
 
                 // Also draw immediately
                 this.highlightCandleOnChart(timeSec, options);
