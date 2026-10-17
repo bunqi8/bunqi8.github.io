@@ -149,6 +149,17 @@ style.innerHTML = `
     .atm-row { position: relative; width: 100%; height: 0; display: flex; justify-content: center; align-items: center; z-index: 2; }
     .atm-line { position: absolute; width: 100%; height: 1px; background-color: #131722; top: 0; left: 0; }
     .atm-marker { background: #131722; color: white; font-size: 11px; padding: 3px 6px; border-radius: 4px; font-weight: 600; z-index: 3; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+    /* Mobile Responsive Optimization */
+    @media (max-width: 768px) {
+        .oc-backdrop { padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
+        .oc-modal { width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; border-radius: 0 !important; }
+        .oc-header { padding: 12px 16px !important; }
+        .oc-title { font-size: 16px !important; }
+        .oc-expiries-strip { padding: 10px 14px !important; gap: 10px !important; min-height: 48px !important; }
+        .oc-base-strip { padding: 8px 14px 0 14px !important; }
+        .oc-cell { padding: 10px 0 !important; font-size: 12px !important; }
+    }
 `;
 document.head.appendChild(style);
 

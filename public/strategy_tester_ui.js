@@ -102,7 +102,7 @@
                     border: 1px solid #d1d4dc;
                     border-radius: 10px;
                     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
-                    min-width: 480px;
+                    min-width: 280px;
                     min-height: 260px;
                     max-width: 98vw;
                     max-height: 98vh;
@@ -496,6 +496,84 @@
                     background: #2563eb;
                     transform: translateY(-2px);
                 }
+
+                /* Mobile & Small Screen Responsive Optimization */
+                @media (max-width: 768px) {
+                    #strategy-tester-panel.detached {
+                        min-width: 0 !important;
+                        width: 100vw !important;
+                        height: 100% !important;
+                        max-width: 100vw !important;
+                        max-height: 100% !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        right: 0 !important;
+                        bottom: 0 !important;
+                        border-radius: 0 !important;
+                        border: none !important;
+                    }
+                    .st-header {
+                        padding: 0 8px !important;
+                        gap: 6px !important;
+                    }
+                    .st-title-area {
+                        gap: 8px !important;
+                        min-width: 0 !important;
+                        flex: 1 !important;
+                        overflow: hidden !important;
+                    }
+                    .st-title {
+                        font-size: 12px !important;
+                    }
+                    .st-badge {
+                        display: none !important;
+                    }
+                    .st-tabs {
+                        margin-left: 4px !important;
+                        overflow-x: auto !important;
+                        white-space: nowrap !important;
+                        -webkit-overflow-scrolling: touch !important;
+                        scrollbar-width: none !important;
+                    }
+                    .st-tabs::-webkit-scrollbar {
+                        display: none !important;
+                    }
+                    .st-tab {
+                        padding: 4px 8px !important;
+                        font-size: 11px !important;
+                    }
+                    .st-metrics-grid {
+                        grid-template-columns: repeat(2, 1fr) !important;
+                        gap: 6px !important;
+                    }
+                    .st-metric-card {
+                        padding: 8px 10px !important;
+                    }
+                    .st-metric-label {
+                        font-size: 9.5px !important;
+                    }
+                    .st-metric-value {
+                        font-size: 14px !important;
+                    }
+                    .st-body {
+                        padding: 10px 10px !important;
+                        -webkit-overflow-scrolling: touch !important;
+                    }
+                    .st-table {
+                        min-width: 520px !important;
+                        white-space: nowrap !important;
+                    }
+                    .st-table th, .st-table td {
+                        padding: 7px 9px !important;
+                        font-size: 11px !important;
+                    }
+                    #st-launcher-pill {
+                        bottom: 12px !important;
+                        right: 12px !important;
+                        padding: 6px 12px !important;
+                        font-size: 11px !important;
+                    }
+                }
             `;
             document.head.appendChild(style);
         }
@@ -631,10 +709,11 @@
             if (this.isDetached) {
                 this.container.classList.add('detached');
                 // Calculate centered position
-                const width = Math.min(880, window.innerWidth * 0.92);
-                const height = Math.min(540, window.innerHeight * 0.85);
-                const top = Math.max(20, Math.floor((window.innerHeight - height) / 2));
-                const left = Math.max(20, Math.floor((window.innerWidth - width) / 2));
+                const isMobile = window.innerWidth <= 768;
+                const width = isMobile ? window.innerWidth : Math.min(880, window.innerWidth * 0.92);
+                const height = isMobile ? window.innerHeight : Math.min(540, window.innerHeight * 0.85);
+                const top = isMobile ? 0 : Math.max(20, Math.floor((window.innerHeight - height) / 2));
+                const left = isMobile ? 0 : Math.max(20, Math.floor((window.innerWidth - width) / 2));
 
                 this.popupWidth = width;
                 this.popupHeight = height;
@@ -820,8 +899,9 @@
                 const deltaX = e.clientX - resizeStartX;
                 const deltaY = e.clientY - resizeStartY;
 
-                const newW = Math.max(480, Math.min(window.innerWidth - this.container.offsetLeft - 10, startW + deltaX));
-                const newH = Math.max(260, Math.min(window.innerHeight - this.container.offsetTop - 10, startH + deltaY));
+                const minW = window.innerWidth <= 768 ? 280 : 480;
+                const newW = Math.max(minW, Math.min(window.innerWidth - this.container.offsetLeft - 10, startW + deltaX));
+                const newH = Math.max(200, Math.min(window.innerHeight - this.container.offsetTop - 10, startH + deltaY));
 
                 this.popupWidth = newW;
                 this.popupHeight = newH;

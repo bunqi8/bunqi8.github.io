@@ -65,7 +65,7 @@ class FyersUI {
             modal.id = 'fyers-auth-modal';
             modal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
             modal.innerHTML = `
-                <div style="background:#fff;padding:24px;border-radius:8px;width:400px;font-family:sans-serif;">
+                <div style="background:#fff;padding:24px;border-radius:8px;width:400px;max-width:92vw;box-sizing:border-box;font-family:sans-serif;">
                     <h3 style="margin-top:0;">Fyers API Connection</h3>
                     <p style="font-size:13px;color:#666;">Paste your Fyers App_ID:Access_Token generated from your backend script.</p>
                     <input type="password" id="fyers-token-input" placeholder="Enter Access Token" style="width:100%;padding:10px;margin:12px 0;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">
