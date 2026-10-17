@@ -49,7 +49,27 @@
             this.bindDragResizer();
             this.bindPopupMoverAndResizer();
             this.applyStateToDOM();
+            this.bindResponsiveObserver();
             this.startStrategyRemovalWatcher();
+        }
+
+        bindResponsiveObserver() {
+            if (!this.container) return;
+            const updateNarrow = () => {
+                const width = this.container.offsetWidth;
+                if (width > 0 && width < 820) {
+                    this.container.classList.add('st-narrow');
+                } else {
+                    this.container.classList.remove('st-narrow');
+                }
+            };
+            if (window.ResizeObserver) {
+                const ro = new ResizeObserver(() => updateNarrow());
+                ro.observe(this.container);
+            } else {
+                window.addEventListener('resize', updateNarrow);
+            }
+            updateNarrow();
         }
 
         saveState() {
@@ -254,12 +274,25 @@
                 #strategy-tester-panel.collapsed #st-loading-bar-container,
                 #strategy-tester-panel.collapsed #st-body,
                 #strategy-tester-panel.collapsed #st-popup-resizer,
-                #strategy-tester-panel.collapsed #st-btn-close {
+                #strategy-tester-panel.collapsed #st-btn-close,
+                #strategy-tester-panel.collapsed #st-btn-detach,
+                #strategy-tester-panel.collapsed #st-btn-maximize,
+                #strategy-tester-panel.collapsed .st-mode-toggle-group,
+                #strategy-tester-panel.collapsed .st-badge {
                     display: none !important;
                 }
                 #strategy-tester-panel.collapsed .st-header,
+                #strategy-tester-panel.collapsed .st-header-top,
                 #strategy-tester-panel.collapsed .st-title-area {
                     cursor: pointer !important;
+                }
+                #strategy-tester-panel.collapsed.st-narrow .st-header-bottom {
+                    display: none !important;
+                }
+                @media (max-width: 820px) {
+                    #strategy-tester-panel.collapsed .st-header-bottom {
+                        display: none !important;
+                    }
                 }
 
                 /* In docked panel mode, close button is NEVER shown because collapse button already collapses/minimizes */
@@ -344,8 +377,8 @@
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 0 10px 0 14px;
-                    height: 42px;
+                    padding: 0 12px;
+                    height: 44px;
                     background: #f8fafc;
                     border-bottom: 1px solid #e2e8f0;
                     user-select: none;
@@ -353,20 +386,28 @@
                     flex-shrink: 0;
                     box-sizing: border-box;
                     touch-action: none;
-                    gap: 8px;
-                    overflow: hidden;
+                    gap: 10px;
                     position: relative;
                 }
                 #strategy-tester-panel.detached:not(.fullscreen) .st-header {
                     cursor: move;
                 }
 
+                .st-header-top {
+                    display: contents;
+                }
+                .st-header-bottom {
+                    display: contents;
+                }
+
                 .st-title-area {
+                    order: 1;
                     display: flex;
                     align-items: center;
-                    gap: 12px;
+                    gap: 8px;
                     min-width: 0;
-                    flex: 1 1 auto;
+                    flex: 0 1 auto;
+                    max-width: clamp(180px, 28vw, 380px);
                     overflow: hidden;
                 }
 
@@ -380,25 +421,31 @@
                     white-space: nowrap;
                     flex: 0 1 auto;
                     min-width: 0;
-                    max-width: clamp(160px, 40vw, 500px);
+                    overflow: hidden;
                 }
                 #st-strategy-name {
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                     min-width: 0;
+                    font-size: 13px;
+                    font-weight: 700;
                 }
                 .st-strategy-select {
                     font-size: 12px;
-                    font-weight: 600;
+                    font-weight: 700;
                     color: #0f172a;
                     background: #ffffff;
                     border: 1px solid #cbd5e1;
-                    border-radius: 5px;
-                    padding: 3px 8px;
-                    max-width: clamp(160px, 35vw, 360px);
+                    border-radius: 6px;
+                    padding: 3px 22px 3px 8px;
+                    max-width: clamp(160px, 25vw, 300px);
                     outline: none;
                     cursor: pointer;
+                    appearance: none;
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                    background-repeat: no-repeat;
+                    background-position: right 6px center;
                 }
 
                 .st-badge {
@@ -416,6 +463,7 @@
 
                 /* Realtime Mode Toggle Segmented Control */
                 .st-mode-toggle-group {
+                    order: 3;
                     display: inline-flex;
                     align-items: center;
                     background: #f1f5f9;
@@ -470,13 +518,19 @@
                 .st-mode-seg-btn.active.con .st-mode-dot {
                     color: #d97706;
                 }
+                .st-mode-text-short {
+                    display: none;
+                }
+                .st-mode-text-full {
+                    display: inline;
+                }
 
                 /* Tabs Navigation */
                 .st-tabs {
+                    order: 2;
                     display: flex;
                     align-items: center;
-                    gap: 3px;
-                    margin-left: 8px;
+                    gap: 4px;
                     overflow-x: auto;
                     overflow-y: hidden;
                     white-space: nowrap;
@@ -491,7 +545,7 @@
                 }
 
                 .st-tab {
-                    padding: 5px 11px;
+                    padding: 5px 12px;
                     font-size: 12px;
                     font-weight: 600;
                     color: #64748b;
@@ -500,6 +554,8 @@
                     transition: all 0.15s ease;
                     white-space: nowrap;
                     flex-shrink: 0;
+                    user-select: none;
+                    border: 1px solid transparent;
                 }
                 .st-tab:hover {
                     background: #e2e8f0;
@@ -508,12 +564,14 @@
                 .st-tab.active {
                     background: #ffffff;
                     color: #2563eb;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-                    border: 1px solid #e2e8f0;
+                    font-weight: 700;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+                    border: 1px solid #cbd5e1;
                 }
 
                 /* Action Buttons */
                 .st-actions {
+                    order: 4;
                     display: flex;
                     align-items: center;
                     gap: 4px;
@@ -545,14 +603,13 @@
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    gap: 10px;
+                    gap: 12px;
                     padding: 6px 14px;
                     background: #f8fafc;
                     border-bottom: 1px solid #e2e8f0;
                     font-size: 11px;
                     flex-shrink: 0;
                     box-sizing: border-box;
-                    overflow-x: auto;
                 }
                 .st-range-left {
                     display: flex;
@@ -566,6 +623,7 @@
                     text-transform: uppercase;
                     font-size: 10px;
                     letter-spacing: 0.4px;
+                    flex-shrink: 0;
                 }
                 .st-range-presets {
                     display: flex;
@@ -604,6 +662,7 @@
                     display: flex;
                     align-items: center;
                     gap: 6px;
+                    flex-shrink: 0;
                 }
                 .st-date-input {
                     background: #ffffff;
@@ -615,6 +674,7 @@
                     outline: none;
                     font-family: inherit;
                     transition: border-color 0.15s ease;
+                    box-sizing: border-box;
                 }
                 .st-date-input:focus {
                     border-color: #2563eb;
@@ -623,6 +683,11 @@
                     background: #f1f5f9;
                     color: #94a3b8;
                     cursor: not-allowed;
+                }
+                .st-date-input::-webkit-calendar-picker-indicator {
+                    padding: 0;
+                    margin: 0;
+                    cursor: pointer;
                 }
                 .st-range-live-toggle {
                     display: flex;
@@ -633,17 +698,25 @@
                     color: #0f172a;
                     user-select: none;
                     white-space: nowrap;
+                    font-size: 11px;
                 }
                 .st-range-live-toggle input {
                     cursor: pointer;
                     accent-color: #089981;
+                    margin: 0;
+                }
+                .st-live-text-short {
+                    display: none;
+                }
+                .st-live-text-full {
+                    display: inline;
                 }
                 .st-range-apply-btn {
                     background: #2563eb;
                     color: #ffffff;
                     border: none;
                     border-radius: 4px;
-                    padding: 3px 10px;
+                    padding: 4px 12px;
                     font-size: 11px;
                     font-weight: 600;
                     cursor: pointer;
@@ -652,6 +725,7 @@
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
+                    flex-shrink: 0;
                 }
                 .st-range-apply-btn:hover:not(:disabled) {
                     background: #1d4ed8;
@@ -669,6 +743,9 @@
                     display: flex;
                     align-items: center;
                     gap: 6px;
+                    max-width: 280px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
                 }
 
                 /* Range loading progress bar & spinner */
@@ -942,7 +1019,7 @@
                 }
 
                 /* Mobile & Small Screen Responsive Optimization */
-                @media (max-width: 768px) {
+                @media (max-width: 820px), #strategy-tester-panel.st-narrow {
                     #strategy-tester-panel.detached {
                         min-width: 260px !important;
                         min-height: 180px !important;
@@ -962,27 +1039,77 @@
                         touch-action: none !important;
                     }
                     .st-header {
+                        flex-direction: column !important;
+                        height: auto !important;
+                        padding: 0 !important;
+                        gap: 0 !important;
+                        overflow: visible !important;
+                    }
+                    .st-header-top {
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: space-between !important;
+                        width: 100% !important;
+                        height: 38px !important;
+                        padding: 0 8px 0 12px !important;
+                        border-bottom: 1px solid #e2e8f0 !important;
+                        box-sizing: border-box !important;
+                        background: #f8fafc !important;
+                        flex-shrink: 0 !important;
+                    }
+                    .st-header-bottom {
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: space-between !important;
+                        width: 100% !important;
+                        height: 36px !important;
                         padding: 0 8px !important;
+                        box-sizing: border-box !important;
+                        background: #ffffff !important;
                         gap: 6px !important;
+                        flex-shrink: 0 !important;
+                        border-bottom: 1px solid #edf2f7 !important;
                     }
                     .st-title-area {
-                        gap: 8px !important;
+                        order: initial !important;
+                        flex: 1 1 auto !important;
+                        max-width: calc(100% - 105px) !important;
                         min-width: 0 !important;
-                        flex: 1 !important;
-                        overflow: hidden !important;
                     }
                     .st-title {
-                        font-size: 12px !important;
+                        max-width: 100% !important;
+                        font-size: 13px !important;
+                    }
+                    #st-strategy-name {
+                        font-size: 12.5px !important;
+                        font-weight: 700 !important;
+                    }
+                    .st-strategy-select {
+                        max-width: 180px !important;
+                        font-size: 11.5px !important;
+                        padding: 2px 20px 2px 6px !important;
                     }
                     .st-badge {
                         display: none !important;
                     }
+                    .st-actions {
+                        order: initial !important;
+                        margin-left: auto !important;
+                        gap: 2px !important;
+                    }
+                    .st-icon-btn {
+                        width: 26px !important;
+                        height: 26px !important;
+                    }
                     .st-tabs {
-                        margin-left: 4px !important;
+                        order: initial !important;
+                        margin: 0 !important;
+                        flex: 1 1 auto !important;
+                        min-width: 0 !important;
                         overflow-x: auto !important;
-                        white-space: nowrap !important;
-                        -webkit-overflow-scrolling: touch !important;
+                        gap: 3px !important;
                         scrollbar-width: none !important;
+                        -webkit-overflow-scrolling: touch !important;
                     }
                     .st-tabs::-webkit-scrollbar {
                         display: none !important;
@@ -990,6 +1117,106 @@
                     .st-tab {
                         padding: 4px 8px !important;
                         font-size: 11px !important;
+                    }
+                    .st-mode-toggle-group {
+                        order: initial !important;
+                        flex-shrink: 0 !important;
+                        padding: 1px !important;
+                        gap: 1px !important;
+                    }
+                    .st-mode-seg-btn {
+                        padding: 3px 6px !important;
+                        font-size: 10.5px !important;
+                        gap: 3px !important;
+                    }
+                    .st-mode-text-full {
+                        display: none !important;
+                    }
+                    .st-mode-text-short {
+                        display: inline !important;
+                    }
+
+                    /* Range Bar on Mobile */
+                    .st-range-bar {
+                        flex-direction: column !important;
+                        align-items: stretch !important;
+                        padding: 6px 10px !important;
+                        gap: 6px !important;
+                        background: #f8fafc !important;
+                    }
+                    .st-range-left {
+                        width: 100% !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        gap: 6px !important;
+                        overflow-x: auto !important;
+                        scrollbar-width: none !important;
+                        -webkit-overflow-scrolling: touch !important;
+                    }
+                    .st-range-left::-webkit-scrollbar {
+                        display: none !important;
+                    }
+                    .st-range-label {
+                        font-size: 9.5px !important;
+                        flex-shrink: 0 !important;
+                    }
+                    .st-range-presets {
+                        display: flex !important;
+                        align-items: center !important;
+                        gap: 3px !important;
+                        flex-shrink: 0 !important;
+                    }
+                    .st-range-btn {
+                        padding: 3px 6px !important;
+                        font-size: 10px !important;
+                    }
+                    .st-range-right {
+                        width: 100% !important;
+                        display: flex !important;
+                        align-items: center !important;
+                        justify-content: space-between !important;
+                        gap: 4px !important;
+                    }
+                    .st-range-inputs {
+                        display: flex !important;
+                        align-items: center !important;
+                        gap: 4px !important;
+                        flex: 1 1 auto !important;
+                        min-width: 0 !important;
+                        justify-content: flex-start !important;
+                    }
+                    .st-date-input {
+                        width: 84px !important;
+                        max-width: 88px !important;
+                        padding: 2px 4px !important;
+                        font-size: 10px !important;
+                        box-sizing: border-box !important;
+                    }
+                    .st-date-input::-webkit-calendar-picker-indicator {
+                        width: 12px !important;
+                        height: 12px !important;
+                    }
+                    .st-range-live-toggle {
+                        font-size: 10px !important;
+                        gap: 3px !important;
+                        margin-left: 2px !important;
+                        white-space: nowrap !important;
+                    }
+                    .st-live-text-full {
+                        display: none !important;
+                    }
+                    .st-live-text-short {
+                        display: inline !important;
+                    }
+                    .st-range-apply-btn {
+                        padding: 3px 9px !important;
+                        font-size: 10.5px !important;
+                        font-weight: 700 !important;
+                        margin-left: auto !important;
+                        flex-shrink: 0 !important;
+                    }
+                    .st-range-status {
+                        display: none !important;
                     }
                     .st-metrics-grid {
                         grid-template-columns: repeat(2, 1fr) !important;
@@ -1003,6 +1230,7 @@
                     }
                     .st-metric-value {
                         font-size: 14px !important;
+                        flex-wrap: wrap !important;
                     }
                     .st-body {
                         padding: 10px 10px !important;
@@ -1022,30 +1250,6 @@
                         padding: 6px 12px !important;
                         font-size: 11px !important;
                     }
-                    .st-range-bar {
-                        padding: 5px 8px !important;
-                        gap: 6px !important;
-                        flex-wrap: wrap !important;
-                    }
-                    .st-range-presets {
-                        overflow-x: auto !important;
-                        scrollbar-width: none !important;
-                    }
-                    .st-range-presets::-webkit-scrollbar {
-                        display: none !important;
-                    }
-                    .st-range-btn {
-                        padding: 2px 6px !important;
-                        font-size: 10px !important;
-                    }
-                    .st-date-input {
-                        padding: 2px 4px !important;
-                        font-size: 10px !important;
-                        max-width: 105px !important;
-                    }
-                    .st-range-status {
-                        display: none !important;
-                    }
                 }
             `;
             document.head.appendChild(style);
@@ -1058,21 +1262,31 @@
             panel.innerHTML = `
                 <div class="st-resizer" id="st-drag-resizer"></div>
                 <div class="st-header" id="st-header">
-                    <div class="st-title-area">
-                        <div class="st-title">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-                            <span id="st-strategy-name">Strategy Tester</span>
-                            <select id="st-strategy-select" class="st-strategy-select" style="display:none;" title="Select Active Strategy"></select>
-                            <span class="st-badge" id="st-strategy-badge">Strategy</span>
+                    <div class="st-header-top">
+                        <div class="st-title-area">
+                            <div class="st-title">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                                <span id="st-strategy-name">Strategy Tester</span>
+                                <select id="st-strategy-select" class="st-strategy-select" style="display:none;" title="Select Active Strategy"></select>
+                                <span class="st-badge" id="st-strategy-badge">Strategy</span>
+                            </div>
                         </div>
-                        <div class="st-mode-toggle-group" id="st-mode-toggle-group" title="Execution Mode: Sequential vs Overlapping. Click to toggle in real-time!">
-                            <button type="button" class="st-mode-seg-btn active seq" id="st-mode-btn-seq" data-mode="sequential" title="Sequential: Wait for active trade chain to completely close before starting next trade chain">
-                                <span class="st-mode-dot">●</span> Sequential
-                            </button>
-                            <button type="button" class="st-mode-seg-btn" id="st-mode-btn-con" data-mode="concurrent" title="Overlapping: Allow new trade chains to start in parallel whenever strategy logic triggers">
-                                Overlapping
-                            </button>
+                        <div class="st-actions">
+                            <div class="st-icon-btn" id="st-btn-detach" title="Detach / Dock">
+                                <svg id="st-icon-detach" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+                            </div>
+                            <div class="st-icon-btn" id="st-btn-maximize" title="Maximize / Restore">
+                                <svg id="st-icon-maximize" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                            </div>
+                            <div class="st-icon-btn" id="st-btn-collapse" title="Collapse / Expand">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </div>
+                            <div class="st-icon-btn" id="st-btn-close" title="Close Panel">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </div>
                         </div>
+                    </div>
+                    <div class="st-header-bottom">
                         <div class="st-tabs">
                             <div class="st-tab active" data-tab="overview">Overview</div>
                             <div class="st-tab" data-tab="performance">Performance Summary</div>
@@ -1080,19 +1294,16 @@
                             <div class="st-tab" data-tab="trades">List of Trades</div>
                             <div class="st-tab" data-tab="settings">Settings</div>
                         </div>
-                    </div>
-                    <div class="st-actions">
-                        <div class="st-icon-btn" id="st-btn-detach" title="Detach / Dock">
-                            <svg id="st-icon-detach" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-                        </div>
-                        <div class="st-icon-btn" id="st-btn-maximize" title="Maximize / Restore">
-                            <svg id="st-icon-maximize" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
-                        </div>
-                        <div class="st-icon-btn" id="st-btn-collapse" title="Collapse / Expand">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                        </div>
-                        <div class="st-icon-btn" id="st-btn-close" title="Close Panel">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        <div class="st-mode-toggle-group" id="st-mode-toggle-group" title="Execution Mode: Sequential vs Overlapping. Click to toggle in real-time!">
+                            <button type="button" class="st-mode-seg-btn active seq" id="st-mode-btn-seq" data-mode="sequential" title="Sequential: Wait for active trade chain to completely close before starting next trade chain">
+                                <span class="st-mode-dot">●</span>
+                                <span class="st-mode-text-full">Sequential</span>
+                                <span class="st-mode-text-short">Seq</span>
+                            </button>
+                            <button type="button" class="st-mode-seg-btn" id="st-mode-btn-con" data-mode="concurrent" title="Overlapping: Allow new trade chains to start in parallel whenever strategy logic triggers">
+                                <span class="st-mode-text-full">Overlapping</span>
+                                <span class="st-mode-text-short">Over</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1115,7 +1326,8 @@
                             <input type="date" id="st-range-end-date" class="st-date-input" title="End Date" disabled />
                             <label class="st-range-live-toggle" title="Keep updating live as new bars form">
                                 <input type="checkbox" id="st-range-live-end" checked />
-                                <span>Now (Live 🟢)</span>
+                                <span class="st-live-text-full">Now (Live 🟢)</span>
+                                <span class="st-live-text-short">Live 🟢</span>
                             </label>
                             <button id="st-btn-apply-range" class="st-range-apply-btn">Apply</button>
                         </div>
@@ -1898,14 +2110,14 @@
             if (seqBtn && conBtn) {
                 if (isConcurrent) {
                     seqBtn.className = 'st-mode-seg-btn';
-                    seqBtn.innerHTML = 'Sequential';
+                    seqBtn.innerHTML = '<span class="st-mode-text-full">Sequential</span><span class="st-mode-text-short">Seq</span>';
                     conBtn.className = 'st-mode-seg-btn active con';
-                    conBtn.innerHTML = '<span class="st-mode-dot">●</span> Overlapping';
+                    conBtn.innerHTML = '<span class="st-mode-dot">●</span> <span class="st-mode-text-full">Overlapping</span><span class="st-mode-text-short">Over</span>';
                 } else {
                     seqBtn.className = 'st-mode-seg-btn active seq';
-                    seqBtn.innerHTML = '<span class="st-mode-dot">●</span> Sequential';
+                    seqBtn.innerHTML = '<span class="st-mode-dot">●</span> <span class="st-mode-text-full">Sequential</span><span class="st-mode-text-short">Seq</span>';
                     conBtn.className = 'st-mode-seg-btn';
-                    conBtn.innerHTML = 'Overlapping';
+                    conBtn.innerHTML = '<span class="st-mode-text-full">Overlapping</span><span class="st-mode-text-short">Over</span>';
                 }
             }
         }
