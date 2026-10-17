@@ -298,6 +298,12 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-modal-tab.active {
                 background: #ffffff; color: #2962FF; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e0e3eb; font-weight: 600;
             }
+            .tv-list-wrapper {
+                flex: 1; display: flex; flex-direction: column; background: #ffffff; min-height: 0; min-width: 0; overflow: hidden;
+            }
+            .tv-list-header {
+                padding: 14px 24px 8px 24px; font-size: 11px; font-weight: 700; color: #b2b5be; text-transform: uppercase; letter-spacing: 0.4px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+            }
             .tv-editor-header {
                 display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff; flex-shrink: 0;
             }
@@ -455,26 +461,113 @@ function setupCustomIndicatorsDialog(widget) {
                 .tv-search-container {
                     padding: 0 16px 8px 16px !important;
                 }
+                .tv-filter-container {
+                    gap: 4px !important;
+                    margin-top: 6px !important;
+                }
+                .tv-filter-row {
+                    gap: 5px !important;
+                    padding-right: 20px !important;
+                    touch-action: pan-x !important;
+                    -webkit-overflow-scrolling: touch !important;
+                }
+                .tv-filter-label {
+                    font-size: 10px !important;
+                    min-width: 42px !important;
+                    color: #94a3b8 !important;
+                }
+                .tv-filter-chip {
+                    padding: 3px 8px !important;
+                    font-size: 11px !important;
+                    border-radius: 10px !important;
+                }
+                .tv-custom-modal-body {
+                    flex-direction: column !important;
+                    flex: 1 !important;
+                    min-height: 0 !important;
+                    overflow: hidden !important;
+                }
                 .tv-custom-modal-tabs {
-                    width: 100% !important; flex-direction: row !important; border-right: none !important;
-                    border-bottom: 1px solid #e0e3eb !important; padding: 6px 12px !important; background: #ffffff !important;
-                    overflow-x: auto !important; touch-action: pan-x !important; flex-shrink: 0 !important;
+                    width: 100% !important;
+                    height: 42px !important;
+                    min-height: 42px !important;
+                    max-height: 42px !important;
+                    flex-direction: row !important;
+                    border-right: none !important;
+                    border-bottom: 1px solid #e0e3eb !important;
+                    padding: 0 12px !important;
+                    background: #f8fafc !important;
+                    overflow-x: auto !important;
+                    white-space: nowrap !important;
+                    touch-action: pan-x !important;
+                    flex-shrink: 0 !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    gap: 6px !important;
+                    box-sizing: border-box !important;
                 }
                 .tv-custom-modal-tab {
-                    flex: 1 !important; justify-content: center !important; margin-bottom: 0 !important;
-                    margin-right: 4px !important; padding: 7px 8px !important; font-size: 12px !important; white-space: nowrap !important;
+                    flex: 0 0 auto !important;
+                    height: 28px !important;
+                    margin: 0 !important;
+                    padding: 0 10px !important;
+                    font-size: 12px !important;
+                    white-space: nowrap !important;
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 5px !important;
+                    border-radius: 6px !important;
+                    border: 1px solid transparent !important;
+                    background: transparent !important;
+                    box-shadow: none !important;
+                }
+                .tv-custom-modal-tab.active {
+                    background: #ffffff !important;
+                    color: #2962FF !important;
+                    border: 1px solid #cbd5e1 !important;
+                    font-weight: 600 !important;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+                }
+                .tv-list-wrapper {
+                    flex: 1 !important;
+                    min-height: 0 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    width: 100% !important;
+                    overflow: hidden !important;
+                }
+                .tv-list-header {
+                    padding: 8px 14px 4px 14px !important;
+                }
+                .tv-list-container {
+                    padding: 0 10px 14px 10px !important;
+                    flex: 1 !important;
+                    min-height: 0 !important;
+                    overflow-y: auto !important;
+                }
+                .tv-script-row {
+                    padding: 8px 10px !important;
+                    gap: 8px !important;
+                    border-bottom: 1px solid #f1f5f9 !important;
+                }
+                .tv-script-title {
+                    font-size: 13px !important;
+                }
+                .tv-badge-pill {
+                    font-size: 9px !important;
+                    padding: 1.5px 5px !important;
                 }
                 .tv-custom-actions-bar {
-                    grid-template-columns: 1fr 1fr !important; gap: 6px !important;
+                    grid-template-columns: 1fr 1fr !important;
+                    gap: 6px !important;
+                    margin: 4px 0 10px 0 !important;
                 }
                 .tv-custom-actions-bar .tv-repo-btn-span {
                     grid-column: span 2 !important;
                 }
                 .tv-custom-action-btn {
-                    padding: 8px !important; font-size: 11.5px !important;
-                }
-                .tv-list-container {
-                    padding: 0 10px 12px 10px !important;
+                    padding: 7px 8px !important;
+                    font-size: 11.5px !important;
                 }
                 .tv-editor-header {
                     padding: 10px 14px !important;
@@ -615,9 +708,11 @@ function setupCustomIndicatorsDialog(widget) {
         tabsContainer.appendChild(tabBuiltin);
         
         const listWrapper = document.createElement('div');
+        listWrapper.className = 'tv-list-wrapper';
         listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff; min-height:0;';
         
         const listHeader = document.createElement('div');
+        listHeader.className = 'tv-list-header';
         listHeader.style.cssText = 'padding:14px 24px 8px 24px; font-size:11px; font-weight:700; color:#b2b5be; text-transform:uppercase; letter-spacing:0.4px; display:flex; justify-content:space-between; align-items:center;';
         listHeader.innerHTML = '<span>Script name</span><span id="tv-list-count" style="font-size:11px; color:#787b86; text-transform:none; font-weight:500;"></span>';
 
