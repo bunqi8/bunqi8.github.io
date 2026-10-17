@@ -512,6 +512,7 @@
                     startMs,
                     endMs: isLiveEnd ? Date.now() : endMs,
                     isLiveEnd,
+                    preset: config.rangePreset || 'default',
                     startDateStr: startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : (allRawTrades[0] ? new Date(allRawTrades[0].time).toISOString().split('T')[0] : 'Max'),
                     endDateStr: isLiveEnd ? 'Live' : new Date(endMs).toISOString().split('T')[0],
                     startDateFormatted: startMs > 0 ? new Date(startMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (allRawTrades[0] ? new Date(allRawTrades[0].time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Max Data'),

@@ -35,6 +35,8 @@
             // Date Range & Candle Highlight tracking
             this._highlightShapeIds = [];
             this.currentPreset = 'default';
+            this.isDateManuallyEdited = false;
+            this.isLoading = false;
 
             this.init();
         }
@@ -223,7 +225,7 @@
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 0 14px;
+                    padding: 0 10px 0 14px;
                     height: 42px;
                     background: #f8fafc;
                     border-bottom: 1px solid #e2e8f0;
@@ -232,6 +234,9 @@
                     flex-shrink: 0;
                     box-sizing: border-box;
                     touch-action: none;
+                    gap: 8px;
+                    overflow: hidden;
+                    position: relative;
                 }
                 #strategy-tester-panel.detached:not(.fullscreen) .st-header {
                     cursor: move;
@@ -240,8 +245,10 @@
                 .st-title-area {
                     display: flex;
                     align-items: center;
-                    gap: 12px;
-                    cursor: default;
+                    gap: 10px;
+                    min-width: 0;
+                    flex: 1 1 auto;
+                    overflow: hidden;
                 }
 
                 .st-title {
@@ -251,6 +258,15 @@
                     display: flex;
                     align-items: center;
                     gap: 7px;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                    max-width: 240px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                #st-strategy-name {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
                     white-space: nowrap;
                 }
 
@@ -264,6 +280,7 @@
                     border-radius: 4px;
                     letter-spacing: 0.3px;
                     border: 1px solid #dbeafe;
+                    flex-shrink: 0;
                 }
 
                 /* Tabs Navigation */
@@ -271,8 +288,18 @@
                     display: flex;
                     align-items: center;
                     gap: 3px;
-                    margin-left: 14px;
-                    cursor: default;
+                    margin-left: 8px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    white-space: nowrap;
+                    min-width: 0;
+                    flex: 1 1 auto;
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .st-tabs::-webkit-scrollbar {
+                    display: none;
                 }
 
                 .st-tab {
@@ -284,6 +311,7 @@
                     border-radius: 6px;
                     transition: all 0.15s ease;
                     white-space: nowrap;
+                    flex-shrink: 0;
                 }
                 .st-tab:hover {
                     background: #e2e8f0;
@@ -300,8 +328,11 @@
                 .st-actions {
                     display: flex;
                     align-items: center;
-                    gap: 5px;
+                    gap: 4px;
                     cursor: default;
+                    flex-shrink: 0 !important;
+                    margin-left: auto;
+                    z-index: 10;
                 }
 
                 .st-icon-btn {
@@ -314,6 +345,7 @@
                     cursor: pointer;
                     color: #64748b;
                     transition: all 0.15s ease;
+                    flex-shrink: 0;
                 }
                 .st-icon-btn:hover {
                     background: #e2e8f0;
@@ -427,11 +459,19 @@
                     font-size: 11px;
                     font-weight: 600;
                     cursor: pointer;
-                    transition: background 0.15s ease;
+                    transition: all 0.15s ease;
                     white-space: nowrap;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
                 }
-                .st-range-apply-btn:hover {
+                .st-range-apply-btn:hover:not(:disabled) {
                     background: #1d4ed8;
+                }
+                .st-range-apply-btn:disabled {
+                    background: #94a3b8 !important;
+                    cursor: wait !important;
+                    opacity: 0.8 !important;
                 }
                 .st-range-status {
                     font-size: 11px;
@@ -441,6 +481,53 @@
                     display: flex;
                     align-items: center;
                     gap: 6px;
+                }
+
+                /* Range loading progress bar & spinner */
+                .st-loading-bar-container {
+                    height: 2px;
+                    width: 100%;
+                    overflow: hidden;
+                    background: #e2e8f0;
+                    position: relative;
+                    z-index: 5;
+                }
+                .st-loading-bar-fill {
+                    width: 40%;
+                    height: 100%;
+                    background: linear-gradient(90deg, #2563eb, #38bdf8, #2563eb);
+                    animation: st-shimmer 1.1s infinite ease-in-out;
+                }
+                @keyframes st-shimmer {
+                    0% { transform: translateX(-100%); }
+                    50% { transform: translateX(60%); }
+                    100% { transform: translateX(250%); }
+                }
+                @keyframes st-spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .st-btn-spinner {
+                    display: inline-block;
+                    width: 10px;
+                    height: 10px;
+                    border: 2px solid rgba(255,255,255,0.4);
+                    border-top-color: #ffffff;
+                    border-radius: 50%;
+                    animation: st-spin 0.75s linear infinite;
+                    vertical-align: middle;
+                    margin-right: 5px;
+                }
+                .st-loading-spinner {
+                    display: inline-block;
+                    width: 11px;
+                    height: 11px;
+                    border: 2px solid rgba(37,99,235,0.25);
+                    border-top-color: #2563eb;
+                    border-radius: 50%;
+                    animation: st-spin 0.75s linear infinite;
+                    vertical-align: middle;
+                    margin-right: 5px;
                 }
 
                 /* Panel Body Content */
@@ -841,6 +928,9 @@
                         </div>
                     </div>
                 </div>
+                <div class="st-loading-bar-container" id="st-loading-bar-container" style="display:none;">
+                    <div class="st-loading-bar-fill"></div>
+                </div>
                 <div class="st-body" id="st-body">
                     <div id="st-content-loading" style="text-align:center; padding:40px; color:#64748b;">Waiting for strategy calculation...</div>
                 </div>
@@ -883,13 +973,24 @@
                 });
             }
 
-            // Tab switching
+            // Tab switching & smooth scroll
+            const tabsEl = this.container.querySelector('.st-tabs');
+            if (tabsEl) {
+                tabsEl.addEventListener('wheel', (e) => {
+                    if (e.deltaY || e.deltaX) {
+                        tabsEl.scrollLeft += (e.deltaY || e.deltaX);
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+            }
+
             this.container.querySelectorAll('.st-tab').forEach(tab => {
                 tab.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.container.querySelectorAll('.st-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     this.activeTab = tab.getAttribute('data-tab');
+                    tab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                     this.renderActiveTab();
                 });
             });
@@ -931,6 +1032,17 @@
                 };
             }
 
+            // Range bar horizontal scroll via wheel
+            const rangeBar = this.container.querySelector('.st-range-bar');
+            if (rangeBar) {
+                rangeBar.addEventListener('wheel', (e) => {
+                    if (e.deltaY || e.deltaX) {
+                        rangeBar.scrollLeft += (e.deltaY || e.deltaX);
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+            }
+
             // Range presets
             const presetBtns = this.container.querySelectorAll('.st-range-btn');
             presetBtns.forEach(btn => {
@@ -941,9 +1053,29 @@
                 });
             });
 
-            // Live end date toggle
-            const liveEndCb = document.getElementById('st-range-live-end');
+            // Date inputs manual edit listeners (only switch to custom if user actually edited dates)
+            const startDateInput = document.getElementById('st-range-start-date');
             const endDateInput = document.getElementById('st-range-end-date');
+            const liveEndCb = document.getElementById('st-range-live-end');
+
+            if (startDateInput) {
+                const markCustom = () => {
+                    this.isDateManuallyEdited = true;
+                    this.setPresetActive('custom');
+                };
+                startDateInput.addEventListener('input', markCustom);
+                startDateInput.addEventListener('change', markCustom);
+            }
+            if (endDateInput) {
+                const markCustom = () => {
+                    this.isDateManuallyEdited = true;
+                    this.setPresetActive('custom');
+                };
+                endDateInput.addEventListener('input', markCustom);
+                endDateInput.addEventListener('change', markCustom);
+            }
+
+            // Live end date toggle
             if (liveEndCb && endDateInput) {
                 liveEndCb.addEventListener('change', (e) => {
                     const isLive = e.target.checked;
@@ -954,19 +1086,19 @@
                 });
             }
 
-            // Apply custom range button
+            // Apply range button (respects preset vs custom)
             const applyBtn = document.getElementById('st-btn-apply-range');
             if (applyBtn) {
                 applyBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.applyCustomDateRange();
+                    this.applyRange();
                 });
             }
 
-            // Close (minimizes to launcher pill)
+            // Close completely (dismisses panel AND hides launcher pill)
             document.getElementById('st-btn-close').onclick = (e) => {
                 e.stopPropagation();
-                this.hide();
+                this.close();
             };
         }
 
@@ -1100,7 +1232,7 @@
                     // In popup mode, minimize button fully minimizes to launcher pill
                     colBtn.style.display = 'flex';
                     colBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-                    colBtn.title = "Minimize";
+                    colBtn.title = "Minimize to Floating Pill";
                 } else {
                     // In docked mode, collapse or expand the bottom dock
                     colBtn.style.display = 'flex';
@@ -1112,6 +1244,12 @@
                         colBtn.title = "Collapse to Bottom Bar";
                     }
                 }
+            }
+
+            // 3. Close button
+            const closeBtn = document.getElementById('st-btn-close');
+            if (closeBtn) {
+                closeBtn.title = "Close Strategy Tester";
             }
         }
 
@@ -1475,10 +1613,20 @@
             }
         }
 
+        close() {
+            this.container.style.display = 'none';
+            this.launcherPill.style.display = 'none';
+            this.updateChartLayout();
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+        }
+
         updateData(data) {
             this.currentData = data;
             const nameEl = document.getElementById('st-strategy-name');
-            if (nameEl) nameEl.textContent = data.strategyName || 'Strategy Tester';
+            if (nameEl) {
+                nameEl.textContent = data.strategyName || 'Strategy Tester';
+                nameEl.title = data.strategyName || 'Strategy Tester';
+            }
             this.syncStrategySelector({
                 strategies: window.StrategyEngine ? window.StrategyEngine.getActiveStrategyNames() : [data.strategyName],
                 activeStrategy: data.strategyName
@@ -1488,16 +1636,25 @@
             if (data.dateRange) {
                 const dr = data.dateRange;
                 const statusEl = document.getElementById('st-range-status-text');
-                if (statusEl) {
-                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; ${dr.totalTradesInRange} trades`;
+                if (statusEl && !this.isLoading) {
+                    statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${dr.totalTradesInRange} trades</span>`;
                 }
 
                 const startInput = document.getElementById('st-range-start-date');
                 const endInput = document.getElementById('st-range-end-date');
                 const liveCb = document.getElementById('st-range-live-end');
 
-                if (startInput && document.activeElement !== startInput && dr.startDateStr && dr.startDateStr !== 'Max') {
-                    startInput.value = dr.startDateStr;
+                if (dr.preset && dr.preset !== 'custom' && !this.isDateManuallyEdited) {
+                    this.setPresetActive(dr.preset);
+                }
+
+                if (startInput && document.activeElement !== startInput) {
+                    if (this.currentPreset === 'default') {
+                        startInput.value = '';
+                        startInput.placeholder = dr.startDateFormatted || 'Max / 40k bars';
+                    } else if (dr.startDateStr && dr.startDateStr !== 'Max') {
+                        startInput.value = dr.startDateStr;
+                    }
                 }
                 if (endInput && document.activeElement !== endInput && dr.endDateStr && dr.endDateStr !== 'Live') {
                     endInput.value = dr.endDateStr;
@@ -1508,7 +1665,7 @@
                 }
             }
 
-            // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise show panel
+            // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise if not closed, show panel
             if (this.launcherPill.style.display === 'flex' && this.container.style.display === 'none') {
                 const pnl = data.summary.netProfit;
                 const pillPnl = document.getElementById('st-pill-pnl');
@@ -1516,7 +1673,7 @@
                     pillPnl.textContent = this.formatCurrency(pnl, true);
                     pillPnl.style.color = pnl >= 0 ? '#10b981' : '#f43f5e';
                 }
-            } else {
+            } else if (this.launcherPill.style.display !== 'none' || this.container.style.display !== 'none') {
                 this.show();
             }
             this.renderActiveTab();
@@ -2098,7 +2255,7 @@
             };
         }
 
-        applyDateRangePreset(preset) {
+        setPresetActive(preset) {
             this.currentPreset = preset;
             const presetBtns = this.container.querySelectorAll('.st-range-btn');
             presetBtns.forEach(btn => {
@@ -2108,6 +2265,11 @@
                     btn.classList.remove('active');
                 }
             });
+        }
+
+        applyDateRangePreset(preset) {
+            this.isDateManuallyEdited = false;
+            this.setPresetActive(preset);
 
             if (preset === 'custom') {
                 const startInput = document.getElementById('st-range-start-date');
@@ -2135,7 +2297,12 @@
             const liveCb = document.getElementById('st-range-live-end');
 
             if (startInput) {
-                startInput.value = startMs > 0 ? new Date(startMs).toISOString().split('T')[0] : '';
+                if (startMs > 0) {
+                    startInput.value = new Date(startMs).toISOString().split('T')[0];
+                } else {
+                    startInput.value = '';
+                    startInput.placeholder = 'Max / 40k bars';
+                }
             }
             if (liveCb) {
                 liveCb.checked = true;
@@ -2148,29 +2315,75 @@
             this.loadHistoricalRangeAndSync(startMs, Infinity, true, preset);
         }
 
-        applyCustomDateRange() {
+        applyRange() {
             const startInput = document.getElementById('st-range-start-date');
             const endInput = document.getElementById('st-range-end-date');
             const liveCb = document.getElementById('st-range-live-end');
 
-            const sVal = startInput ? startInput.value : '';
-            const eVal = endInput ? endInput.value : '';
+            const sVal = startInput ? startInput.value.trim() : '';
+            const eVal = endInput ? endInput.value.trim() : '';
             const isLive = liveCb ? liveCb.checked : true;
+
+            // If user did not manually edit dates and a preset (e.g. 'default', '1Y') is selected:
+            if (!this.isDateManuallyEdited && this.currentPreset && this.currentPreset !== 'custom') {
+                this.applyDateRangePreset(this.currentPreset);
+                return;
+            }
+
+            // If start date is blank and live is checked, apply default (Max / 40k):
+            if (!sVal && isLive) {
+                this.applyDateRangePreset('default');
+                return;
+            }
 
             let startMs = sVal ? new Date(sVal).getTime() : 0;
             let endMs = (!isLive && eVal) ? (new Date(eVal).getTime() + (86400 * 1000 - 1)) : Infinity;
 
-            this.currentPreset = 'custom';
-            const presetBtns = this.container.querySelectorAll('.st-range-btn');
-            presetBtns.forEach(btn => {
-                if (btn.getAttribute('data-preset') === 'custom') {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            });
-
+            this.isDateManuallyEdited = true;
+            this.setPresetActive('custom');
             this.loadHistoricalRangeAndSync(startMs, endMs, isLive, 'custom');
+        }
+
+        applyCustomDateRange() {
+            this.applyRange();
+        }
+
+        setLoadingState(isLoading, message = 'Fetching historical data & calculating...') {
+            this.isLoading = isLoading;
+            const applyBtn = document.getElementById('st-btn-apply-range');
+            const statusEl = document.getElementById('st-range-status-text');
+            const loadingBar = document.getElementById('st-loading-bar-container');
+            const body = document.getElementById('st-body');
+
+            if (isLoading) {
+                if (applyBtn) {
+                    applyBtn.disabled = true;
+                    applyBtn.innerHTML = `<span class="st-btn-spinner"></span> Loading...`;
+                }
+                if (statusEl) {
+                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>${message}</strong>`;
+                }
+                if (loadingBar) {
+                    loadingBar.style.display = 'block';
+                }
+                if (body) {
+                    body.style.opacity = '0.65';
+                    body.style.pointerEvents = 'none';
+                    body.style.transition = 'opacity 0.2s ease';
+                }
+            } else {
+                if (applyBtn) {
+                    applyBtn.disabled = false;
+                    applyBtn.innerHTML = `Apply`;
+                }
+                if (loadingBar) {
+                    loadingBar.style.display = 'none';
+                }
+                if (body) {
+                    body.style.opacity = '1';
+                    body.style.pointerEvents = 'auto';
+                }
+            }
         }
 
         loadHistoricalRangeAndSync(startMs, endMs, isLiveEnd = true, preset = null) {
@@ -2183,8 +2396,13 @@
             ctx.config.isLiveEnd = isLiveEnd;
             ctx.config.rangePreset = preset;
 
+            const loadingMsg = preset === 'default' 
+                ? 'Fetching historical data (up to 40k bars)...' 
+                : 'Fetching historical data for selected range...';
+            this.setLoadingState(true, loadingMsg);
+
             // Recalculate immediate available trades
-            const res = window.StrategyEngine.calculateAndEmit(ctx);
+            window.StrategyEngine.calculateAndEmit(ctx);
 
             // If chart widget is present, scroll back to startMs to trigger historical bar loading
             if (window.tvWidget) {
@@ -2219,6 +2437,8 @@
                             if (restored) return;
                             restored = true;
                             try {
+                                const statusEl = document.getElementById('st-range-status-text');
+                                if (statusEl) statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Calculating strategy & trade chains...</strong>`;
                                 window.StrategyEngine.calculateAndEmit(ctx);
                                 // Restore the user's viewport exactly like it was before
                                 if (savedViewport && typeof chart.setVisibleRange === 'function') {
@@ -2226,8 +2446,18 @@
                                 }
                             } catch (e) {
                                 console.warn("[StrategyTesterUI] Failed to restore viewport:", e);
+                            } finally {
+                                setTimeout(() => this.setLoadingState(false), 200);
                             }
                         };
+
+                        // Update loading message while bars load
+                        setTimeout(() => {
+                            if (this.isLoading) {
+                                const statusEl = document.getElementById('st-range-status-text');
+                                if (statusEl) statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Processing data & calculating trades...</strong>`;
+                            }
+                        }, 600);
 
                         // 2. Scroll back chart to start range to load historical bars
                         chart.setVisibleRange({
@@ -2239,12 +2469,16 @@
                         });
 
                         // Fallback in case setVisibleRange callback is throttled or delayed
-                        setTimeout(restoreViewportAndFinalize, 2200);
+                        setTimeout(restoreViewportAndFinalize, 2400);
+                        return;
                     }
                 } catch (e) {
                     console.warn("[StrategyTesterUI] Failed to scroll chart for historical range:", e);
                 }
             }
+
+            // Fallback if no chart widget
+            setTimeout(() => this.setLoadingState(false), 300);
         }
 
         clearHighlightCandleOnChart() {
