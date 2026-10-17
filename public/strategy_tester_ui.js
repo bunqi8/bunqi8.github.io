@@ -45,6 +45,7 @@
             this.bindEvents();
             this.bindDragResizer();
             this.bindPopupMoverAndResizer();
+            this.updateHeaderActionButtons();
             this.startStrategyRemovalWatcher();
         }
 
@@ -134,8 +135,20 @@
                 /* Collapsed Bottom Dock */
                 #strategy-tester-panel.collapsed {
                     height: 42px !important;
-                    overflow: hidden;
+                    min-height: 42px !important;
+                    max-height: 42px !important;
+                    overflow: hidden !important;
                     resize: none !important;
+                }
+                #strategy-tester-panel.collapsed #st-range-bar,
+                #strategy-tester-panel.collapsed #st-body,
+                #strategy-tester-panel.collapsed #st-popup-resizer {
+                    display: none !important;
+                }
+
+                /* Fullscreen mode hides collapse/minimize button */
+                #strategy-tester-panel.fullscreen #st-btn-collapse {
+                    display: none !important;
                 }
 
                 /* Drag Resizer Bar (Docked mode) */
@@ -893,18 +906,30 @@
                 this.toggleMaximize();
             };
 
-            // Collapse / Expand
-            document.getElementById('st-btn-collapse').onclick = (e) => {
-                e.stopPropagation();
-                this.isCollapsed = !this.isCollapsed;
-                if (this.isCollapsed) {
-                    this.container.classList.add('collapsed');
-                } else {
-                    this.container.classList.remove('collapsed');
-                }
-                this.updateChartLayout();
-                setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
-            };
+            // Minimize / Collapse
+            const collapseBtn = document.getElementById('st-btn-collapse');
+            if (collapseBtn) {
+                collapseBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (this.isFullscreen) return;
+
+                    if (this.isDetached) {
+                        // In popup mode: fully minimize into the launcher pill!
+                        this.hide();
+                    } else {
+                        // In docked mode: collapse or expand the bottom bar
+                        this.isCollapsed = !this.isCollapsed;
+                        if (this.isCollapsed) {
+                            this.container.classList.add('collapsed');
+                        } else {
+                            this.container.classList.remove('collapsed');
+                        }
+                        this.updateHeaderActionButtons();
+                        this.updateChartLayout();
+                        setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+                    }
+                };
+            }
 
             // Range presets
             const presetBtns = this.container.querySelectorAll('.st-range-btn');
@@ -980,7 +1005,10 @@
             if (this.isFullscreen) {
                 this.container.classList.remove('fullscreen');
                 this.isFullscreen = false;
-                this.updateMaximizeIcon();
+            }
+            if (this.isCollapsed) {
+                this.container.classList.remove('collapsed');
+                this.isCollapsed = false;
             }
 
             if (this.isDetached) {
@@ -1013,12 +1041,17 @@
                 this.container.style.bottom = '0';
                 this.container.style.transform = '';
             }
+            this.updateHeaderActionButtons();
             this.updateChartLayout();
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
         toggleMaximize() {
             this.isFullscreen = !this.isFullscreen;
+            if (this.isCollapsed) {
+                this.container.classList.remove('collapsed');
+                this.isCollapsed = false;
+            }
             if (this.isFullscreen) {
                 this.container.classList.add('fullscreen');
             } else {
@@ -1039,21 +1072,51 @@
                     this.container.style.bottom = '0';
                 }
             }
-            this.updateMaximizeIcon();
+            this.updateHeaderActionButtons();
             this.updateChartLayout();
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
-        updateMaximizeIcon() {
-            const btn = document.getElementById('st-btn-maximize');
-            if (!btn) return;
-            if (this.isFullscreen) {
-                btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>`;
-                btn.title = "Restore";
-            } else {
-                btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>`;
-                btn.title = "Maximize";
+        updateHeaderActionButtons() {
+            // 1. Maximize / Restore icon
+            const maxBtn = document.getElementById('st-btn-maximize');
+            if (maxBtn) {
+                if (this.isFullscreen) {
+                    maxBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>`;
+                    maxBtn.title = "Restore";
+                } else {
+                    maxBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>`;
+                    maxBtn.title = "Maximize";
+                }
             }
+
+            // 2. Minimize / Collapse button
+            const colBtn = document.getElementById('st-btn-collapse');
+            if (colBtn) {
+                if (this.isFullscreen) {
+                    // In fullscreen mode, minimize button serves no purpose
+                    colBtn.style.display = 'none';
+                } else if (this.isDetached) {
+                    // In popup mode, minimize button fully minimizes to launcher pill
+                    colBtn.style.display = 'flex';
+                    colBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
+                    colBtn.title = "Minimize";
+                } else {
+                    // In docked mode, collapse or expand the bottom dock
+                    colBtn.style.display = 'flex';
+                    if (this.isCollapsed) {
+                        colBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`;
+                        colBtn.title = "Expand Panel";
+                    } else {
+                        colBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+                        colBtn.title = "Collapse to Bottom Bar";
+                    }
+                }
+            }
+        }
+
+        updateMaximizeIcon() {
+            this.updateHeaderActionButtons();
         }
 
         bindDragResizer() {
@@ -1391,6 +1454,7 @@
         show() {
             this.container.style.display = 'flex';
             this.launcherPill.style.display = 'none';
+            this.updateHeaderActionButtons();
             this.updateChartLayout();
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
             if (this.currentData) this.renderActiveTab();
@@ -1398,10 +1462,10 @@
 
         hide() {
             this.container.style.display = 'none';
+            this.launcherPill.style.display = 'flex';
             this.updateChartLayout();
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
-            if (this.currentData) {
-                this.launcherPill.style.display = 'flex';
+            if (this.currentData && this.currentData.summary) {
                 const pnl = this.currentData.summary.netProfit;
                 const pillPnl = document.getElementById('st-pill-pnl');
                 if (pillPnl) {
