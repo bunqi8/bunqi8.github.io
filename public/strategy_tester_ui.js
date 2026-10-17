@@ -262,6 +262,11 @@
                     cursor: pointer !important;
                 }
 
+                /* In docked panel mode, close button is NEVER shown because collapse button already collapses/minimizes */
+                #strategy-tester-panel:not(.detached) #st-btn-close {
+                    display: none !important;
+                }
+
                 /* Fullscreen mode hides collapse/minimize button */
                 #strategy-tester-panel.fullscreen #st-btn-collapse {
                     display: none !important;
@@ -1413,15 +1418,15 @@
                 }
             }
 
-            // 3. Close button
+            // 3. Close button: ONLY visible in detached/popup mode
             const closeBtn = document.getElementById('st-btn-close');
             if (closeBtn) {
-                if (this.isCollapsed && !this.isDetached) {
-                    closeBtn.style.display = 'none';
-                } else {
+                if (this.isDetached && !this.isFullscreen) {
                     closeBtn.style.display = 'flex';
+                    closeBtn.title = "Dock to Bottom Panel & Minimize";
+                } else {
+                    closeBtn.style.display = 'none';
                 }
-                closeBtn.title = this.isDetached ? "Dock to Bottom Panel & Minimize" : "Collapse to Bottom Bar";
             }
         }
 
@@ -1824,15 +1829,16 @@
                 }
 
                 if (startInput && document.activeElement !== startInput) {
-                    if (this.currentPreset === 'default') {
-                        startInput.value = '';
-                        startInput.placeholder = dr.startDateFormatted || 'Max / 40k bars';
-                    } else if (dr.startDateStr && dr.startDateStr !== 'Max') {
+                    if (dr.startDateStr && dr.startDateStr !== 'Max') {
                         startInput.value = dr.startDateStr;
                     }
                 }
-                if (endInput && document.activeElement !== endInput && dr.endDateStr && dr.endDateStr !== 'Live') {
-                    endInput.value = dr.endDateStr;
+                if (endInput && document.activeElement !== endInput) {
+                    if (dr.endDateStr && dr.endDateStr !== 'Live') {
+                        endInput.value = dr.endDateStr;
+                    } else if (dr.isLiveEnd) {
+                        endInput.value = new Date().toISOString().split('T')[0];
+                    }
                 }
                 if (liveCb && dr.isLiveEnd !== undefined) {
                     liveCb.checked = dr.isLiveEnd;
@@ -2565,6 +2571,14 @@
                     body.style.opacity = '1';
                     body.style.pointerEvents = 'auto';
                 }
+                if (statusEl) {
+                    if (this.currentData && this.currentData.dateRange) {
+                        const dr = this.currentData.dateRange;
+                        statusEl.innerHTML = `<strong>${dr.startDateFormatted}</strong> to <strong>${dr.endDateFormatted}</strong> &bull; <span style="color:#089981; font-weight:700;">${dr.totalTradesInRange} trades</span>`;
+                    } else {
+                        statusEl.innerHTML = `Range: Active`;
+                    }
+                }
             }
         }
 
@@ -2579,8 +2593,8 @@
             ctx.config.rangePreset = preset;
 
             const loadingMsg = preset === 'default' 
-                ? 'Step 1/3: Requesting up to 40,000 historical bars...' 
-                : 'Step 1/3: Requesting historical bars for selected range...';
+                ? 'Step 1/2: Requesting up to 40,000 historical bars...' 
+                : 'Step 1/2: Requesting historical bars for selected range...';
             this.setLoadingState(true, loadingMsg);
 
             // Recalculate immediate available trades
@@ -2633,10 +2647,6 @@
                             if (restored) return;
                             restored = true;
                             try {
-                                const statusEl = document.getElementById('st-range-status-text');
-                                if (statusEl) {
-                                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Step 3/3: Finalizing trades & restoring viewport...</strong>`;
-                                }
                                 window.StrategyEngine.calculateAndEmit(ctx);
 
                                 // Restore the user's viewport exactly like it was before
@@ -2649,7 +2659,7 @@
                             } catch (e) {
                                 console.warn("[StrategyTesterUI] Failed to restore viewport:", e);
                             } finally {
-                                setTimeout(() => this.setLoadingState(false), 250);
+                                this.setLoadingState(false);
                             }
                         };
 
@@ -2658,7 +2668,7 @@
                             if (this.isLoading && !restored) {
                                 const statusEl = document.getElementById('st-range-status-text');
                                 if (statusEl) {
-                                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Step 2/3: Calculating strategy logic & trade chains...</strong>`;
+                                    statusEl.innerHTML = `<span class="st-loading-spinner"></span> <strong>Step 2/2: Calculating strategy logic & trade chains...</strong>`;
                                 }
                             }
                         }, 500);
