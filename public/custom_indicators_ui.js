@@ -62,7 +62,389 @@ function setupCustomIndicatorsDialog(widget) {
             }, 1800);
         }
 
-        // --- 2. INJECT "{ }" BUTTON INTO LEGEND (Robust Polling) ---
+        // --- STUDY ID UTILITIES ---
+        window.injectStudyMetaId = function(code, newId) {
+            if (!code || typeof code !== 'string') return code;
+            // 1. Target id ending with @tv-basicstudies (handles id: "...@tv-basicstudies-1")
+            if (/id\s*:\s*["'][^"']*@tv-basicstudies[^"']*["']/.test(code)) {
+                return code.replace(/id\s*:\s*["'][^"']*@tv-basicstudies[^"']*["']/, `id: "${newId}"`);
+            }
+
+            // 2. Bracket-depth aware parser for metainfo (GUARANTEED to never touch plots or inputs)
+            const metaIdx = code.indexOf('metainfo');
+            if (metaIdx === -1) return code;
+            const openBrace = code.indexOf('{', metaIdx);
+            if (openBrace === -1) return code;
+
+            let braceDepth = 1;
+            let bracketDepth = 0;
+            let inString = false;
+            let stringChar = '';
+            let topLevelIdStart = -1;
+            let topLevelIdEnd = -1;
+
+            for (let i = openBrace + 1; i < code.length; i++) {
+                const c = code[i];
+                const prev = code[i - 1];
+
+                if (inString) {
+                    if (c === stringChar && prev !== '\\') {
+                        inString = false;
+                    }
+                    continue;
+                }
+
+                if (c === '"' || c === "'" || c === '`') {
+                    inString = true;
+                    stringChar = c;
+                    continue;
+                }
+
+                if (c === '{') braceDepth++;
+                else if (c === '}') {
+                    braceDepth--;
+                    if (braceDepth === 0) break;
+                }
+                else if (c === '[') bracketDepth++;
+                else if (c === ']') bracketDepth--;
+
+                // Detect id property at top level of metainfo (braceDepth === 1, bracketDepth === 0)
+                if (braceDepth === 1 && bracketDepth === 0) {
+                    if (code.slice(i, i + 3) === 'id:' || code.slice(i, i + 4) === 'id :') {
+                        topLevelIdStart = i;
+                        let valEnd = i;
+                        let strQuote = null;
+                        for (let j = i; j < code.length; j++) {
+                            const cj = code[j];
+                            if (!strQuote && (cj === '"' || cj === "'")) {
+                                strQuote = cj;
+                            } else if (strQuote && cj === strQuote && code[j-1] !== '\\') {
+                                valEnd = j + 1;
+                                break;
+                            }
+                        }
+                        topLevelIdEnd = valEnd;
+                        break;
+                    }
+                }
+            }
+
+            if (topLevelIdStart !== -1 && topLevelIdEnd !== -1) {
+                return code.slice(0, topLevelIdStart) + `id: "${newId}"` + code.slice(topLevelIdEnd);
+            } else {
+                return code.slice(0, openBrace + 1) + `\n        id: "${newId}",` + code.slice(openBrace + 1);
+            }
+        };
+
+        window.generateUniqueStudyId = function(baseName, existingId) {
+            let clean = "";
+            if (existingId && typeof existingId === 'string') {
+                clean = existingId.split('@')[0].replace(/_Local_\d+.*$/, '');
+            }
+            if (!clean && baseName) {
+                clean = String(baseName).replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '');
+            }
+            if (!clean) clean = "Custom_Study";
+            return `${clean}_Local_${Date.now()}@tv-basicstudies-1`;
+        };
+
+        // --- 2. INJECT "{ }" BUTTON INTO LEGEND (Robust Polling & Dynamic Resolution) ---
+        function resolveScriptForLegendButton(srcBtn, iframeDoc) {
+            // 1. Locate the legend item row / element
+            const legendItem = srcBtn.closest([
+                '[data-qa-id="legend-source-item"]',
+                '[data-name="legend-source-item"]',
+                '[data-entity-id]',
+                '[class*="item"][class*="study"]',
+                '[class*="legend-item"]',
+                'tr'
+            ].join(', ')) || (function() {
+                let p = srcBtn.parentElement;
+                while (p && p !== iframeDoc.body) {
+                    if (p.hasAttribute && (
+                        p.hasAttribute('data-entity-id') ||
+                        p.getAttribute('data-qa-id') === 'legend-source-item' ||
+                        p.getAttribute('data-name') === 'legend-source-item' ||
+                        (p.className && typeof p.className === 'string' && p.className.includes('legend-item'))
+                    )) return p;
+                    p = p.parentElement;
+                }
+                return null;
+            })();
+
+            // 2. Extract entityId from DOM
+            let entityId = null;
+            if (legendItem) {
+                entityId = legendItem.getAttribute('data-entity-id') || (legendItem.dataset && legendItem.dataset.entityId);
+            }
+            if (!entityId) {
+                const entityEl = srcBtn.closest('[data-entity-id]');
+                if (entityEl) entityId = entityEl.getAttribute('data-entity-id');
+            }
+
+            // 3. Extract visible title and description from DOM
+            let domTitle = "";
+            let domDesc = "";
+            if (legendItem) {
+                const titleEl = legendItem.querySelector([
+                    '[data-qa-id="legend-source-title"]',
+                    '[data-name="legend-source-title"]',
+                    '[class*="mainTitle"]',
+                    '[class*="title"]'
+                ].join(', '));
+                if (titleEl) domTitle = (titleEl.textContent || "").trim();
+
+                const descEl = legendItem.querySelector([
+                    '[data-qa-id="legend-source-description"]',
+                    '[data-name="legend-source-description"]',
+                    '[class*="description"]'
+                ].join(', '));
+                if (descEl) domDesc = (descEl.textContent || "").trim();
+            }
+
+            // 4. Retrieve study details from TradingView Chart Widget API
+            let chartStudyName = "";
+            let chartMeta = null;
+            try {
+                let chart = null;
+                if (widget && typeof widget.chart === 'function') {
+                    chart = widget.chart();
+                } else if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                    chart = window.tvWidget.activeChart();
+                }
+                
+                if (chart) {
+                    if (typeof chart.getAllStudies === 'function') {
+                        const allStudiesList = chart.getAllStudies() || [];
+                        if (entityId) {
+                            const found = allStudiesList.find(s => s && s.id === entityId);
+                            if (found && found.name) chartStudyName = found.name.trim();
+                        }
+                        if (!chartStudyName && domTitle) {
+                            const found = allStudiesList.find(s => s && s.name && (
+                                s.name.toLowerCase() === domTitle.toLowerCase() ||
+                                s.name.toLowerCase().includes(domTitle.toLowerCase())
+                            ));
+                            if (found && found.name) chartStudyName = found.name.trim();
+                        }
+                    }
+
+                    try {
+                        const model = chart._chartWidget && chart._chartWidget.model() && chart._chartWidget.model().model();
+                        if (model) {
+                            if (typeof model.getStudyById === 'function' && entityId) {
+                                const stModel = model.getStudyById(entityId);
+                                if (stModel && typeof stModel.metaInfo === 'function') {
+                                    chartMeta = stModel.metaInfo();
+                                }
+                            }
+                            if (!chartMeta && typeof model.allStudies === 'function') {
+                                const allSt = model.allStudies(true) || [];
+                                const found = allSt.find(s => s && s.id && s.id() === entityId);
+                                if (found && typeof found.metaInfo === 'function') {
+                                    chartMeta = found.metaInfo();
+                                }
+                            }
+                        }
+                    } catch (_) {}
+
+                    if (!chartMeta && typeof chart.getStudyById === 'function' && entityId) {
+                        try {
+                            const stApi = chart.getStudyById(entityId);
+                            if (stApi && stApi._study && typeof stApi._study.metaInfo === 'function') {
+                                chartMeta = stApi._study.metaInfo();
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+
+            // 5. Gather search tokens (filtering out empty or 1-char strings)
+            const rawTokens = [
+                chartStudyName,
+                chartMeta && chartMeta.description,
+                chartMeta && chartMeta.name,
+                chartMeta && chartMeta.shortDescription,
+                chartMeta && chartMeta.id,
+                (chartMeta && chartMeta.id) ? chartMeta.id.split('@')[0] : '',
+                domTitle
+            ];
+            const searchTokens = Array.from(new Set(rawTokens))
+                .filter(t => typeof t === 'string' && t.trim().length >= 2)
+                .map(t => t.trim());
+
+            if (searchTokens.length === 0) {
+                return null;
+            }
+
+            // 6. Gather all candidate scripts (Local, Remote, Default)
+            let storedLocal = (window.TVLocalStore ? window.TVLocalStore.getIndicators() : {});
+            if (Object.keys(storedLocal).length === 0) {
+                try { storedLocal = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch (_) {}
+            }
+            let remoteStored = (window.ScriptRepoManager && window.ScriptRepoManager.remoteIndicators) || {};
+
+            const candidateScripts = [];
+
+            // Local scripts
+            for (const [key, code] of Object.entries(storedLocal)) {
+                if (!code || typeof code !== 'string') continue;
+                let name = key;
+                let desc = "";
+                let shortDesc = "";
+                let metaId = "";
+                try {
+                    const factory = new Function('PineJS', 'return (' + code + ');');
+                    const obj = factory({ Std: {} });
+                    if (obj) {
+                        name = obj.name || key;
+                        if (obj.metainfo) {
+                            desc = obj.metainfo.description || "";
+                            shortDesc = obj.metainfo.shortDescription || "";
+                            metaId = obj.metainfo.id || "";
+                        }
+                    }
+                } catch (_) {
+                    const mName = code.match(/name\s*:\s*["']([^"']+)["']/);
+                    if (mName) name = mName[1];
+                    const mDesc = code.match(/description\s*:\s*["']([^"']+)["']/);
+                    if (mDesc) desc = mDesc[1];
+                    const mShort = code.match(/shortDescription\s*:\s*["']([^"']+)["']/);
+                    if (mShort) shortDesc = mShort[1];
+                    const mId = code.match(/id\s*:\s*["']([^"']+)["']/);
+                    if (mId) metaId = mId[1];
+                }
+                candidateScripts.push({
+                    type: 'local',
+                    key: key,
+                    name: name,
+                    desc: desc,
+                    shortDesc: shortDesc,
+                    metaId: metaId,
+                    cleanMetaId: metaId ? metaId.split('@')[0] : '',
+                    code: code,
+                    isFork: false,
+                    isStrat: key.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code))
+                });
+            }
+
+            // Remote scripts
+            for (const [key, item] of Object.entries(remoteStored)) {
+                if (!item || !item.code) continue;
+                const name = item.name || key;
+                let desc = "";
+                let shortDesc = "";
+                let metaId = item.id || "";
+                const mDesc = item.code.match(/description\s*:\s*["']([^"']+)["']/);
+                if (mDesc) desc = mDesc[1];
+                const mShort = item.code.match(/shortDescription\s*:\s*["']([^"']+)["']/);
+                if (mShort) shortDesc = mShort[1];
+                const isStrat = item.isStrat || name.toLowerCase().includes('strategy') || (window.isStrategyScript && window.isStrategyScript(item.code));
+                candidateScripts.push({
+                    type: 'remote',
+                    key: name,
+                    name: name,
+                    desc: desc,
+                    shortDesc: shortDesc,
+                    metaId: metaId,
+                    cleanMetaId: metaId ? metaId.split('@')[0] : '',
+                    code: item.code,
+                    isStrat: isStrat,
+                    isFork: true
+                });
+            }
+
+            // Default scripts
+            const defaults = [
+                { name: "SuperTrend Custom", short: "SuperTrend Custom" },
+                { name: "5 EMA Crossover", short: "5 EMAs" },
+                { name: "SuperTrend Strategy (Trade Chains)", short: "SuperTrend Strat" }
+            ];
+            for (const d of defaults) {
+                const dCode = getDefaultScriptCode(d.name);
+                if (dCode) {
+                    candidateScripts.push({
+                        type: 'default',
+                        key: d.name,
+                        name: d.name,
+                        desc: d.name,
+                        shortDesc: d.short,
+                        metaId: "",
+                        cleanMetaId: "",
+                        code: dCode,
+                        isStrat: d.name.includes("Strategy"),
+                        isFork: true
+                    });
+                }
+            }
+
+            const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            // 7. Multi-tier Matching Engine
+            // Tier 0: EXACT PACKAGE ID MATCH (Highest Priority)
+            // Ensures that if clones and remote indicators share the same name,
+            // they are matched 100% deterministically by their unique metainfo.id!
+            if (chartMeta && chartMeta.id) {
+                const targetId = chartMeta.id.trim().toLowerCase();
+                const cleanTargetId = targetId.split('@')[0];
+                
+                // 0A: Check exact metaId match (e.g., "my_study_local_12345@tv-basicstudies-1")
+                for (const cand of candidateScripts) {
+                    if (cand.metaId && cand.metaId.toLowerCase() === targetId) {
+                        return cand;
+                    }
+                }
+                // 0B: Check clean metaId match (without @tv-basicstudies-1)
+                for (const cand of candidateScripts) {
+                    if (cand.cleanMetaId && cand.cleanMetaId.toLowerCase() === cleanTargetId) {
+                        return cand;
+                    }
+                }
+            }
+
+            // Tier 1: Exact matches (case-insensitive) on shortDesc, name, key, desc, metaId
+            for (const token of searchTokens) {
+                const tLower = token.toLowerCase();
+                for (const cand of candidateScripts) {
+                    if (cand.shortDesc && cand.shortDesc.toLowerCase() === tLower) return cand;
+                    if (cand.name && cand.name.toLowerCase() === tLower) return cand;
+                    if (cand.key && cand.key.toLowerCase() === tLower) return cand;
+                    if (cand.desc && cand.desc.toLowerCase() === tLower) return cand;
+                    if (cand.metaId && cand.metaId.toLowerCase() === tLower) return cand;
+                    if (cand.cleanMetaId && cand.cleanMetaId.toLowerCase() === tLower) return cand;
+                }
+            }
+
+            // Tier 2: Normalized alphanumeric match
+            for (const token of searchTokens) {
+                const tNorm = norm(token);
+                if (tNorm.length < 3) continue;
+                for (const cand of candidateScripts) {
+                    if (cand.shortDesc && norm(cand.shortDesc) === tNorm) return cand;
+                    if (cand.name && norm(cand.name) === tNorm) return cand;
+                    if (cand.key && norm(cand.key) === tNorm) return cand;
+                    if (cand.desc && norm(cand.desc) === tNorm) return cand;
+                    if (cand.cleanMetaId && norm(cand.cleanMetaId) === tNorm) return cand;
+                }
+            }
+
+            // Tier 3: Strict Substring Match (requires length >= 4 and non-empty)
+            for (const token of searchTokens) {
+                const tLower = token.toLowerCase();
+                if (tLower.length < 4) continue;
+                for (const cand of candidateScripts) {
+                    const candName = (cand.name || "").toLowerCase();
+                    const candDesc = (cand.desc || "").toLowerCase();
+                    const candKey = (cand.key || "").toLowerCase();
+                    if (candName.length >= 4 && (candName.includes(tLower) || tLower.includes(candName))) return cand;
+                    if (candKey.length >= 4 && (candKey.includes(tLower) || tLower.includes(candKey))) return cand;
+                    if (candDesc.length >= 4 && (candDesc.includes(tLower) || tLower.includes(candDesc))) return cand;
+                }
+            }
+
+            return null;
+        }
+
         setInterval(() => {
             try {
                 const iframe = document.querySelector('#tv_chart_container iframe');
@@ -80,14 +462,16 @@ function setupCustomIndicatorsDialog(widget) {
                     const container = btn.parentNode;
                     if (!container) return;
                     
-                    if (container.querySelector('.tv-custom-source-btn')) return;
-                    
-                    let studyTitle = "";
-                    const legendItem = container.closest('[data-name="legend-item"], [data-qa-id="legend-item"], tr, [class*="legend-item"]');
-                    if (legendItem) {
-                        const titleEl = legendItem.querySelector('[data-name="legend-source-title"], [data-qa-id="legend-source-title"], [class*="title"]');
-                        if (titleEl) studyTitle = titleEl.textContent.trim().toLowerCase();
+                    const isDelete = btn.getAttribute('data-name') === 'legend-delete-action' || btn.getAttribute('data-qa-id') === 'legend-delete-action';
+                    if (isDelete && !btn._st_cleanup_attached) {
+                        btn._st_cleanup_attached = true;
+                        btn.addEventListener('click', () => {
+                            setTimeout(() => { if (window.StrategyTesterUI) window.StrategyTesterUI.checkStrategyPresence(); }, 150);
+                            setTimeout(() => { if (window.StrategyTesterUI) window.StrategyTesterUI.checkStrategyPresence(); }, 500);
+                        });
                     }
+
+                    if (container.querySelector('.tv-custom-source-btn')) return;
 
                     const srcBtn = iframeDoc.createElement('div');
                     srcBtn.className = btn.className; 
@@ -100,86 +484,31 @@ function setupCustomIndicatorsDialog(widget) {
                     
                     srcBtn.onclick = (e) => {
                         e.stopPropagation();
-                        openModal();
+                        e.preventDefault();
                         
-                        let stored = {};
-                        try { stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
-                        let remoteStored = (window.ScriptRepoManager && window.ScriptRepoManager.remoteIndicators) || {};
-                        
-                        let matchedKey = null;
-                        let matchedCode = null;
-
-                        // Check local indicators first
-                        for (const [key, code] of Object.entries(stored)) {
+                        const matched = resolveScriptForLegendButton(srcBtn, iframeDoc);
+                        if (matched) {
+                            openModal();
+                            setTimeout(() => {
+                                if (matched.type === 'local') {
+                                    showEditor(matched.code, matched.name);
+                                } else {
+                                    showEditor(matched.code, matched.name, matched.isStrat, matched.isFork, matched.name);
+                                }
+                            }, 50);
+                        } else {
+                            let itemTitle = "";
                             try {
-                                const factory = new Function('PineJS', 'return (' + code + ');');
-                                const obj = factory({ Std: {} });
-                                const k = key.toLowerCase();
-                                const n = (obj.name || "").toLowerCase();
-                                const sd = (obj.metainfo && obj.metainfo.shortDescription) ? obj.metainfo.shortDescription.toLowerCase() : "";
-                                const d = (obj.metainfo && obj.metainfo.description) ? obj.metainfo.description.toLowerCase() : "";
-                                
-                                if (
-                                    (k && studyTitle.includes(k)) || (k && k.includes(studyTitle)) ||
-                                    (n && studyTitle.includes(n)) || (n && n.includes(studyTitle)) ||
-                                    (sd && studyTitle.includes(sd)) || (sd && sd.includes(studyTitle)) ||
-                                    (d && studyTitle.includes(d)) || (d && d.includes(studyTitle))
-                                ) {
-                                    matchedKey = key;
-                                    matchedCode = code;
-                                    break;
-                                }
-                            } catch(err) {
-                                if (studyTitle.includes(key.toLowerCase()) || code.toLowerCase().includes(studyTitle)) {
-                                    matchedKey = key;
-                                    matchedCode = code;
-                                    break;
-                                }
-                            }
+                                const legendItem = srcBtn.closest('[data-qa-id="legend-source-item"], [data-name="legend-source-item"], [data-entity-id], [class*="legend-item"], [class*="item"]');
+                                const titleEl = legendItem ? legendItem.querySelector('[data-qa-id="legend-source-title"], [data-name="legend-source-title"], [class*="mainTitle"], [class*="title"]') : null;
+                                if (titleEl) itemTitle = titleEl.textContent.trim();
+                            } catch (_) {}
+                            showToast(itemTitle ? `No editable local source code found for "${itemTitle}".` : 'No editable local source code found for this indicator.');
                         }
-
-                        // Check remote indicators
-                        if (!matchedKey) {
-                            for (const [key, item] of Object.entries(remoteStored)) {
-                                const n = (item.name || "").toLowerCase();
-                                if (n && (studyTitle.includes(n) || n.includes(studyTitle))) {
-                                    matchedKey = item.name;
-                                    matchedCode = item.code;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        // Check default indicators
-                        if (!matchedKey) {
-                            if (studyTitle.includes("supertrend strategy") || studyTitle.includes("supertrend strat")) {
-                                matchedKey = "SuperTrend Strategy (Trade Chains)";
-                                matchedCode = getDefaultScriptCode("SuperTrend Strategy (Trade Chains)");
-                            } else if (studyTitle.includes("supertrend")) {
-                                matchedKey = "SuperTrend Custom";
-                                matchedCode = getDefaultScriptCode("SuperTrend Custom");
-                            } else if (studyTitle.includes("5 ema") || studyTitle.includes("ema crossover")) {
-                                matchedKey = "5 EMA Crossover";
-                                matchedCode = getDefaultScriptCode("5 EMA Crossover");
-                            }
-                        }
-                        
-                        setTimeout(() => {
-                            if (matchedKey && matchedCode) {
-                                showEditor(matchedCode, matchedKey);
-                            }
-                        }, 50);
                     };
                     
-                    if (btn.getAttribute('data-name') === 'legend-delete-action' || btn.getAttribute('data-qa-id') === 'legend-delete-action') {
+                    if (isDelete) {
                         container.insertBefore(srcBtn, btn);
-                        if (!btn._st_cleanup_attached) {
-                            btn._st_cleanup_attached = true;
-                            btn.addEventListener('click', () => {
-                                setTimeout(() => { if (window.StrategyTesterUI) window.StrategyTesterUI.checkStrategyPresence(); }, 150);
-                                setTimeout(() => { if (window.StrategyTesterUI) window.StrategyTesterUI.checkStrategyPresence(); }, 500);
-                            });
-                        }
                     } else if (btn.nextSibling) {
                         container.insertBefore(srcBtn, btn.nextSibling);
                     } else {
@@ -862,7 +1191,13 @@ function setupCustomIndicatorsDialog(widget) {
                     const factory = new Function('PineJS', 'return (' + code + ');');
                     const obj = factory({ Std: {} }); 
                     
-                    if (!obj || !obj.name) throw new Error("Exported script object must have a 'name' property.");
+                    if (!obj || (!obj.name && (!obj.metainfo || !obj.metainfo.description))) {
+                        throw new Error("Exported script object must have a 'name' or 'metainfo.description' property.");
+                    }
+                    const scriptName = obj.name || (obj.metainfo && obj.metainfo.description);
+                    obj.name = scriptName;
+                    if (!obj.metainfo) obj.metainfo = {};
+                    if (!obj.metainfo.description) obj.metainfo.description = scriptName;
                     
                     const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
                     const hasSell = /this\.strategy\.sell|strategy\.sell|action\s*:\s*['"]SELL['"]/i.test(code);
@@ -873,21 +1208,37 @@ function setupCustomIndicatorsDialog(widget) {
                         throw new Error("Invalid Strategy: Found Sell logic but no Buy logic. A strategy must contain both Buy and Sell operations.");
                     }
 
-                    // Guarantee separate unique ID in metainfo if it's a fork
-                    if (isFork) {
-                        const uniqueLocalId = `${obj.name.replace(/[^a-zA-Z0-9]/g, '_')}_Local_${Date.now()}@tv-basicstudies-1`;
-                        code = code.replace(/id:\s*["'][^"']+["']/, `id: "${uniqueLocalId}"`);
+                    // Guarantee separate unique ID in metainfo if it's a fork, clone, or matches a remote/default script ID
+                    const remoteStored = (window.ScriptRepoManager && window.ScriptRepoManager.remoteIndicators) || {};
+                    const isRemoteId = Object.values(remoteStored).some(r => r.id && (r.id === obj.metainfo?.id || r.id.split('@')[0] === obj.metainfo?.id?.split('@')[0]));
+                    const isDefaultId = ["SuperTrend_Custom@tv-basicstudies-1", "5_EMA_Crossover@tv-basicstudies-1", "SuperTrend_Strategy@tv-basicstudies-1"].includes(obj.metainfo?.id);
+                    // Only assign a new ID if forking, colliding with remote/default, or missing an ID altogether.
+                    // If editing an existing local script, KEEP its existing ID so active chart studies continue working!
+                    const needsNewId = isFork || isRemoteId || isDefaultId || !obj.metainfo?.id;
+
+                    if (needsNewId) {
+                        const uniqueLocalId = (window.generateUniqueStudyId)
+                            ? window.generateUniqueStudyId(scriptName, obj.metainfo && obj.metainfo.id)
+                            : `${scriptName.replace(/[^a-zA-Z0-9]/g, '_')}_Local_${Date.now()}@tv-basicstudies-1`;
+                        code = (window.injectStudyMetaId)
+                            ? window.injectStudyMetaId(code, uniqueLocalId)
+                            : code.replace(/id\s*:\s*["'][^"']*@tv-basicstudies[^"']*["']/, `id: "${uniqueLocalId}"`);
                     }
 
-                    let stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
-                    if (!isFork && existingName && existingName !== obj.name) {
-                        delete stored[existingName];
+                    if (window.TVLocalStore) {
+                        window.TVLocalStore.saveIndicator(scriptName, code, isFork ? null : existingName);
+                    } else {
+                        let stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
+                        if (!isFork && existingName && existingName !== scriptName) {
+                            delete stored[existingName];
+                        }
+                        stored[scriptName] = code;
+                        localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                     }
-                    stored[obj.name] = code;
-                    localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                     
-                    sessionStorage.setItem('tv_auto_reload_study', obj.name);
-                    showToast(`Saved "${obj.name}" to Local scripts.`);
+                    sessionStorage.setItem('tv_indicators_active_tab', 'custom');
+                    sessionStorage.setItem('tv_auto_reload_study', scriptName);
+                    showToast(`Saved "${scriptName}" to Local scripts.`);
                     setTimeout(() => location.reload(), 400);
                 } catch (err) {
                     errorDiv.textContent = 'Validation / Syntax Error: ' + err.message;
@@ -994,15 +1345,29 @@ function setupCustomIndicatorsDialog(widget) {
                 }
             ];
 
-            // 2. Local Scripts (from localStorage)
-            let storedLocal = {};
-            try { storedLocal = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
+            // 2. Local Scripts (from localStorage / TVLocalStore)
+            let storedLocal = (window.TVLocalStore ? window.TVLocalStore.getIndicators() : {});
+            if (Object.keys(storedLocal).length === 0) {
+                try { storedLocal = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'); } catch(e){}
+            }
             const localScripts = Object.keys(storedLocal).map(name => {
                 const code = storedLocal[name] || '';
+                let metaDesc = name;
+                let metaName = name;
+                try {
+                    const factory = new Function('PineJS', 'return (' + code + ');');
+                    const obj = factory({ Std: {} });
+                    if (obj) {
+                        if (obj.name) metaName = obj.name;
+                        if (obj.metainfo && obj.metainfo.description) metaDesc = obj.metainfo.description;
+                        else metaDesc = metaName;
+                    }
+                } catch (_) {}
                 const isStrat = name.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                 return {
                     name: name,
                     displayName: name,
+                    studyName: metaDesc || metaName || name,
                     isStrat: isStrat,
                     sourceType: "local",
                     isLocal: true,
@@ -1121,9 +1486,55 @@ function setupCustomIndicatorsDialog(widget) {
                 repoBtn.onmouseout = () => { repoBtn.style.background = '#f8fafc'; repoBtn.style.color = '#0f172a'; };
                 repoBtn.onclick = () => openRepoManagerModal();
 
+                // Backup & Export / Import buttons
+                const backupBtn = document.createElement('div');
+                backupBtn.className = 'tv-custom-action-btn';
+                backupBtn.style.cssText = 'color:#089981; border:1px solid #a7f3d0; background:#f0fdf4;';
+                backupBtn.title = 'Download a JSON backup of all your local custom scripts';
+                backupBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Backup';
+                backupBtn.onmouseover = () => { backupBtn.style.background = '#089981'; backupBtn.style.color = '#fff'; };
+                backupBtn.onmouseout = () => { backupBtn.style.background = '#f0fdf4'; backupBtn.style.color = '#089981'; };
+                backupBtn.onclick = () => {
+                    if (window.TVLocalStore) window.TVLocalStore.exportBackupJson();
+                };
+
+                const importFileInput = document.createElement('input');
+                importFileInput.type = 'file';
+                importFileInput.accept = '.json';
+                importFileInput.style.display = 'none';
+                importFileInput.onchange = (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        if (window.TVLocalStore) {
+                            const res = window.TVLocalStore.importBackupJson(evt.target.result);
+                            if (res.success) {
+                                showToast(`Successfully restored ${res.count} custom scripts! Reloading chart...`);
+                                setTimeout(() => location.reload(), 600);
+                            } else {
+                                alert("Failed to import backup: " + res.error);
+                            }
+                        }
+                    };
+                    reader.readAsText(file);
+                };
+                document.body.appendChild(importFileInput);
+
+                const importBtn = document.createElement('div');
+                importBtn.className = 'tv-custom-action-btn';
+                importBtn.style.cssText = 'color:#475569; border:1px solid #cbd5e1; background:#f8fafc;';
+                importBtn.title = 'Import and restore custom scripts from a JSON backup file';
+                importBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> Import';
+                importBtn.onmouseover = () => { importBtn.style.background = '#475569'; importBtn.style.color = '#fff'; };
+                importBtn.onmouseout = () => { importBtn.style.background = '#f8fafc'; importBtn.style.color = '#475569'; };
+                importBtn.onclick = () => importFileInput.click();
+
                 btnContainer.appendChild(addIndBtn);
                 btnContainer.appendChild(addStratBtn);
                 btnContainer.appendChild(repoBtn);
+                btnContainer.appendChild(backupBtn);
+                btnContainer.appendChild(importBtn);
                 listContainer.appendChild(btnContainer);
             }
             
@@ -1232,8 +1643,12 @@ function setupCustomIndicatorsDialog(widget) {
                     delBtn.onclick = (e) => { 
                         e.stopPropagation(); 
                         if(confirm("Delete local script '" + item.name + "'?")) {
-                            delete storedLocal[item.name];
-                            localStorage.setItem('tv_local_indicators', JSON.stringify(storedLocal));
+                            if (window.TVLocalStore) {
+                                window.TVLocalStore.deleteIndicator(item.name);
+                            } else {
+                                delete storedLocal[item.name];
+                                localStorage.setItem('tv_local_indicators', JSON.stringify(storedLocal));
+                            }
                             let fs = getFavorites();
                             if(fs.includes(item.name)) {
                                 localStorage.setItem('tv_favorite_indicators', JSON.stringify(fs.filter(f => f !== item.name)));
@@ -1310,8 +1725,9 @@ function setupCustomIndicatorsDialog(widget) {
                         }
                     }
 
+                    const studyTarget = item.studyName || item.displayName || item.name;
                     try {
-                        widget.chart().createStudy(item.name, false, false);
+                        widget.chart().createStudy(studyTarget, false, false);
                         if (item.isStrat) {
                             localStorage.setItem('tv_active_strategy', item.name);
                             if (window.StrategyEngine) {
@@ -1327,10 +1743,20 @@ function setupCustomIndicatorsDialog(widget) {
                             } catch (_) {}
                         }
                     } catch (err) {
-                        console.error("Failed to add study:", err);
-                        showToast("Could not load study. Reloading chart...");
-                        sessionStorage.setItem('tv_auto_reload_study', item.name);
-                        location.reload();
+                        console.warn("[Custom Indicators] createStudy failed with primary target:", studyTarget, err);
+                        let fallbackSucceeded = false;
+                        if (item.name && item.name !== studyTarget) {
+                            try {
+                                widget.chart().createStudy(item.name, false, false);
+                                fallbackSucceeded = true;
+                            } catch (e2) {
+                                console.warn("[Custom Indicators] Fallback to item.name also failed:", e2);
+                            }
+                        }
+                        if (!fallbackSucceeded) {
+                            console.error("[Custom Indicators] Could not load study:", err);
+                            showToast(`Could not load "${item.displayName}". Please check indicator code.`);
+                        }
                     }
                     closeModal();
                 };
@@ -1356,7 +1782,12 @@ function setupCustomIndicatorsDialog(widget) {
             isEditing = false;
             restoreListWrapper();
             const favCount = getFavorites().length;
-            activeTab = favCount > 0 ? 'favorites' : 'custom';
+            const savedTab = sessionStorage.getItem('tv_indicators_active_tab');
+            if (savedTab && (savedTab !== 'favorites' || favCount > 0)) {
+                activeTab = savedTab;
+            } else {
+                activeTab = 'custom'; // Default to custom so local scripts are front-and-center!
+            }
             if (favCount === 0) {
                 tabFavorites.classList.add('hidden');
                 tabFavorites.style.display = 'none';
@@ -1366,7 +1797,7 @@ function setupCustomIndicatorsDialog(widget) {
             }
             tabFavorites.className = (activeTab === 'favorites' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab') + (favCount === 0 ? ' hidden' : '');
             tabCustom.className = activeTab === 'custom' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
-            tabBuiltin.className = 'tv-custom-modal-tab';
+            tabBuiltin.className = activeTab === 'builtin' ? 'tv-custom-modal-tab active' : 'tv-custom-modal-tab';
             renderList();
             if (!('ontouchstart' in window) && !navigator.maxTouchPoints) {
                 setTimeout(() => searchInput.focus(), 100);
@@ -1393,6 +1824,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabFavorites.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') searchInput.value = '';
             activeTab = 'favorites';
+            sessionStorage.setItem('tv_indicators_active_tab', 'favorites');
             if (!isEditing) restoreListWrapper();
             isEditing = false;
             tabFavorites.className = 'tv-custom-modal-tab active';
@@ -1404,6 +1836,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabCustom.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') searchInput.value = '';
             activeTab = 'custom';
+            sessionStorage.setItem('tv_indicators_active_tab', 'custom');
             if (!isEditing) restoreListWrapper();
             isEditing = false;
             tabCustom.className = 'tv-custom-modal-tab active';
@@ -1415,6 +1848,7 @@ function setupCustomIndicatorsDialog(widget) {
         tabBuiltin.addEventListener('click', () => {
             if (searchInput.value.trim() !== '') searchInput.value = '';
             activeTab = 'builtin';
+            sessionStorage.setItem('tv_indicators_active_tab', 'builtin');
             if (!isEditing) restoreListWrapper();
             isEditing = false;
             tabBuiltin.className = 'tv-custom-modal-tab active';

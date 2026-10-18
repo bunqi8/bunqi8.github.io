@@ -5,6 +5,148 @@ window.isStrategyScript = function(code) {
     return hasBuy && hasSell;
 };
 
+// --- ROBUST LOCAL INDICATOR STORAGE & AUTO-HEALING ENGINE ---
+window.TVLocalStore = window.TVLocalStore || {
+    PRIMARY_KEY: 'tv_local_indicators',
+    BACKUP_KEY: 'tv_local_indicators_backup',
+    ARCHIVE_KEY: 'tv_local_indicators_archive',
+
+    getIndicators: function() {
+        let primary = {};
+        let backup = {};
+        try {
+            primary = JSON.parse(localStorage.getItem(this.PRIMARY_KEY) || '{}');
+            if (typeof primary !== 'object' || primary === null || Array.isArray(primary)) primary = {};
+        } catch (e) {
+            console.warn("[TVLocalStore] Corrupted primary storage, attempting backup recovery:", e);
+            primary = {};
+        }
+
+        try {
+            backup = JSON.parse(localStorage.getItem(this.BACKUP_KEY) || '{}');
+            if (typeof backup !== 'object' || backup === null || Array.isArray(backup)) backup = {};
+        } catch (e) {
+            backup = {};
+        }
+
+        let healed = false;
+        for (const k in backup) {
+            if (!primary[k] && backup[k]) {
+                primary[k] = backup[k];
+                healed = true;
+            }
+        }
+
+        let backupUpdated = false;
+        for (const k in primary) {
+            if (!backup[k] && primary[k]) {
+                backup[k] = primary[k];
+                backupUpdated = true;
+            }
+        }
+
+        if (healed) {
+            try {
+                localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(primary));
+                console.log("[TVLocalStore] Auto-healed primary storage from backup.");
+            } catch (_) {}
+        }
+        if (backupUpdated) {
+            try {
+                localStorage.setItem(this.BACKUP_KEY, JSON.stringify(backup));
+            } catch (_) {}
+        }
+
+        return primary;
+    },
+
+    saveIndicator: function(name, code, existingName = null) {
+        if (!name || typeof name !== 'string') return;
+        const current = this.getIndicators();
+        if (existingName && existingName !== name && current[existingName]) {
+            delete current[existingName];
+        }
+        current[name] = code;
+
+        try {
+            localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(current));
+            localStorage.setItem(this.BACKUP_KEY, JSON.stringify(current));
+            this._recordArchive(current, `Saved "${name}"`);
+        } catch (e) {
+            console.error("[TVLocalStore] Failed to save indicator:", e);
+        }
+        return current;
+    },
+
+    deleteIndicator: function(name) {
+        if (!name) return;
+        const current = this.getIndicators();
+        if (current[name]) {
+            this._recordArchive(current, `Pre-delete "${name}"`);
+            delete current[name];
+            try {
+                localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(current));
+                localStorage.setItem(this.BACKUP_KEY, JSON.stringify(current));
+            } catch (e) {
+                console.error("[TVLocalStore] Failed to delete indicator:", e);
+            }
+        }
+        return current;
+    },
+
+    exportBackupJson: function() {
+        const indicators = this.getIndicators();
+        const exportData = {
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            scripts: indicators
+        };
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tradingview_local_indicators_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    importBackupJson: function(jsonString) {
+        try {
+            const data = JSON.parse(jsonString);
+            const scripts = data.scripts || data;
+            if (typeof scripts !== 'object' || scripts === null || Array.isArray(scripts)) {
+                throw new Error("Invalid backup format: expected an object of scripts.");
+            }
+            const current = this.getIndicators();
+            let count = 0;
+            for (const [name, code] of Object.entries(scripts)) {
+                if (typeof code === 'string' && code.trim().length > 0) {
+                    current[name] = code;
+                    count++;
+                }
+            }
+            localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(current));
+            localStorage.setItem(this.BACKUP_KEY, JSON.stringify(current));
+            this._recordArchive(current, `Imported ${count} scripts`);
+            return { success: true, count };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    },
+
+    _recordArchive: function(data, reason) {
+        try {
+            let list = JSON.parse(localStorage.getItem(this.ARCHIVE_KEY) || '[]');
+            if (!Array.isArray(list)) list = [];
+            list.unshift({ timestamp: Date.now(), reason, count: Object.keys(data).length, data });
+            if (list.length > 5) list = list.slice(0, 5);
+            localStorage.setItem(this.ARCHIVE_KEY, JSON.stringify(list));
+        } catch (_) {}
+    }
+};
+
 window.getCustomIndicators = function (PineJS) {
     return new Promise((resolve, reject) => {
         let hardcodedIndicators = [
@@ -441,15 +583,46 @@ window.getCustomIndicators = function (PineJS) {
 
         let localIndicators = [];
         try {
-            const stored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
+            const stored = (window.TVLocalStore ? window.TVLocalStore.getIndicators() : JSON.parse(localStorage.getItem('tv_local_indicators') || '{}'));
+            let storageNeedsResave = false;
+
             for (let key in stored) {
                 try {
-                    const code = stored[key];
+                    let code = stored[key];
+                    if (!code || typeof code !== 'string') continue;
+
                     const factory = new Function('PineJS', 'return (' + code + ');');
                     const indicatorObj = factory(PineJS);
-                    if (indicatorObj && indicatorObj.name) {
+                    if (indicatorObj && (indicatorObj.name || (indicatorObj.metainfo && indicatorObj.metainfo.description))) {
                         indicatorObj._sourceType = 'local';
                         indicatorObj._isLocal = true;
+
+                        if (!indicatorObj.metainfo) indicatorObj.metainfo = {};
+
+                        // 1. Ensure metainfo.description and indicatorObj.name match and are never empty
+                        if (!indicatorObj.metainfo.description) {
+                            indicatorObj.metainfo.description = indicatorObj.name || key;
+                        }
+                        if (!indicatorObj.name) {
+                            indicatorObj.name = indicatorObj.metainfo.description || key;
+                        }
+                        if (!indicatorObj.metainfo.shortDescription) {
+                            indicatorObj.metainfo.shortDescription = indicatorObj.metainfo.description;
+                        }
+
+                        // 2. Guarantee DETERMINISTIC, STABLE metainfo.id (CRITICAL: NEVER use Date.now() on reload!)
+                        // If already defined, preserve it so active chart studies restore without "study not found" errors
+                        if (!indicatorObj.metainfo.id) {
+                            const clean = indicatorObj.name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '');
+                            const stableLocalId = `${clean || 'Custom_Study'}_Local@tv-basicstudies-1`;
+                            indicatorObj.metainfo.id = stableLocalId;
+                            if (window.injectStudyMetaId) {
+                                code = window.injectStudyMetaId(code, stableLocalId);
+                                stored[key] = code;
+                                storageNeedsResave = true;
+                            }
+                        }
+
                         const isStrat = key.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                         indicatorObj.isStrategy = isStrat;
                         indicatorObj._isStrat = isStrat;
@@ -458,6 +631,13 @@ window.getCustomIndicators = function (PineJS) {
                 } catch (e) {
                     console.error("Failed to parse local indicator:", key, e);
                 }
+            }
+
+            if (storageNeedsResave && window.TVLocalStore) {
+                try {
+                    localStorage.setItem(window.TVLocalStore.PRIMARY_KEY, JSON.stringify(stored));
+                    localStorage.setItem(window.TVLocalStore.BACKUP_KEY, JSON.stringify(stored));
+                } catch (_) {}
             }
         } catch (e) {
             console.error("Failed to read tv_local_indicators", e);
