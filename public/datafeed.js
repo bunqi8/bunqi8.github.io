@@ -188,11 +188,12 @@ function alignFyersDwmTime(bars, resolution) {
 
 
 
-function safeHistoryCallback(bars, cb, resolution) {
+function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
     let safeBars = bars;
     const resString = resolution ? resolution.toString() : 'undefined';
     const sfx = resolution ? resolutionToSuffix(resolution) : 'undefined';
     const isDWM = resolution && (resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D');
+    const isMcx = symbolInfo && (symbolInfo.exchange === 'MCX' || (symbolInfo.name && (symbolInfo.name.includes('CRUDE') || symbolInfo.name.includes('GOLD') || symbolInfo.name.includes('SILVER') || symbolInfo.name.includes('NATURALGAS'))));
     
     if (isDWM) {
         const unique = new Map();
@@ -208,6 +209,22 @@ function safeHistoryCallback(bars, cb, resolution) {
             }
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
+    } else {
+        // Intraday: filter out non-RTH (post-market / pre-market) bars to strictly match TradingView's 75 bars/day session
+        const filtered = [];
+        for (const b of safeBars) {
+            let tNum = Number(b.time);
+            b.time = tNum;
+            const istDate = new Date(tNum + 19800000);
+            const mins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+            if (isMcx) {
+                if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
+            } else {
+                if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST
+            }
+            filtered.push(b);
+        }
+        safeBars = filtered;
     }
     
     const dedupedBars = [];
@@ -233,13 +250,14 @@ function safeHistoryCallback(bars, cb, resolution) {
 
 
 
-function arrowToTVBars(arrowResult, resolution = '') {
+function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
     const bars = [];
     const seenTimes = new Set();
     
     const resString = resolution ? resolution.toString() : '';
     const sfx = resolution ? resolutionToSuffix(resolution) : '';
     const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+    const isMcx = symbolInfo && (symbolInfo.exchange === 'MCX' || (symbolInfo.name && (symbolInfo.name.includes('CRUDE') || symbolInfo.name.includes('GOLD') || symbolInfo.name.includes('SILVER') || symbolInfo.name.includes('NATURALGAS'))));
     
     for (const row of arrowResult) {
         let t = Number(row.time);
@@ -254,6 +272,15 @@ function arrowToTVBars(arrowResult, resolution = '') {
             // Intraday Parquet files store "09:15 IST" as "09:15 UTC" (pseudo-UTC)
             // Subtract 5.5 hours to convert back to true UTC
             t -= 19800000;
+
+            // Strictly filter out non-RTH (Regular Trading Hours) bars to match TradingView RTH sessions
+            const istDate = new Date(t + 19800000);
+            const mins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+            if (isMcx) {
+                if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
+            } else {
+                if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST
+            }
         }
         
         if (seenTimes.has(t)) continue;
@@ -759,7 +786,7 @@ const Datafeed = {
         if (symbolInfo.isLive && window.FyersAPI) {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
             fyersBars = alignFyersDwmTime(fyersBars, resolution);
-            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution);
+            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution, symbolInfo);
         }
 
         let conn = null;
@@ -830,7 +857,7 @@ const Datafeed = {
                     try { await conn.close(); } catch(_) {}
                     conn = null;
                     
-                    let parquetBars = arrowToTVBars(rangeResult, resolution);
+                    let parquetBars = arrowToTVBars(rangeResult, resolution, symbolInfo);
                     
                     if (parquetBars.length > 0) {
                         duckdbHit = true;
@@ -920,7 +947,7 @@ const Datafeed = {
                     }
                     
                     DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
-                    return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
+                    return safeHistoryCallback(cleanBars, onHistoryCallback, resolution, symbolInfo);
                 }
             }
             
