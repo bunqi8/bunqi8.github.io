@@ -1301,6 +1301,7 @@
             // Main Panel
             const panel = document.createElement('div');
             panel.id = 'strategy-tester-panel';
+            panel.style.display = 'none';
             panel.innerHTML = `
                 <div class="st-resizer" id="st-drag-resizer"></div>
                 <div class="st-header" id="st-header">
@@ -1392,6 +1393,7 @@
             // Launcher Pill
             const pill = document.createElement('div');
             pill.id = 'st-launcher-pill';
+            pill.style.display = 'none';
             pill.innerHTML = `
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
                 <span>Strategy Tester</span>
@@ -1625,8 +1627,10 @@
             if (!chartContainer) return;
 
             // In popup (detached) mode, or when hidden, or destroyed:
-            // "while in popup mode do as doing now"
-            if (this.isDetached || this.container.style.display === 'none') {
+            // The panel is only actively taking up bottom chart space when it is docked and visibly displayed (flex or block)
+            const isVisible = this.container && (this.container.style.display === 'flex' || this.container.style.display === 'block');
+
+            if (!isVisible || this.isDetached) {
                 chartContainer.style.bottom = '0px';
                 chartContainer.style.height = '100%';
                 return;
@@ -2255,15 +2259,15 @@
                 }
             }
 
-            // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise if not closed, show panel
-            if (this.launcherPill.style.display === 'flex' && this.container.style.display === 'none') {
-                const pnl = data.summary.netProfit;
+            // If the user previously minimized to the launcher pill, keep it minimized to pill and update PnL; otherwise show panel
+            if (this.launcherPill && this.launcherPill.style.display === 'flex' && this.container.style.display === 'none') {
+                const pnl = (data && data.summary) ? data.summary.netProfit : 0;
                 const pillPnl = document.getElementById('st-pill-pnl');
                 if (pillPnl) {
                     pillPnl.textContent = this.formatCurrency(pnl, true);
                     pillPnl.style.color = pnl >= 0 ? '#10b981' : '#f43f5e';
                 }
-            } else if (this.launcherPill.style.display !== 'none' || this.container.style.display !== 'none') {
+            } else {
                 this.show();
             }
             this.renderActiveTab();
