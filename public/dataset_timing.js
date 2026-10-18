@@ -198,7 +198,7 @@
             return res.length > 0;
         }
 
-        // Header toolbar button injection
+        // Header toolbar button: clean, 28x28 ICON-ONLY button matching TradingView style
         injectButton(targetEl, iframeDoc) {
             if (!iframeDoc || iframeDoc.getElementById(this.btnId)) return;
 
@@ -212,14 +212,16 @@
 
             const btnHtml = `
             <div class="group-MBOVGQRI" id="header-toolbar-dataset-timing" style="margin: 0 4px;">
-                <button id="${this.btnId}" class="button-OhqNVIYA button-ptpAHg8E apply-common-tooltip isInteractive-GwQQdU8S" 
-                    title="Dataset Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''} (Click to change)" 
-                    style="padding: 0 10px; font-weight: 600; font-size: 12px; color: ${isCustom ? '#e65100' : '#2962FF'}; border: 1.5px solid ${isCustom ? '#ff9800' : '#2962FF'}; background: ${isCustom ? 'rgba(255,152,0,0.1)' : 'rgba(41,98,255,0.08)'}; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; height: 28px; cursor: pointer; transition: all 0.2s ease;">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    <span id="dataset-timing-btn-label">${labelText}</span>
+                <button id="${this.btnId}" class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
+                    title="Dataset Timing & Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''}" 
+                    style="width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; color: ${isCustom ? '#e65100' : '#2962FF'}; position: relative; cursor: pointer; border-radius: 4px;">
+                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: flex; align-items: center; justify-content: center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </span>
+                    <span id="dt-btn-dot" style="position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: #e65100; display: ${isCustom ? 'block' : 'none'};"></span>
                 </button>
             </div>
             `;
@@ -250,8 +252,8 @@
             if (!iframeDoc) return;
 
             const btn = iframeDoc.getElementById(this.btnId);
-            const lbl = iframeDoc.getElementById('dataset-timing-btn-label');
-            if (!btn || !lbl) return;
+            const dot = iframeDoc.getElementById('dt-btn-dot');
+            if (!btn) return;
 
             const sym = this.getActiveSymbol();
             const normSym = normalizeSymbol(sym);
@@ -261,11 +263,9 @@
             const isCustom = (settings.startTime !== (isMcx ? '09:00' : '09:15') || settings.endTime !== (isMcx ? '23:30' : '15:30') || settings.filterDates);
             const labelText = `${settings.startTime}–${settings.endTime}`;
 
-            lbl.innerText = labelText;
-            btn.title = `Dataset Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''} (Click to change)`;
+            btn.title = `Dataset Timing & Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''}`;
             btn.style.color = isCustom ? '#e65100' : '#2962FF';
-            btn.style.borderColor = isCustom ? '#ff9800' : '#2962FF';
-            btn.style.background = isCustom ? 'rgba(255,152,0,0.1)' : 'rgba(41,98,255,0.08)';
+            if (dot) dot.style.display = isCustom ? 'block' : 'none';
         }
 
         applyAndReload() {
@@ -283,14 +283,14 @@
                 }
             }
 
-            // 3. Clear chart model data and trigger re-request
+            // 3. Reset main series on active chart to force fresh retrieval
             if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
                 const chart = window.tvWidget.activeChart();
                 try {
                     if (chart._chartWidget && chart._chartWidget.model && chart._chartWidget.model().mainSeries) {
                         const ms = chart._chartWidget.model().mainSeries();
-                        if (ms && ms.data && typeof ms.data().clear === 'function') {
-                            ms.data().clear();
+                        if (ms && typeof ms.clearData === 'function') {
+                            ms.clearData();
                         }
                     }
                 } catch (_) {}
@@ -324,11 +324,11 @@
             }
 
             modal.innerHTML = `
-                <div style="background: #ffffff; width: 520px; max-width: 95vw; border-radius: 12px; box-shadow: 0 20px 48px rgba(0,0,0,0.28); overflow: hidden; display: flex; flex-direction: column; border: 1px solid #e0e3eb; animation: dtFadeIn 0.15s ease-out;">
+                <div style="background: #ffffff; width: 500px; max-width: 95vw; border-radius: 12px; box-shadow: 0 20px 48px rgba(0,0,0,0.28); overflow: hidden; display: flex; flex-direction: column; border: 1px solid #e0e3eb; animation: dtFadeIn 0.15s ease-out;">
                     <style>
                         @keyframes dtFadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
                         .dt-preset-card {
-                            border: 1.5px solid #e0e3eb;
+                            border: 1.5px solid #d1d4dc;
                             border-radius: 8px;
                             padding: 12px 14px;
                             background: #ffffff;
@@ -340,35 +340,25 @@
                             user-select: none;
                         }
                         .dt-preset-card:hover {
-                            border-color: #b2b5be;
-                            background: #f8f9fd;
+                            border-color: #2962FF;
+                            background: #f8faff;
                             transform: translateY(-1px);
                         }
-                        .dt-preset-card.is-active {
-                            border: 2px solid #2962FF !important;
-                            background: #f0f4ff !important;
-                            box-shadow: 0 0 0 1px #2962FF, 0 4px 12px rgba(41,98,255,0.12) !important;
-                        }
                         .dt-scope-btn {
-                            flex: 1;
-                            padding: 8px 12px;
-                            font-size: 13px;
+                            padding: 6px 14px;
+                            font-size: 12px;
                             font-weight: 600;
                             border: none;
-                            border-radius: 6px;
+                            border-radius: 4px;
                             cursor: pointer;
-                            transition: all 0.15s ease;
                             background: transparent;
                             color: #5d606b;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 6px;
+                            transition: all 0.15s ease;
                         }
                         .dt-scope-btn.is-active {
                             background: #ffffff;
                             color: #2962FF;
-                            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                            box-shadow: 0 1px 4px rgba(0,0,0,0.12);
                         }
                     </style>
 
@@ -390,28 +380,31 @@
                     </div>
 
                     <!-- Body -->
-                    <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; max-height: 75vh;">
-                        <!-- Scope Segmented Control -->
-                        <div style="background: #f0f3fa; border-radius: 8px; padding: 4px; display: flex;">
-                            <button type="button" id="dt-scope-global" class="dt-scope-btn ${activeScope === 'global' ? 'is-active' : ''}">
-                                <span>🌐 All Symbols (Global)</span>
-                            </button>
-                            <button type="button" id="dt-scope-symbol" class="dt-scope-btn ${activeScope === 'symbol' ? 'is-active' : ''}">
-                                <span>🎯 Current: <strong style="color: inherit;">${normSym}</strong></span>
-                            </button>
+                    <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-height: 75vh;">
+                        <!-- Clean Natural Scope Selector -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f0f3fa; border-radius: 8px;">
+                            <span style="font-size: 13px; font-weight: 600; color: #131722;">Apply Filter To:</span>
+                            <div style="display: flex; gap: 4px; background: #e0e3eb; padding: 3px; border-radius: 6px;">
+                                <button type="button" id="dt-scope-global" class="dt-scope-btn ${activeScope === 'global' ? 'is-active' : ''}">
+                                    🌐 All Symbols
+                                </button>
+                                <button type="button" id="dt-scope-symbol" class="dt-scope-btn ${activeScope === 'symbol' ? 'is-active' : ''}">
+                                    🎯 ${normSym} Only
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Presets Section with High-Visibility Selection Clues -->
                         <div>
                             <div style="font-size: 12px; font-weight: 700; color: #434651; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
-                                Quick Session Presets:
+                                Quick Presets:
                             </div>
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
                                 ${PRESETS.map(p => `
                                     <div class="dt-preset-card" data-preset-id="${p.id}" data-start="${p.start}" data-end="${p.end}">
                                         <div style="display: flex; align-items: center; justify-content: space-between;">
                                             <span style="font-weight: 700; font-size: 13px; color: ${p.color};">${p.name}</span>
-                                            <span class="dt-preset-badge" style="display: none; background: #2962FF; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; line-height: 1.2;">✓ ACTIVE</span>
+                                            <span class="dt-preset-badge" style="display: none; background: #2962FF; color: #ffffff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; line-height: 1.2;">✓ ACTIVE</span>
                                         </div>
                                         <span style="color: #787b86; font-size: 11px; margin-top: 4px;">${p.desc}</span>
                                     </div>
@@ -420,41 +413,41 @@
                         </div>
 
                         <!-- Time Inputs Container -->
-                        <div style="background: #ffffff; border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 16px;">
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <div style="background: #ffffff; border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 14px 16px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                                 <div style="font-size: 13px; font-weight: 700; color: #131722;">Session Hours (IST):</div>
                                 <div id="dt-live-preset-indicator" style="font-size: 11px; font-weight: 600; color: #2962FF; background: #edf3ff; padding: 3px 8px; border-radius: 4px;"></div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 14px;">
                                 <div style="flex: 1;">
                                     <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">START TIME (OPEN)</label>
-                                    <input type="time" id="dt-start-time" value="${currentSettings.startTime || '09:15'}" style="width: 100%; padding: 10px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
+                                    <input type="time" id="dt-start-time" value="${currentSettings.startTime || '09:15'}" style="width: 100%; padding: 9px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
                                 </div>
                                 <div style="font-size: 18px; color: #9598a1; font-weight: bold; margin-top: 20px;">&rarr;</div>
                                 <div style="flex: 1;">
                                     <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">END TIME (CUTOFF)</label>
-                                    <input type="time" id="dt-end-time" value="${currentSettings.endTime || '15:30'}" style="width: 100%; padding: 10px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
+                                    <input type="time" id="dt-end-time" value="${currentSettings.endTime || '15:30'}" style="width: 100%; padding: 9px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
                                 </div>
                             </div>
-                            <div id="dt-live-explain-banner" style="margin-top: 12px; padding: 8px 12px; background: #fbf0ea; border-left: 3px solid #ff9800; border-radius: 4px; font-size: 12px; color: #b75500; line-height: 1.4;">
+                            <div id="dt-live-explain-banner" style="margin-top: 10px; padding: 8px 12px; background: #fbf0ea; border-left: 3px solid #ff9800; border-radius: 4px; font-size: 12px; color: #b75500; line-height: 1.4;">
                             </div>
                         </div>
 
                         <!-- Date Range Filtering (Optional) -->
-                        <div style="border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 14px 16px;">
+                        <div style="border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 12px 16px;">
                             <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: #131722; cursor: pointer; user-select: none;">
                                 <input type="checkbox" id="dt-filter-dates" ${currentSettings.filterDates ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer; accent-color: #2962FF;">
                                 Filter Historical Calendar Dates (Optional)
                             </label>
-                            <div id="dt-date-inputs" style="display: ${currentSettings.filterDates ? 'flex' : 'none'}; align-items: center; gap: 14px; margin-top: 12px;">
+                            <div id="dt-date-inputs" style="display: ${currentSettings.filterDates ? 'flex' : 'none'}; align-items: center; gap: 14px; margin-top: 10px;">
                                 <div style="flex: 1;">
                                     <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; margin-bottom: 4px;">FROM DATE</label>
-                                    <input type="date" id="dt-start-date" value="${currentSettings.startDate || ''}" style="width: 100%; padding: 8px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
+                                    <input type="date" id="dt-start-date" value="${currentSettings.startDate || ''}" style="width: 100%; padding: 7px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
                                 </div>
                                 <div style="font-size: 18px; color: #9598a1; font-weight: bold; margin-top: 18px;">&rarr;</div>
                                 <div style="flex: 1;">
                                     <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; margin-bottom: 4px;">TO DATE</label>
-                                    <input type="date" id="dt-end-date" value="${currentSettings.endDate || ''}" style="width: 100%; padding: 8px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
+                                    <input type="date" id="dt-end-date" value="${currentSettings.endDate || ''}" style="width: 100%; padding: 7px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
                                 </div>
                             </div>
                         </div>
@@ -462,7 +455,7 @@
 
                     <!-- Footer -->
                     <div style="padding: 16px 22px; border-top: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
-                        <button id="dt-btn-reset" style="padding: 9px 16px; font-size: 13px; font-weight: 600; color: #5d606b; background: #ffffff; border: 1.5px solid #d1d4dc; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
+                        <button id="dt-btn-reset" title="Instantly reset to standard TradingView 09:15-15:30 session and restore all candles" style="padding: 9px 16px; font-size: 13px; font-weight: 600; color: #5d606b; background: #ffffff; border: 1.5px solid #d1d4dc; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
                             Reset to TV Default
                         </button>
                         <div style="display: flex; gap: 12px;">
@@ -505,11 +498,15 @@
                     const badge = card.querySelector('.dt-preset-badge');
 
                     if (pStart === curStart && pEnd === curEnd) {
-                        card.classList.add('is-active');
+                        card.style.border = '2px solid #2962FF';
+                        card.style.background = '#edf4ff';
+                        card.style.boxShadow = '0 0 0 1px #2962FF, 0 4px 12px rgba(41,98,255,0.15)';
                         if (badge) badge.style.display = 'inline-block';
                         matchedPreset = card.getAttribute('data-preset-id');
                     } else {
-                        card.classList.remove('is-active');
+                        card.style.border = '1.5px solid #d1d4dc';
+                        card.style.background = '#ffffff';
+                        card.style.boxShadow = 'none';
                         if (badge) badge.style.display = 'none';
                     }
                 });
@@ -553,7 +550,7 @@
                 }
             };
 
-            // Preset click handlers with instant visual clues
+            // Preset click handlers with instant visual border & badge switch
             presetCards.forEach(card => {
                 card.onclick = () => {
                     const st = card.getAttribute('data-start');
@@ -587,7 +584,7 @@
                 dateInputs.style.display = cbDate.checked ? 'flex' : 'none';
             };
 
-            // Initial visual update
+            // Initial visual update immediately loads active border of current setting
             updatePresetVisuals();
 
             // Close actions
@@ -595,15 +592,26 @@
             document.getElementById('dt-modal-close').onclick = closeModal;
             document.getElementById('dt-btn-cancel').onclick = closeModal;
 
-            // Reset button
+            const clearSymbolOverrides = () => {
+                if (!this.data.symbols) return;
+                delete this.data.symbols[normSym];
+                delete this.data.symbols[sym];
+                Object.keys(this.data.symbols).forEach(k => {
+                    if (normalizeSymbol(k) === normSym || k.toUpperCase() === normSym.toUpperCase()) {
+                        delete this.data.symbols[k];
+                    }
+                });
+            };
+
+            // Reset button: Instantly clears symbol override, sets global default, saves, and restores all candles
             document.getElementById('dt-btn-reset').onclick = () => {
-                startTimeInput.value = '09:15';
-                endTimeInput.value = '15:30';
-                cbDate.checked = false;
-                dateInputs.style.display = 'none';
-                document.getElementById('dt-start-date').value = '';
-                document.getElementById('dt-end-date').value = '';
-                updatePresetVisuals();
+                clearSymbolOverrides();
+                this.data.global = { ...DEFAULT_GLOBAL };
+                this.saveSettings();
+                this.updateButtonLabel();
+                closeModal();
+                this.applyAndReload();
+                this.showToast('✓ Reset to TradingView Default (09:15–15:30). All candles restored.');
             };
 
             // Save & Apply button
@@ -630,9 +638,10 @@
                 if (activeScope === 'symbol') {
                     if (!this.data.symbols) this.data.symbols = {};
                     this.data.symbols[normSym] = newSettings;
-                    // Also save under raw symbol for guaranteed lookup
                     this.data.symbols[sym] = newSettings;
                 } else {
+                    // Global scope: also clear symbol override so global takes effect immediately
+                    clearSymbolOverrides();
                     this.data.global = newSettings;
                 }
 
