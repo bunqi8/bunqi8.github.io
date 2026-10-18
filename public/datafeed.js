@@ -987,6 +987,7 @@ const Datafeed = {
 
     subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {
         DFLog.info('subscribeBars', `UID: ${subscriberUID}`);
+        window._tvResetCache = onResetCacheNeededCallback;
         if (!window.FyersAPI) return;
         
         let fyersSymbol = symbolInfo.name;
