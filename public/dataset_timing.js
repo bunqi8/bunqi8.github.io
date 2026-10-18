@@ -682,14 +682,117 @@
                     background: rgba(19, 23, 34, 0.6); z-index: 999999;
                     display: flex; align-items: center; justify-content: center;
                     backdrop-filter: blur(4px); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    cursor: pointer;
                 `;
                 document.body.appendChild(modal);
             }
 
             modal.innerHTML = `
-                <div style="background: #ffffff; border-radius: 12px; width: 620px; max-width: 95vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 20px 48px rgba(0,0,0,0.22); overflow: hidden; animation: dtFadeIn 0.15s ease-out;">
+                <style id="dt-interactive-styles">
+                    @keyframes dtFadeIn {
+                        from { opacity: 0; transform: scale(0.96); }
+                        to { opacity: 1; transform: scale(1); }
+                    }
+                    #dt-modal-close {
+                        transition: all 0.15s ease;
+                        border-radius: 6px;
+                    }
+                    #dt-modal-close:hover {
+                        background: #f0f3fa !important;
+                        color: #131722 !important;
+                        transform: scale(1.08);
+                    }
+                    #dt-modal-close:active {
+                        transform: scale(0.92);
+                    }
+                    .dt-scope-btn {
+                        transition: all 0.15s ease !important;
+                        cursor: pointer !important;
+                        user-select: none;
+                    }
+                    .dt-scope-btn:not(.is-active):hover {
+                        background: #e4e7f0 !important;
+                        color: #131722 !important;
+                    }
+                    .dt-scope-btn:active {
+                        transform: scale(0.98);
+                    }
+                    .dt-market-tab {
+                        transition: all 0.15s ease !important;
+                        cursor: pointer !important;
+                        user-select: none;
+                    }
+                    .dt-market-tab:not(.is-active):hover {
+                        background: #f0f3fa !important;
+                        color: #131722 !important;
+                    }
+                    .dt-market-tab:active {
+                        transform: scale(0.96);
+                    }
+                    .dt-preset-card {
+                        transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease !important;
+                        user-select: none;
+                        cursor: pointer !important;
+                    }
+                    .dt-preset-card:hover {
+                        border-color: #2962FF !important;
+                        box-shadow: 0 4px 14px rgba(41, 98, 255, 0.14) !important;
+                        transform: translateY(-2px);
+                    }
+                    .dt-preset-card:active {
+                        transform: scale(0.98) translateY(0);
+                    }
+                    #dt-timezone, #dt-start-time, #dt-end-time, #dt-start-date, #dt-end-date {
+                        transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+                    }
+                    #dt-timezone:hover, #dt-start-time:hover, #dt-end-time:hover, #dt-start-date:hover, #dt-end-date:hover {
+                        border-color: #2962FF !important;
+                    }
+                    #dt-timezone:focus, #dt-start-time:focus, #dt-end-time:focus, #dt-start-date:focus, #dt-end-date:focus {
+                        border-color: #2962FF !important;
+                        box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.2) !important;
+                        outline: none;
+                    }
+                    #dt-btn-delete {
+                        transition: all 0.15s ease !important;
+                    }
+                    #dt-btn-delete:hover {
+                        background: #fee2e2 !important;
+                        border-color: #ef4444 !important;
+                        color: #b91c1c !important;
+                        box-shadow: 0 3px 10px rgba(239, 68, 68, 0.25) !important;
+                        transform: translateY(-1px);
+                    }
+                    #dt-btn-delete:active {
+                        transform: scale(0.97);
+                        background: #fecaca !important;
+                    }
+                    #dt-btn-cancel {
+                        transition: all 0.15s ease !important;
+                    }
+                    #dt-btn-cancel:hover {
+                        background: #f0f3fa !important;
+                        color: #131722 !important;
+                    }
+                    #dt-btn-cancel:active {
+                        transform: scale(0.97);
+                    }
+                    #dt-btn-save {
+                        transition: all 0.15s ease !important;
+                    }
+                    #dt-btn-save:hover {
+                        background: #1e53e5 !important;
+                        box-shadow: 0 4px 14px rgba(41, 98, 255, 0.45) !important;
+                        transform: translateY(-1px);
+                    }
+                    #dt-btn-save:active {
+                        background: #1546cb !important;
+                        transform: scale(0.97);
+                    }
+                </style>
+                <div style="background: #ffffff; border-radius: 12px; width: 620px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 48px rgba(0,0,0,0.22); overflow: hidden; animation: dtFadeIn 0.15s ease-out; cursor: default;">
                     <!-- Header -->
-                    <div style="padding: 18px 22px; border-bottom: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
+                    <div style="flex-shrink: 0; padding: 18px 22px; border-bottom: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <div style="width: 34px; height: 34px; border-radius: 8px; background: #edf4ff; display: flex; align-items: center; justify-content: center; color: #2962FF;">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -706,7 +809,7 @@
                     </div>
 
                     <!-- Body -->
-                    <div style="padding: 20px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;">
+                    <div style="flex: 1; padding: 20px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;">
                         
                         <!-- Status Banner -->
                         <div id="dt-status-banner" style="padding: 10px 14px; border-radius: 8px; font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; ${hasActiveFilter ? 'background: #eef5ff; border: 1px solid #b9d5ff; color: #1557bf;' : 'background: #f4f6fa; border: 1px solid #e0e3eb; color: #5d606b;'}">
@@ -725,10 +828,10 @@
                         <div>
                             <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; letter-spacing: 0.5px; margin-bottom: 6px;">APPLY FILTER TO</label>
                             <div style="background: #f0f3fa; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
-                                <button type="button" id="dt-scope-symbol" style="flex: 1; padding: 8px 12px; font-size: 12.5px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s; background: #ffffff; color: #2962FF; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                                <button type="button" id="dt-scope-symbol" class="dt-scope-btn is-active" style="flex: 1; padding: 8px 12px; font-size: 12.5px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; background: #ffffff; color: #2962FF; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                                     🎯 ${normSym} Only <span style="font-size: 11px; font-weight: 500; color: #2962FF;">(Default)</span>
                                 </button>
-                                <button type="button" id="dt-scope-global" style="flex: 1; padding: 8px 12px; font-size: 12.5px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s; background: transparent; color: #5d606b;">
+                                <button type="button" id="dt-scope-global" class="dt-scope-btn" style="flex: 1; padding: 8px 12px; font-size: 12.5px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: #5d606b;">
                                     🌐 All Symbols (Global)
                                 </button>
                             </div>
@@ -752,7 +855,7 @@
                             <!-- Market Tabs -->
                             <div style="display: flex; gap: 6px; margin-bottom: 10px; border-bottom: 1.5px solid #e0e3eb; padding-bottom: 6px;">
                                 ${MARKET_CATEGORIES.map(cat => `
-                                    <button type="button" class="dt-market-tab" data-cat-id="${cat.id}" style="padding: 6px 12px; font-size: 12px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s; ${cat.id === activeTab ? 'background: #edf4ff; color: #2962FF;' : 'background: transparent; color: #5d606b;'}">
+                                    <button type="button" class="dt-market-tab ${cat.id === activeTab ? 'is-active' : ''}" data-cat-id="${cat.id}" style="padding: 6px 12px; font-size: 12px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; ${cat.id === activeTab ? 'background: #edf4ff; color: #2962FF;' : 'background: transparent; color: #5d606b;'}">
                                         ${cat.name}
                                     </button>
                                 `).join('')}
@@ -814,7 +917,7 @@
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 16px 22px; border-top: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
+                    <div style="flex-shrink: 0; padding: 16px 22px; border-top: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
                         <!-- Delete Selection Button: Deselects/deletes filter and shows all raw candles -->
                         <button id="dt-btn-delete" title="Delete filter selection for this ticker and restore all candles" style="padding: 9px 16px; font-size: 13px; font-weight: 700; color: #d32f2f; background: #fff5f5; border: 1.5px solid #ffcdd2; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px;">
                             <span>🗑</span> Delete Selection
@@ -848,6 +951,8 @@
             // Switch Scope
             scopeSymbolBtn.onclick = () => {
                 activeScope = 'symbol';
+                scopeSymbolBtn.classList.add('is-active');
+                scopeGlobalBtn.classList.remove('is-active');
                 scopeSymbolBtn.style.background = '#ffffff';
                 scopeSymbolBtn.style.color = '#2962FF';
                 scopeSymbolBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
@@ -858,6 +963,8 @@
 
             scopeGlobalBtn.onclick = () => {
                 activeScope = 'global';
+                scopeGlobalBtn.classList.add('is-active');
+                scopeSymbolBtn.classList.remove('is-active');
                 scopeGlobalBtn.style.background = '#ffffff';
                 scopeGlobalBtn.style.color = '#2962FF';
                 scopeGlobalBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
@@ -873,8 +980,15 @@
                     activeTab = catId;
                     marketTabs.forEach(t => {
                         const isCurrent = t.getAttribute('data-cat-id') === catId;
-                        t.style.background = isCurrent ? '#edf4ff' : 'transparent';
-                        t.style.color = isCurrent ? '#2962FF' : '#5d606b';
+                        if (isCurrent) {
+                            t.classList.add('is-active');
+                            t.style.background = '#edf4ff';
+                            t.style.color = '#2962FF';
+                        } else {
+                            t.classList.remove('is-active');
+                            t.style.background = 'transparent';
+                            t.style.color = '#5d606b';
+                        }
                     });
                     presetCards.forEach(c => {
                         c.style.display = (c.getAttribute('data-category') === catId) ? 'block' : 'none';
@@ -975,8 +1089,26 @@
             // Initial visual update
             updatePresetVisuals();
 
-            // Close actions
-            const closeModal = () => { modal.style.display = 'none'; };
+            // Close actions: allow cancelling and closing on close button, Cancel button, ESC key, or clicking backdrop (chart area)
+            const onEsc = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                }
+            };
+            document.addEventListener('keydown', onEsc);
+
+            const closeModal = () => {
+                modal.style.display = 'none';
+                document.removeEventListener('keydown', onEsc);
+            };
+
+            // Allow cancelling and closing when clicking on chart area / backdrop overlay
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            };
+
             document.getElementById('dt-modal-close').onclick = closeModal;
             document.getElementById('dt-btn-cancel').onclick = closeModal;
 
