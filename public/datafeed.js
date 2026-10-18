@@ -220,9 +220,8 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
             if (isMcx) {
                 if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
             } else {
-                if (mins < 555 || mins >= 915) continue;  // NSE/BSE: 09:15 - 15:10 IST (72 bars/day, exactly matching TradingView RTH)
+                if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST (full market session)
             }
-            if (b.open === b.high && b.high === b.low && b.low === b.close && (!b.volume || b.volume === 0)) continue;
             filtered.push(b);
         }
         safeBars = filtered;
@@ -280,12 +279,7 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
             if (isMcx) {
                 if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
             } else {
-                if (mins < 555 || mins >= 915) continue;  // NSE/BSE: 09:15 - 15:10 IST (72 bars/day, exactly matching TradingView RTH)
-            }
-
-            // Exclude flat synthetic dummy bars with zero/undefined volume
-            if (Number(row.open) === Number(row.high) && Number(row.high) === Number(row.low) && Number(row.low) === Number(row.close) && (!row.volume || Number(row.volume) === 0)) {
-                continue;
+                if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST (full market session)
             }
         }
         
