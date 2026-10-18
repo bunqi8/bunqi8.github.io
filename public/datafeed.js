@@ -209,22 +209,31 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
             }
         });
         safeBars = Array.from(unique.values()).sort((a,b) => a.time - b.time);
-    } else {
-        // Intraday: filter out non-RTH (post-market / pre-market) bars to strictly match TradingView's 75 bars/day session
-        const filtered = [];
-        for (const b of safeBars) {
-            let tNum = Number(b.time);
-            b.time = tNum;
-            const istDate = new Date(tNum + 19800000);
-            const mins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
-            if (isMcx) {
-                if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
-            } else {
-                if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST (full market session)
-            }
-            filtered.push(b);
+        
+        // Apply date range filter if configured in DatasetTimingManager
+        if (window.DatasetTimingManager && typeof window.DatasetTimingManager.filterBars === 'function') {
+            safeBars = window.DatasetTimingManager.filterBars(safeBars, resolution, symbolInfo, isMcx);
         }
-        safeBars = filtered;
+    } else {
+        // Intraday: filter via DatasetTimingManager (or fallback to strict RTH session)
+        if (window.DatasetTimingManager && typeof window.DatasetTimingManager.filterBars === 'function') {
+            safeBars = window.DatasetTimingManager.filterBars(safeBars, resolution, symbolInfo, isMcx);
+        } else {
+            const filtered = [];
+            for (const b of safeBars) {
+                let tNum = Number(b.time);
+                b.time = tNum;
+                const istDate = new Date(tNum + 19800000);
+                const mins = istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+                if (isMcx) {
+                    if (mins < 540 || mins >= 1410) continue; // MCX: 09:00 - 23:30 IST
+                } else {
+                    if (mins < 555 || mins >= 930) continue;  // NSE/BSE: 09:15 - 15:30 IST (full market session)
+                }
+                filtered.push(b);
+            }
+            safeBars = filtered;
+        }
     }
     
     const dedupedBars = [];
@@ -994,6 +1003,13 @@ const Datafeed = {
         const cb = (tick) => {
             let alignedTick = { ...tick };
             const cacheKey = `${fyersSymbol}_${resolution}`;
+            
+            // Filter real-time ticks outside the configured dataset session
+            if (window.DatasetTimingManager && typeof window.DatasetTimingManager.isBarAllowed === 'function') {
+                if (!window.DatasetTimingManager.isBarAllowed(alignedTick.time, resolution, symbolInfo)) {
+                    return;
+                }
+            }
             
             if (isDWM) {
                 const d = new Date(alignedTick.time);

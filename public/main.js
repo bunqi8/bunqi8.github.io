@@ -352,6 +352,7 @@ function bootWidget() {
                         if (window.checkGlobalGoldenPeriod) window.checkGlobalGoldenPeriod();
                         
                         if (window.FyersUI) window.FyersUI.injectButton(targetEl, iframeDoc);
+                        if (window.DatasetTimingUI) window.DatasetTimingUI.injectButton(targetEl, iframeDoc);
                     }
                 }
             }, 500);
