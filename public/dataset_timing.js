@@ -95,6 +95,50 @@
 
         // 🌍 OANDA (Forex & Metals / XAUUSD)
         {
+            id: 'oanda_xauusd_ist',
+            category: 'oanda',
+            name: 'OANDA XAUUSD (Gold IST)',
+            market: 'OANDA / XAUUSD',
+            tz: 'Asia/Kolkata',
+            start: '03:30',
+            end: '02:30',
+            desc: '03:30 AM – 02:30 AM IST (23h trading • 1h rollover break)',
+            color: '#b8860b'
+        },
+        {
+            id: 'oanda_23h_ny',
+            category: 'oanda',
+            name: 'OANDA 23h Session (NY Time)',
+            market: 'OANDA / Metals & FX',
+            tz: 'America/New_York',
+            start: '18:00',
+            end: '17:00',
+            desc: '18:00 – 17:00 NY (5 PM ET rollover break)',
+            color: '#2e7d32'
+        },
+        {
+            id: 'oanda_oil_ist',
+            category: 'oanda',
+            name: 'OANDA Oil / Brent (IST)',
+            market: 'OANDA / WTICO / BCO',
+            tz: 'Asia/Kolkata',
+            start: '05:30',
+            end: '03:30',
+            desc: '05:30 AM – 03:30 AM IST (22h commodity session)',
+            color: '#c2185b'
+        },
+        {
+            id: 'oanda_us_cash',
+            category: 'oanda',
+            name: 'US Equities Cash (IST)',
+            market: 'OANDA / US30 / NAS100',
+            tz: 'Asia/Kolkata',
+            start: '19:00',
+            end: '01:30',
+            desc: '19:00 – 01:30 IST (09:30 – 16:00 ET Wall St cash)',
+            color: '#00897b'
+        },
+        {
             id: 'oanda_london',
             category: 'oanda',
             name: 'London Session',
@@ -114,7 +158,7 @@
             start: '08:00',
             end: '17:00',
             desc: '08:00 – 17:00 NY (Wall St & US Cash session)',
-            color: '#2e7d32'
+            color: '#388e3c'
         },
         {
             id: 'oanda_overlap',
@@ -702,7 +746,7 @@
                             </div>
 
                             <!-- Preset Cards Grid -->
-                            <div id="dt-presets-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                            <div id="dt-presets-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; max-height: 255px; overflow-y: auto; padding-right: 4px;">
                                 ${PRESETS.map(p => `
                                     <div class="dt-preset-card" data-preset-id="${p.id}" data-category="${p.category}" data-start="${p.start}" data-end="${p.end}" data-tz="${p.tz}" 
                                         style="display: ${p.category === activeTab ? 'block' : 'none'}; border: 1.5px solid #d1d4dc; border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: all 0.15s; position: relative; background: #ffffff;">
@@ -872,10 +916,10 @@
                     liveExplain.style.background = '#edf4ff';
                     liveExplain.style.color = '#1557bf';
                 } else {
-                    liveExplain.innerHTML = `🌙 <strong>Overnight Session (${curTz}):</strong> Spanning midnight from <strong>${curStart}</strong> to <strong>${curEnd}</strong>. Out-of-session daytime bars will be stripped.`;
-                    liveExplain.style.borderColor = '#7b1fa2';
-                    liveExplain.style.background = '#fbf0ff';
-                    liveExplain.style.color = '#6a1b9a';
+                    liveExplain.innerHTML = `🌙 <strong>Overnight Session (${curTz}):</strong> Active across midnight from <strong>${curStart}</strong> to <strong>${curEnd}</strong>. The daily break between <strong>${curEnd}</strong> and <strong>${curStart}</strong> will be stripped.`;
+                    liveExplain.style.borderColor = '#b8860b';
+                    liveExplain.style.background = '#fefdf5';
+                    liveExplain.style.color = '#7d5c07';
                 }
             };
 
