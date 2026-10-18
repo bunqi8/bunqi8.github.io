@@ -529,7 +529,7 @@
             return res.length > 0;
         }
 
-        // Header toolbar button: clean, 28x28 ICON-ONLY button matching TradingView style
+        // Header toolbar button: clean, natural button matching TradingView's native Option Chain button
         injectButton(targetEl, iframeDoc) {
             if (!iframeDoc || iframeDoc.getElementById(this.btnId)) return;
 
@@ -539,22 +539,18 @@
             const settings = this.getSettingsForSymbol(normSym, isMcx);
             const isActive = !!settings.enabled;
 
-            const title = isActive
-                ? `Dataset Timing: Active (${settings.startTime}–${settings.endTime} ${settings.timezone || 'IST'})${settings.isSymbolSpecific ? ' on ' + normSym : ' (Global)'}`
-                : `Dataset Timing: Deselected / Off (Showing all candles for ${normSym}) — Click to configure`;
-
             const btnHtml = `
             <div class="group-MBOVGQRI" id="header-toolbar-dataset-timing" style="margin: 0 4px;">
-                <button id="${this.btnId}" class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
-                    title="${title}" 
-                    style="width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; color: ${isActive ? '#2962FF' : '#787b86'}; position: relative; cursor: pointer; border-radius: 4px;">
-                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: flex; align-items: center; justify-content: center;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <polyline points="12 6 12 12 16 14"></polyline>
+                <button aria-label="Dataset Timing" data-role="button" data-tooltip="Dataset Timing" tabindex="-1" type="button" 
+                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
+                    id="${this.btnId}" style="${isActive ? 'color: #2962FF;' : ''}">
+                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="position: relative;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
+                            <circle cx="14" cy="14" r="7.5" stroke="currentColor" stroke-width="1.2"></circle>
+                            <path stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" d="M14 10v4.5l3 2"></path>
                         </svg>
+                        <span id="dt-btn-dot" style="position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: #2962FF; pointer-events: none; display: ${isActive ? 'block' : 'none'};"></span>
                     </span>
-                    <span id="dt-btn-dot" style="position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: #e65100; display: ${isActive ? 'block' : 'none'};"></span>
                 </button>
             </div>
             `;
@@ -563,6 +559,14 @@
             const btn = iframeDoc.getElementById(this.btnId);
             if (btn) {
                 btn.addEventListener('click', () => this.showModal());
+
+                // Match Option Chain tooltip listener behavior
+                btn.addEventListener('mouseenter', () => {
+                    btn.setAttribute('title', this.getTooltipText());
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.removeAttribute('title');
+                });
             }
 
             // Sync with symbol changes on active chart
@@ -576,6 +580,18 @@
                     }
                 }
             } catch (_) {}
+        }
+
+        getTooltipText() {
+            const sym = this.getActiveSymbol();
+            const normSym = normalizeSymbol(sym);
+            const isMcx = normSym.includes('CRUDE') || normSym.includes('GOLD') || normSym.includes('SILVER') || normSym.includes('NATURALGAS');
+            const settings = this.getSettingsForSymbol(normSym, isMcx);
+            if (settings && settings.enabled) {
+                const target = settings.isSymbolSpecific ? normSym : 'Global';
+                return `Dataset Timing: Active (${settings.startTime}–${settings.endTime} ${settings.timezone || 'IST'})  [${target}]`;
+            }
+            return `Dataset Timing: Deselected / Off (${normSym})`;
         }
 
         updateButtonLabel() {
@@ -594,11 +610,8 @@
             const settings = this.getSettingsForSymbol(normSym, isMcx);
             const isActive = !!settings.enabled;
 
-            btn.title = isActive
-                ? `Dataset Timing: Active (${settings.startTime}–${settings.endTime} ${settings.timezone || 'IST'})${settings.isSymbolSpecific ? ' on ' + normSym : ' (Global)'}`
-                : `Dataset Timing: Deselected / Off (Showing all candles for ${normSym}) — Click to configure`;
-
-            btn.style.color = isActive ? '#2962FF' : '#787b86';
+            btn.setAttribute('data-tooltip', this.getTooltipText());
+            btn.style.color = isActive ? '#2962FF' : '';
             if (dot) dot.style.display = isActive ? 'block' : 'none';
         }
 
@@ -1065,6 +1078,7 @@
     // Expose singleton on window
     const manager = new DatasetTimingManager();
     window.DatasetTimingManager = manager;
+    window.DatasetTimingUI = manager;
 
     // Hook into TradingView chart header
     function tryInject() {
