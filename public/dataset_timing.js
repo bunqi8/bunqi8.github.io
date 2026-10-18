@@ -25,14 +25,51 @@
         endDate: ''
     };
 
+    const PRESETS = [
+        { id: 'tv_default', name: 'TradingView Default', start: '09:15', end: '15:30', desc: '09:15 – 15:30 (75 bars/day)', color: '#2962FF' },
+        { id: 'early_cutoff', name: 'Early Cutoff', start: '09:15', end: '15:10', desc: '09:15 – 15:10 (72 bars/day)', color: '#e65100' },
+        { id: 'mcx', name: 'MCX Commodity', start: '09:00', end: '23:30', desc: '09:00 – 23:30 IST', color: '#00897b' },
+        { id: 'full_24h', name: 'Full Session (24h)', start: '00:00', end: '23:59', desc: '00:00 – 23:59 (Unrestricted)', color: '#5d606b' }
+    ];
+
+    function normalizeSymbol(sym) {
+        if (!sym || typeof sym !== 'string') return '';
+        let s = sym.trim();
+        if (s.includes('|')) s = s.split('|')[0];
+        if (s.includes(':')) s = s.split(':')[1];
+        return s.toUpperCase();
+    }
+
+    // Bulletproof time parser handling 24h ("15:10") and 12h AM/PM ("03:10 PM", "3:10 PM")
     function parseTimeMins(timeStr) {
         if (!timeStr || typeof timeStr !== 'string') return null;
-        const parts = timeStr.trim().split(':');
+        const clean = timeStr.trim();
+        const isPM = /pm/i.test(clean);
+        const isAM = /am/i.test(clean);
+
+        const timeOnly = clean.replace(/[^0-9:]/g, '');
+        const parts = timeOnly.split(':');
         if (parts.length < 2) return null;
-        const h = parseInt(parts[0], 10);
+
+        let h = parseInt(parts[0], 10);
         const m = parseInt(parts[1], 10);
         if (isNaN(h) || isNaN(m)) return null;
+
+        if (isPM && h < 12) {
+            h += 12;
+        } else if (isAM && h === 12) {
+            h = 0;
+        }
+
         return h * 60 + m;
+    }
+
+    function formatTimeDisplay(mins) {
+        if (mins === null || isNaN(mins)) return '';
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        const pad = (n) => (n < 10 ? '0' + n : '' + n);
+        return `${pad(h)}:${pad(m)}`;
     }
 
     class DatasetTimingManager {
@@ -80,14 +117,22 @@
         }
 
         getSettingsForSymbol(symbolName, isMcx) {
-            const sym = symbolName || this.getActiveSymbol();
-            if (sym && this.data.symbols && this.data.symbols[sym] && this.data.symbols[sym].enabled) {
-                return { ...this.data.symbols[sym], isSymbolSpecific: true, symbol: sym };
+            const rawSym = symbolName || this.getActiveSymbol();
+            const normSym = normalizeSymbol(rawSym);
+
+            if (this.data.symbols) {
+                if (normSym && this.data.symbols[normSym] && this.data.symbols[normSym].enabled) {
+                    return { ...this.data.symbols[normSym], isSymbolSpecific: true, symbol: normSym };
+                }
+                if (rawSym && this.data.symbols[rawSym] && this.data.symbols[rawSym].enabled) {
+                    return { ...this.data.symbols[rawSym], isSymbolSpecific: true, symbol: rawSym };
+                }
             }
+
             if (isMcx && (!this.data.global || (this.data.global.startTime === DEFAULT_GLOBAL.startTime && this.data.global.endTime === DEFAULT_GLOBAL.endTime))) {
-                return { ...DEFAULT_MCX, isSymbolSpecific: false, symbol: sym };
+                return { ...DEFAULT_MCX, isSymbolSpecific: false, symbol: normSym };
             }
-            return { ...(this.data.global || DEFAULT_GLOBAL), isSymbolSpecific: false, symbol: sym };
+            return { ...(this.data.global || DEFAULT_GLOBAL), isSymbolSpecific: false, symbol: normSym };
         }
 
         filterBars(bars, resolution, symbolInfo, isMcx) {
@@ -122,7 +167,7 @@
                 const b = bars[i];
                 const tNum = Number(b.time);
 
-                // Date filter check
+                // Calendar date filter check
                 if (startTs !== null && tNum < startTs) continue;
                 if (endTs !== null && tNum > endTs) continue;
 
@@ -158,8 +203,9 @@
             if (!iframeDoc || iframeDoc.getElementById(this.btnId)) return;
 
             const sym = this.getActiveSymbol();
-            const isMcx = sym.includes('CRUDE') || sym.includes('GOLD') || sym.includes('SILVER') || sym.includes('NATURALGAS');
-            const settings = this.getSettingsForSymbol(sym, isMcx);
+            const normSym = normalizeSymbol(sym);
+            const isMcx = normSym.includes('CRUDE') || normSym.includes('GOLD') || normSym.includes('SILVER') || normSym.includes('NATURALGAS');
+            const settings = this.getSettingsForSymbol(normSym, isMcx);
 
             const isCustom = (settings.startTime !== (isMcx ? '09:00' : '09:15') || settings.endTime !== (isMcx ? '23:30' : '15:30') || settings.filterDates);
             const labelText = `${settings.startTime}–${settings.endTime}`;
@@ -167,8 +213,8 @@
             const btnHtml = `
             <div class="group-MBOVGQRI" id="header-toolbar-dataset-timing" style="margin: 0 4px;">
                 <button id="${this.btnId}" class="button-OhqNVIYA button-ptpAHg8E apply-common-tooltip isInteractive-GwQQdU8S" 
-                    title="Dataset Session & Timing Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + sym + ')' : ''} (Click to change)" 
-                    style="padding: 0 10px; font-weight: 600; font-size: 12px; color: ${isCustom ? '#e65100' : '#2962FF'}; border: 1px solid ${isCustom ? '#ff9800' : '#2962FF'}; background: ${isCustom ? 'rgba(255,152,0,0.1)' : 'rgba(41,98,255,0.08)'}; border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; height: 28px; cursor: pointer; transition: all 0.2s ease;">
+                    title="Dataset Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''} (Click to change)" 
+                    style="padding: 0 10px; font-weight: 600; font-size: 12px; color: ${isCustom ? '#e65100' : '#2962FF'}; border: 1.5px solid ${isCustom ? '#ff9800' : '#2962FF'}; background: ${isCustom ? 'rgba(255,152,0,0.1)' : 'rgba(41,98,255,0.08)'}; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; height: 28px; cursor: pointer; transition: all 0.2s ease;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
@@ -208,151 +254,222 @@
             if (!btn || !lbl) return;
 
             const sym = this.getActiveSymbol();
-            const isMcx = sym.includes('CRUDE') || sym.includes('GOLD') || sym.includes('SILVER') || sym.includes('NATURALGAS');
-            const settings = this.getSettingsForSymbol(sym, isMcx);
+            const normSym = normalizeSymbol(sym);
+            const isMcx = normSym.includes('CRUDE') || normSym.includes('GOLD') || normSym.includes('SILVER') || normSym.includes('NATURALGAS');
+            const settings = this.getSettingsForSymbol(normSym, isMcx);
 
             const isCustom = (settings.startTime !== (isMcx ? '09:00' : '09:15') || settings.endTime !== (isMcx ? '23:30' : '15:30') || settings.filterDates);
             const labelText = `${settings.startTime}–${settings.endTime}`;
 
             lbl.innerText = labelText;
-            btn.title = `Dataset Session & Timing Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + sym + ')' : ''} (Click to change)`;
+            btn.title = `Dataset Session Filter: ${labelText}${settings.isSymbolSpecific ? ' (' + normSym + ')' : ''} (Click to change)`;
             btn.style.color = isCustom ? '#e65100' : '#2962FF';
             btn.style.borderColor = isCustom ? '#ff9800' : '#2962FF';
             btn.style.background = isCustom ? 'rgba(255,152,0,0.1)' : 'rgba(41,98,255,0.08)';
         }
 
+        applyAndReload() {
+            // 1. Clear in-memory bar cache
+            if (window._tvLastBar) {
+                window._tvLastBar = {};
+            }
+
+            // 2. Invoke TradingView's official datafeed cache reset
+            if (typeof window._tvResetCache === 'function') {
+                try {
+                    window._tvResetCache();
+                } catch (e) {
+                    console.warn('[DatasetTiming] _tvResetCache failed:', e);
+                }
+            }
+
+            // 3. Clear chart model data and trigger re-request
+            if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                const chart = window.tvWidget.activeChart();
+                try {
+                    if (chart._chartWidget && chart._chartWidget.model && chart._chartWidget.model().mainSeries) {
+                        const ms = chart._chartWidget.model().mainSeries();
+                        if (ms && ms.data && typeof ms.data().clear === 'function') {
+                            ms.data().clear();
+                        }
+                    }
+                } catch (_) {}
+
+                try {
+                    if (typeof chart.resetData === 'function') {
+                        chart.resetData();
+                    }
+                } catch (_) {}
+            }
+        }
+
         showModal() {
             let modal = document.getElementById(this.modalId);
             const sym = this.getActiveSymbol();
-            const isMcx = sym.includes('CRUDE') || sym.includes('GOLD') || sym.includes('SILVER') || sym.includes('NATURALGAS');
-            const currentSettings = this.getSettingsForSymbol(sym, isMcx);
-            const isSymbolActive = !!(this.data.symbols && this.data.symbols[sym] && this.data.symbols[sym].enabled);
+            const normSym = normalizeSymbol(sym);
+            const isMcx = normSym.includes('CRUDE') || normSym.includes('GOLD') || normSym.includes('SILVER') || normSym.includes('NATURALGAS');
+            const currentSettings = this.getSettingsForSymbol(normSym, isMcx);
+            let activeScope = (this.data.symbols && this.data.symbols[normSym] && this.data.symbols[normSym].enabled) ? 'symbol' : 'global';
 
             if (!modal) {
                 modal = document.createElement('div');
                 modal.id = this.modalId;
                 modal.style.cssText = `
                     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                    background: rgba(0, 0, 0, 0.55); z-index: 99999;
+                    background: rgba(19, 23, 34, 0.6); z-index: 999999;
                     display: flex; align-items: center; justify-content: center;
-                    backdrop-filter: blur(2px); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    backdrop-filter: blur(4px); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
                 `;
                 document.body.appendChild(modal);
             }
 
             modal.innerHTML = `
-                <div style="background: #ffffff; width: 500px; max-width: 94vw; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column;">
+                <div style="background: #ffffff; width: 520px; max-width: 95vw; border-radius: 12px; box-shadow: 0 20px 48px rgba(0,0,0,0.28); overflow: hidden; display: flex; flex-direction: column; border: 1px solid #e0e3eb; animation: dtFadeIn 0.15s ease-out;">
+                    <style>
+                        @keyframes dtFadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+                        .dt-preset-card {
+                            border: 1.5px solid #e0e3eb;
+                            border-radius: 8px;
+                            padding: 12px 14px;
+                            background: #ffffff;
+                            cursor: pointer;
+                            transition: all 0.15s ease;
+                            position: relative;
+                            display: flex;
+                            flex-direction: column;
+                            user-select: none;
+                        }
+                        .dt-preset-card:hover {
+                            border-color: #b2b5be;
+                            background: #f8f9fd;
+                            transform: translateY(-1px);
+                        }
+                        .dt-preset-card.is-active {
+                            border: 2px solid #2962FF !important;
+                            background: #f0f4ff !important;
+                            box-shadow: 0 0 0 1px #2962FF, 0 4px 12px rgba(41,98,255,0.12) !important;
+                        }
+                        .dt-scope-btn {
+                            flex: 1;
+                            padding: 8px 12px;
+                            font-size: 13px;
+                            font-weight: 600;
+                            border: none;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            transition: all 0.15s ease;
+                            background: transparent;
+                            color: #5d606b;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            gap: 6px;
+                        }
+                        .dt-scope-btn.is-active {
+                            background: #ffffff;
+                            color: #2962FF;
+                            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                        }
+                    </style>
+
                     <!-- Header -->
-                    <div style="padding: 18px 22px; border-bottom: 1px solid #e0e3eb; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
-                        <div>
-                            <div style="font-size: 16px; font-weight: 700; color: #131722; display: flex; align-items: center; gap: 8px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2962FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <div style="padding: 18px 22px; border-bottom: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 32px; height: 32px; border-radius: 8px; background: #edf3ff; color: #2962FF; display: flex; align-items: center; justify-content: center;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                                     <circle cx="12" cy="12" r="10"></circle>
                                     <polyline points="12 6 12 12 16 14"></polyline>
                                 </svg>
-                                Dataset Timing & Session Filter
                             </div>
-                            <div style="font-size: 12px; color: #787b86; margin-top: 3px;">
-                                Configure candle session hours and date filtering saved in your browser
+                            <div>
+                                <div style="font-size: 16px; font-weight: 700; color: #131722;">Dataset Session & Timing Filter</div>
+                                <div style="font-size: 12px; color: #787b86;">Strip outside candles before applying data to chart</div>
                             </div>
                         </div>
-                        <button id="dt-modal-close" style="background: none; border: none; font-size: 20px; color: #787b86; cursor: pointer; padding: 4px 8px; line-height: 1;">&times;</button>
+                        <button id="dt-modal-close" style="width: 30px; height: 30px; border-radius: 6px; background: transparent; border: none; font-size: 18px; color: #787b86; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s;">✕</button>
                     </div>
 
                     <!-- Body -->
-                    <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-height: 75vh;">
-                        <!-- Scope Selection -->
-                        <div style="background: #f8f9fd; border: 1px solid #e5e9f2; border-radius: 6px; padding: 10px 14px;">
-                            <div style="font-size: 12px; font-weight: 600; color: #434651; margin-bottom: 6px;">Filter Scope:</div>
-                            <div style="display: flex; gap: 18px;">
-                                <label style="font-size: 13px; color: #131722; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                    <input type="radio" name="dt-scope" value="global" ${!isSymbolActive ? 'checked' : ''}>
-                                    All Symbols (Global)
-                                </label>
-                                <label style="font-size: 13px; color: #131722; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                    <input type="radio" name="dt-scope" value="symbol" ${isSymbolActive ? 'checked' : ''}>
-                                    Current Symbol Only (<strong style="color: #2962FF;">${sym}</strong>)
-                                </label>
-                            </div>
+                    <div style="padding: 20px 22px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; max-height: 75vh;">
+                        <!-- Scope Segmented Control -->
+                        <div style="background: #f0f3fa; border-radius: 8px; padding: 4px; display: flex;">
+                            <button type="button" id="dt-scope-global" class="dt-scope-btn ${activeScope === 'global' ? 'is-active' : ''}">
+                                <span>🌐 All Symbols (Global)</span>
+                            </button>
+                            <button type="button" id="dt-scope-symbol" class="dt-scope-btn ${activeScope === 'symbol' ? 'is-active' : ''}">
+                                <span>🎯 Current: <strong style="color: inherit;">${normSym}</strong></span>
+                            </button>
                         </div>
 
-                        <!-- Quick Presets -->
+                        <!-- Presets Section with High-Visibility Selection Clues -->
                         <div>
-                            <div style="font-size: 12px; font-weight: 600; color: #434651; margin-bottom: 6px;">Quick Presets:</div>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                                <button type="button" class="dt-preset-btn" data-start="09:15" data-end="15:30" style="padding: 8px 10px; font-size: 12px; font-weight: 500; border: 1px solid #d1d4dc; border-radius: 6px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column;">
-                                    <span style="font-weight: 600; color: #2962FF;">TradingView Default</span>
-                                    <span style="color: #787b86; font-size: 11px;">09:15 – 15:30 (75 bars/day)</span>
-                                </button>
-                                <button type="button" class="dt-preset-btn" data-start="09:15" data-end="15:10" style="padding: 8px 10px; font-size: 12px; font-weight: 500; border: 1px solid #d1d4dc; border-radius: 6px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column;">
-                                    <span style="font-weight: 600; color: #e65100;">Early Cutoff</span>
-                                    <span style="color: #787b86; font-size: 11px;">09:15 – 15:10 (72 bars/day)</span>
-                                </button>
-                                <button type="button" class="dt-preset-btn" data-start="09:00" data-end="23:30" style="padding: 8px 10px; font-size: 12px; font-weight: 500; border: 1px solid #d1d4dc; border-radius: 6px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column;">
-                                    <span style="font-weight: 600; color: #00897b;">MCX Commodity</span>
-                                    <span style="color: #787b86; font-size: 11px;">09:00 – 23:30 IST</span>
-                                </button>
-                                <button type="button" class="dt-preset-btn" data-start="00:00" data-end="23:59" style="padding: 8px 10px; font-size: 12px; font-weight: 500; border: 1px solid #d1d4dc; border-radius: 6px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column;">
-                                    <span style="font-weight: 600; color: #5d606b;">Full 24h / No Cutoff</span>
-                                    <span style="color: #787b86; font-size: 11px;">00:00 – 23:59 (Keep all)</span>
-                                </button>
+                            <div style="font-size: 12px; font-weight: 700; color: #434651; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                                Quick Session Presets:
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                                ${PRESETS.map(p => `
+                                    <div class="dt-preset-card" data-preset-id="${p.id}" data-start="${p.start}" data-end="${p.end}">
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <span style="font-weight: 700; font-size: 13px; color: ${p.color};">${p.name}</span>
+                                            <span class="dt-preset-badge" style="display: none; background: #2962FF; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; line-height: 1.2;">✓ ACTIVE</span>
+                                        </div>
+                                        <span style="color: #787b86; font-size: 11px; margin-top: 4px;">${p.desc}</span>
+                                    </div>
+                                `).join('')}
                             </div>
                         </div>
 
-                        <!-- Session Time (Start & End Time) -->
-                        <div style="border: 1px solid #e0e3eb; border-radius: 6px; padding: 14px;">
-                            <div style="font-size: 13px; font-weight: 600; color: #131722; margin-bottom: 10px;">
-                                Daily Candle Session Time (IST):
+                        <!-- Time Inputs Container -->
+                        <div style="background: #ffffff; border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 16px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                <div style="font-size: 13px; font-weight: 700; color: #131722;">Session Hours (IST):</div>
+                                <div id="dt-live-preset-indicator" style="font-size: 11px; font-weight: 600; color: #2962FF; background: #edf3ff; padding: 3px 8px; border-radius: 4px;"></div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 14px;">
                                 <div style="flex: 1;">
-                                    <label style="display: block; font-size: 11px; font-weight: 600; color: #787b86; margin-bottom: 4px;">START TIME</label>
-                                    <input type="time" id="dt-start-time" value="${currentSettings.startTime || '09:15'}" style="width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #d1d4dc; border-radius: 4px; box-sizing: border-box;">
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">START TIME (OPEN)</label>
+                                    <input type="time" id="dt-start-time" value="${currentSettings.startTime || '09:15'}" style="width: 100%; padding: 10px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
                                 </div>
-                                <div style="font-size: 16px; color: #787b86; margin-top: 18px;">&rarr;</div>
+                                <div style="font-size: 18px; color: #9598a1; font-weight: bold; margin-top: 20px;">&rarr;</div>
                                 <div style="flex: 1;">
-                                    <label style="display: block; font-size: 11px; font-weight: 600; color: #787b86; margin-bottom: 4px;">END TIME (CUTOFF)</label>
-                                    <input type="time" id="dt-end-time" value="${currentSettings.endTime || '15:30'}" style="width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #d1d4dc; border-radius: 4px; box-sizing: border-box;">
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">END TIME (CUTOFF)</label>
+                                    <input type="time" id="dt-end-time" value="${currentSettings.endTime || '15:30'}" style="width: 100%; padding: 10px 12px; font-size: 15px; font-weight: 600; color: #131722; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box; outline: none; transition: border-color 0.15s;">
                                 </div>
                             </div>
-                            <div style="font-size: 11px; color: #787b86; margin-top: 8px;">
-                                * Candlestick open times strictly inside this range are kept. All candles starting before or at/after cutoff are stripped away from chart dataset.
+                            <div id="dt-live-explain-banner" style="margin-top: 12px; padding: 8px 12px; background: #fbf0ea; border-left: 3px solid #ff9800; border-radius: 4px; font-size: 12px; color: #b75500; line-height: 1.4;">
                             </div>
                         </div>
 
                         <!-- Date Range Filtering (Optional) -->
-                        <div style="border: 1px solid #e0e3eb; border-radius: 6px; padding: 14px;">
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #131722; cursor: pointer; user-select: none;">
-                                <input type="checkbox" id="dt-filter-dates" ${currentSettings.filterDates ? 'checked' : ''}>
-                                Enable Date Range Filter (Optional)
+                        <div style="border: 1.5px solid #e0e3eb; border-radius: 8px; padding: 14px 16px;">
+                            <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: #131722; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="dt-filter-dates" ${currentSettings.filterDates ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer; accent-color: #2962FF;">
+                                Filter Historical Calendar Dates (Optional)
                             </label>
-                            <div id="dt-date-inputs" style="display: ${currentSettings.filterDates ? 'flex' : 'none'}; align-items: center; gap: 14px; margin-top: 10px;">
+                            <div id="dt-date-inputs" style="display: ${currentSettings.filterDates ? 'flex' : 'none'}; align-items: center; gap: 14px; margin-top: 12px;">
                                 <div style="flex: 1;">
-                                    <label style="display: block; font-size: 11px; font-weight: 600; color: #787b86; margin-bottom: 4px;">START DATE</label>
-                                    <input type="date" id="dt-start-date" value="${currentSettings.startDate || ''}" style="width: 100%; padding: 7px 10px; font-size: 13px; border: 1px solid #d1d4dc; border-radius: 4px; box-sizing: border-box;">
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; margin-bottom: 4px;">FROM DATE</label>
+                                    <input type="date" id="dt-start-date" value="${currentSettings.startDate || ''}" style="width: 100%; padding: 8px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
                                 </div>
-                                <div style="font-size: 16px; color: #787b86; margin-top: 18px;">&rarr;</div>
+                                <div style="font-size: 18px; color: #9598a1; font-weight: bold; margin-top: 18px;">&rarr;</div>
                                 <div style="flex: 1;">
-                                    <label style="display: block; font-size: 11px; font-weight: 600; color: #787b86; margin-bottom: 4px;">END DATE</label>
-                                    <input type="date" id="dt-end-date" value="${currentSettings.endDate || ''}" style="width: 100%; padding: 7px 10px; font-size: 13px; border: 1px solid #d1d4dc; border-radius: 4px; box-sizing: border-box;">
+                                    <label style="display: block; font-size: 11px; font-weight: 700; color: #787b86; margin-bottom: 4px;">TO DATE</label>
+                                    <input type="date" id="dt-end-date" value="${currentSettings.endDate || ''}" style="width: 100%; padding: 8px 10px; font-size: 13px; border: 1.5px solid #d1d4dc; border-radius: 6px; box-sizing: border-box;">
                                 </div>
-                            </div>
-                            <div style="font-size: 11px; color: #787b86; margin-top: 8px;">
-                                * When enabled, candles outside this historical calendar date window will be stripped away before loading.
                             </div>
                         </div>
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 14px 22px; border-top: 1px solid #e0e3eb; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
-                        <button id="dt-btn-reset" style="padding: 8px 14px; font-size: 12px; font-weight: 600; color: #5d606b; background: #fff; border: 1px solid #d1d4dc; border-radius: 4px; cursor: pointer;">
+                    <div style="padding: 16px 22px; border-top: 1px solid #e5e8f0; display: flex; align-items: center; justify-content: space-between; background: #fafbfc;">
+                        <button id="dt-btn-reset" style="padding: 9px 16px; font-size: 13px; font-weight: 600; color: #5d606b; background: #ffffff; border: 1.5px solid #d1d4dc; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
                             Reset to TV Default
                         </button>
-                        <div style="display: flex; gap: 10px;">
-                            <button id="dt-btn-cancel" style="padding: 8px 16px; font-size: 13px; font-weight: 500; color: #5d606b; background: #fff; border: 1px solid #d1d4dc; border-radius: 4px; cursor: pointer;">
+                        <div style="display: flex; gap: 12px;">
+                            <button id="dt-btn-cancel" style="padding: 9px 18px; font-size: 13px; font-weight: 600; color: #5d606b; background: #ffffff; border: 1.5px solid #d1d4dc; border-radius: 6px; cursor: pointer; transition: all 0.15s;">
                                 Cancel
                             </button>
-                            <button id="dt-btn-save" style="padding: 8px 18px; font-size: 13px; font-weight: 600; color: #ffffff; background: #2962FF; border: none; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(41,98,255,0.3);">
+                            <button id="dt-btn-save" style="padding: 9px 22px; font-size: 13px; font-weight: 700; color: #ffffff; background: #2962FF; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 8px rgba(41,98,255,0.3); transition: all 0.15s;">
                                 Save & Apply to Chart
                             </button>
                         </div>
@@ -362,61 +479,158 @@
 
             modal.style.display = 'flex';
 
-            // Event Handlers
-            const closeModal = () => { modal.style.display = 'none'; };
-            document.getElementById('dt-modal-close').onclick = closeModal;
-            document.getElementById('dt-btn-cancel').onclick = closeModal;
-
-            // Date checkbox toggle
+            // UI Elements
+            const startTimeInput = document.getElementById('dt-start-time');
+            const endTimeInput = document.getElementById('dt-end-time');
             const cbDate = document.getElementById('dt-filter-dates');
             const dateInputs = document.getElementById('dt-date-inputs');
+            const btnScopeGlobal = document.getElementById('dt-scope-global');
+            const btnScopeSymbol = document.getElementById('dt-scope-symbol');
+            const liveIndicator = document.getElementById('dt-live-preset-indicator');
+            const explainBanner = document.getElementById('dt-live-explain-banner');
+            const presetCards = modal.querySelectorAll('.dt-preset-card');
+
+            // Function to synchronize preset active highlights and explain banner
+            const updatePresetVisuals = () => {
+                const sMins = parseTimeMins(startTimeInput.value) ?? 555;
+                const eMins = parseTimeMins(endTimeInput.value) ?? 930;
+
+                const curStart = formatTimeDisplay(sMins);
+                const curEnd = formatTimeDisplay(eMins);
+
+                let matchedPreset = null;
+                presetCards.forEach(card => {
+                    const pStart = card.getAttribute('data-start');
+                    const pEnd = card.getAttribute('data-end');
+                    const badge = card.querySelector('.dt-preset-badge');
+
+                    if (pStart === curStart && pEnd === curEnd) {
+                        card.classList.add('is-active');
+                        if (badge) badge.style.display = 'inline-block';
+                        matchedPreset = card.getAttribute('data-preset-id');
+                    } else {
+                        card.classList.remove('is-active');
+                        if (badge) badge.style.display = 'none';
+                    }
+                });
+
+                if (matchedPreset === 'early_cutoff') {
+                    liveIndicator.innerText = 'Early Cutoff (09:15–15:10)';
+                    liveIndicator.style.color = '#e65100';
+                    liveIndicator.style.background = '#fef3e6';
+                    explainBanner.style.display = 'block';
+                    explainBanner.style.background = '#fef3e6';
+                    explainBanner.style.borderLeftColor = '#e65100';
+                    explainBanner.style.color = '#b75500';
+                    explainBanner.innerHTML = '⚡ <strong>Early Cutoff Active:</strong> Candles at <strong>15:10, 15:15, 15:20, and 15:25</strong> are completely stripped away from the chart dataset.';
+                } else if (matchedPreset === 'tv_default') {
+                    liveIndicator.innerText = 'TradingView Default (09:15–15:30)';
+                    liveIndicator.style.color = '#2962FF';
+                    liveIndicator.style.background = '#edf3ff';
+                    explainBanner.style.display = 'block';
+                    explainBanner.style.background = '#edf3ff';
+                    explainBanner.style.borderLeftColor = '#2962FF';
+                    explainBanner.style.color = '#1b4bbf';
+                    explainBanner.innerHTML = '⚡ <strong>TradingView Standard:</strong> Complete 75 bars/day session preserved (09:15 to 15:30 IST). Post-market candles at/after 15:30 stripped.';
+                } else if (matchedPreset === 'full_24h') {
+                    liveIndicator.innerText = 'Full 24h Session';
+                    liveIndicator.style.color = '#5d606b';
+                    liveIndicator.style.background = '#f0f3fa';
+                    explainBanner.style.display = 'block';
+                    explainBanner.style.background = '#f0f3fa';
+                    explainBanner.style.borderLeftColor = '#5d606b';
+                    explainBanner.style.color = '#434651';
+                    explainBanner.innerHTML = '⚡ <strong>Unrestricted:</strong> Keeps all downloaded candles without session filtering.';
+                } else {
+                    liveIndicator.innerText = `Custom Range: ${curStart}–${curEnd}`;
+                    liveIndicator.style.color = '#787b86';
+                    liveIndicator.style.background = '#f0f3fa';
+                    explainBanner.style.display = 'block';
+                    explainBanner.style.background = '#f8f9fd';
+                    explainBanner.style.borderLeftColor = '#2962FF';
+                    explainBanner.style.color = '#333';
+                    explainBanner.innerHTML = `⚡ <strong>Custom Session:</strong> Only candles opening between <strong>${curStart}</strong> and <strong>${curEnd} IST</strong> will be kept.`;
+                }
+            };
+
+            // Preset click handlers with instant visual clues
+            presetCards.forEach(card => {
+                card.onclick = () => {
+                    const st = card.getAttribute('data-start');
+                    const et = card.getAttribute('data-end');
+                    if (st) startTimeInput.value = st;
+                    if (et) endTimeInput.value = et;
+                    updatePresetVisuals();
+                };
+            });
+
+            // Live updates when editing time inputs
+            startTimeInput.oninput = updatePresetVisuals;
+            endTimeInput.oninput = updatePresetVisuals;
+            startTimeInput.onchange = updatePresetVisuals;
+            endTimeInput.onchange = updatePresetVisuals;
+
+            // Scope buttons toggle
+            btnScopeGlobal.onclick = () => {
+                activeScope = 'global';
+                btnScopeGlobal.classList.add('is-active');
+                btnScopeSymbol.classList.remove('is-active');
+            };
+            btnScopeSymbol.onclick = () => {
+                activeScope = 'symbol';
+                btnScopeSymbol.classList.add('is-active');
+                btnScopeGlobal.classList.remove('is-active');
+            };
+
+            // Date checkbox toggle
             cbDate.onchange = () => {
                 dateInputs.style.display = cbDate.checked ? 'flex' : 'none';
             };
 
-            // Preset buttons
-            const presetBtns = modal.querySelectorAll('.dt-preset-btn');
-            presetBtns.forEach(pBtn => {
-                pBtn.onclick = () => {
-                    const st = pBtn.getAttribute('data-start');
-                    const et = pBtn.getAttribute('data-end');
-                    if (st) document.getElementById('dt-start-time').value = st;
-                    if (et) document.getElementById('dt-end-time').value = et;
-                };
-            });
+            // Initial visual update
+            updatePresetVisuals();
+
+            // Close actions
+            const closeModal = () => { modal.style.display = 'none'; };
+            document.getElementById('dt-modal-close').onclick = closeModal;
+            document.getElementById('dt-btn-cancel').onclick = closeModal;
 
             // Reset button
             document.getElementById('dt-btn-reset').onclick = () => {
-                document.getElementById('dt-start-time').value = '09:15';
-                document.getElementById('dt-end-time').value = '15:30';
+                startTimeInput.value = '09:15';
+                endTimeInput.value = '15:30';
                 cbDate.checked = false;
                 dateInputs.style.display = 'none';
                 document.getElementById('dt-start-date').value = '';
                 document.getElementById('dt-end-date').value = '';
+                updatePresetVisuals();
             };
 
             // Save & Apply button
             document.getElementById('dt-btn-save').onclick = () => {
-                const startTime = document.getElementById('dt-start-time').value || '09:15';
-                const endTime = document.getElementById('dt-end-time').value || '15:30';
+                const sMins = parseTimeMins(startTimeInput.value) ?? 555;
+                const eMins = parseTimeMins(endTimeInput.value) ?? 930;
+
+                const startTimeFormatted = formatTimeDisplay(sMins);
+                const endTimeFormatted = formatTimeDisplay(eMins);
+
                 const filterDates = cbDate.checked;
                 const startDate = document.getElementById('dt-start-date').value || '';
                 const endDate = document.getElementById('dt-end-date').value || '';
 
-                const scopeRadio = modal.querySelector('input[name="dt-scope"]:checked');
-                const isSymbolScope = scopeRadio && scopeRadio.value === 'symbol';
-
                 const newSettings = {
                     enabled: true,
-                    startTime,
-                    endTime,
+                    startTime: startTimeFormatted,
+                    endTime: endTimeFormatted,
                     filterDates,
                     startDate,
                     endDate
                 };
 
-                if (isSymbolScope) {
+                if (activeScope === 'symbol') {
                     if (!this.data.symbols) this.data.symbols = {};
+                    this.data.symbols[normSym] = newSettings;
+                    // Also save under raw symbol for guaranteed lookup
                     this.data.symbols[sym] = newSettings;
                 } else {
                     this.data.global = newSettings;
@@ -426,23 +640,10 @@
                 this.updateButtonLabel();
                 closeModal();
 
-                // Clear live candle cache
-                if (window._tvLastBar) {
-                    window._tvLastBar = {};
-                }
+                // Trigger complete data flush and chart redraw
+                this.applyAndReload();
 
-                // Force TradingView to immediately re-request and strip dataset bars
-                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                    const chart = window.tvWidget.activeChart();
-                    if (typeof chart.resetData === 'function') {
-                        chart.resetData();
-                    } else if (typeof chart.setSymbol === 'function') {
-                        const currentSym = chart.symbol();
-                        chart.setSymbol(currentSym, () => {});
-                    }
-                }
-
-                this.showToast(`Dataset timing set to ${startTime}–${endTime}. Chart reloaded.`);
+                this.showToast(`✓ Dataset timing updated to ${startTimeFormatted}–${endTimeFormatted}. Chart reloaded.`);
             };
         }
 
@@ -452,16 +653,16 @@
                 toast = document.createElement('div');
                 toast.id = 'dataset-timing-toast';
                 toast.style.cssText = `
-                    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-                    background: #131722; color: #ffffff; padding: 10px 18px; border-radius: 6px;
-                    font-size: 13px; font-weight: 500; z-index: 999999; box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-                    pointer-events: none; opacity: 0; transition: opacity 0.3s ease;
+                    position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%);
+                    background: #131722; color: #ffffff; padding: 12px 22px; border-radius: 8px;
+                    font-size: 13px; font-weight: 600; z-index: 9999999; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+                    pointer-events: none; opacity: 0; transition: opacity 0.25s ease; border: 1px solid rgba(255,255,255,0.15);
                 `;
                 document.body.appendChild(toast);
             }
             toast.innerText = msg;
             toast.style.opacity = '1';
-            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+            setTimeout(() => { toast.style.opacity = '0'; }, 3200);
         }
     }
 
