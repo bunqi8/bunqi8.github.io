@@ -554,6 +554,20 @@
 
                 const remoteScripts = Object.values(this.remoteIndicators);
                 activeStudies.forEach(study => {
+                    // Check study's metaInfo id to ensure we do NOT hot-swap local clones!
+                    let isLocalClone = false;
+                    try {
+                        const model = chart._chartWidget && chart._chartWidget.model() && chart._chartWidget.model().model();
+                        const stModel = model && model.getStudyById && model.getStudyById(study.id);
+                        if (stModel && typeof stModel.metaInfo === 'function') {
+                            const mId = stModel.metaInfo().id || "";
+                            if (mId.includes('_Local_')) {
+                                isLocalClone = true;
+                            }
+                        }
+                    } catch (_) {}
+                    if (isLocalClone) return;
+
                     const sName = (study.name || '').toLowerCase();
                     const matchingRemote = remoteScripts.find(r => r.name.toLowerCase() === sName || r.id.toLowerCase() === sName);
                     if (matchingRemote && (Date.now() - matchingRemote.lastUpdated < 15000)) {
@@ -583,20 +597,31 @@
             const remoteItem = this.remoteIndicators[remoteKey];
             if (!remoteItem) throw new Error("Remote script not found.");
 
-            let localStored = {};
-            try {
-                localStored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
-            } catch (_) {}
-
             const displayName = customName || remoteItem.name;
-            const uniqueLocalId = `${displayName.replace(/[^a-zA-Z0-9]/g, '_')}_Local_${Date.now()}@tv-basicstudies-1`;
+            const uniqueLocalId = (window.generateUniqueStudyId)
+                ? window.generateUniqueStudyId(displayName, remoteItem.id)
+                : `${displayName.replace(/[^a-zA-Z0-9]/g, '_')}_Local_${Date.now()}@tv-basicstudies-1`;
 
             // Rewrite code metainfo id to guarantee separate identity in PineJS
             let code = remoteItem.code;
-            code = code.replace(/id:\s*["'][^"']+["']/, `id: "${uniqueLocalId}"`);
+            if (window.injectStudyMetaId) {
+                code = window.injectStudyMetaId(code, uniqueLocalId);
+            } else if (/id\s*:\s*["'][^"']*@tv-basicstudies[^"']*["']/.test(code)) {
+                code = code.replace(/id\s*:\s*["'][^"']*@tv-basicstudies[^"']*["']/, `id: "${uniqueLocalId}"`);
+            } else {
+                code = code.replace(/id:\s*["'][^"']+["']/, `id: "${uniqueLocalId}"`);
+            }
 
-            localStored[displayName] = code;
-            localStorage.setItem('tv_local_indicators', JSON.stringify(localStored));
+            if (window.TVLocalStore) {
+                window.TVLocalStore.saveIndicator(displayName, code);
+            } else {
+                let localStored = {};
+                try {
+                    localStored = JSON.parse(localStorage.getItem('tv_local_indicators') || '{}');
+                } catch (_) {}
+                localStored[displayName] = code;
+                localStorage.setItem('tv_local_indicators', JSON.stringify(localStored));
+            }
 
             return {
                 name: displayName,
