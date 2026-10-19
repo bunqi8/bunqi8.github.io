@@ -13,7 +13,7 @@ In this platform, all custom scripts are written in JavaScript conforming to the
 | **Primary Goal** | Plot lines, histograms, bands, or signal dots on the chart | Execute simulated trades, compute PnL, drawdowns, win rates, and display the Strategy Tester bottom panel |
 | **Detection** | Regular script without strategy calls | Automatically detected when the script contains `this.strategy.buy` and `this.strategy.sell` (`window.isStrategyScript(code)`) |
 | **Engine Injection** | None | The constructor is automatically wrapped; an active `StrategyContext` is injected into `this.strategy` |
-| **Chart Markers** | Limited to static PineJS shape plots | Native TradingView locked execution arrows: direction arrow (`arrow_up` / `arrow_down`) with tag & net quantity, plus execution fill arrow (`arrow_right`) directly at the candle execution price (`@price`) |
+| **Chart Markers** | Limited to static PineJS shape plots | Dynamic locked execution arrows: direction arrow (`arrow_up` / `arrow_down`) with label `B: <id> @ <price> Q: <qty>` (green) / `S: <id> @ <price> Q: <qty>` (red), plus execution fill arrow (`arrow_right`) directly at the candle execution price (`@price`) |
 | **Lifecycle** | Recomputed on bar updates | Automatically executes backtests, compounding equity, and pairs orders into **Trade Chains** |
 
 ---
@@ -71,41 +71,23 @@ Convenience wrapper that calls `this.strategy.sell({ ...order, isEnd: true })`.
 
 ## 4. How On-Chart Trade Labels & Markers Work
 
-On each trade execution, the platform renders locked execution shapes directly on the TradingView chart using `chart.createShape` matching native TradingView style:
+On each trade execution, the platform renders locked execution shapes directly on the TradingView chart using `chart.createShape`:
 
-1. **Order Direction & Quantity Arrow**:
-   * **BUY / LONG**:
-     * Placed cleanly below the lowest wick (`low`).
-     * Shape: `arrow_up` pointing UP towards the candle in green `#089981`.
-     * Text hangs below the arrow:
-       ```text
-       <OrderTag>
-       +<NetQty>
-       ```
-       (e.g., `RSI_BB_L\n+2` on reversal or `+1` from flat).
-   * **SELL / SHORT**:
-     * Placed cleanly above the highest wick (`high`).
-     * Shape: `arrow_down` pointing DOWN towards the candle in red `#f23645`.
-     * Text sits above the arrow:
-       ```text
-       -<NetQty>
-       <OrderTag>
-       ```
-       (e.g., `-2\nRSI_BB_S` on reversal or `-1` from flat).
+1. **Label Text & Directional Arrows**:
+   * **BUY**: Placed below the candle's lowest wick (`low`). Rendered as an `arrow_up` pointing UP towards the candle with text `B: <id> @ <price> Q: <qty>` (e.g., `B: 1 @ 25000 Q: 1`) in green `#089981`.
+   * **SELL**: Placed above the candle's highest wick (`high`). Rendered as an `arrow_down` pointing DOWN towards the candle with text `S: <id> @ <price> Q: <qty>` (e.g., `S: 1 @ 25200 Q: 1`) in red `#f23645`.
 
 2. **Exact Execution Price Fill Pointer (`@price`)**:
-   * Placed right at `{ time: timeSec, price: execPrice }`.
-   * Shape: `arrow_right` pointing directly into the candle at the exact execution fill price in the trade's color (`#089981` / `#f23645`).
-   * Gives instant visual confirmation of the fill price on the candle.
+   * Placed right on the candle at `{ time: timeSec, price: execPrice }`.
+   * Rendered as an `arrow_right` pointing directly into the candle at the exact execution fill price in the trade's color (`#089981` / `#f23645`), matching native TradingView order fill pointers.
 
-3. **Reversal Consolidation**:
-   * When reversing from Short to Long (or Long to Short), the engine consolidates the on-chart marker to show the true net quantity traded (e.g. `+2` or `-2`), while maintaining distinct Trade Chain accounting in the Strategy Tester.
-
-4. **Placement Rules & Native TradingView Techniques**:
+3. **Placement Rules & Native TradingView Techniques**:
    * **Exact Coordinate Projection via PriceScale**:
-     * Screen pixels are projected using TradingView's native `priceScale.priceToCoordinate()` and `priceScale.coordinateToPrice()`.
-     * Candle highs and lows are pulled directly from TradingView's `mainSeries.data()` cache.
-     * Arrow tip sits 6px directly outside the wick (or 30px if custom shape pills exist).
+     * Projects exact screen pixels using TradingView's native `priceScale.priceToCoordinate()` and `priceScale.coordinateToPrice()`.
+     * Exact candle highs and lows are pulled directly from TradingView's `mainSeries.data()` cache (`bar[2]` for high, `bar[3]` for low).
+     * If custom indicator shape pills exist (`hasBuyLabel`/`hasSellLabel`), arrow tips sit 30px outside the wick to clear the pills cleanly; otherwise 6px directly outside the wick.
+   * **Multiple Trades on the Same Bar**:
+     * When scaling in, pyramiding, or reversing on the same bar, subsequent trade labels are stacked vertically with a native 24px step (`tradeIdx * 24`), preventing label collisions.
    * **Automatic Lifecycle**:
      * Trade markers are locked (`lock: true`, `disableSelection: true`, `disableSave: true`, `disableUndo: true`) so they behave strictly as native chart graphics.
      * When the strategy recalculates, timeframes change, or the strategy is removed from the chart, all old markers are cleaned up automatically.
