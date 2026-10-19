@@ -922,13 +922,22 @@
                             } catch (_) {}
                         }
 
-                        tradesOnBar.forEach((trade, tradeIdx) => {
-                            const isBuy = trade.action === 'BUY';
-                            const execPrice = Number(trade.price);
+                        const buyTrades = tradesOnBar.filter(t => t.action === 'BUY');
+                        const sellTrades = tradesOnBar.filter(t => t.action === 'SELL' || t.action === 'CLOSE');
+                        const tradeGroups = [];
+                        if (buyTrades.length > 0) tradeGroups.push(buyTrades);
+                        if (sellTrades.length > 0) tradeGroups.push(sellTrades);
+
+                        tradeGroups.forEach(groupTrades => {
+                            const isBuy = groupTrades[0].action === 'BUY';
+                            const totalQty = groupTrades.reduce((sum, t) => sum + (Number(t.qty) || 1), 0);
+                            const primaryTrade = groupTrades.find(t => !t.isEnd) || groupTrades[groupTrades.length - 1];
+                            const orderTag = primaryTrade.tag || (isBuy ? 'Buy' : 'Sell');
+                            const execPrice = Number(primaryTrade.price);
                             if (!execPrice || isNaN(execPrice)) return;
 
-                            const high = isFinite(barHigh) ? barHigh : Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
-                            const low = isFinite(barLow) ? barLow : Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
+                            const high = isFinite(barHigh) ? barHigh : Number(primaryTrade.candleHigh !== undefined ? primaryTrade.candleHigh : execPrice);
+                            const low = isFinite(barLow) ? barLow : Number(primaryTrade.candleLow !== undefined ? primaryTrade.candleLow : execPrice);
 
                             let shapePrice;
                             const canUseCoordinates = priceScale && firstValue !== null && 
@@ -936,21 +945,17 @@
                                                       typeof priceScale.coordinateToPrice === 'function';
 
                             if (canUseCoordinates) {
-                                const stackPixelOffset = tradeIdx * 24;
-
                                 if (isBuy) {
                                     // In screen coordinates: Y=0 is top, moving DOWN is increasing Y.
-                                    // If PineJS Buy label exists below bar (~24px pill), place arrow tip below it (~30px).
-                                    // If no Buy label exists, place arrow tip right below low wick (~6px).
+                                    // Arrow tip sits right below low wick (~6px, or ~30px if shape label pill exists).
                                     const lowY = priceScale.priceToCoordinate(low, firstValue);
-                                    const targetY = lowY + (hasBuyLabel ? 30 : 6) + stackPixelOffset;
+                                    const targetY = lowY + (hasBuyLabel ? 30 : 6);
                                     shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
                                 } else {
                                     // In screen coordinates: moving UP is decreasing Y.
-                                    // If PineJS Sell label exists above bar (~24px pill), place arrow tip above it (~30px).
-                                    // If no Sell label exists, place arrow tip right above high wick (-6px).
+                                    // Arrow tip sits right above high wick (-6px, or -30px if shape label pill exists).
                                     const highY = priceScale.priceToCoordinate(high, firstValue);
-                                    const targetY = highY - (hasSellLabel ? 30 : 6) - stackPixelOffset;
+                                    const targetY = highY - (hasSellLabel ? 30 : 6);
                                     shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
                                 }
                             }
@@ -959,13 +964,19 @@
                             if (!isFinite(shapePrice) || isNaN(shapePrice)) {
                                 const candleRange = Math.max(high - low, Math.max(execPrice * 0.0005, 1));
                                 const baseOffset = (isBuy ? hasBuyLabel : hasSellLabel) ? candleRange * 0.75 : candleRange * 0.25;
-                                const stackOffset = tradeIdx * candleRange * 0.5;
-                                shapePrice = isBuy ? (low - (baseOffset + stackOffset)) : (high + (baseOffset + stackOffset));
+                                shapePrice = isBuy ? (low - baseOffset) : (high + baseOffset);
                             }
 
-                            const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
-                            const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+                            // Text formatting matching TradingView native style:
+                            // Buy: arrow points UP, text hangs below (Tag \n +Qty)
+                            // Sell: arrow points DOWN, text sits above (-Qty \n Tag)
+                            const labelText = isBuy
+                                ? `${orderTag}\n+${totalQty}`
+                                : `-${totalQty}\n${orderTag}`;
 
+                            const arrowColor = isBuy ? '#089981' : '#f23645';
+
+                            // 1. Direction arrow (arrow_up / arrow_down) with tag & quantity
                             chart.createShape({ time: timeSec, price: shapePrice }, {
                                 shape: isBuy ? 'arrow_up' : 'arrow_down',
                                 text: labelText,
@@ -974,14 +985,34 @@
                                 disableSave: true,
                                 disableUndo: true,
                                 overrides: {
-                                    color: isBuy ? '#089981' : '#f23645',
-                                    arrowColor: isBuy ? '#089981' : '#f23645',
+                                    color: textColor,
+                                    arrowColor: arrowColor,
                                     fontsize: 11,
-                                    bold: true
+                                    bold: false
                                 }
                             }).then(id => {
                                 if (id) this._activeShapeIds.push(id);
                             }).catch(() => {});
+
+                            // 2. Exact execution price arrow marker (arrow_right) right at @price on the candle
+                            const distinctPrices = Array.from(new Set(groupTrades.map(t => Number(t.price)).filter(p => isFinite(p) && p > 0)));
+                            if (distinctPrices.length === 0) distinctPrices.push(execPrice);
+
+                            distinctPrices.forEach(pricePoint => {
+                                chart.createShape({ time: timeSec, price: pricePoint }, {
+                                    shape: 'arrow_right',
+                                    lock: true,
+                                    disableSelection: true,
+                                    disableSave: true,
+                                    disableUndo: true,
+                                    overrides: {
+                                        color: arrowColor,
+                                        arrowColor: arrowColor
+                                    }
+                                }).then(id => {
+                                    if (id) this._activeShapeIds.push(id);
+                                }).catch(() => {});
+                            });
                         });
                     });
                 } catch (e) {
