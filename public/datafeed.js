@@ -853,8 +853,8 @@ const Datafeed = {
                     const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
                     const timeShift = isDWM ? 0 : 19800; // Intraday parquet stores pseudo-UTC (IST)
                     
-                    // Fetch bars strictly prior to rawTo, with sufficient margin to satisfy countBack
-                    const fetchLimit = Math.max(countBack * 3, 1000);
+                    // Fetch bars strictly prior to rawTo, with sufficient margin to satisfy countBack and indicator warmup
+                    const fetchLimit = firstDataRequest ? Math.max(countBack * 10, 2000) : Math.max(countBack * 3, 1000);
                     const rangeSQL = `
                         SELECT time * 1000 AS time, open, high, low, close, volume
                         FROM (${unionStmts})
@@ -880,18 +880,22 @@ const Datafeed = {
                         }
                         let sortedBars = Array.from(dedupMap.values()).sort((a, b) => a.time - b.time);
                         
-                        // Step 1: Bars in [from, to)
-                        let inRangeBars = sortedBars.filter(b => b.time >= rawFrom * 1000 && b.time < rawTo * 1000);
-                        
                         let chosenBars = [];
-                        if (inRangeBars.length >= countBack) {
-                            chosenBars = inRangeBars;
+                        if (firstDataRequest) {
+                            // Initial load: return full historical buffer so technical indicators (e.g. 200 SMA, Bollinger Bands)
+                            // have immediate warmup bars and render completely across all visible candles without needing to scroll back
+                            chosenBars = sortedBars;
                         } else {
-                            // Fulfill countBack by including earlier bars prior to rawFrom
-                            let needed = countBack - inRangeBars.length;
-                            let olderBars = sortedBars.filter(b => b.time < rawFrom * 1000);
-                            let prependBars = olderBars.slice(-needed);
-                            chosenBars = prependBars.concat(inRangeBars);
+                            // Backward pagination: fulfill countBack relative to requested window
+                            let inRangeBars = sortedBars.filter(b => b.time >= rawFrom * 1000 && b.time < rawTo * 1000);
+                            if (inRangeBars.length >= countBack) {
+                                chosenBars = inRangeBars;
+                            } else {
+                                let needed = countBack - inRangeBars.length;
+                                let olderBars = sortedBars.filter(b => b.time < rawFrom * 1000);
+                                let prependBars = olderBars.slice(-needed);
+                                chosenBars = prependBars.concat(inRangeBars);
+                            }
                         }
                         
                         if (chosenBars.length > 0) {
