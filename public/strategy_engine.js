@@ -887,9 +887,6 @@
                         console.warn("[StrategyEngine] Failed to acquire mainSeries / priceScale:", e);
                     }
 
-                    const hasBuyLabel = this.hasPineShapePlot('buy');
-                    const hasSellLabel = this.hasPineShapePlot('sell');
-
                     // Group trades by bar timestamp
                     const tradesByTime = new Map();
                     executedTrades.forEach(trade => {
@@ -899,12 +896,8 @@
                         tradesByTime.get(timeSec).push(trade);
                     });
 
-                    const isDark = document.body.classList.contains('theme-dark') || 
-                                   (window.tvWidget && typeof window.tvWidget.getTheme === 'function' && window.tvWidget.getTheme() === 'dark');
-                    const textColor = isDark ? '#d1d4dc' : '#131722';
-
                     tradesByTime.forEach((tradesOnBar, timeSec) => {
-                        // Resolve exact bar high and low from TradingView's mainSeries data cache
+                        // Resolve exact bar high and low from TradingView's mainSeries data cache if available
                         let barHigh = NaN;
                         let barLow = NaN;
 
@@ -922,15 +915,18 @@
                             } catch (_) {}
                         }
 
-                        // 1. Draw execution fill arrow (arrow_right) at the exact @price on the candle
+                        // 1. Draw execution fill arrows (arrow_left) directly at the exact @price on the candle.
+                        // Points left into the candle (◀), matching native TradingView order fill arrows.
+                        // If multiple trades on this bar share the same price, only 1 arrow is drawn.
+                        // If they differ, separate arrows point to each distinct price.
                         const distinctPrices = Array.from(new Set(tradesOnBar.map(t => Number(t.price)).filter(p => isFinite(p) && p > 0)));
                         distinctPrices.forEach(execPrice => {
-                            const matchingTrade = tradesOnBar.find(t => Number(t.price) === execPrice) || tradesOnBar[0];
+                            const matchingTrade = [...tradesOnBar].reverse().find(t => Number(t.price) === execPrice) || tradesOnBar[0];
                             const isBuy = matchingTrade.action === 'BUY';
                             const arrowColor = isBuy ? '#089981' : '#f23645';
 
                             chart.createShape({ time: timeSec, price: execPrice }, {
-                                shape: 'arrow_right',
+                                shape: 'arrow_left',
                                 lock: true,
                                 disableSelection: true,
                                 disableSave: true,
@@ -945,67 +941,71 @@
                         });
 
                         // 2. Draw directional trade label arrows outside the candle:
-                        // B: <id> @ <price> Q: <qty> (green arrow_up below low)
-                        // S: <id> @ <price> Q: <qty> (red arrow_down above high)
-                        tradesOnBar.forEach((trade, tradeIdx) => {
-                            const isBuy = trade.action === 'BUY';
-                            const execPrice = Number(trade.price);
-                            if (!execPrice || isNaN(execPrice)) return;
+                        // Green arrow_up below candle low pointing UP at wick
+                        // Red arrow_down above candle high pointing DOWN at wick
+                        // If multiple trades exist on the same candle, show all labels on ONE arrow.
+                        const sellTrades = tradesOnBar.filter(t => t.action === 'SELL' || t.action === 'CLOSE');
+                        const buyTrades = tradesOnBar.filter(t => t.action === 'BUY');
 
-                            const high = isFinite(barHigh) ? barHigh : Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
-                            const low = isFinite(barLow) ? barLow : Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
+                        // Sell Direction Arrow (arrow_down)
+                        if (sellTrades.length > 0) {
+                            const lines = sellTrades.map(trade => {
+                                const p = Number(trade.price);
+                                const priceFormatted = p % 1 === 0 ? p : p.toFixed(2);
+                                return `S: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+                            });
+                            const labelText = lines.length > 1 ? lines.reverse().join('\n') : lines[0];
 
-                            let shapePrice;
-                            const canUseCoordinates = priceScale && firstValue !== null && 
-                                                      typeof priceScale.priceToCoordinate === 'function' && 
-                                                      typeof priceScale.coordinateToPrice === 'function';
+                            const highs = sellTrades.map(t => Number(t.candleHigh !== undefined ? t.candleHigh : t.price)).filter(isFinite);
+                            const high = isFinite(barHigh) ? barHigh : (highs.length > 0 ? Math.max(...highs) : 0);
 
-                            if (canUseCoordinates) {
-                                const stackPixelOffset = tradeIdx * 24;
-
-                                if (isBuy) {
-                                    // In screen coordinates: Y=0 is top, moving DOWN is increasing Y.
-                                    // Arrow tip sits right below low wick (~6px, or ~30px if shape label pill exists).
-                                    const lowY = priceScale.priceToCoordinate(low, firstValue);
-                                    const targetY = lowY + (hasBuyLabel ? 30 : 6) + stackPixelOffset;
-                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
-                                } else {
-                                    // In screen coordinates: moving UP is decreasing Y.
-                                    // Arrow tip sits right above high wick (-6px, or -30px if shape label pill exists).
-                                    const highY = priceScale.priceToCoordinate(high, firstValue);
-                                    const targetY = highY - (hasSellLabel ? 30 : 6) - stackPixelOffset;
-                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
-                                }
-                            }
-
-                            // High-precision fallback if priceScale coordinates are temporarily unavailable
-                            if (!isFinite(shapePrice) || isNaN(shapePrice)) {
-                                const candleRange = Math.max(high - low, Math.max(execPrice * 0.0005, 1));
-                                const baseOffset = (isBuy ? hasBuyLabel : hasSellLabel) ? candleRange * 0.75 : candleRange * 0.25;
-                                const stackOffset = tradeIdx * candleRange * 0.5;
-                                shapePrice = isBuy ? (low - (baseOffset + stackOffset)) : (high + (baseOffset + stackOffset));
-                            }
-
-                            const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
-                            const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
-
-                            chart.createShape({ time: timeSec, price: shapePrice }, {
-                                shape: isBuy ? 'arrow_up' : 'arrow_down',
+                            chart.createShape({ time: timeSec, price: high }, {
+                                shape: 'arrow_down',
                                 text: labelText,
                                 lock: true,
                                 disableSelection: true,
                                 disableSave: true,
                                 disableUndo: true,
                                 overrides: {
-                                    color: isBuy ? '#089981' : '#f23645',
-                                    arrowColor: isBuy ? '#089981' : '#f23645',
+                                    color: '#f23645',
+                                    arrowColor: '#f23645',
                                     fontsize: 11,
                                     bold: true
                                 }
                             }).then(id => {
                                 if (id) this._activeShapeIds.push(id);
                             }).catch(() => {});
-                        });
+                        }
+
+                        // Buy Direction Arrow (arrow_up)
+                        if (buyTrades.length > 0) {
+                            const lines = buyTrades.map(trade => {
+                                const p = Number(trade.price);
+                                const priceFormatted = p % 1 === 0 ? p : p.toFixed(2);
+                                return `B: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+                            });
+                            const labelText = lines.join('\n');
+
+                            const lows = buyTrades.map(t => Number(t.candleLow !== undefined ? t.candleLow : t.price)).filter(isFinite);
+                            const low = isFinite(barLow) ? barLow : (lows.length > 0 ? Math.min(...lows) : 0);
+
+                            chart.createShape({ time: timeSec, price: low }, {
+                                shape: 'arrow_up',
+                                text: labelText,
+                                lock: true,
+                                disableSelection: true,
+                                disableSave: true,
+                                disableUndo: true,
+                                overrides: {
+                                    color: '#089981',
+                                    arrowColor: '#089981',
+                                    fontsize: 11,
+                                    bold: true
+                                }
+                            }).then(id => {
+                                if (id) this._activeShapeIds.push(id);
+                            }).catch(() => {});
+                        }
                     });
                 } catch (e) {
                     console.warn("[StrategyEngine] Failed to render trade shapes:", e);
