@@ -717,26 +717,26 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-badge-source-hf { background: #fffbeb; color: #b45309; border: 1px solid #fef08a; }
             .tv-badge-active { background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25); }
 
-            /* Responsive Script Row Layout - Never Truncates Names to 2-3 Letters */
+            /* Responsive Script Row Layout - Clean, structured layout that never breaks badge alignment */
             .tv-script-row {
                 padding: 10px 14px; cursor: pointer; font-size: 14px; color: #131722; display: flex;
                 align-items: center; border-radius: 8px; margin-bottom: 4px; border: 1px solid transparent;
-                transition: all 0.12s ease; gap: 10px; box-sizing: border-box; min-width: 0;
+                transition: all 0.12s ease; gap: 12px; box-sizing: border-box; min-width: 0;
             }
             .tv-script-row:hover {
                 background: #f8fafe; border-color: #e0e3eb;
             }
             .tv-script-main {
-                flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; justify-content: center;
+                flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center;
             }
             .tv-script-title-wrap {
-                display: flex; align-items: center; min-width: 0;
+                display: flex; align-items: center; min-width: 0; flex: 0 1 auto;
             }
             .tv-script-title {
-                font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35; word-break: break-word;
+                font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35;
             }
             .tv-script-meta-wrap {
-                display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0;
+                display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; flex-shrink: 0;
             }
             .tv-script-actions {
                 display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
@@ -797,10 +797,10 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-spin { animation: tvSpinAnim 1s linear infinite; }
             @keyframes tvSpinAnim { 100% { transform: rotate(360deg); } }
 
-            /* Desktop layout enhancement: align title and badges side by side if width allows */
+            /* Desktop layout enhancement: align title and badges side by side with clean wrapping if needed */
             @media (min-width: 640px) {
                 .tv-script-main {
-                    flex-direction: row; align-items: center; gap: 10px;
+                    flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;
                 }
             }
 
@@ -1368,11 +1368,12 @@ function setupCustomIndicatorsDialog(widget) {
                         else metaDesc = metaName;
                     }
                 } catch (_) {}
-                const isStrat = name.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
+                const cleanDisplayName = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(name) : name;
+                const isStrat = cleanDisplayName.includes("Strategy") || name.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                 return {
                     name: name,
-                    displayName: name,
-                    studyName: metaDesc || metaName || name,
+                    displayName: cleanDisplayName,
+                    studyName: metaDesc || metaName || cleanDisplayName,
                     isStrat: isStrat,
                     sourceType: "local",
                     isLocal: true,
@@ -1555,12 +1556,14 @@ function setupCustomIndicatorsDialog(widget) {
             const fragment = document.createDocumentFragment();
             
             items.forEach(item => {
-                const isFav = favs.includes(item.name);
+                const isFav = favs.includes(item.name) || (item.displayName && favs.includes(item.displayName));
                 const targetName = (item.name || '').trim().toLowerCase();
+                const cleanTarget = (item.displayName || item.name || '').trim().toLowerCase();
 
                 const isAlreadyOnChart = currentStudies.some(s => {
                     const sName = (s.name || '').trim().toLowerCase();
-                    return sName === targetName;
+                    const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
+                    return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName;
                 });
                 
                 const row = document.createElement('div');
@@ -1711,9 +1714,11 @@ function setupCustomIndicatorsDialog(widget) {
                             const chart = widget.chart();
                             const existing = (chart && chart.getAllStudies) ? (chart.getAllStudies() || []) : [];
                             const targetName = (item.name || '').trim().toLowerCase();
+                            const cleanTarget = (item.displayName || item.name || '').trim().toLowerCase();
                             alreadyAdded = existing.some(s => {
                                 const sName = (s.name || '').trim().toLowerCase();
-                                return sName === targetName;
+                                const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
+                                return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName;
                             });
                         } catch (_) {}
 
