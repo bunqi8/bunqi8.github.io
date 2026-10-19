@@ -5,6 +5,18 @@ window.isStrategyScript = function(code) {
     return hasBuy && hasSell;
 };
 
+// Sanitizes indicator/strategy titles by removing creator tags like [LuxAlgo], [LazyBear], (by ChartArt), etc.
+window.sanitizeIndicatorName = function(name) {
+    if (!name || typeof name !== 'string') return name;
+    let clean = name;
+    clean = clean.replace(/\s*\[\s*(?:LuxAlgo|LazyBear|ChartArt)[^\]]*\]/gi, '');
+    clean = clean.replace(/\s*\(\s*by\s+[^)]+\)/gi, '');
+    clean = clean.replace(/\s*\[\s*by\s+[^\]]+\]/gi, '');
+    clean = clean.replace(/\s+by\s+(?:LuxAlgo|LazyBear|ChartArt)\b/gi, '');
+    clean = clean.replace(/\s{2,}/g, ' ').trim();
+    return clean;
+};
+
 // --- ROBUST LOCAL INDICATOR STORAGE & AUTO-HEALING ENGINE ---
 window.TVLocalStore = window.TVLocalStore || {
     PRIMARY_KEY: 'tv_local_indicators',
@@ -54,6 +66,38 @@ window.TVLocalStore = window.TVLocalStore || {
         if (backupUpdated) {
             try {
                 localStorage.setItem(this.BACKUP_KEY, JSON.stringify(backup));
+            } catch (_) {}
+        }
+
+        // Auto-sanitize existing stored indicators: strip creator suffixes ([LuxAlgo], [LazyBear], (by ChartArt), etc.)
+        let sanitized = false;
+        const cleanedPrimary = {};
+        for (const rawKey in primary) {
+            const cleanKey = window.sanitizeIndicatorName(rawKey);
+            let code = primary[rawKey];
+            if (cleanKey !== rawKey) {
+                sanitized = true;
+                if (typeof code === 'string') {
+                    code = code.replace(/name\s*:\s*["'][^"']+["']/, `name: "${cleanKey}"`);
+                    code = code.replace(/description\s*:\s*["'][^"']+["']/, `description: "${cleanKey}"`);
+                }
+            }
+            cleanedPrimary[cleanKey] = code;
+        }
+        if (sanitized) {
+            primary = cleanedPrimary;
+            try {
+                localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(primary));
+                localStorage.setItem(this.BACKUP_KEY, JSON.stringify(primary));
+                console.log("[TVLocalStore] Auto-migrated stored indicators to clean creator-free names.");
+            } catch (_) {}
+
+            try {
+                let favs = JSON.parse(localStorage.getItem('tv_favorite_indicators') || '[]');
+                if (Array.isArray(favs)) {
+                    let updatedFavs = favs.map(f => window.sanitizeIndicatorName(f));
+                    localStorage.setItem('tv_favorite_indicators', JSON.stringify(updatedFavs));
+                }
             } catch (_) {}
         }
 
