@@ -922,91 +922,67 @@
                             } catch (_) {}
                         }
 
-                        // Consolidate trades on this bar into a single net execution order arrow (matching TradingView native strategy rendering)
-                        let netBuyQty = 0;
-                        let netSellQty = 0;
-                        let lastExecPrice = 0;
-                        let barHighFallback = -Infinity;
-                        let barLowFallback = Infinity;
-                        let entryTrade = null;
-                        let lastTrade = null;
+                        tradesOnBar.forEach((trade, tradeIdx) => {
+                            const isBuy = trade.action === 'BUY';
+                            const execPrice = Number(trade.price);
+                            if (!execPrice || isNaN(execPrice)) return;
 
-                        tradesOnBar.forEach(trade => {
-                            const qty = Number(trade.qty) || 1;
-                            if (trade.action === 'BUY') {
-                                netBuyQty += qty;
-                            } else if (trade.action === 'SELL') {
-                                netSellQty += qty;
+                            const high = isFinite(barHigh) ? barHigh : Number(trade.candleHigh !== undefined ? trade.candleHigh : execPrice);
+                            const low = isFinite(barLow) ? barLow : Number(trade.candleLow !== undefined ? trade.candleLow : execPrice);
+
+                            let shapePrice;
+                            const canUseCoordinates = priceScale && firstValue !== null && 
+                                                      typeof priceScale.priceToCoordinate === 'function' && 
+                                                      typeof priceScale.coordinateToPrice === 'function';
+
+                            if (canUseCoordinates) {
+                                const stackPixelOffset = tradeIdx * 24;
+
+                                if (isBuy) {
+                                    // In screen coordinates: Y=0 is top, moving DOWN is increasing Y.
+                                    // If PineJS Buy label exists below bar (~24px pill), place arrow tip below it (~30px).
+                                    // If no Buy label exists, place arrow tip right below low wick (~6px).
+                                    const lowY = priceScale.priceToCoordinate(low, firstValue);
+                                    const targetY = lowY + (hasBuyLabel ? 30 : 6) + stackPixelOffset;
+                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
+                                } else {
+                                    // In screen coordinates: moving UP is decreasing Y.
+                                    // If PineJS Sell label exists above bar (~24px pill), place arrow tip above it (~30px).
+                                    // If no Sell label exists, place arrow tip right above high wick (-6px).
+                                    const highY = priceScale.priceToCoordinate(high, firstValue);
+                                    const targetY = highY - (hasSellLabel ? 30 : 6) - stackPixelOffset;
+                                    shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
+                                }
                             }
-                            lastExecPrice = Number(trade.price) || lastExecPrice;
-                            if (trade.candleHigh !== undefined) barHighFallback = Math.max(barHighFallback, Number(trade.candleHigh));
-                            if (trade.candleLow !== undefined) barLowFallback = Math.min(barLowFallback, Number(trade.candleLow));
-                            if (!trade.isEnd && !(trade.tag && trade.tag.toLowerCase().includes('exit'))) {
-                                entryTrade = trade;
+
+                            // High-precision fallback if priceScale coordinates are temporarily unavailable
+                            if (!isFinite(shapePrice) || isNaN(shapePrice)) {
+                                const candleRange = Math.max(high - low, Math.max(execPrice * 0.0005, 1));
+                                const baseOffset = (isBuy ? hasBuyLabel : hasSellLabel) ? candleRange * 0.75 : candleRange * 0.25;
+                                const stackOffset = tradeIdx * candleRange * 0.5;
+                                shapePrice = isBuy ? (low - (baseOffset + stackOffset)) : (high + (baseOffset + stackOffset));
                             }
-                            lastTrade = trade;
+
+                            const priceFormatted = execPrice % 1 === 0 ? execPrice : execPrice.toFixed(2);
+                            const labelText = `${isBuy ? 'B' : 'S'}: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+
+                            chart.createShape({ time: timeSec, price: shapePrice }, {
+                                shape: isBuy ? 'arrow_up' : 'arrow_down',
+                                text: labelText,
+                                lock: true,
+                                disableSelection: true,
+                                disableSave: true,
+                                disableUndo: true,
+                                overrides: {
+                                    color: isBuy ? '#089981' : '#f23645',
+                                    arrowColor: isBuy ? '#089981' : '#f23645',
+                                    fontsize: 11,
+                                    bold: true
+                                }
+                            }).then(id => {
+                                if (id) this._activeShapeIds.push(id);
+                            }).catch(() => {});
                         });
-
-                        const isBuy = netBuyQty >= netSellQty;
-                        const totalQty = isBuy ? (netBuyQty || 1) : (netSellQty || 1);
-                        const displayTrade = entryTrade || lastTrade;
-                        let tag = (displayTrade && displayTrade.tag) ? displayTrade.tag : (isBuy ? 'Buy' : 'Sell');
-
-                        const high = isFinite(barHigh) ? barHigh : (isFinite(barHighFallback) ? barHighFallback : lastExecPrice);
-                        const low = isFinite(barLow) ? barLow : (isFinite(barLowFallback) ? barLowFallback : lastExecPrice);
-
-                        let shapePrice;
-                        const canUseCoordinates = priceScale && firstValue !== null && 
-                                                  typeof priceScale.priceToCoordinate === 'function' && 
-                                                  typeof priceScale.coordinateToPrice === 'function';
-
-                        if (canUseCoordinates) {
-                            if (isBuy) {
-                                // Arrow tip at low of candle, points UP towards candle. Text renders below arrow.
-                                const lowY = priceScale.priceToCoordinate(low, firstValue);
-                                const targetY = lowY + (hasBuyLabel ? 26 : 4);
-                                shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
-                            } else {
-                                // Arrow tip at high of candle, points DOWN towards candle. Text renders above arrow.
-                                const highY = priceScale.priceToCoordinate(high, firstValue);
-                                const targetY = highY - (hasSellLabel ? 26 : 4);
-                                shapePrice = priceScale.coordinateToPrice(targetY, firstValue);
-                            }
-                        }
-
-                        // High-precision fallback if priceScale coordinates are temporarily unavailable
-                        if (!isFinite(shapePrice) || isNaN(shapePrice)) {
-                            const candleRange = Math.max(high - low, Math.max(lastExecPrice * 0.0005, 1));
-                            shapePrice = isBuy ? (low - (hasBuyLabel ? candleRange * 0.5 : candleRange * 0.05)) : (high + (hasSellLabel ? candleRange * 0.5 : candleRange * 0.05));
-                        }
-
-                        // In TradingView native strategy rendering:
-                        // For Up Arrow (Long): Tag on top, signed quantity "+Q" below:
-                        // RSI_BB_L
-                        // +2
-                        // For Down Arrow (Short): Signed quantity "-Q" on top, Tag below:
-                        // -2
-                        // RSI_BB_S
-                        const labelText = isBuy 
-                            ? `${tag}\n+${totalQty}` 
-                            : `-${totalQty}\n${tag}`;
-
-                        chart.createShape({ time: timeSec, price: shapePrice }, {
-                            shape: isBuy ? 'arrow_up' : 'arrow_down',
-                            text: labelText,
-                            lock: true,
-                            disableSelection: true,
-                            disableSave: true,
-                            disableUndo: true,
-                            overrides: {
-                                color: textColor,
-                                arrowColor: isBuy ? '#2962FF' : '#f23645',
-                                fontsize: 10,
-                                bold: true
-                            }
-                        }).then(id => {
-                            if (id) this._activeShapeIds.push(id);
-                        }).catch(() => {});
                     });
                 } catch (e) {
                     console.warn("[StrategyEngine] Failed to render trade shapes:", e);
