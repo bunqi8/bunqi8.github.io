@@ -38,13 +38,15 @@ function setupCustomIndicatorsDialog(widget) {
             }, 1500);
         }
 
-        // --- 1b. AUTO RESTORE STRATEGY ON RELOAD ---
-        const savedStrat = localStorage.getItem('tv_active_strategy');
-        if (savedStrat) {
-            setTimeout(() => {
-                try {
-                    const chart = widget.chart();
-                    const studies = chart.getAllStudies() || [];
+        // --- 1b. SYNC ACTIVE STRATEGY STATE ON RELOAD ---
+        // Let TradingView's chart library restore active studies naturally from chart layout.
+        // If no strategy study is on the chart, clean up stale localStorage so the panel never opens unnaturally.
+        setTimeout(() => {
+            try {
+                const chart = widget.chart();
+                const studies = (chart && chart.getAllStudies()) || [];
+                const savedStrat = localStorage.getItem('tv_active_strategy');
+                if (savedStrat) {
                     const targetLower = savedStrat.trim().toLowerCase();
                     const exists = studies.some(s => {
                         const sName = (s.name || '').trim().toLowerCase();
@@ -53,14 +55,17 @@ function setupCustomIndicatorsDialog(widget) {
                                sDesc === targetLower || sDesc.includes(targetLower);
                     });
                     if (!exists) {
-                        console.log("[Strategy Engine] Restoring active strategy on chart reload:", savedStrat);
-                        chart.createStudy(savedStrat, false, false);
+                        localStorage.removeItem('tv_active_strategy');
+                        if (window.StrategyEngine) {
+                            window.StrategyEngine.clearAll();
+                        }
+                        if (window.StrategyTesterUI) {
+                            window.StrategyTesterUI.destroyAll();
+                        }
                     }
-                } catch (e) {
-                    console.warn("[Strategy Engine] Could not auto-restore strategy:", e);
                 }
-            }, 1800);
-        }
+            } catch (_) {}
+        }, 1200);
 
         // --- STUDY ID UTILITIES ---
         window.injectStudyMetaId = function(code, newId) {
