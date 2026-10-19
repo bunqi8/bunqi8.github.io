@@ -74,16 +74,17 @@ Convenience wrapper that calls `this.strategy.sell({ ...order, isEnd: true })`.
 On each trade execution, the platform renders locked execution shapes directly on the TradingView chart using `chart.createShape`:
 
 1. **Label Text & Directional Arrows**:
-   * **BUY**: Placed at the candle's lowest wick (`low`). Rendered as an `arrow_up` pointing UP towards the candle with text `B: <id> @ <price> Q: <qty>` (e.g., `B: 1 @ 25000 Q: 1`) in green `#089981`.
-   * **SELL**: Placed at the candle's highest wick (`high`). Rendered as an `arrow_down` pointing DOWN towards the candle with text `S: <id> @ <price> Q: <qty>` (e.g., `S: 1 @ 25200 Q: 1`) in red `#f23645`.
+   * **BUY**: Placed at the candle's lowest wick (`low`). Rendered as a slim `arrow_up` pointing UP towards the candle with black text `B: <id> @ <price> Q: <qty>` (e.g., `B: 1 @ 25000 Q: 1`) and blue arrow `#2962FF`.
+   * **SELL**: Placed at the candle's highest wick (`high`). Rendered as a slim `arrow_down` pointing DOWN towards the candle with black text and negative quantity `S: <id> @ <price> Q: -<qty>` (e.g., `S: 1 @ 25200 Q: -1`) and fuchsia arrow `#FF00FF`.
    * **Multiple Trades on the Same Bar**: When multiple orders occur on the same candle (such as closing a long and opening a short on reversal), they share **ONE single direction arrow** with clean multi-line stacked text (`S: 2 @ ... \n S: 1 @ ...`), exactly matching native TradingView.
 
 2. **Exact Execution Price Fill Pointer (`@price`)**:
    * Placed right on the candle at `{ time: timeSec, price: execPrice }`.
-   * Rendered as an `arrow_left` pointing directly into the candle (`◀`) at the exact execution fill price in the trade's color (`#089981` / `#f23645`), matching native TradingView order fill pointers.
+   * Rendered as an `arrow_left` pointing directly into the candle (`◀`) at the exact execution fill price in the trade's color (Blue `#2962FF` for buy / Fuchsia `#FF00FF` for sell with 1px white border `#ffffff`), matching native TradingView order fill pointers.
    * If multiple trades on the same candle execute at the same price, a single pointer is drawn. If their execution prices differ, separate pointers point to each distinct price.
 
-3. **Placement Rules & Zoom Stability**:
+3. **Placement Rules, Top Z-Order & Zoom Stability**:
+   * **Always On Top**: All trade shapes are created with `zOrder: 'top'` and explicitly invoke `bringToFront()`, ensuring they always stay on top of all candles, wicks, study lines, fills, and other user drawings.
    * **Direct Candle Wick Anchoring**:
      * Arrow tips are anchored directly to candle `high` (for Sell `arrow_down`) and `low` (for Buy `arrow_up`).
      * Because the anchor point is the actual candle wick price, the arrow never drifts, separates, or floats away when zooming in or out.

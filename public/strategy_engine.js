@@ -915,6 +915,11 @@
                             } catch (_) {}
                         }
 
+                        // Color Scheme: Blue for Buy, Fuchsia for Sell, Black for Text Labels
+                        const BUY_COLOR = '#2962FF';
+                        const SELL_COLOR = '#FF00FF';
+                        const LABEL_COLOR = '#000000';
+
                         // 1. Draw execution fill arrows (arrow_left) directly at the exact @price on the candle.
                         // Points left into the candle (◀), matching native TradingView order fill arrows.
                         // If multiple trades on this bar share the same price, only 1 arrow is drawn.
@@ -923,7 +928,7 @@
                         distinctPrices.forEach(execPrice => {
                             const matchingTrade = [...tradesOnBar].reverse().find(t => Number(t.price) === execPrice) || tradesOnBar[0];
                             const isBuy = matchingTrade.action === 'BUY';
-                            const arrowColor = isBuy ? '#089981' : '#f23645';
+                            const arrowColor = isBuy ? BUY_COLOR : SELL_COLOR;
 
                             chart.createShape({ time: timeSec, price: execPrice }, {
                                 shape: 'arrow_left',
@@ -931,28 +936,38 @@
                                 disableSelection: true,
                                 disableSave: true,
                                 disableUndo: true,
+                                zOrder: 'top',
                                 overrides: {
                                     color: arrowColor,
                                     arrowColor: arrowColor
                                 }
                             }).then(id => {
-                                if (id) this._activeShapeIds.push(id);
+                                if (id) {
+                                    this._activeShapeIds.push(id);
+                                    try {
+                                        const shapeApi = chart.getShapeById(id);
+                                        if (shapeApi && typeof shapeApi.bringToFront === 'function') {
+                                            shapeApi.bringToFront();
+                                        }
+                                    } catch (_) {}
+                                }
                             }).catch(() => {});
                         });
 
                         // 2. Draw directional trade label arrows outside the candle:
-                        // Green arrow_up below candle low pointing UP at wick
-                        // Red arrow_down above candle high pointing DOWN at wick
+                        // Blue arrow_up below candle low pointing UP at wick
+                        // Fuchsia arrow_down above candle high pointing DOWN at wick
                         // If multiple trades exist on the same candle, show all labels on ONE arrow.
                         const sellTrades = tradesOnBar.filter(t => t.action === 'SELL' || t.action === 'CLOSE');
                         const buyTrades = tradesOnBar.filter(t => t.action === 'BUY');
 
-                        // Sell Direction Arrow (arrow_down)
+                        // Sell Direction Arrow (arrow_down, Fuchsia #FF00FF, Black text, Negative Qty)
                         if (sellTrades.length > 0) {
                             const lines = sellTrades.map(trade => {
                                 const p = Number(trade.price);
                                 const priceFormatted = p % 1 === 0 ? p : p.toFixed(2);
-                                return `S: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+                                const rawQty = Math.abs(Number(trade.qty) || 1);
+                                return `S: ${trade.chainId} @ ${priceFormatted} Q: -${rawQty}`;
                             });
                             const labelText = lines.length > 1 ? lines.reverse().join('\n') : lines[0];
 
@@ -966,23 +981,33 @@
                                 disableSelection: true,
                                 disableSave: true,
                                 disableUndo: true,
+                                zOrder: 'top',
                                 overrides: {
-                                    color: '#f23645',
-                                    arrowColor: '#f23645',
+                                    color: LABEL_COLOR,
+                                    arrowColor: SELL_COLOR,
                                     fontsize: 11,
                                     bold: true
                                 }
                             }).then(id => {
-                                if (id) this._activeShapeIds.push(id);
+                                if (id) {
+                                    this._activeShapeIds.push(id);
+                                    try {
+                                        const shapeApi = chart.getShapeById(id);
+                                        if (shapeApi && typeof shapeApi.bringToFront === 'function') {
+                                            shapeApi.bringToFront();
+                                        }
+                                    } catch (_) {}
+                                }
                             }).catch(() => {});
                         }
 
-                        // Buy Direction Arrow (arrow_up)
+                        // Buy Direction Arrow (arrow_up, Blue #2962FF, Black text, Positive Qty)
                         if (buyTrades.length > 0) {
                             const lines = buyTrades.map(trade => {
                                 const p = Number(trade.price);
                                 const priceFormatted = p % 1 === 0 ? p : p.toFixed(2);
-                                return `B: ${trade.chainId} @ ${priceFormatted} Q: ${trade.qty || 1}`;
+                                const rawQty = Math.abs(Number(trade.qty) || 1);
+                                return `B: ${trade.chainId} @ ${priceFormatted} Q: ${rawQty}`;
                             });
                             const labelText = lines.join('\n');
 
@@ -996,14 +1021,23 @@
                                 disableSelection: true,
                                 disableSave: true,
                                 disableUndo: true,
+                                zOrder: 'top',
                                 overrides: {
-                                    color: '#089981',
-                                    arrowColor: '#089981',
+                                    color: LABEL_COLOR,
+                                    arrowColor: BUY_COLOR,
                                     fontsize: 11,
                                     bold: true
                                 }
                             }).then(id => {
-                                if (id) this._activeShapeIds.push(id);
+                                if (id) {
+                                    this._activeShapeIds.push(id);
+                                    try {
+                                        const shapeApi = chart.getShapeById(id);
+                                        if (shapeApi && typeof shapeApi.bringToFront === 'function') {
+                                            shapeApi.bringToFront();
+                                        }
+                                    } catch (_) {}
+                                }
                             }).catch(() => {});
                         }
                     });
