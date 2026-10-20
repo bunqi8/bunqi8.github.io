@@ -777,6 +777,25 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-btn-subtle:hover {
                 background: #f8fafc; color: #1e293b; border-color: #cbd5e1;
             }
+            .tv-btn-subtle.active {
+                background: #eff6ff !important; color: #1d4ed8 !important; border-color: #bfdbfe !important; font-weight: 700;
+            }
+            .tv-btn-danger {
+                background: #fef2f2; color: #dc2626; border-color: #fecaca;
+            }
+            .tv-btn-danger:hover {
+                background: #dc2626; color: #ffffff; border-color: #dc2626;
+            }
+            .tv-script-checkbox {
+                width: 15px; height: 15px; cursor: pointer; accent-color: #2962FF; border-radius: 4px;
+                margin: 0 4px 0 0; flex-shrink: 0; outline: none;
+            }
+            .tv-script-row.selected {
+                background: #eff6ff !important; border-color: #bfdbfe !important;
+            }
+            .tv-script-row.non-selectable {
+                opacity: 0.55;
+            }
             .tv-action-sep {
                 width: 1px; height: 16px; background: #e2e8f0; margin: 0 2px;
             }
@@ -1190,6 +1209,21 @@ function setupCustomIndicatorsDialog(widget) {
                 </button>
             </div>
             <div class="tv-actions-group-right">
+                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-select" title="Toggle selection mode for batch deletion">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 11 12 14 22 4"></polyline>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
+                    <span id="tv-action-select-text">Select</span>
+                </button>
+                <button type="button" class="tv-btn-action tv-btn-danger" id="tv-action-bulk-delete" style="display:none;" title="Delete selected local scripts">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    <span id="tv-bulk-delete-count">Delete (0)</span>
+                </button>
+                <div class="tv-action-sep" id="tv-select-sep" style="display:none;"></div>
                 <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-repos" title="Manage Git/HF Repositories and Sync Scripts">
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/></svg>
                     <span>Repositories</span>
@@ -1243,6 +1277,7 @@ function setupCustomIndicatorsDialog(widget) {
         listHeader.className = 'tv-list-header';
         listHeader.innerHTML = `
             <div class="tv-list-header-left">
+                <input type="checkbox" id="tv-select-all" class="tv-script-checkbox" style="display:none;" title="Select / Deselect all visible local scripts">
                 <span class="tv-list-col-title">SCRIPT NAME</span>
                 <span id="tv-list-count" class="tv-list-count-badge">0</span>
             </div>
@@ -1301,6 +1336,124 @@ function setupCustomIndicatorsDialog(widget) {
                 currentGroup = e.target.value;
                 try { localStorage.setItem('tv_scripts_group', currentGroup); } catch (_) {}
                 renderList(searchInput.value);
+            };
+        }
+
+        // Selection & Deletion State
+        let isSelectMode = false;
+        const selectedScripts = new Set();
+        let currentRenderedItems = [];
+        let cleanupEditorFn = null;
+
+        const selectBtn = actionsBar.querySelector('#tv-action-select');
+        const selectText = actionsBar.querySelector('#tv-action-select-text');
+        const bulkDeleteBtn = actionsBar.querySelector('#tv-action-bulk-delete');
+        const bulkCountLabel = actionsBar.querySelector('#tv-bulk-delete-count');
+        const selectSep = actionsBar.querySelector('#tv-select-sep');
+        const selectAllCheckbox = listHeader.querySelector('#tv-select-all');
+
+        function updateBulkDeleteUI() {
+            const count = selectedScripts.size;
+            if (bulkDeleteBtn && bulkCountLabel) {
+                if (isSelectMode && count > 0) {
+                    bulkDeleteBtn.style.display = 'inline-flex';
+                    bulkCountLabel.textContent = `Delete (${count})`;
+                    if (selectSep) selectSep.style.display = 'block';
+                } else {
+                    bulkDeleteBtn.style.display = 'none';
+                    if (selectSep) selectSep.style.display = 'none';
+                }
+            }
+            if (selectAllCheckbox) {
+                selectAllCheckbox.style.display = isSelectMode ? 'inline-block' : 'none';
+                if (isSelectMode) {
+                    const visibleLocal = (currentRenderedItems || []).filter(it => it.isLocal);
+                    if (visibleLocal.length > 0 && visibleLocal.every(it => selectedScripts.has(it.name))) {
+                        selectAllCheckbox.checked = true;
+                        selectAllCheckbox.indeterminate = false;
+                    } else if (count > 0 && visibleLocal.some(it => selectedScripts.has(it.name))) {
+                        selectAllCheckbox.checked = false;
+                        selectAllCheckbox.indeterminate = true;
+                    } else {
+                        selectAllCheckbox.checked = false;
+                        selectAllCheckbox.indeterminate = false;
+                    }
+                }
+            }
+        }
+
+        if (selectBtn) {
+            selectBtn.onclick = () => {
+                isSelectMode = !isSelectMode;
+                if (!isSelectMode) {
+                    selectedScripts.clear();
+                    selectBtn.classList.remove('active');
+                    if (selectText) selectText.textContent = 'Select';
+                } else {
+                    selectBtn.classList.add('active');
+                    if (selectText) selectText.textContent = 'Cancel';
+                }
+                updateBulkDeleteUI();
+                renderList(searchInput.value);
+            };
+        }
+
+        if (selectAllCheckbox) {
+            selectAllCheckbox.onclick = (e) => {
+                const checked = e.target.checked;
+                const visibleLocal = (currentRenderedItems || []).filter(it => it.isLocal);
+                if (checked) {
+                    visibleLocal.forEach(it => selectedScripts.add(it.name));
+                } else {
+                    visibleLocal.forEach(it => selectedScripts.delete(it.name));
+                }
+                updateBulkDeleteUI();
+                renderList(searchInput.value);
+            };
+        }
+
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                const count = selectedScripts.size;
+                if (count === 0) return;
+                const names = Array.from(selectedScripts);
+                const preview = names.slice(0, 5).map(n => `• ${n}`).join('\n');
+                const more = count > 5 ? `\n• ...and ${count - 5} more` : '';
+                const msg = count === 1
+                    ? `Delete local script "${names[0]}"?\n\nAny active instances on the chart will also be removed cleanly.`
+                    : `Are you sure you want to delete ${count} selected scripts?\n\n${preview}${more}\n\nAny active instances on the chart will also be cleanly removed.`;
+
+                if (confirm(msg)) {
+                    let chartRemovedTotal = 0;
+                    names.forEach(scriptName => {
+                        const it = (currentRenderedItems || []).find(x => x.name === scriptName);
+                        const disp = it ? it.displayName : scriptName;
+                        const r = removeScriptFromChartIfAttached(scriptName, disp);
+                        chartRemovedTotal += r;
+
+                        if (window.TVLocalStore) {
+                            window.TVLocalStore.deleteIndicator(scriptName);
+                        } else {
+                            delete storedLocal[scriptName];
+                            localStorage.setItem('tv_local_indicators', JSON.stringify(storedLocal));
+                        }
+
+                        let fs = getFavorites();
+                        if (fs.includes(scriptName)) {
+                            localStorage.setItem('tv_favorite_indicators', JSON.stringify(fs.filter(f => f !== scriptName)));
+                        }
+                    });
+
+                    selectedScripts.clear();
+                    isSelectMode = false;
+                    if (selectBtn) selectBtn.classList.remove('active');
+                    if (selectText) selectText.textContent = 'Select';
+                    updateBulkDeleteUI();
+
+                    showToast(`Deleted ${count} script(s)${chartRemovedTotal > 0 ? ` and removed ${chartRemovedTotal} study instance(s) from chart.` : '.'}`);
+                    renderList(searchInput.value);
+                }
             };
         }
 
@@ -1375,11 +1528,49 @@ function setupCustomIndicatorsDialog(widget) {
         
         // --- MONACO SCRIPT EDITOR ---
         function showEditor(existingCode = '', existingName = null, isStrategyTemplate = false, isFork = false, forkTitle = null) {
+            if (cleanupEditorFn) cleanupEditorFn();
             isEditing = true;
             listWrapper.innerHTML = '';
             
+            function triggerEditorFocus() {
+                if (!monacoEditorInstance) return;
+                try {
+                    monacoEditorInstance.focus();
+                } catch (_) {}
+            }
+
+            // Keyboard shortcut protection: ensure Ctrl+A / Cmd+A always selects inside the editor
+            // rather than selecting outside text / entire page modal
+            const handleEditorKeydown = (e) => {
+                if (!isEditing || !monacoEditorInstance) return;
+                const isSelectAll = (e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A');
+                if (isSelectAll) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try {
+                        monacoEditorInstance.focus();
+                        const model = monacoEditorInstance.getModel();
+                        if (model) {
+                            monacoEditorInstance.setSelection(model.getFullModelRange());
+                        } else {
+                            monacoEditorInstance.trigger('keyboard', 'selectAll', {});
+                        }
+                    } catch (_) {
+                        try { monacoEditorInstance.trigger('keyboard', 'selectAll', {}); } catch (_) {}
+                    }
+                }
+            };
+            window.addEventListener('keydown', handleEditorKeydown, true);
+
+            cleanupEditorFn = () => {
+                window.removeEventListener('keydown', handleEditorKeydown, true);
+                cleanupEditorFn = null;
+                isEditing = false;
+            };
+
             const edHeader = document.createElement('div');
             edHeader.className = 'tv-editor-header';
+            edHeader.addEventListener('click', triggerEditorFocus);
             
             const titleRow = document.createElement('div');
             titleRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#131722; min-width:0; flex:1; overflow:hidden;';
@@ -1402,7 +1593,7 @@ function setupCustomIndicatorsDialog(widget) {
             cancelBtn.style.cssText = 'padding:6px 14px; border:1px solid #e0e3eb; background:#fff; border-radius:6px; cursor:pointer; font-size:13px; font-weight:500; color:#131722; transition:0.2s;';
             cancelBtn.onmouseover = () => cancelBtn.style.background = '#f8fafe';
             cancelBtn.onmouseout = () => cancelBtn.style.background = '#fff';
-            cancelBtn.onclick = () => { isEditing = false; restoreListWrapper(); renderList(searchInput.value); };
+            cancelBtn.onclick = () => { if (cleanupEditorFn) cleanupEditorFn(); restoreListWrapper(); renderList(searchInput.value); };
             
             const saveBtn = document.createElement('button');
             saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="margin-right:4px; vertical-align:middle;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Save Script';
@@ -1466,6 +1657,7 @@ function setupCustomIndicatorsDialog(widget) {
                         localStorage.setItem('tv_local_indicators', JSON.stringify(stored));
                     }
                     
+                    if (cleanupEditorFn) cleanupEditorFn();
                     sessionStorage.setItem('tv_indicators_active_tab', 'custom');
                     sessionStorage.setItem('tv_auto_reload_study', scriptName);
                     showToast(`Saved "${scriptName}" to Local scripts.`);
@@ -1482,7 +1674,10 @@ function setupCustomIndicatorsDialog(widget) {
             edHeader.appendChild(btnRow);
             
             const editorContainer = document.createElement('div');
-            editorContainer.style.cssText = 'flex:1; width:100%;';
+            editorContainer.style.cssText = 'flex:1; width:100%; outline:none; cursor:text;';
+            editorContainer.tabIndex = 0;
+            editorContainer.addEventListener('click', triggerEditorFocus);
+            editorContainer.addEventListener('mousedown', triggerEditorFocus);
             
             listWrapper.appendChild(edHeader);
             listWrapper.appendChild(errorDiv);
@@ -1511,6 +1706,10 @@ function setupCustomIndicatorsDialog(widget) {
                         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", scrollBeyondLastLine: false,
                         roundedSelection: false, padding: { top: 16 }
                     });
+                    triggerEditorFocus();
+                    setTimeout(triggerEditorFocus, 50);
+                    setTimeout(triggerEditorFocus, 150);
+                    setTimeout(triggerEditorFocus, 350);
                 });
             } else if (window.monaco) {
                 monacoEditorInstance = monaco.editor.create(editorContainer, {
@@ -1518,6 +1717,10 @@ function setupCustomIndicatorsDialog(widget) {
                     minimap: { enabled: true, scale: 0.75 }, automaticLayout: true, fontSize: 13,
                     scrollBeyondLastLine: false, padding: { top: 16 }
                 });
+                triggerEditorFocus();
+                setTimeout(triggerEditorFocus, 50);
+                setTimeout(triggerEditorFocus, 150);
+                setTimeout(triggerEditorFocus, 350);
             }
         }
         
@@ -1642,6 +1845,66 @@ function setupCustomIndicatorsDialog(widget) {
                 ];
             }
             return [{ title: 'All Scripts', items: itemList }];
+        }
+
+        // --- CLEANLY REMOVE ATTACHED INSTANCES FROM CHART ON DELETE ---
+        function removeScriptFromChartIfAttached(scriptName, scriptDisplayName) {
+            let removedCount = 0;
+            try {
+                const chart = (widget && widget.chart && widget.chart()) || (window.tvWidget && window.tvWidget.activeChart && window.tvWidget.activeChart());
+                if (!chart || typeof chart.getAllStudies !== 'function') return 0;
+                
+                const studies = chart.getAllStudies() || [];
+                const tName = (scriptName || '').trim().toLowerCase();
+                const tDisp = (scriptDisplayName || scriptName || '').trim().toLowerCase();
+                
+                studies.forEach(s => {
+                    if (!s || !s.id) return;
+                    const sName = (s.name || '').trim().toLowerCase();
+                    const sDesc = (s.description || '').trim().toLowerCase();
+                    const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
+                    
+                    const matches = (sName && (sName === tName || sName === tDisp || cleanS === tDisp || cleanS === tName)) ||
+                                    (sDesc && (sDesc === tName || sDesc === tDisp)) ||
+                                    (tName.length >= 4 && sName && (sName.startsWith(tName) || tName.startsWith(sName)));
+                    if (matches) {
+                        try {
+                            chart.removeEntity(s.id);
+                            removedCount++;
+                            console.log(`[CustomIndicators] Removed study entity "${s.name}" (${s.id}) from chart.`);
+                        } catch (e) {
+                            console.warn(`[CustomIndicators] Error removing study entity ${s.id}:`, e);
+                        }
+                    }
+                });
+                
+                // If this was the active strategy, clean up strategy state
+                const savedStrat = localStorage.getItem('tv_active_strategy');
+                if (savedStrat) {
+                    const savedLower = savedStrat.trim().toLowerCase();
+                    if (savedLower === tName || savedLower === tDisp || savedLower.startsWith(tName) || tName.startsWith(savedLower)) {
+                        localStorage.removeItem('tv_active_strategy');
+                        if (window.StrategyEngine && typeof window.StrategyEngine.clearAll === 'function') {
+                            window.StrategyEngine.clearAll();
+                        }
+                        if (window.StrategyTesterUI && typeof window.StrategyTesterUI.destroyAll === 'function') {
+                            window.StrategyTesterUI.destroyAll();
+                        }
+                    }
+                }
+
+                // Force layout auto-save so the removed study does not restore on reload
+                if (removedCount > 0) {
+                    try {
+                        if (widget && typeof widget.saveChartToServer === 'function') {
+                            widget.saveChartToServer();
+                        }
+                    } catch (_) {}
+                }
+            } catch (err) {
+                console.warn("[CustomIndicators] Error in removeScriptFromChartIfAttached:", err);
+            }
+            return removedCount;
         }
 
         // --- RENDER INDICATORS & STRATEGIES LIST ---
@@ -1849,6 +2112,8 @@ function setupCustomIndicatorsDialog(widget) {
 
             // Sort items according to active sort option
             items = sortItems(items, currentSort);
+            currentRenderedItems = items;
+            updateBulkDeleteUI();
 
             // Clear list container for clean rendering
             listContainer.innerHTML = '';
@@ -1864,16 +2129,47 @@ function setupCustomIndicatorsDialog(widget) {
 
                 const row = document.createElement('div');
                 row.className = 'tv-script-row';
+                if (isSelectMode && selectedScripts.has(item.name)) {
+                    row.classList.add('selected');
+                }
 
-                // Star Icon
-                const star = document.createElement('div');
-                star.className = isFav ? 'tv-star-icon active' : 'tv-star-icon';
-                star.title = isFav ? 'Remove from favorites' : 'Add to favorites';
-                star.innerHTML = isFav 
-                    ? '<svg width="17" height="17" viewBox="0 0 18 18" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" fill="currentColor" /></svg>'
-                    : '<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" /></svg>';
-                star.onclick = (e) => { e.stopPropagation(); toggleFavorite(item.name); };
-                row.appendChild(star);
+                // Selection Checkbox or Star Icon
+                if (isSelectMode) {
+                    if (item.isLocal) {
+                        const cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.className = 'tv-script-checkbox';
+                        cb.checked = selectedScripts.has(item.name);
+                        cb.title = `Select ${item.displayName}`;
+                        cb.onclick = (e) => {
+                            e.stopPropagation();
+                            if (cb.checked) {
+                                selectedScripts.add(item.name);
+                                row.classList.add('selected');
+                            } else {
+                                selectedScripts.delete(item.name);
+                                row.classList.remove('selected');
+                            }
+                            updateBulkDeleteUI();
+                        };
+                        row.appendChild(cb);
+                    } else {
+                        const spacer = document.createElement('div');
+                        spacer.style.cssText = 'width:15px; height:15px; flex-shrink:0;';
+                        row.appendChild(spacer);
+                        row.classList.add('non-selectable');
+                        row.title = `"${item.displayName}" is a ${item.sourceType} script and cannot be deleted.`;
+                    }
+                } else {
+                    const star = document.createElement('div');
+                    star.className = isFav ? 'tv-star-icon active' : 'tv-star-icon';
+                    star.title = isFav ? 'Remove from favorites' : 'Add to favorites';
+                    star.innerHTML = isFav 
+                        ? '<svg width="17" height="17" viewBox="0 0 18 18" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" fill="currentColor" /></svg>'
+                        : '<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" /></svg>';
+                    star.onclick = (e) => { e.stopPropagation(); toggleFavorite(item.name); };
+                    row.appendChild(star);
+                }
 
                 // Main Content (Name on top left-aligned, labels below with small font)
                 const mainContent = document.createElement('div');
@@ -1942,6 +2238,9 @@ function setupCustomIndicatorsDialog(widget) {
                 // Action Buttons
                 const actions = document.createElement('div');
                 actions.className = 'tv-script-actions';
+                if (isSelectMode) {
+                    actions.style.display = 'none';
+                }
 
                 if (item.isLocal) {
                     const editBtn = document.createElement('div');
@@ -1956,7 +2255,8 @@ function setupCustomIndicatorsDialog(widget) {
                     delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
                     delBtn.onclick = (e) => { 
                         e.stopPropagation(); 
-                        if(confirm("Delete local script '" + item.name + "'?")) {
+                        if (confirm(`Delete local script "${item.displayName || item.name}"?\n\nAny active instances on the chart will also be removed cleanly.`)) {
+                            const r = removeScriptFromChartIfAttached(item.name, item.displayName);
                             if (window.TVLocalStore) {
                                 window.TVLocalStore.deleteIndicator(item.name);
                             } else {
@@ -1964,10 +2264,12 @@ function setupCustomIndicatorsDialog(widget) {
                                 localStorage.setItem('tv_local_indicators', JSON.stringify(storedLocal));
                             }
                             let fs = getFavorites();
-                            if(fs.includes(item.name)) {
+                            if (fs.includes(item.name)) {
                                 localStorage.setItem('tv_favorite_indicators', JSON.stringify(fs.filter(f => f !== item.name)));
                             }
-                            location.reload();
+                            selectedScripts.delete(item.name);
+                            showToast(`Deleted "${item.displayName}"${r > 0 ? ' and removed from chart.' : '.'}`);
+                            renderList(searchInput.value);
                         }
                     };
 
@@ -1995,6 +2297,25 @@ function setupCustomIndicatorsDialog(widget) {
                 }
 
                 row.onclick = () => {
+                    if (isSelectMode) {
+                        if (!item.isLocal) {
+                            showToast(`"${item.displayName}" is a ${item.sourceType} script and cannot be deleted.`);
+                            return;
+                        }
+                        const cb = row.querySelector('.tv-script-checkbox');
+                        if (selectedScripts.has(item.name)) {
+                            selectedScripts.delete(item.name);
+                            row.classList.remove('selected');
+                            if (cb) cb.checked = false;
+                        } else {
+                            selectedScripts.add(item.name);
+                            row.classList.add('selected');
+                            if (cb) cb.checked = true;
+                        }
+                        updateBulkDeleteUI();
+                        return;
+                    }
+
                     // Block adding the exact same strategy multiple times
                     if (item.isStrat) {
                         let alreadyAdded = false;
@@ -2102,6 +2423,11 @@ function setupCustomIndicatorsDialog(widget) {
             modalOverlay.classList.add('visible');
             searchInput.value = '';
             isEditing = false;
+            isSelectMode = false;
+            selectedScripts.clear();
+            if (selectBtn) selectBtn.classList.remove('active');
+            if (selectText) selectText.textContent = 'Select';
+            if (cleanupEditorFn) cleanupEditorFn();
             restoreListWrapper();
             const favCount = getFavorites().length;
             const savedTab = sessionStorage.getItem('tv_indicators_active_tab');
@@ -2131,6 +2457,11 @@ function setupCustomIndicatorsDialog(widget) {
                 e.stopPropagation();
                 if (e.type === 'touchend' && e.cancelable) e.preventDefault();
             }
+            if (cleanupEditorFn) cleanupEditorFn();
+            isSelectMode = false;
+            selectedScripts.clear();
+            if (selectBtn) selectBtn.classList.remove('active');
+            if (selectText) selectText.textContent = 'Select';
             modalOverlay.classList.remove('visible');
         }
         
@@ -2148,7 +2479,12 @@ function setupCustomIndicatorsDialog(widget) {
             activeTab = 'favorites';
             sessionStorage.setItem('tv_indicators_active_tab', 'favorites');
             if (!isEditing) restoreListWrapper();
+            if (cleanupEditorFn) cleanupEditorFn();
             isEditing = false;
+            isSelectMode = false;
+            selectedScripts.clear();
+            if (selectBtn) selectBtn.classList.remove('active');
+            if (selectText) selectText.textContent = 'Select';
             tabFavorites.className = 'tv-custom-modal-tab active';
             tabCustom.className = 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
@@ -2160,7 +2496,12 @@ function setupCustomIndicatorsDialog(widget) {
             activeTab = 'custom';
             sessionStorage.setItem('tv_indicators_active_tab', 'custom');
             if (!isEditing) restoreListWrapper();
+            if (cleanupEditorFn) cleanupEditorFn();
             isEditing = false;
+            isSelectMode = false;
+            selectedScripts.clear();
+            if (selectBtn) selectBtn.classList.remove('active');
+            if (selectText) selectText.textContent = 'Select';
             tabCustom.className = 'tv-custom-modal-tab active';
             tabFavorites.className = 'tv-custom-modal-tab';
             tabBuiltin.className = 'tv-custom-modal-tab';
@@ -2172,7 +2513,12 @@ function setupCustomIndicatorsDialog(widget) {
             activeTab = 'builtin';
             sessionStorage.setItem('tv_indicators_active_tab', 'builtin');
             if (!isEditing) restoreListWrapper();
+            if (cleanupEditorFn) cleanupEditorFn();
             isEditing = false;
+            isSelectMode = false;
+            selectedScripts.clear();
+            if (selectBtn) selectBtn.classList.remove('active');
+            if (selectText) selectText.textContent = 'Select';
             tabBuiltin.className = 'tv-custom-modal-tab active';
             tabFavorites.className = 'tv-custom-modal-tab';
             tabCustom.className = 'tv-custom-modal-tab';
