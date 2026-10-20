@@ -283,6 +283,9 @@
         updateRepo(repoId, inputUrl, branch, tokenId) {
             const idx = this.repos.findIndex(r => r.id === repoId);
             if (idx === -1) throw new Error("Repository not found.");
+            if (this.repos[idx].isPermanent || this.repos[idx].isDefault) {
+                throw new Error("Permanent repository cannot be modified.");
+            }
             
             if (inputUrl && inputUrl.trim()) {
                 const parsed = this.parseRepoInput(inputUrl);
