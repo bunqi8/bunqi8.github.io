@@ -717,50 +717,131 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-badge-source-hf { background: #fffbeb; color: #b45309; border: 1px solid #fef08a; }
             .tv-badge-active { background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25); }
 
-            /* Responsive Script Row Layout - Clean, structured layout that never breaks badge alignment */
+            /* Refined Script Row Layout - Left aligned title with compact badges below */
             .tv-script-row {
-                padding: 10px 14px; cursor: pointer; font-size: 14px; color: #131722; display: flex;
-                align-items: center; border-radius: 8px; margin-bottom: 4px; border: 1px solid transparent;
-                transition: all 0.12s ease; gap: 12px; box-sizing: border-box; min-width: 0;
+                padding: 9px 12px; cursor: pointer; color: #131722; display: flex;
+                align-items: center; border-radius: 8px; margin-bottom: 3px; border: 1px solid transparent;
+                transition: all 0.12s ease; gap: 10px; box-sizing: border-box; min-width: 0; text-align: left;
             }
             .tv-script-row:hover {
                 background: #f8fafe; border-color: #e0e3eb;
             }
             .tv-script-main {
-                flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center;
+                flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; text-align: left;
             }
             .tv-script-title-wrap {
-                display: flex; align-items: center; min-width: 0; flex: 0 1 auto;
+                display: flex; align-items: center; min-width: 0; width: 100%; text-align: left; justify-content: flex-start;
             }
             .tv-script-title {
-                font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35;
+                font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35; text-align: left;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
             }
             .tv-script-meta-wrap {
-                display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; flex-shrink: 0;
+                display: flex; align-items: center; gap: 5px; flex-wrap: wrap; text-align: left; justify-content: flex-start; margin-top: 1px;
+            }
+            .tv-script-date {
+                font-size: 10px; color: #94a3b8; font-weight: 500; margin-left: 2px;
             }
             .tv-script-actions {
-                display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
+                display: flex; align-items: center; gap: 5px; flex-shrink: 0; margin-left: auto;
             }
 
-            /* Custom Action Bar in Custom Scripts Tab */
+            /* Sleek Unified Action Bar in Custom Scripts Tab */
             .tv-custom-actions-bar {
-                display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 6px 0 14px 0;
+                display: flex; align-items: center; justify-content: space-between; padding: 7px 16px;
+                background: #fafbfc; border-bottom: 1px solid #e0e3eb; gap: 8px; flex-shrink: 0; box-sizing: border-box;
             }
-            .tv-custom-action-btn {
-                padding: 9px 10px; cursor: pointer; font-size: 12.5px; font-weight: 600; border-radius: 8px;
-                display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; box-sizing: border-box; text-align: center;
+            .tv-actions-group-left, .tv-actions-group-right {
+                display: flex; align-items: center; gap: 6px;
+            }
+            .tv-btn-action {
+                display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px;
+                font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.12s ease; white-space: nowrap;
+                border: 1px solid transparent; user-select: none; box-sizing: border-box; outline: none;
+            }
+            .tv-btn-primary {
+                background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe;
+            }
+            .tv-btn-primary:hover {
+                background: #2962FF; color: #ffffff; border-color: #2962FF;
+            }
+            .tv-btn-strat {
+                background: #faf5ff; color: #7e22ce; border-color: #e9d5ff;
+            }
+            .tv-btn-strat:hover {
+                background: #7e22ce; color: #ffffff; border-color: #7e22ce;
+            }
+            .tv-btn-subtle {
+                background: #ffffff; color: #475569; border-color: #e2e8f0;
+            }
+            .tv-btn-subtle:hover {
+                background: #f8fafc; color: #1e293b; border-color: #cbd5e1;
+            }
+            .tv-action-sep {
+                width: 1px; height: 16px; background: #e2e8f0; margin: 0 2px;
+            }
+            .tv-repo-badge {
+                background: #0f172a; color: #ffffff; border-radius: 10px; font-size: 9.5px; padding: 1px 5px; font-weight: 700; margin-left: 2px;
+            }
+
+            /* List Header with Integrated Controls */
+            .tv-list-header {
+                padding: 8px 16px; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase;
+                letter-spacing: 0.4px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+                background: #ffffff; border-bottom: 1px solid #f1f5f9; gap: 8px;
+            }
+            .tv-list-header-left {
+                display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+            }
+            .tv-list-col-title {
+                font-size: 11px; font-weight: 700; color: #94a3b8; letter-spacing: 0.5px;
+            }
+            .tv-list-count-badge {
+                font-size: 10px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 1px 6px; border-radius: 10px; border: 1px solid #e2e8f0;
+            }
+            .tv-list-header-controls {
+                display: flex; align-items: center; gap: 6px; margin-left: auto;
+            }
+            .tv-header-control-group {
+                display: inline-flex; align-items: center; gap: 4px; background: #f8fafc; border: 1px solid #e2e8f0;
+                border-radius: 6px; padding: 2px 7px; color: #64748b; transition: all 0.12s ease;
+            }
+            .tv-header-control-group:hover {
+                background: #ffffff; border-color: #cbd5e1; color: #1e293b;
+            }
+            .tv-control-select {
+                border: none; background: transparent; font-size: 11px; font-weight: 600; color: #334155; outline: none; cursor: pointer; font-family: inherit; padding: 1px 0;
+            }
+
+            /* Group Divider Headers */
+            .tv-group-header {
+                display: flex; align-items: center; gap: 8px; padding: 10px 4px 4px 4px; margin-top: 6px; margin-bottom: 3px;
+                font-size: 10.5px; font-weight: 700; color: #787b86; letter-spacing: 0.5px; text-transform: uppercase; user-select: none;
+            }
+            .tv-group-header-left {
+                display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+            }
+            .tv-group-title {
+                color: #475569; font-weight: 700;
+            }
+            .tv-group-count {
+                background: #f1f5f9; color: #64748b; font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 10px; border: 1px solid #e2e8f0;
+            }
+            .tv-group-divider-line {
+                flex: 1; height: 1px; background: #e2e8f0; min-width: 20px;
             }
 
             /* Action Buttons inside list item */
             .tv-item-action-btn {
-                cursor: pointer; color: #787b86; display: flex; align-items: center; padding: 4px 8px;
-                border-radius: 4px; font-size: 11px; font-weight: 600; transition: 0.15s; border: 1px solid transparent; flex-shrink: 0;
+                cursor: pointer; color: #64748b; display: inline-flex; align-items: center; padding: 4px 8px;
+                border-radius: 5px; font-size: 11px; font-weight: 600; transition: all 0.12s ease; border: 1px solid #e2e8f0;
+                background: #ffffff; flex-shrink: 0; gap: 4px; user-select: none;
             }
             .tv-item-action-btn:hover {
-                background: #f0f3fa; color: #2962FF; border-color: #e0e3eb;
+                background: #f0f3fa; color: #2962FF; border-color: #bfdbfe;
             }
             .tv-del-btn:hover {
-                background: #ffebec !important; color: #f23645 !important; border-color: #ffd4d7 !important;
+                background: #fef2f2 !important; color: #ef4444 !important; border-color: #fecaca !important;
             }
 
             /* Repository Manager Modal */
@@ -796,13 +877,6 @@ function setupCustomIndicatorsDialog(widget) {
             }
             .tv-spin { animation: tvSpinAnim 1s linear infinite; }
             @keyframes tvSpinAnim { 100% { transform: rotate(360deg); } }
-
-            /* Desktop layout enhancement: align title and badges side by side with clean wrapping if needed */
-            @media (min-width: 640px) {
-                .tv-script-main {
-                    flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;
-                }
-            }
 
             /* Mobile & Small Device Optimization (Full bleed, no cut-offs) */
             @media (max-width: 768px) {
@@ -901,10 +975,25 @@ function setupCustomIndicatorsDialog(widget) {
                     overflow: hidden !important;
                 }
                 .tv-list-header {
-                    padding: 8px 14px 4px 14px !important;
+                    padding: 8px 12px !important;
+                    flex-wrap: wrap !important;
+                    gap: 6px !important;
+                }
+                .tv-list-header-controls {
+                    width: 100% !important;
+                    justify-content: space-between !important;
+                    margin-left: 0 !important;
+                }
+                .tv-header-control-group {
+                    flex: 1 !important;
+                    justify-content: center !important;
+                }
+                .tv-control-select {
+                    width: 100% !important;
+                    text-align: center !important;
                 }
                 .tv-list-container {
-                    padding: 0 10px 14px 10px !important;
+                    padding: 4px 8px 14px 8px !important;
                     flex: 1 !important;
                     min-height: 0 !important;
                     overflow-y: auto !important;
@@ -918,20 +1007,29 @@ function setupCustomIndicatorsDialog(widget) {
                     font-size: 13px !important;
                 }
                 .tv-badge-pill {
-                    font-size: 9px !important;
-                    padding: 1.5px 5px !important;
+                    font-size: 8.5px !important;
+                    padding: 1px 4.5px !important;
                 }
                 .tv-custom-actions-bar {
-                    grid-template-columns: 1fr 1fr !important;
+                    padding: 6px 10px !important;
                     gap: 6px !important;
-                    margin: 4px 0 10px 0 !important;
+                    overflow-x: auto !important;
+                    white-space: nowrap !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    scrollbar-width: none !important;
+                    justify-content: flex-start !important;
                 }
-                .tv-custom-actions-bar .tv-repo-btn-span {
-                    grid-column: span 2 !important;
+                .tv-custom-actions-bar::-webkit-scrollbar { display: none !important; }
+                .tv-actions-group-left, .tv-actions-group-right {
+                    flex-shrink: 0 !important;
                 }
-                .tv-custom-action-btn {
-                    padding: 7px 8px !important;
-                    font-size: 11.5px !important;
+                .tv-btn-action {
+                    padding: 4px 8px !important;
+                    font-size: 11px !important;
+                }
+                .tv-item-action-btn {
+                    padding: 3px 6px !important;
+                    font-size: 10.5px !important;
                 }
                 .tv-editor-header {
                     padding: 10px 14px !important;
@@ -1074,16 +1172,143 @@ function setupCustomIndicatorsDialog(widget) {
         const listWrapper = document.createElement('div');
         listWrapper.className = 'tv-list-wrapper';
         listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff; min-height:0;';
-        
+
+        // 1. Sleek Action Bar for Custom Scripts Tab
+        const actionsBar = document.createElement('div');
+        actionsBar.className = 'tv-custom-actions-bar';
+        actionsBar.id = 'tv-custom-actions-bar';
+        actionsBar.style.display = 'none';
+        actionsBar.innerHTML = `
+            <div class="tv-actions-group-left">
+                <button type="button" class="tv-btn-action tv-btn-primary" id="tv-action-add-ind">
+                    <svg width="12" height="12" viewBox="0 0 18 18" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                    <span>+ Indicator</span>
+                </button>
+                <button type="button" class="tv-btn-action tv-btn-strat" id="tv-action-add-strat">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                    <span>+ Strategy</span>
+                </button>
+            </div>
+            <div class="tv-actions-group-right">
+                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-repos" title="Manage Git/HF Repositories and Sync Scripts">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/></svg>
+                    <span>Repositories</span>
+                    <span class="tv-repo-badge" id="tv-actions-repo-count" style="display:none;"></span>
+                </button>
+                <div class="tv-action-sep"></div>
+                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-backup" title="Export Backup JSON">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Backup</span>
+                </button>
+                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-import" title="Import Scripts JSON Backup">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <span>Import</span>
+                </button>
+            </div>
+        `;
+
+        const importFileInput = document.createElement('input');
+        importFileInput.type = 'file';
+        importFileInput.accept = '.json';
+        importFileInput.style.display = 'none';
+        importFileInput.onchange = (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                if (window.TVLocalStore) {
+                    const res = window.TVLocalStore.importBackupJson(evt.target.result);
+                    if (res.success) {
+                        showToast(`Successfully restored ${res.count} custom scripts! Reloading chart...`);
+                        setTimeout(() => location.reload(), 600);
+                    } else {
+                        alert("Failed to import backup: " + res.error);
+                    }
+                }
+            };
+            reader.readAsText(file);
+        };
+        document.body.appendChild(importFileInput);
+
+        actionsBar.querySelector('#tv-action-add-ind').onclick = () => showEditor();
+        actionsBar.querySelector('#tv-action-add-strat').onclick = () => showEditor('', null, true);
+        actionsBar.querySelector('#tv-action-repos').onclick = () => openRepoManagerModal();
+        actionsBar.querySelector('#tv-action-backup').onclick = () => {
+            if (window.TVLocalStore) window.TVLocalStore.exportBackupJson();
+        };
+        actionsBar.querySelector('#tv-action-import').onclick = () => importFileInput.click();
+
+        // 2. Refined List Header with Sort & Group Controls
         const listHeader = document.createElement('div');
         listHeader.className = 'tv-list-header';
-        listHeader.style.cssText = 'padding:14px 24px 8px 24px; font-size:11px; font-weight:700; color:#b2b5be; text-transform:uppercase; letter-spacing:0.4px; display:flex; justify-content:space-between; align-items:center;';
-        listHeader.innerHTML = '<span>Script name</span><span id="tv-list-count" style="font-size:11px; color:#787b86; text-transform:none; font-weight:500;"></span>';
+        listHeader.innerHTML = `
+            <div class="tv-list-header-left">
+                <span class="tv-list-col-title">SCRIPT NAME</span>
+                <span id="tv-list-count" class="tv-list-count-badge">0</span>
+            </div>
+            <div class="tv-list-header-controls">
+                <div class="tv-header-control-group" title="Sort scripts">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18M6 12h12m-9 6h6"></path>
+                    </svg>
+                    <select id="tv-sort-select" class="tv-control-select" aria-label="Sort scripts">
+                        <option value="name-asc">Name (A → Z)</option>
+                        <option value="name-desc">Name (Z → A)</option>
+                        <option value="date-desc">Newest First</option>
+                        <option value="date-asc">Oldest First</option>
+                        <option value="type-ind">Indicators First</option>
+                        <option value="type-strat">Strategies First</option>
+                    </select>
+                </div>
+                <div class="tv-header-control-group" title="Group scripts by label">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <select id="tv-group-select" class="tv-control-select" aria-label="Group scripts">
+                        <option value="none">Group: None</option>
+                        <option value="type">Group by Type</option>
+                        <option value="source">Group by Source</option>
+                        <option value="status">Group by Active</option>
+                        <option value="fav">Group by Starred</option>
+                    </select>
+                </div>
+            </div>
+        `;
+
+        let currentSort = 'name-asc';
+        let currentGroup = 'none';
+        try {
+            currentSort = localStorage.getItem('tv_scripts_sort') || 'name-asc';
+            currentGroup = localStorage.getItem('tv_scripts_group') || 'none';
+        } catch (_) {}
+
+        const sortSelectEl = listHeader.querySelector('#tv-sort-select');
+        const groupSelectEl = listHeader.querySelector('#tv-group-select');
+        if (sortSelectEl) {
+            sortSelectEl.value = currentSort;
+            sortSelectEl.onchange = (e) => {
+                currentSort = e.target.value;
+                try { localStorage.setItem('tv_scripts_sort', currentSort); } catch (_) {}
+                renderList(searchInput.value);
+            };
+        }
+        if (groupSelectEl) {
+            groupSelectEl.value = currentGroup;
+            groupSelectEl.onchange = (e) => {
+                currentGroup = e.target.value;
+                try { localStorage.setItem('tv_scripts_group', currentGroup); } catch (_) {}
+                renderList(searchInput.value);
+            };
+        }
 
         const listContainer = document.createElement('div');
         listContainer.className = 'tv-list-container';
-        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:0 12px 12px 12px; min-height:0; touch-action: pan-y !important; -webkit-overflow-scrolling: touch;';
+        listContainer.style.cssText = 'flex:1; overflow-y:auto; padding:6px 12px 14px 12px; min-height:0; touch-action: pan-y !important; -webkit-overflow-scrolling: touch;';
         
+        listWrapper.appendChild(actionsBar);
         listWrapper.appendChild(listHeader);
         listWrapper.appendChild(listContainer);
 
@@ -1298,8 +1523,125 @@ function setupCustomIndicatorsDialog(widget) {
         
         function restoreListWrapper() {
             listWrapper.innerHTML = '';
+            listWrapper.appendChild(actionsBar);
             listWrapper.appendChild(listHeader);
             listWrapper.appendChild(listContainer);
+        }
+
+        // --- SCRIPT METADATA, TIMESTAMP & SORT/GROUP HELPERS ---
+        function getScriptTimestamp(item) {
+            if (item.timestamp) return item.timestamp;
+            let localMeta = {};
+            try {
+                localMeta = JSON.parse(localStorage.getItem('tv_scripts_metadata') || '{}');
+            } catch (_) {}
+            if (localMeta[item.name] && localMeta[item.name].updatedAt) {
+                item.timestamp = localMeta[item.name].updatedAt;
+                return item.timestamp;
+            }
+            if (item.code) {
+                const m = item.code.match(/_(?:Local_)?(\d{10,14})@/);
+                if (m && m[1]) {
+                    const ts = parseInt(m[1], 10);
+                    if (ts > 1600000000000 && ts < 2500000000000) {
+                        item.timestamp = ts;
+                        return item.timestamp;
+                    }
+                }
+            }
+            if (item.isRemote && window.ScriptRepoManager && window.ScriptRepoManager.repos) {
+                const r = window.ScriptRepoManager.repos.find(repo => repo.id === item.repoId);
+                if (r && r.lastSyncTime) {
+                    item.timestamp = r.lastSyncTime;
+                    return item.timestamp;
+                }
+            }
+            if (item.sourceType === 'default') {
+                item.timestamp = 1696000000000;
+                return item.timestamp;
+            }
+            item.timestamp = 1700000000000;
+            return item.timestamp;
+        }
+
+        function formatScriptDate(ts) {
+            if (!ts || ts < 1650000000000) return '';
+            try {
+                const d = new Date(ts);
+                const now = new Date();
+                const diffMs = now - d;
+                const diffDays = Math.floor(diffMs / 86400000);
+                if (diffDays === 0) return 'Today';
+                if (diffDays === 1) return 'Yesterday';
+                if (diffDays < 30) return `${diffDays}d ago`;
+                return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function sortItems(itemList, sortKey) {
+            return itemList.slice().sort((a, b) => {
+                if (sortKey === 'name-asc') {
+                    return a.displayName.localeCompare(b.displayName);
+                } else if (sortKey === 'name-desc') {
+                    return b.displayName.localeCompare(a.displayName);
+                } else if (sortKey === 'date-desc') {
+                    return (b.timestamp || 0) - (a.timestamp || 0);
+                } else if (sortKey === 'date-asc') {
+                    return (a.timestamp || 0) - (b.timestamp || 0);
+                } else if (sortKey === 'type-ind') {
+                    if (a.isStrat !== b.isStrat) return a.isStrat ? 1 : -1;
+                    return a.displayName.localeCompare(b.displayName);
+                } else if (sortKey === 'type-strat') {
+                    if (a.isStrat !== b.isStrat) return a.isStrat ? -1 : 1;
+                    return a.displayName.localeCompare(b.displayName);
+                }
+                return 0;
+            });
+        }
+
+        function getGroupedBuckets(itemList, groupType) {
+            if (groupType === 'type') {
+                const indicators = itemList.filter(it => !it.isStrat);
+                const strategies = itemList.filter(it => it.isStrat);
+                return [
+                    { title: 'Indicators', items: indicators },
+                    { title: 'Strategies', items: strategies }
+                ];
+            }
+            if (groupType === 'source') {
+                const locals = itemList.filter(it => it.sourceType === 'local');
+                const defaults = itemList.filter(it => it.sourceType === 'default');
+                const githubs = itemList.filter(it => it.sourceType === 'github');
+                const hfs = itemList.filter(it => it.sourceType === 'huggingface');
+                const builtins = itemList.filter(it => it.sourceType === 'builtin');
+                return [
+                    { title: 'Local Scripts', items: locals },
+                    { title: 'Default Scripts', items: defaults },
+                    { title: 'GitHub Repositories', items: githubs },
+                    { title: 'Hugging Face', items: hfs },
+                    { title: 'Technicals', items: builtins }
+                ];
+            }
+            if (groupType === 'status') {
+                const active = itemList.filter(it => it._isAlreadyOnChart);
+                const available = itemList.filter(it => !it._isAlreadyOnChart);
+                return [
+                    { title: 'Active on Chart', items: active },
+                    { title: 'Available Scripts', items: available }
+                ];
+            }
+            if (groupType === 'fav') {
+                const favsList = getFavorites();
+                const starred = itemList.filter(it => favsList.includes(it.name) || (it.displayName && favsList.includes(it.displayName)));
+                const others = itemList.filter(it => !favsList.includes(it.name) && (!it.displayName || !favsList.includes(it.displayName)));
+                return [
+                    { title: 'Starred Favorites', items: starred },
+                    { title: 'Other Scripts', items: others }
+                ];
+            }
+            return [{ title: 'All Scripts', items: itemList }];
         }
 
         // --- RENDER INDICATORS & STRATEGIES LIST ---
@@ -1456,94 +1798,27 @@ function setupCustomIndicatorsDialog(widget) {
                 items = items.filter(item => item.sourceType === 'huggingface');
             }
 
-            // Update header count
-            const countEl = document.getElementById('tv-list-count');
-            if (countEl) {
-                countEl.textContent = `${items.length} script${items.length === 1 ? '' : 's'}`;
-            }
-
-            // Top action buttons in Custom scripts tab
-            if (activeTab === 'custom' && !searchQuery) {
-                const btnContainer = document.createElement('div');
-                btnContainer.className = 'tv-custom-actions-bar';
-
-                const addIndBtn = document.createElement('div');
-                addIndBtn.className = 'tv-custom-action-btn';
-                addIndBtn.style.cssText = 'color:#2962FF; border:1px dashed #2962FF; background:#f8fafe;';
-                addIndBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 18 18" style="margin-right:5px;" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> Create Indicator';
-                addIndBtn.onmouseover = () => { addIndBtn.style.background = '#2962FF'; addIndBtn.style.color = '#fff'; };
-                addIndBtn.onmouseout = () => { addIndBtn.style.background = '#f8fafe'; addIndBtn.style.color = '#2962FF'; };
-                addIndBtn.onclick = () => showEditor();
-
-                const addStratBtn = document.createElement('div');
-                addStratBtn.className = 'tv-custom-action-btn';
-                addStratBtn.style.cssText = 'color:#7B1FA2; border:1px dashed #7B1FA2; background:#fdf7ff;';
-                addStratBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg> Create Strategy';
-                addStratBtn.onmouseover = () => { addStratBtn.style.background = '#7B1FA2'; addStratBtn.style.color = '#fff'; };
-                addStratBtn.onmouseout = () => { addStratBtn.style.background = '#fdf7ff'; addStratBtn.style.color = '#7B1FA2'; };
-                addStratBtn.onclick = () => showEditor('', null, true);
-
-                const repoCount = (window.ScriptRepoManager && window.ScriptRepoManager.repos) ? window.ScriptRepoManager.repos.length : 0;
-                const repoBtn = document.createElement('div');
-                repoBtn.className = 'tv-custom-action-btn tv-repo-btn-span';
-                repoBtn.style.cssText = 'color:#0f172a; border:1px solid #cbd5e1; background:#f8fafc;';
-                repoBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:5px;"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/></svg> Repositories & Sync ${repoCount > 0 ? `<span style="margin-left:5px; background:#0f172a; color:#fff; border-radius:10px; font-size:10px; padding:1px 5px;">${repoCount}</span>` : ''}`;
-                repoBtn.onmouseover = () => { repoBtn.style.background = '#0f172a'; repoBtn.style.color = '#fff'; };
-                repoBtn.onmouseout = () => { repoBtn.style.background = '#f8fafc'; repoBtn.style.color = '#0f172a'; };
-                repoBtn.onclick = () => openRepoManagerModal();
-
-                // Backup & Export / Import buttons
-                const backupBtn = document.createElement('div');
-                backupBtn.className = 'tv-custom-action-btn';
-                backupBtn.style.cssText = 'color:#089981; border:1px solid #a7f3d0; background:#f0fdf4;';
-                backupBtn.title = 'Download a JSON backup of all your local custom scripts';
-                backupBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Backup';
-                backupBtn.onmouseover = () => { backupBtn.style.background = '#089981'; backupBtn.style.color = '#fff'; };
-                backupBtn.onmouseout = () => { backupBtn.style.background = '#f0fdf4'; backupBtn.style.color = '#089981'; };
-                backupBtn.onclick = () => {
-                    if (window.TVLocalStore) window.TVLocalStore.exportBackupJson();
-                };
-
-                const importFileInput = document.createElement('input');
-                importFileInput.type = 'file';
-                importFileInput.accept = '.json';
-                importFileInput.style.display = 'none';
-                importFileInput.onchange = (e) => {
-                    const file = e.target.files && e.target.files[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (evt) => {
-                        if (window.TVLocalStore) {
-                            const res = window.TVLocalStore.importBackupJson(evt.target.result);
-                            if (res.success) {
-                                showToast(`Successfully restored ${res.count} custom scripts! Reloading chart...`);
-                                setTimeout(() => location.reload(), 600);
-                            } else {
-                                alert("Failed to import backup: " + res.error);
-                            }
+            // Toggle & configure sleek actions bar for Custom scripts tab
+            const isCustomTab = activeTab === 'custom';
+            const isSearching = !!(searchQuery && searchQuery.trim() !== '');
+            if (actionsBar) {
+                if (isCustomTab && !isSearching) {
+                    actionsBar.style.display = 'flex';
+                    const repoCount = (window.ScriptRepoManager && window.ScriptRepoManager.repos) ? window.ScriptRepoManager.repos.length : 0;
+                    const repoBadge = actionsBar.querySelector('#tv-actions-repo-count');
+                    if (repoBadge) {
+                        if (repoCount > 0) {
+                            repoBadge.textContent = repoCount;
+                            repoBadge.style.display = 'inline-block';
+                        } else {
+                            repoBadge.style.display = 'none';
                         }
-                    };
-                    reader.readAsText(file);
-                };
-                document.body.appendChild(importFileInput);
-
-                const importBtn = document.createElement('div');
-                importBtn.className = 'tv-custom-action-btn';
-                importBtn.style.cssText = 'color:#475569; border:1px solid #cbd5e1; background:#f8fafc;';
-                importBtn.title = 'Import and restore custom scripts from a JSON backup file';
-                importBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" style="margin-right:5px;" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> Import';
-                importBtn.onmouseover = () => { importBtn.style.background = '#475569'; importBtn.style.color = '#fff'; };
-                importBtn.onmouseout = () => { importBtn.style.background = '#f8fafc'; importBtn.style.color = '#475569'; };
-                importBtn.onclick = () => importFileInput.click();
-
-                btnContainer.appendChild(addIndBtn);
-                btnContainer.appendChild(addStratBtn);
-                btnContainer.appendChild(repoBtn);
-                btnContainer.appendChild(backupBtn);
-                btnContainer.appendChild(importBtn);
-                listContainer.appendChild(btnContainer);
+                    }
+                } else {
+                    actionsBar.style.display = 'none';
+                }
             }
-            
+
             // Fetch currently applied studies to show Active badge and prevent duplicate strategy instances
             let currentStudies = [];
             try {
@@ -1553,32 +1828,54 @@ function setupCustomIndicatorsDialog(widget) {
                 }
             } catch (_) {}
 
-            const fragment = document.createDocumentFragment();
-            
+            // Enrich items with Active status and Timestamp
             items.forEach(item => {
-                const isFav = favs.includes(item.name) || (item.displayName && favs.includes(item.displayName));
                 const targetName = (item.name || '').trim().toLowerCase();
                 const cleanTarget = (item.displayName || item.name || '').trim().toLowerCase();
-
-                const isAlreadyOnChart = currentStudies.some(s => {
+                item._isAlreadyOnChart = currentStudies.some(s => {
                     const sName = (s.name || '').trim().toLowerCase();
                     const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
                     return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName;
                 });
-                
+                item.timestamp = getScriptTimestamp(item);
+                item.formattedDate = formatScriptDate(item.timestamp);
+            });
+
+            // Update header count
+            const countEl = document.getElementById('tv-list-count');
+            if (countEl) {
+                countEl.textContent = `${items.length}`;
+            }
+
+            // Sort items according to active sort option
+            items = sortItems(items, currentSort);
+
+            // Clear list container for clean rendering
+            listContainer.innerHTML = '';
+
+            if (items.length === 0) {
+                listContainer.innerHTML = '<div style="padding:40px; color:#94a3b8; text-align:center; font-size:14px; font-weight:500;">No scripts found matching your filters</div>';
+                return;
+            }
+
+            function createScriptRow(item) {
+                const isFav = favs.includes(item.name) || (item.displayName && favs.includes(item.displayName));
+                const isAlreadyOnChart = !!item._isAlreadyOnChart;
+
                 const row = document.createElement('div');
                 row.className = 'tv-script-row';
-                
+
                 // Star Icon
                 const star = document.createElement('div');
                 star.className = isFav ? 'tv-star-icon active' : 'tv-star-icon';
+                star.title = isFav ? 'Remove from favorites' : 'Add to favorites';
                 star.innerHTML = isFav 
-                    ? '<svg width="18" height="18" viewBox="0 0 18 18" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" fill="currentColor" /></svg>'
-                    : '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" /></svg>';
+                    ? '<svg width="17" height="17" viewBox="0 0 18 18" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" fill="currentColor" /></svg>'
+                    : '<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5l2.25 4.75L16 7l-3.5 3.5L13.5 15.5 9 13 4.5 15.5 5.5 10.5 2 7l4.75-.75L9 1.5z" stroke-linejoin="round" /></svg>';
                 star.onclick = (e) => { e.stopPropagation(); toggleFavorite(item.name); };
                 row.appendChild(star);
-                
-                // Main Content (Title and Badges in responsive structure)
+
+                // Main Content (Name on top left-aligned, labels below with small font)
                 const mainContent = document.createElement('div');
                 mainContent.className = 'tv-script-main';
 
@@ -1587,6 +1884,7 @@ function setupCustomIndicatorsDialog(widget) {
                 const nameLabel = document.createElement('span');
                 nameLabel.className = 'tv-script-title';
                 nameLabel.textContent = item.displayName;
+                nameLabel.title = item.displayName;
                 titleWrap.appendChild(nameLabel);
                 mainContent.appendChild(titleWrap);
 
@@ -1630,9 +1928,17 @@ function setupCustomIndicatorsDialog(widget) {
                     badgesWrap.appendChild(activeBadge);
                 }
 
+                // Date Subtitle
+                if (item.formattedDate) {
+                    const dateSpan = document.createElement('span');
+                    dateSpan.className = 'tv-script-date';
+                    dateSpan.textContent = item.formattedDate;
+                    badgesWrap.appendChild(dateSpan);
+                }
+
                 mainContent.appendChild(badgesWrap);
                 row.appendChild(mainContent);
-                
+
                 // Action Buttons
                 const actions = document.createElement('div');
                 actions.className = 'tv-script-actions';
@@ -1641,13 +1947,13 @@ function setupCustomIndicatorsDialog(widget) {
                     const editBtn = document.createElement('div');
                     editBtn.className = 'tv-item-action-btn';
                     editBtn.title = 'Edit Local Script';
-                    editBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-                    editBtn.onclick = (e) => { e.stopPropagation(); showEditor(item.code, item.name); };
-                    
+                    editBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> <span>Edit</span>';
+                    editBtn.onclick = (e) => { e.stopPropagation(); showEditor(item.code, item.name, item.isStrat); };
+
                     const delBtn = document.createElement('div');
                     delBtn.className = 'tv-item-action-btn tv-del-btn';
                     delBtn.title = 'Delete Local Script';
-                    delBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+                    delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
                     delBtn.onclick = (e) => { 
                         e.stopPropagation(); 
                         if(confirm("Delete local script '" + item.name + "'?")) {
@@ -1664,30 +1970,15 @@ function setupCustomIndicatorsDialog(widget) {
                             location.reload();
                         }
                     };
-                    
+
                     actions.appendChild(editBtn);
                     actions.appendChild(delBtn);
-                } else if (item.isRemote) {
+                } else if (item.isRemote || item.isDefault) {
                     const forkBtn = document.createElement('div');
                     forkBtn.className = 'tv-item-action-btn';
-                    forkBtn.title = 'Fork & Edit Local Working Copy';
+                    forkBtn.title = item.isRemote ? 'Fork & Edit Local Working Copy' : 'View / Fork as Local Working Copy';
                     forkBtn.innerHTML = `
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
-                            <line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>
-                        </svg>
-                        <span>Fork</span>
-                    `;
-                    forkBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        showEditor(item.code, item.name, item.isStrat, true, item.name);
-                    };
-                    actions.appendChild(forkBtn);
-                } else if (item.isDefault) {
-                    const forkBtn = document.createElement('div');
-                    forkBtn.className = 'tv-item-action-btn';
-                    forkBtn.title = 'View / Fork as Local Working Copy';
-                    forkBtn.innerHTML = `
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>
                         </svg>
                         <span>Fork</span>
@@ -1702,10 +1993,7 @@ function setupCustomIndicatorsDialog(widget) {
                 if (actions.children.length > 0) {
                     row.appendChild(actions);
                 }
-                
-                row.onmouseover = () => { row.style.background = '#f8fafe'; row.style.borderColor = '#e0e3eb'; };
-                row.onmouseout = () => { row.style.background = 'transparent'; row.style.borderColor = 'transparent'; };
-                
+
                 row.onclick = () => {
                     // Block adding the exact same strategy multiple times
                     if (item.isStrat) {
@@ -1770,13 +2058,37 @@ function setupCustomIndicatorsDialog(widget) {
                     }
                     closeModal();
                 };
-                fragment.appendChild(row);
-            });
-            
-            listContainer.appendChild(fragment);
-            
-            if(items.length === 0) {
-                listContainer.innerHTML = '<div style="padding:40px; color:#b2b5be; text-align:center; font-size:14px; font-weight:500;">No scripts found matching your filters</div>';
+
+                return row;
+            }
+
+            // Render either flat or grouped list
+            if (currentGroup === 'none') {
+                const fragment = document.createDocumentFragment();
+                items.forEach(item => {
+                    fragment.appendChild(createScriptRow(item));
+                });
+                listContainer.appendChild(fragment);
+            } else {
+                const groups = getGroupedBuckets(items, currentGroup);
+                const fragment = document.createDocumentFragment();
+                groups.forEach(group => {
+                    if (!group.items || group.items.length === 0) return;
+                    const gHeader = document.createElement('div');
+                    gHeader.className = 'tv-group-header';
+                    gHeader.innerHTML = `
+                        <div class="tv-group-header-left">
+                            <span class="tv-group-title">${group.title}</span>
+                            <span class="tv-group-count">${group.items.length}</span>
+                        </div>
+                        <div class="tv-group-divider-line"></div>
+                    `;
+                    fragment.appendChild(gHeader);
+                    group.items.forEach(item => {
+                        fragment.appendChild(createScriptRow(item));
+                    });
+                });
+                listContainer.appendChild(fragment);
             }
         }
         

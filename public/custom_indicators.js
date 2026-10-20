@@ -116,6 +116,15 @@ window.TVLocalStore = window.TVLocalStore || {
             localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(current));
             localStorage.setItem(this.BACKUP_KEY, JSON.stringify(current));
             this._recordArchive(current, `Saved "${name}"`);
+
+            // Persist script metadata & update timestamp
+            const meta = JSON.parse(localStorage.getItem('tv_scripts_metadata') || '{}');
+            meta[name] = {
+                updatedAt: Date.now(),
+                createdAt: (existingName && meta[existingName] && meta[existingName].createdAt) || (meta[name] && meta[name].createdAt) || Date.now()
+            };
+            if (existingName && existingName !== name && meta[existingName]) delete meta[existingName];
+            localStorage.setItem('tv_scripts_metadata', JSON.stringify(meta));
         } catch (e) {
             console.error("[TVLocalStore] Failed to save indicator:", e);
         }
@@ -131,6 +140,12 @@ window.TVLocalStore = window.TVLocalStore || {
             try {
                 localStorage.setItem(this.PRIMARY_KEY, JSON.stringify(current));
                 localStorage.setItem(this.BACKUP_KEY, JSON.stringify(current));
+
+                const meta = JSON.parse(localStorage.getItem('tv_scripts_metadata') || '{}');
+                if (meta[name]) {
+                    delete meta[name];
+                    localStorage.setItem('tv_scripts_metadata', JSON.stringify(meta));
+                }
             } catch (e) {
                 console.error("[TVLocalStore] Failed to delete indicator:", e);
             }
