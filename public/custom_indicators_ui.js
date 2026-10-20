@@ -1179,7 +1179,13 @@ function setupCustomIndicatorsDialog(widget) {
         typeChips.forEach(chip => {
             const chipEl = document.createElement('div');
             chipEl.className = 'tv-filter-chip' + (chip.id === 'all' ? ' active' : '');
-            chipEl.textContent = chip.label;
+            if (chip.id === 'indicator') {
+                chipEl.innerHTML = `<svg width="11" height="11" viewBox="5 3.5 17 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M20 17l-5 5M15 17l5 5M9 11.5h7M17.5 8a2.5 2.5 0 0 0-5 0v11a2.5 2.5 0 0 1-5 0"/></svg><span>${chip.label}</span>`;
+            } else if (chip.id === 'strategy') {
+                chipEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 18 18" fill="currentColor" style="flex-shrink:0;"><path d="M7 1H6v2H4l2.5 3L9 3H7V1ZM11 17v-2H9l2.5-3 2.5 3h-2v2h-1ZM12.3 10.15l2.7-2.4-.67-.75-2.69 2.4a1 1 0 0 1-1.3.04L8.29 7.78a2 2 0 0 0-2.58.07L3 10.25l.67.75 2.7-2.4a1 1 0 0 1 1.29-.04l2.06 1.66a2 2 0 0 0 2.59-.07Z"/></svg><span>${chip.label}</span>`;
+            } else {
+                chipEl.textContent = chip.label;
+            }
             chipEl.onclick = () => {
                 currentTypeFilter = chip.id;
                 typeRow.querySelectorAll('.tv-filter-chip').forEach(c => c.classList.remove('active'));
@@ -1208,7 +1214,17 @@ function setupCustomIndicatorsDialog(widget) {
         sourceChips.forEach(chip => {
             const chipEl = document.createElement('div');
             chipEl.className = 'tv-filter-chip' + (chip.id === 'all' ? ' active' : '');
-            chipEl.textContent = chip.label;
+            if (chip.id === 'default') {
+                chipEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg><span>${chip.label}</span>`;
+            } else if (chip.id === 'local') {
+                chipEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg><span>${chip.label}</span>`;
+            } else if (chip.id === 'github') {
+                chipEl.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>${chip.label}</span>`;
+            } else if (chip.id === 'huggingface') {
+                chipEl.innerHTML = `<span style="font-size:11px; line-height:1; display:inline-flex; align-items:center;">🤗</span><span>${chip.label}</span>`;
+            } else {
+                chipEl.textContent = chip.label;
+            }
             chipEl.onclick = () => {
                 currentSourceFilter = chip.id;
                 sourceRow.querySelectorAll('.tv-filter-chip').forEach(c => c.classList.remove('active'));
@@ -1260,12 +1276,12 @@ function setupCustomIndicatorsDialog(widget) {
         actionsBar.style.display = 'none';
         actionsBar.innerHTML = `
             <div class="tv-actions-group-left">
-                <button type="button" class="tv-btn-action tv-btn-primary" id="tv-action-add-ind">
-                    <svg width="12" height="12" viewBox="0 0 18 18" fill="none"><path d="M9 4v10m-5-5h10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                <button type="button" class="tv-btn-action tv-btn-primary" id="tv-action-add-ind" title="Create new custom Indicator script">
+                    <svg width="12" height="12" viewBox="5 3.5 17 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17l-5 5M15 17l5 5M9 11.5h7M17.5 8a2.5 2.5 0 0 0-5 0v11a2.5 2.5 0 0 1-5 0"/></svg>
                     <span>+ Indicator</span>
                 </button>
-                <button type="button" class="tv-btn-action tv-btn-strat" id="tv-action-add-strat">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                <button type="button" class="tv-btn-action tv-btn-strat" id="tv-action-add-strat" title="Create new custom Strategy script">
+                    <svg width="12" height="12" viewBox="0 0 18 18" fill="currentColor"><path d="M7 1H6v2H4l2.5 3L9 3H7V1ZM11 17v-2H9l2.5-3 2.5 3h-2v2h-1ZM12.3 10.15l2.7-2.4-.67-.75-2.69 2.4a1 1 0 0 1-1.3.04L8.29 7.78a2 2 0 0 0-2.58.07L3 10.25l.67.75 2.7-2.4a1 1 0 0 1 1.29-.04l2.06 1.66a2 2 0 0 0 2.59-.07Z"/></svg>
                     <span>+ Strategy</span>
                 </button>
             </div>
