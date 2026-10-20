@@ -795,6 +795,7 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-actions-bar {
                 display: flex; align-items: center; justify-content: space-between; padding: 7px 16px;
                 background: #fafbfc; border-bottom: 1px solid #e0e3eb; gap: 8px; flex-shrink: 0; box-sizing: border-box;
+                width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; touch-action: pan-x; -webkit-overflow-scrolling: touch;
             }
             .tv-actions-group-left, .tv-actions-group-right {
                 display: flex; align-items: center; gap: 6px;
@@ -1040,9 +1041,11 @@ function setupCustomIndicatorsDialog(widget) {
                 .tv-list-wrapper {
                     flex: 1 !important;
                     min-height: 0 !important;
+                    min-width: 0 !important;
+                    max-width: 100% !important;
+                    width: 100% !important;
                     display: flex !important;
                     flex-direction: column !important;
-                    width: 100% !important;
                     overflow: hidden !important;
                 }
                 .tv-list-header {
@@ -1083,21 +1086,46 @@ function setupCustomIndicatorsDialog(widget) {
                     gap: 2.5px !important;
                 }
                 .tv-custom-actions-bar {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: nowrap !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    min-width: 0 !important;
+                    box-sizing: border-box !important;
                     padding: 6px 10px !important;
                     gap: 6px !important;
                     overflow-x: auto !important;
+                    overflow-y: hidden !important;
                     white-space: nowrap !important;
+                    touch-action: pan-x !important;
                     -webkit-overflow-scrolling: touch !important;
-                    scrollbar-width: none !important;
+                    overscroll-behavior-x: contain !important;
                     justify-content: flex-start !important;
+                    scrollbar-width: thin !important;
+                    scrollbar-color: #cbd5e1 transparent !important;
                 }
-                .tv-custom-actions-bar::-webkit-scrollbar { display: none !important; }
+                .tv-custom-actions-bar::-webkit-scrollbar {
+                    height: 3px !important;
+                    display: block !important;
+                }
+                .tv-custom-actions-bar::-webkit-scrollbar-thumb {
+                    background: #cbd5e1 !important;
+                    border-radius: 3px !important;
+                }
                 .tv-actions-group-left, .tv-actions-group-right {
+                    display: flex !important;
+                    align-items: center !important;
                     flex-shrink: 0 !important;
+                    gap: 5px !important;
+                }
+                .tv-actions-group-right {
+                    padding-right: 14px !important;
                 }
                 .tv-btn-action {
-                    padding: 4px 8px !important;
+                    padding: 4px 7px !important;
                     font-size: 11px !important;
+                    flex-shrink: 0 !important;
                 }
                 .tv-item-action-btn {
                     padding: 3px 6px !important;
@@ -1267,7 +1295,7 @@ function setupCustomIndicatorsDialog(widget) {
         
         const listWrapper = document.createElement('div');
         listWrapper.className = 'tv-list-wrapper';
-        listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff; min-height:0;';
+        listWrapper.style.cssText = 'flex:1; display:flex; flex-direction:column; background: #ffffff; min-height:0; min-width:0; max-width:100%; width:100%; overflow:hidden;';
 
         // 1. Sleek Action Bar for Custom Scripts Tab
         const actionsBar = document.createElement('div');
@@ -1311,9 +1339,9 @@ function setupCustomIndicatorsDialog(widget) {
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     <span>Backup</span>
                 </button>
-                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-import" title="Import Scripts JSON Backup">
+                <button type="button" class="tv-btn-action tv-btn-subtle" id="tv-action-import" title="Restore / Import Scripts JSON Backup">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <span>Import</span>
+                    <span>Restore</span>
                 </button>
             </div>
         `;
@@ -1348,6 +1376,14 @@ function setupCustomIndicatorsDialog(widget) {
             if (window.TVLocalStore) window.TVLocalStore.exportBackupJson();
         };
         actionsBar.querySelector('#tv-action-import').onclick = () => importFileInput.click();
+
+        // Horizontal wheel scroll support for actionsBar
+        actionsBar.addEventListener('wheel', (e) => {
+            if (e.deltaY !== 0 && actionsBar.scrollWidth > actionsBar.clientWidth) {
+                actionsBar.scrollLeft += e.deltaY;
+                e.preventDefault();
+            }
+        }, { passive: false });
 
         // 2. Refined List Header with Sort & Group Controls
         const listHeader = document.createElement('div');
