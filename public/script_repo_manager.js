@@ -119,9 +119,19 @@
                 for (const k in window.PRESEEDED_REMOTE_INDICATORS) {
                     const pre = window.PRESEEDED_REMOTE_INDICATORS[k];
                     const existing = loaded[k];
-                    if (!existing || !existing.code || existing.code !== pre.code || existing.name !== pre.name || !existing.lastUpdated || (pre.lastUpdated && pre.lastUpdated > (existing.lastUpdated || 0))) {
+                    if (!existing || !existing.code || existing.code !== pre.code || existing.name !== pre.name || existing.id !== pre.id || !existing.lastUpdated || (pre.lastUpdated && pre.lastUpdated > (existing.lastUpdated || 0))) {
                         loaded[k] = pre;
                         updatedAny = true;
+                    }
+                }
+                // Prune any obsolete official indicators that were removed or renamed from PRESEEDED_REMOTE_INDICATORS
+                for (const k in loaded) {
+                    const item = loaded[k];
+                    if (item && (item.repoId === 'repo_official_indicators' || item.isPermanent || item.isDefault)) {
+                        if (!window.PRESEEDED_REMOTE_INDICATORS[k]) {
+                            delete loaded[k];
+                            updatedAny = true;
+                        }
                     }
                 }
                 if (updatedAny) {

@@ -791,6 +791,42 @@ window.getCustomIndicators = function (PineJS) {
             };
         });
 
+        // Backwards compatibility alias engine:
+        // Automatically registers legacy names and IDs so charts with previously applied studies
+        // run the updated constructor and calculations seamlessly without "study not found" errors.
+        const LEGACY_STUDY_ALIASES = {
+            "MA Ultimate MTF v2": [
+                { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2@tv-basicstudies-1" },
+                { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2_github_bunqi8_tradingview_indicators@tv-basicstudies-1" },
+                { name: "UltimateMA", id: "UltimateMA@tv-basicstudies-1" }
+            ]
+        };
+
+        const aliasList = [];
+        allList.forEach(ind => {
+            const aliases = LEGACY_STUDY_ALIASES[ind.name];
+            if (aliases && Array.isArray(aliases)) {
+                aliases.forEach(alias => {
+                    const cloned = {
+                        ...ind,
+                        name: alias.name,
+                        metainfo: {
+                            ...ind.metainfo,
+                            id: alias.id,
+                            name: alias.name,
+                            description: alias.name,
+                            shortDescription: alias.name,
+                            is_hidden_study: true
+                        },
+                        constructor: ind.constructor
+                    };
+                    aliasList.push(cloned);
+                });
+            }
+        });
+
+        allList.push(...aliasList);
+
         resolve(allList);
     });
 };
