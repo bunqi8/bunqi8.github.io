@@ -2080,12 +2080,47 @@ function setupCustomIndicatorsDialog(widget) {
             }
 
             // 4. Builtin Scripts (Technicals)
-            const knownCustomNames = new Set([
-                ...defaultScripts.map(s => s.name),
-                ...localScripts.map(s => s.name),
-                ...remoteScripts.map(s => s.name)
-            ]);
-            const builtinScripts = allStudies.filter(s => !knownCustomNames.has(s)).map(name => {
+            // Build a comprehensive Set of all custom indicator identifiers to strip from allStudies
+            const knownCustomNames = new Set();
+            function addCustomIdentifier(str) {
+                if (!str || typeof str !== 'string') return;
+                const trimmed = str.trim();
+                if (!trimmed) return;
+                knownCustomNames.add(trimmed);
+                knownCustomNames.add(trimmed.toLowerCase());
+                if (window.sanitizeIndicatorName) {
+                    const sanitized = window.sanitizeIndicatorName(trimmed).trim();
+                    if (sanitized) {
+                        knownCustomNames.add(sanitized);
+                        knownCustomNames.add(sanitized.toLowerCase());
+                    }
+                }
+            }
+
+            [...defaultScripts, ...localScripts, ...remoteScripts].forEach(s => {
+                addCustomIdentifier(s.name);
+                addCustomIdentifier(s.displayName);
+                addCustomIdentifier(s.studyName);
+                if (s.code && typeof s.code === 'string') {
+                    const mName = s.code.match(/name\s*:\s*["']([^"']+)["']/);
+                    if (mName && mName[1]) addCustomIdentifier(mName[1]);
+                    const mDesc = s.code.match(/description\s*:\s*["']([^"']+)["']/);
+                    if (mDesc && mDesc[1]) addCustomIdentifier(mDesc[1]);
+                    const mShort = s.code.match(/shortDescription\s*:\s*["']([^"']+)["']/);
+                    if (mShort && mShort[1]) addCustomIdentifier(mShort[1]);
+                }
+            });
+
+            const builtinScripts = allStudies.filter(name => {
+                if (!name || typeof name !== 'string') return false;
+                const trimmed = name.trim();
+                if (knownCustomNames.has(trimmed) || knownCustomNames.has(trimmed.toLowerCase())) return false;
+                if (window.sanitizeIndicatorName) {
+                    const sanitized = window.sanitizeIndicatorName(trimmed).trim();
+                    if (knownCustomNames.has(sanitized) || knownCustomNames.has(sanitized.toLowerCase())) return false;
+                }
+                return true;
+            }).map(name => {
                 const isStrat = name.toLowerCase().includes('strategy');
                 return {
                     name: name,
@@ -2096,26 +2131,28 @@ function setupCustomIndicatorsDialog(widget) {
                 };
             });
 
-            // Tab filtering
-            let items = [];
+            // Tab filtering: define current pool based on the active tab
+            let currentTabPool = [];
             if (activeTab === 'favorites') {
                 const allPool = [...defaultScripts, ...localScripts, ...remoteScripts, ...builtinScripts];
-                items = allPool.filter(item => favs.includes(item.name));
+                currentTabPool = allPool.filter(item => favs.includes(item.name) || (item.displayName && favs.includes(item.displayName)));
             } else if (activeTab === 'custom') {
-                items = [...defaultScripts, ...localScripts, ...remoteScripts];
+                currentTabPool = [...defaultScripts, ...localScripts, ...remoteScripts];
             } else {
-                items = builtinScripts;
+                currentTabPool = builtinScripts;
             }
 
-            // Search query filter
+            // Search query filter: search within the active tab's pool
+            let items = [];
             if (searchQuery && searchQuery.trim() !== '') {
                 const q = searchQuery.trim().toLowerCase();
-                const allPool = [...defaultScripts, ...localScripts, ...remoteScripts, ...builtinScripts];
-                items = allPool.filter(item => {
-                    const dName = item.displayName.toLowerCase();
+                items = currentTabPool.filter(item => {
+                    const dName = (item.displayName || item.name || '').toLowerCase();
                     const rName = (item.repoName || '').toLowerCase();
                     return dName.includes(q) || rName.includes(q);
                 });
+            } else {
+                items = currentTabPool;
             }
 
             // Type filter
@@ -2314,6 +2351,11 @@ function setupCustomIndicatorsDialog(widget) {
                         srcBadge.title = repoName;
                         srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF`;
                     }
+                    badgesWrap.appendChild(srcBadge);
+                } else if (item.sourceType === 'builtin') {
+                    const srcBadge = document.createElement('span');
+                    srcBadge.className = 'tv-badge-pill tv-badge-type-ind';
+                    srcBadge.textContent = 'Builtin';
                     badgesWrap.appendChild(srcBadge);
                 }
 
