@@ -30,11 +30,13 @@
             branch: 'main',
             tokenId: null, // Public repository - no API key needed
             isDefault: true,
-            lastCommitSha: null,
+            isPermanent: true,
+            enabled: true,
+            lastCommitSha: '921cdf7829632640a39535d1e777a51df0e47fd5',
             lastSyncTime: null,
-            syncStatus: 'idle',
+            syncStatus: 'synced',
             error: null,
-            scriptCount: 0
+            scriptCount: 16
         }
     ];
 
@@ -59,7 +61,7 @@
             }
             if (!Array.isArray(loaded)) loaded = [];
 
-            // Ensure hardcoded default repositories are always present and active
+            // Ensure permanent default repositories are always present and active
             DEFAULT_REPOS.forEach(defRepo => {
                 const existingIdx = loaded.findIndex(r => 
                     r.id === defRepo.id || 
@@ -72,10 +74,12 @@
                         ...defRepo,
                         ...loaded[existingIdx],
                         isDefault: true,
+                        isPermanent: true,
                         url: defRepo.url,
                         owner: defRepo.owner,
                         repo: defRepo.repo,
-                        repoId: defRepo.repoId
+                        repoId: defRepo.repoId,
+                        enabled: loaded[existingIdx].enabled !== undefined ? loaded[existingIdx].enabled : true
                     };
                 }
             });
@@ -101,11 +105,23 @@
         }
 
         _loadRemoteIndicators() {
+            let loaded = {};
             try {
-                return JSON.parse(localStorage.getItem(REMOTE_INDICATORS_KEY) || '{}');
+                loaded = JSON.parse(localStorage.getItem(REMOTE_INDICATORS_KEY) || '{}');
             } catch (_) {
-                return {};
+                loaded = {};
             }
+            if (typeof loaded !== 'object' || loaded === null) loaded = {};
+
+            // Pre-seed official repository indicators if not present or empty
+            if (window.PRESEEDED_REMOTE_INDICATORS && typeof window.PRESEEDED_REMOTE_INDICATORS === 'object') {
+                for (const k in window.PRESEEDED_REMOTE_INDICATORS) {
+                    if (!loaded[k]) {
+                        loaded[k] = window.PRESEEDED_REMOTE_INDICATORS[k];
+                    }
+                }
+            }
+            return loaded;
         }
 
         _saveRemoteIndicators() {
@@ -285,10 +301,20 @@
             return this.repos[idx];
         }
 
+        toggleRepo(repoId, enabledState) {
+            const repo = this.repos.find(r => r.id === repoId);
+            if (!repo) throw new Error("Repository not found.");
+            repo.enabled = enabledState !== undefined ? !!enabledState : !(repo.enabled !== false);
+            this._saveRepos();
+            window.dispatchEvent(new CustomEvent('tv_script_repos_updated', { detail: this.repos }));
+            window.dispatchEvent(new CustomEvent('tv_remote_scripts_updated', { detail: this.remoteIndicators }));
+            return repo;
+        }
+
         deleteRepo(repoId) {
             const target = this.repos.find(r => r.id === repoId);
-            if (target && target.isDefault) {
-                throw new Error("Default repository cannot be removed.");
+            if (target && (target.isDefault || target.isPermanent)) {
+                throw new Error("Permanent repository cannot be removed.");
             }
             this.repos = this.repos.filter(r => r.id !== repoId);
             // Remove associated remote indicators
@@ -579,6 +605,7 @@
 
             const results = [];
             for (const repo of this.repos) {
+                if (repo.enabled === false) continue; // Skip disabled repos during sync
                 if (force) repo.lastCommitSha = null;
                 const res = await this.syncRepo(repo);
                 results.push(res);
@@ -686,6 +713,10 @@
             const list = [];
             for (const key in this.remoteIndicators) {
                 const item = this.remoteIndicators[key];
+                const repo = this.repos.find(r => r.id === item.repoId);
+                if (repo && repo.enabled === false) {
+                    continue; // Skip indicators from disabled repositories
+                }
                 try {
                     const factory = new Function('PineJS', 'return (' + item.code + ');');
                     const indicatorObj = factory(PineJS);
@@ -710,13 +741,16 @@
     window.ScriptRepoManager = new ScriptRepoManager();
 
     // Auto-sync on DOM ready / startup in background without blocking chart initialization
-    window.addEventListener('DOMContentLoaded', () => {
-        setTimeout(() => {
-            if (window.ScriptRepoManager.repos.length > 0) {
-                console.log("[ScriptRepoManager] Performing background repository sync...");
-                window.ScriptRepoManager.syncAll(false);
-            }
-        }, 1200);
-    });
+    function initBackgroundSync() {
+        if (window.ScriptRepoManager && window.ScriptRepoManager.repos.length > 0) {
+            console.log("[ScriptRepoManager] Performing background repository sync...");
+            window.ScriptRepoManager.syncAll(false);
+        }
+    }
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => setTimeout(initBackgroundSync, 800));
+    } else {
+        setTimeout(initBackgroundSync, 800);
+    }
 
 })(window);
