@@ -2805,6 +2805,7 @@ function setupCustomIndicatorsDialog(widget) {
                                 <a href="${repo.url}" target="_blank" style="font-size:14px; font-weight:700; color:#131722; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                     ${repo.repoId || (repo.owner + '/' + repo.repo)}
                                 </a>
+                                ${repo.isDefault ? '<span style="font-size:10.5px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; padding:1px 6px; border-radius:4px; font-weight:700;">Official</span>' : ''}
                                 <span style="font-size:11px; background:#f1f5f9; color:#475569; padding:1px 6px; border-radius:4px; font-weight:600;">
                                     ${repo.branch}
                                 </span>
@@ -2854,14 +2855,19 @@ function setupCustomIndicatorsDialog(widget) {
                     showRepoForm(repo);
                 };
 
-                card.querySelector('.tv-repo-del-btn').onclick = () => {
-                    if (confirm(`Delete repository "${repo.repo || repo.repoId}"? All synced scripts from this repo will also be removed.`)) {
-                        window.ScriptRepoManager.deleteRepo(repo.id);
-                        showToast("Repository removed.");
-                        renderReposView();
-                        renderList(searchInput.value);
-                    }
-                };
+                if (repo.isDefault) {
+                    const delBtn = card.querySelector('.tv-repo-del-btn');
+                    if (delBtn) delBtn.style.display = 'none';
+                } else {
+                    card.querySelector('.tv-repo-del-btn').onclick = () => {
+                        if (confirm(`Delete repository "${repo.repo || repo.repoId}"? All synced scripts from this repo will also be removed.`)) {
+                            window.ScriptRepoManager.deleteRepo(repo.id);
+                            showToast("Repository removed.");
+                            renderReposView();
+                            renderList(searchInput.value);
+                        }
+                    };
+                }
 
                 listEl.appendChild(card);
             });
