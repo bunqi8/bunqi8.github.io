@@ -746,6 +746,12 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-badge-source-local { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
             .tv-badge-source-github { background: #0f172a; color: #f8fafc; border: 1px solid #334155; }
             .tv-badge-source-hf { background: #fffbeb; color: #b45309; border: 1px solid #fef08a; }
+            .tv-badge-sub-pill {
+                display: inline-flex; align-items: center; gap: 2.5px;
+                margin-left: 5px; padding-left: 5px;
+                border-left: 1px solid currentColor;
+                font-size: 8.5px; opacity: 0.88; font-weight: 600;
+            }
             .tv-badge-permanent { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
             .tv-badge-user-added { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
             .tv-badge-active { background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25); }
@@ -2268,50 +2274,48 @@ function setupCustomIndicatorsDialog(widget) {
                 typeBadge.textContent = item.isStrat ? 'Strategy' : 'Indicator';
                 badgesWrap.appendChild(typeBadge);
 
-                // Source Badge (Compact: "GitHub" or "HF", hovering shows full address)
+                // Check if this remote repository is permanent / official
+                const isPerm = item.isPermanent || item.isDefault || item.isBuiltin || 
+                               (item.isRemote && (!item.repoId || item.repoId === 'repo_official_indicators' || (window.ScriptRepoManager && window.ScriptRepoManager.repos.find(r => r.id === item.repoId && (r.isPermanent || r.isDefault)))));
+
+                // Source Badge (Default, Local, or GitHub/HF with unified Permanent badge if hardcoded/official)
                 if (item.sourceType === 'default') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-default';
+                    srcBadge.title = 'Built-in Default Indicator';
                     srcBadge.textContent = 'Default';
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'local') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-local';
+                    srcBadge.title = 'Local Custom Script';
                     srcBadge.textContent = item.name.includes('(Local Copy)') ? 'Local Copy' : 'Local';
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'github') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-github';
-                    srcBadge.title = item.repoName || item.repoId || 'bunqi8/tradingview-indicators';
-                    srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:3px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub`;
+                    const repoName = item.repoName || item.repoId || 'bunqi8/tradingview-indicators';
+                    if (isPerm) {
+                        srcBadge.title = `${repoName} (Permanent Official Repository)`;
+                        srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:3px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub<span class="tv-badge-sub-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Permanent</span>`;
+                    } else {
+                        srcBadge.title = repoName;
+                        srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:3px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub`;
+                    }
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'huggingface') {
                     const srcBadge = document.createElement('span');
                     srcBadge.className = 'tv-badge-pill tv-badge-source-hf';
-                    srcBadge.title = item.repoName || item.repoId || 'Hugging Face';
-                    srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF`;
+                    const repoName = item.repoName || item.repoId || 'Hugging Face';
+                    if (isPerm) {
+                        srcBadge.title = `${repoName} (Permanent Official Repository)`;
+                        srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF<span class="tv-badge-sub-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Permanent</span>`;
+                    } else {
+                        srcBadge.title = repoName;
+                        srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF`;
+                    }
                     badgesWrap.appendChild(srcBadge);
                 }
-
-                // Visual Clue: Permanent (cannot be deleted) vs User Added (can be deleted)
-                const isPerm = item.isPermanent || item.isDefault || item.isBuiltin || 
-                               (item.isRemote && (!item.repoId || item.repoId === 'repo_official_indicators' || (window.ScriptRepoManager && window.ScriptRepoManager.repos.find(r => r.id === item.repoId && (r.isPermanent || r.isDefault)))));
-
-                const statusBadge = document.createElement('span');
-                if (isPerm) {
-                    statusBadge.className = 'tv-badge-pill tv-badge-permanent';
-                    statusBadge.title = 'Permanent / Official Script (Cannot be deleted)';
-                    statusBadge.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Permanent`;
-                } else if (item.isLocal) {
-                    statusBadge.className = 'tv-badge-pill tv-badge-user-added';
-                    statusBadge.title = 'User Added Script (Can be edited & deleted)';
-                    statusBadge.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:2px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>${item.name.includes('(Local Copy)') ? 'Local Copy' : 'User Added'}`;
-                } else {
-                    statusBadge.className = 'tv-badge-pill tv-badge-user-added';
-                    statusBadge.title = 'User Repository Script (Managed in Repo Manager)';
-                    statusBadge.innerHTML = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:2px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>User Repo`;
-                }
-                badgesWrap.appendChild(statusBadge);
 
                 // Active Badge
                 if (isAlreadyOnChart) {
