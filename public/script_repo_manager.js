@@ -18,6 +18,26 @@
     const TOKENS_STORAGE_KEY = 'tv_script_tokens';
     const REMOTE_INDICATORS_KEY = 'tv_remote_indicators';
 
+    const DEFAULT_REPOS = [
+        {
+            id: 'repo_official_indicators',
+            type: 'github',
+            url: 'https://github.com/bunqi8/tradingview-indicators',
+            owner: 'bunqi8',
+            repo: 'tradingview-indicators',
+            repoId: 'bunqi8/tradingview-indicators',
+            repoType: 'github',
+            branch: 'main',
+            tokenId: null, // Public repository - no API key needed
+            isDefault: true,
+            lastCommitSha: null,
+            lastSyncTime: null,
+            syncStatus: 'idle',
+            error: null,
+            scriptCount: 0
+        }
+    ];
+
     class ScriptRepoManager {
         constructor() {
             this.repos = this._loadRepos();
@@ -31,11 +51,35 @@
         // ==========================================
 
         _loadRepos() {
+            let loaded = [];
             try {
-                return JSON.parse(localStorage.getItem(REPOS_STORAGE_KEY) || '[]');
+                loaded = JSON.parse(localStorage.getItem(REPOS_STORAGE_KEY) || '[]');
             } catch (_) {
-                return [];
+                loaded = [];
             }
+            if (!Array.isArray(loaded)) loaded = [];
+
+            // Ensure hardcoded default repositories are always present and active
+            DEFAULT_REPOS.forEach(defRepo => {
+                const existingIdx = loaded.findIndex(r => 
+                    r.id === defRepo.id || 
+                    (r.type === defRepo.type && r.repoId && r.repoId.toLowerCase() === defRepo.repoId.toLowerCase())
+                );
+                if (existingIdx === -1) {
+                    loaded.unshift({ ...defRepo });
+                } else {
+                    loaded[existingIdx] = {
+                        ...defRepo,
+                        ...loaded[existingIdx],
+                        isDefault: true,
+                        url: defRepo.url,
+                        owner: defRepo.owner,
+                        repo: defRepo.repo,
+                        repoId: defRepo.repoId
+                    };
+                }
+            });
+            return loaded;
         }
 
         _saveRepos() {
@@ -242,6 +286,10 @@
         }
 
         deleteRepo(repoId) {
+            const target = this.repos.find(r => r.id === repoId);
+            if (target && target.isDefault) {
+                throw new Error("Default repository cannot be removed.");
+            }
             this.repos = this.repos.filter(r => r.id !== repoId);
             // Remove associated remote indicators
             for (const key in this.remoteIndicators) {
