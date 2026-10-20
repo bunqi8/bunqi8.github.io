@@ -2049,7 +2049,10 @@ function setupCustomIndicatorsDialog(widget) {
             // 3. Remote Synced Scripts (from ScriptRepoManager)
             let remoteScripts = [];
             if (window.ScriptRepoManager && window.ScriptRepoManager.remoteIndicators) {
-                remoteScripts = Object.values(window.ScriptRepoManager.remoteIndicators).map(item => {
+                remoteScripts = Object.values(window.ScriptRepoManager.remoteIndicators).filter(item => {
+                    const repo = window.ScriptRepoManager.repos.find(r => r.id === item.repoId);
+                    return !repo || repo.enabled !== false;
+                }).map(item => {
                     return {
                         name: item.name,
                         displayName: item.name,
@@ -2779,10 +2782,15 @@ function setupCustomIndicatorsDialog(widget) {
                 const isGH = repo.type === 'github';
                 const tokenObj = repo.tokenId ? window.ScriptRepoManager.getTokenById(repo.tokenId) : null;
                 const tokenLabel = tokenObj ? `🔑 ${tokenObj.name}` : `🔓 Public (No Token)`;
+                const isEnabled = repo.enabled !== false;
+                const isPerm = !!(repo.isPermanent || repo.isDefault);
 
                 let statusColor = '#089981';
                 let statusText = `${repo.scriptCount || 0} scripts synced`;
-                if (repo.syncStatus === 'syncing') {
+                if (!isEnabled) {
+                    statusColor = '#94a3b8';
+                    statusText = 'Disabled';
+                } else if (repo.syncStatus === 'syncing') {
                     statusColor = '#2962FF';
                     statusText = 'Syncing...';
                 } else if (repo.syncStatus === 'error') {
@@ -2805,7 +2813,7 @@ function setupCustomIndicatorsDialog(widget) {
                                 <a href="${repo.url}" target="_blank" style="font-size:14px; font-weight:700; color:#131722; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                     ${repo.repoId || (repo.owner + '/' + repo.repo)}
                                 </a>
-                                ${repo.isDefault ? '<span style="font-size:10.5px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; padding:1px 6px; border-radius:4px; font-weight:700;">Official</span>' : ''}
+                                ${isPerm ? '<span style="font-size:10.5px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; padding:1px 6px; border-radius:4px; font-weight:700;">Permanent</span>' : ''}
                                 <span style="font-size:11px; background:#f1f5f9; color:#475569; padding:1px 6px; border-radius:4px; font-weight:600;">
                                     ${repo.branch}
                                 </span>
@@ -2821,20 +2829,39 @@ function setupCustomIndicatorsDialog(widget) {
                         </div>
                     </div>
                     <div class="tv-repo-card-actions" style="display:flex; gap:6px; align-items:center;">
-                        <button class="tv-repo-sync-btn" title="Sync this repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; font-weight:600; color:#1e293b; display:flex; align-items:center; gap:4px;">
+                        <button class="tv-repo-toggle-btn" title="${isEnabled ? 'Click to disable repository' : 'Click to enable repository'}" style="background:${isEnabled ? '#ecfdf5' : '#f8fafc'}; border:1px solid ${isEnabled ? '#a7f3d0' : '#cbd5e1'}; color:${isEnabled ? '#065f46' : '#64748b'}; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; font-weight:600; display:flex; align-items:center; gap:5px; transition:0.15s;">
+                            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:${isEnabled ? '#10b981' : '#94a3b8'};"></span>
+                            <span>${isEnabled ? 'Enabled' : 'Disabled'}</span>
+                        </button>
+                        <button class="tv-repo-sync-btn" title="Sync this repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:12px; font-weight:600; color:#1e293b; display:flex; align-items:center; gap:4px; ${!isEnabled ? 'opacity:0.5; pointer-events:none;' : ''}">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                             <span>Sync</span>
                         </button>
                         <button class="tv-repo-edit-btn" title="Edit repository settings" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#64748b;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </button>
-                        <button class="tv-repo-del-btn" title="Delete repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#ef4444;">
+                        <button class="tv-repo-del-btn" title="Delete repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#ef4444; ${isPerm ? 'display:none !important;' : ''}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         </button>
                     </div>
                 `;
 
+                card.querySelector('.tv-repo-toggle-btn').onclick = async () => {
+                    const toggled = window.ScriptRepoManager.toggleRepo(repo.id);
+                    const isNowActive = toggled.enabled !== false;
+                    showToast(`Repository "${repo.repo || repo.repoId}" ${isNowActive ? 'enabled' : 'disabled'}.`);
+                    if (isNowActive && !repo.lastCommitSha) {
+                        await window.ScriptRepoManager.syncRepo(repo);
+                    }
+                    renderReposView();
+                    renderList(searchInput.value);
+                };
+
                 card.querySelector('.tv-repo-sync-btn').onclick = async () => {
+                    if (repo.enabled === false) {
+                        showToast(`Repository "${repo.repo || repo.repoId}" is disabled. Enable it to sync.`);
+                        return;
+                    }
                     const btn = card.querySelector('.tv-repo-sync-btn');
                     btn.disabled = true;
                     btn.querySelector('svg').classList.add('tv-spin');
@@ -2855,7 +2882,7 @@ function setupCustomIndicatorsDialog(widget) {
                     showRepoForm(repo);
                 };
 
-                if (repo.isDefault) {
+                if (isPerm) {
                     const delBtn = card.querySelector('.tv-repo-del-btn');
                     if (delBtn) delBtn.style.display = 'none';
                 } else {
