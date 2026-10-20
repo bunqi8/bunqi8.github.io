@@ -261,7 +261,7 @@ class FyersEngine {
         
         if (!isReplace) {
             if (!hasApi) return { valid: false, error: "API Access Token is required." };
-            if (!hasRefresh) return { valid: false, error: "WebUI Refresh Token is required." };
+            // WebUI Refresh Token is optional but highly recommended
         } else {
             if (!hasApi && !hasRefresh && !hasWebui && existingAccount && existingAccount.appId === appId.trim()) {
                 return { valid: false, error: "No changes entered to replace." };
