@@ -1321,6 +1321,10 @@ function setupCustomIndicatorsDialog(widget) {
                 <input type="checkbox" id="tv-select-all" class="tv-script-checkbox" style="display:none;" title="Select / Deselect all visible local scripts">
                 <span class="tv-list-col-title">SCRIPT NAME</span>
                 <span id="tv-list-count" class="tv-list-count-badge">0</span>
+                <span id="tv-global-sync-status" style="font-size:11px; font-weight:600; color:#089981; display:flex; align-items:center; gap:4px; margin-left:8px;" title="Cloud sync status">
+                    <span style="width:6px; height:6px; border-radius:50%; background:#089981; display:inline-block;"></span>
+                    <span>Synced</span>
+                </span>
             </div>
             <div class="tv-list-header-controls">
                 <div class="tv-header-control-group" title="Sort scripts">
@@ -2160,10 +2164,14 @@ function setupCustomIndicatorsDialog(widget) {
             items.forEach(item => {
                 const targetName = (item.name || '').trim().toLowerCase();
                 const cleanTarget = (item.displayName || item.name || '').trim().toLowerCase();
+                const studyTarget = (item.studyName || '').trim().toLowerCase();
                 item._isAlreadyOnChart = currentStudies.some(s => {
                     const sName = (s.name || '').trim().toLowerCase();
+                    const sId = (s.id || '').trim().toLowerCase();
                     const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
-                    return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName;
+                    return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName ||
+                           (studyTarget && (sName === studyTarget || cleanS === studyTarget)) ||
+                           (item.name && sId.includes(item.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
                 });
                 item.timestamp = getScriptTimestamp(item);
                 item.formattedDate = formatScriptDate(item.timestamp);
@@ -2405,22 +2413,9 @@ function setupCustomIndicatorsDialog(widget) {
                         return;
                     }
 
-                    // Block adding the exact same strategy multiple times
+                    // Check if already on chart
                     if (item.isStrat) {
-                        let alreadyAdded = false;
-                        try {
-                            const chart = widget.chart();
-                            const existing = (chart && chart.getAllStudies) ? (chart.getAllStudies() || []) : [];
-                            const targetName = (item.name || '').trim().toLowerCase();
-                            const cleanTarget = (item.displayName || item.name || '').trim().toLowerCase();
-                            alreadyAdded = existing.some(s => {
-                                const sName = (s.name || '').trim().toLowerCase();
-                                const cleanS = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(s.name).toLowerCase() : sName;
-                                return sName === targetName || cleanS === cleanTarget || sName === cleanTarget || cleanS === targetName;
-                            });
-                        } catch (_) {}
-
-                        if (alreadyAdded) {
+                        if (item._isAlreadyOnChart) {
                             showToast(`Strategy "${item.displayName}" is already active on the chart.`);
                             if (window.StrategyEngine) {
                                 window.StrategyEngine.setActiveStrategy(item.name);
@@ -2431,11 +2426,19 @@ function setupCustomIndicatorsDialog(widget) {
                             closeModal();
                             return;
                         }
+                    } else if (item._isAlreadyOnChart) {
+                        const confirmDup = confirm(`"${item.displayName}" is already added to the chart.\n\nDo you really want to add another copy of this indicator?`);
+                        if (!confirmDup) {
+                            closeModal();
+                            return;
+                        }
                     }
 
                     const studyTarget = item.studyName || item.displayName || item.name;
+                    showToast(`Adding "${item.displayName}" to chart...`);
                     try {
                         widget.chart().createStudy(studyTarget, false, false);
+                        showToast(`Added "${item.displayName}" to chart.`);
                         if (item.isStrat) {
                             localStorage.setItem('tv_active_strategy', item.name);
                             if (window.StrategyEngine) {
@@ -2457,13 +2460,14 @@ function setupCustomIndicatorsDialog(widget) {
                             try {
                                 widget.chart().createStudy(item.name, false, false);
                                 fallbackSucceeded = true;
+                                showToast(`Added "${item.displayName}" to chart.`);
                             } catch (e2) {
                                 console.warn("[Custom Indicators] Fallback to item.name also failed:", e2);
                             }
                         }
                         if (!fallbackSucceeded) {
                             console.error("[Custom Indicators] Could not load study:", err);
-                            showToast(`Could not load "${item.displayName}". Please check indicator code.`);
+                            showToast(`Could not load "${item.displayName}". The study engine may still be initializing.`);
                         }
                     }
                     closeModal();
@@ -2739,6 +2743,7 @@ function setupCustomIndicatorsDialog(widget) {
         // --- REPOSITORIES TAB VIEW ---
         function renderReposView() {
             if (!window.ScriptRepoManager) return;
+            repoContentArea.innerHTML = '';
             const repos = window.ScriptRepoManager.getRepos();
 
             // Top Toolbar
@@ -2865,7 +2870,7 @@ function setupCustomIndicatorsDialog(widget) {
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                             <span>Sync</span>
                         </button>
-                        <button class="tv-repo-edit-btn" title="Edit repository settings" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#64748b;">
+                        <button class="tv-repo-edit-btn" title="Edit repository settings" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#64748b; ${isPerm ? 'display:none !important;' : ''}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                         </button>
                         <button class="tv-repo-del-btn" title="Delete repository" style="background:#f8fafe; border:1px solid #cbd5e1; border-radius:6px; padding:6px 8px; cursor:pointer; color:#ef4444; ${isPerm ? 'display:none !important;' : ''}">
@@ -2934,6 +2939,10 @@ function setupCustomIndicatorsDialog(widget) {
         function showRepoForm(existingRepo = null) {
             const container = document.getElementById('tv-repo-form-container');
             if (!container) return;
+            if (existingRepo && (existingRepo.isPermanent || existingRepo.isDefault)) {
+                showToast("Permanent official repository cannot be edited.");
+                return;
+            }
 
             const isEdit = !!existingRepo;
             const tokens = window.ScriptRepoManager.getTokens();
@@ -3059,6 +3068,7 @@ function setupCustomIndicatorsDialog(widget) {
         // --- ACCESS TOKENS TAB VIEW ---
         function renderTokensView() {
             if (!window.ScriptRepoManager) return;
+            repoContentArea.innerHTML = '';
             const tokens = window.ScriptRepoManager.getTokens();
 
             const infoBox = document.createElement('div');
@@ -3261,7 +3271,7 @@ function setupCustomIndicatorsDialog(widget) {
             };
         }
 
-        // Listen for storage update events to keep UI in sync
+        // Listen for storage & sync events to keep UI in sync
         window.addEventListener('tv_remote_scripts_updated', () => {
             if (modalOverlay.classList.contains('visible') && !isEditing) {
                 renderList(searchInput.value);
@@ -3269,6 +3279,20 @@ function setupCustomIndicatorsDialog(widget) {
         });
         window.addEventListener('tv_script_repos_updated', () => {
             updateRepoModalBadges();
+        });
+        window.addEventListener('tv_sync_started', () => {
+            const el = document.getElementById('tv-global-sync-status');
+            if (el) {
+                el.style.color = '#2563eb';
+                el.innerHTML = `<svg class="tv-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg><span>Syncing with GitHub...</span>`;
+            }
+        });
+        window.addEventListener('tv_sync_completed', () => {
+            const el = document.getElementById('tv-global-sync-status');
+            if (el) {
+                el.style.color = '#089981';
+                el.innerHTML = `<span style="width:6px; height:6px; border-radius:50%; background:#089981; display:inline-block;"></span><span>Synced</span>`;
+            }
         });
     });
 }
