@@ -113,12 +113,21 @@
             }
             if (typeof loaded !== 'object' || loaded === null) loaded = {};
 
-            // Pre-seed official repository indicators if not present or empty
+            // Pre-seed official repository indicators if not present, empty, or updated in bundle
             if (window.PRESEEDED_REMOTE_INDICATORS && typeof window.PRESEEDED_REMOTE_INDICATORS === 'object') {
+                let updatedAny = false;
                 for (const k in window.PRESEEDED_REMOTE_INDICATORS) {
-                    if (!loaded[k]) {
-                        loaded[k] = window.PRESEEDED_REMOTE_INDICATORS[k];
+                    const pre = window.PRESEEDED_REMOTE_INDICATORS[k];
+                    const existing = loaded[k];
+                    if (!existing || !existing.code || existing.code !== pre.code || !existing.lastUpdated || (pre.lastUpdated && pre.lastUpdated > (existing.lastUpdated || 0))) {
+                        loaded[k] = pre;
+                        updatedAny = true;
                     }
+                }
+                if (updatedAny) {
+                    try {
+                        localStorage.setItem(REMOTE_INDICATORS_KEY, JSON.stringify(loaded));
+                    } catch (_) {}
                 }
             }
             return loaded;
@@ -723,13 +732,24 @@
                 try {
                     const factory = new Function('PineJS', 'return (' + item.code + ');');
                     const indicatorObj = factory(PineJS);
-                    if (indicatorObj && indicatorObj.name) {
+                    if (indicatorObj && (indicatorObj.name || (indicatorObj.metainfo && indicatorObj.metainfo.name))) {
                         indicatorObj._sourceType = item.provider;
                         indicatorObj._repoName = item.repoName;
                         indicatorObj._isRemoteSynced = true;
                         indicatorObj._remoteKey = key;
                         indicatorObj.isStrategy = !!item.isStrategy;
                         indicatorObj._isStrat = !!item.isStrategy;
+
+                        if (!indicatorObj.metainfo) indicatorObj.metainfo = {};
+                        const cleanName = item.name || indicatorObj.name;
+                        indicatorObj.name = cleanName;
+                        if (!indicatorObj.metainfo.description) {
+                            indicatorObj.metainfo.description = cleanName;
+                        }
+                        if (!indicatorObj.metainfo.name) {
+                            indicatorObj.metainfo.name = cleanName;
+                        }
+
                         list.push(indicatorObj);
                     }
                 } catch (e) {

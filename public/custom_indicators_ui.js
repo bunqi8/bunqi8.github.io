@@ -2439,7 +2439,7 @@ function setupCustomIndicatorsDialog(widget) {
                     row.appendChild(actions);
                 }
 
-                row.onclick = () => {
+                row.onclick = async () => {
                     if (isSelectMode) {
                         if (!item.isLocal) {
                             showToast(`"${item.displayName}" is a ${item.sourceType} script and cannot be deleted.`);
@@ -2480,10 +2480,62 @@ function setupCustomIndicatorsDialog(widget) {
                         }
                     }
 
-                    const studyTarget = item.studyName || item.displayName || item.name;
                     showToast(`Adding "${item.displayName}" to chart...`);
+
+                    // Collect candidate study names that TradingView might recognize
+                    const candidates = [];
+                    if (item.studyName) candidates.push(item.studyName);
+                    if (item.displayName) candidates.push(item.displayName);
+                    if (item.name) candidates.push(item.name);
+
+                    // Fetch registered study descriptions from TradingView
+                    let rawStudies = [];
                     try {
-                        widget.chart().createStudy(studyTarget, false, false);
+                        if (typeof widget.getStudiesList === 'function') {
+                            rawStudies = widget.getStudiesList() || [];
+                        }
+                    } catch (_) {}
+                    const availDescriptions = rawStudies.map(s => typeof s === 'string' ? s : (s.name || s.description || '')).filter(Boolean);
+
+                    const targetLow = (item.displayName || item.name || '').toLowerCase();
+                    for (const desc of availDescriptions) {
+                        const dLow = desc.toLowerCase();
+                        if (dLow === targetLow) {
+                            candidates.unshift(desc); // Exact match in TradingView's list!
+                        } else if (dLow.includes(targetLow) || targetLow.includes(dLow)) {
+                            candidates.push(desc);
+                        } else if (window.sanitizeIndicatorName && window.sanitizeIndicatorName(desc).toLowerCase() === targetLow) {
+                            candidates.push(desc);
+                        }
+                    }
+
+                    if (item.code && typeof item.code === 'string') {
+                        const mDesc = item.code.match(/description\s*:\s*["']([^"']+)["']/);
+                        if (mDesc && mDesc[1]) candidates.push(mDesc[1]);
+                        const mName = item.code.match(/name\s*:\s*["']([^"']+)["']/);
+                        if (mName && mName[1]) candidates.push(mName[1]);
+                    }
+
+                    const uniqueTargets = [...new Set(candidates.filter(Boolean))];
+                    let addedEntityId = null;
+                    let lastErr = null;
+
+                    for (const target of uniqueTargets) {
+                        try {
+                            const resPromise = widget.chart().createStudy(target, false, false);
+                            const res = (resPromise && typeof resPromise.then === 'function') ? await resPromise : resPromise;
+                            if (res !== null && res !== undefined) {
+                                addedEntityId = res;
+                                console.log(`[CustomIndicators] Successfully added study with target '${target}' -> id:`, res);
+                                break;
+                            }
+                        } catch (err) {
+                            lastErr = err;
+                            console.warn(`[CustomIndicators] createStudy candidate '${target}' failed:`, err);
+                        }
+                    }
+
+                    if (addedEntityId !== null) {
                         showToast(`Added "${item.displayName}" to chart.`);
                         if (item.isStrat) {
                             localStorage.setItem('tv_active_strategy', item.name);
@@ -2499,24 +2551,11 @@ function setupCustomIndicatorsDialog(widget) {
                                 }
                             } catch (_) {}
                         }
-                    } catch (err) {
-                        console.warn("[Custom Indicators] createStudy failed with primary target:", studyTarget, err);
-                        let fallbackSucceeded = false;
-                        if (item.name && item.name !== studyTarget) {
-                            try {
-                                widget.chart().createStudy(item.name, false, false);
-                                fallbackSucceeded = true;
-                                showToast(`Added "${item.displayName}" to chart.`);
-                            } catch (e2) {
-                                console.warn("[Custom Indicators] Fallback to item.name also failed:", e2);
-                            }
-                        }
-                        if (!fallbackSucceeded) {
-                            console.error("[Custom Indicators] Could not load study:", err);
-                            showToast(`Could not load "${item.displayName}". The study engine may still be initializing.`);
-                        }
+                        closeModal();
+                    } else {
+                        console.error("[CustomIndicators] All createStudy targets failed for:", item.displayName, uniqueTargets, lastErr);
+                        showToast(`Could not load "${item.displayName}". The study engine may still be initializing.`);
                     }
-                    closeModal();
                 };
 
                 return row;
@@ -2553,12 +2592,12 @@ function setupCustomIndicatorsDialog(widget) {
         }
         
         function openModal() {
-            if (allStudies.length === 0) {
-                try { 
-                    const rawStudies = widget.getStudiesList() || [];
+            try { 
+                const rawStudies = (typeof widget.getStudiesList === 'function' ? widget.getStudiesList() : []) || [];
+                if (rawStudies.length > 0) {
                     allStudies = rawStudies.map(s => (typeof s === 'string' ? s : (s.name || s.description || ""))).filter(Boolean);
-                } catch(e) {}
-            }
+                }
+            } catch(e) {}
             modalOverlay.classList.add('visible');
             searchInput.value = '';
             isEditing = false;
