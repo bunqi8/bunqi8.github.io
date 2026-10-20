@@ -745,13 +745,11 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-badge-source-default { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
             .tv-badge-source-local { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
             .tv-badge-source-github { background: #0f172a; color: #f8fafc; border: 1px solid #334155; }
+            .tv-badge-source-github.tv-badge-perm-gold { border: 1px solid #f59e0b !important; }
             .tv-badge-source-hf { background: #fffbeb; color: #b45309; border: 1px solid #fef08a; }
-            .tv-badge-sub-pill {
-                display: inline-flex; align-items: center; gap: 2.5px;
-                margin-left: 5px; padding-left: 5px;
-                border-left: 1px solid currentColor;
-                font-size: 8.5px; opacity: 0.88; font-weight: 600;
-            }
+            .tv-badge-source-hf.tv-badge-perm-gold { border: 1px solid #d97706 !important; }
+            .tv-badge-lock-icon { display: inline-flex; align-items: center; color: #f59e0b; margin-left: 1px; }
+            .tv-badge-source-hf .tv-badge-lock-icon { color: #b45309; }
             .tv-badge-permanent { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
             .tv-badge-user-added { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
             .tv-badge-active { background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.25); }
@@ -973,6 +971,15 @@ function setupCustomIndicatorsDialog(widget) {
                     padding: 3px 8px !important;
                     font-size: 11px !important;
                     border-radius: 10px !important;
+                }
+                .tv-badge-source-github .tv-badge-text,
+                .tv-badge-source-hf .tv-badge-text {
+                    display: none !important;
+                }
+                .tv-badge-source-github,
+                .tv-badge-source-hf {
+                    padding: 2px 5px !important;
+                    gap: 3px !important;
                 }
                 .tv-custom-modal-body {
                     flex-direction: column !important;
@@ -2330,26 +2337,32 @@ function setupCustomIndicatorsDialog(widget) {
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'github') {
                     const srcBadge = document.createElement('span');
-                    srcBadge.className = 'tv-badge-pill tv-badge-source-github';
                     const repoName = item.repoName || item.repoId || 'bunqi8/tradingview-indicators';
+                    const ghSvg = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+                    const lockSvg = `<span class="tv-badge-lock-icon" title="Permanent official repository"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg></span>`;
                     if (isPerm) {
+                        srcBadge.className = 'tv-badge-pill tv-badge-source-github tv-badge-perm-gold';
                         srcBadge.title = `${repoName} (Permanent Official Repository)`;
-                        srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:3px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub<span class="tv-badge-sub-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Permanent</span>`;
+                        srcBadge.innerHTML = `${ghSvg}<span class="tv-badge-text">GitHub</span>${lockSvg}`;
                     } else {
+                        srcBadge.className = 'tv-badge-pill tv-badge-source-github';
                         srcBadge.title = repoName;
-                        srcBadge.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="margin-right:3px;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub`;
+                        srcBadge.innerHTML = `${ghSvg}<span class="tv-badge-text">GitHub</span>`;
                     }
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'huggingface') {
                     const srcBadge = document.createElement('span');
-                    srcBadge.className = 'tv-badge-pill tv-badge-source-hf';
                     const repoName = item.repoName || item.repoId || 'Hugging Face';
+                    const hfEmoji = `<span style="font-size:10px; line-height:1;">🤗</span>`;
+                    const lockSvg = `<span class="tv-badge-lock-icon" title="Permanent official repository"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg></span>`;
                     if (isPerm) {
+                        srcBadge.className = 'tv-badge-pill tv-badge-source-hf tv-badge-perm-gold';
                         srcBadge.title = `${repoName} (Permanent Official Repository)`;
-                        srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF<span class="tv-badge-sub-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-right:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Permanent</span>`;
+                        srcBadge.innerHTML = `${hfEmoji}<span class="tv-badge-text">HF</span>${lockSvg}`;
                     } else {
+                        srcBadge.className = 'tv-badge-pill tv-badge-source-hf';
                         srcBadge.title = repoName;
-                        srcBadge.innerHTML = `<span style="font-size:10px; margin-right:3px;">🤗</span>HF`;
+                        srcBadge.innerHTML = `${hfEmoji}<span class="tv-badge-text">HF</span>`;
                     }
                     badgesWrap.appendChild(srcBadge);
                 } else if (item.sourceType === 'builtin') {
