@@ -659,6 +659,37 @@ function setupCustomIndicatorsDialog(widget) {
             .tv-custom-modal-tab.hidden {
                 display: none !important;
             }
+            /* Full Space Dedicated Code Editor Mode */
+            .tv-custom-modal.editor-mode {
+                width: 96vw !important;
+                height: 94vh !important;
+                max-width: 1440px !important;
+                max-height: 96vh !important;
+                border-radius: 12px !important;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35) !important;
+            }
+            .tv-custom-modal.editor-mode .tv-custom-modal-header {
+                display: none !important;
+            }
+            .tv-custom-modal.editor-mode .tv-search-container {
+                display: none !important;
+            }
+            .tv-custom-modal.editor-mode .tv-custom-modal-tabs {
+                display: none !important;
+            }
+            .tv-custom-modal.editor-mode .tv-custom-modal-body {
+                border-top: none !important;
+                flex: 1 !important;
+                height: 100% !important;
+                min-height: 0 !important;
+            }
+            .tv-custom-modal.editor-mode .tv-list-wrapper {
+                flex: 1 !important;
+                width: 100% !important;
+                height: 100% !important;
+                min-height: 0 !important;
+            }
+
             .tv-list-wrapper {
                 flex: 1; display: flex; flex-direction: column; background: #ffffff; min-height: 0; min-width: 0; overflow: hidden;
             }
@@ -666,7 +697,7 @@ function setupCustomIndicatorsDialog(widget) {
                 padding: 14px 24px 8px 24px; font-size: 11px; font-weight: 700; color: #b2b5be; text-transform: uppercase; letter-spacing: 0.4px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
             }
             .tv-editor-header {
-                display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; border-bottom: 1px solid #e0e3eb; background: #ffffff; flex-shrink: 0;
+                display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid #e0e3eb; background: #fafbfc; flex-shrink: 0;
             }
             
             .tv-list-container { -webkit-overflow-scrolling: touch; touch-action: pan-y !important; }
@@ -1050,8 +1081,16 @@ function setupCustomIndicatorsDialog(widget) {
                     padding: 3px 6px !important;
                     font-size: 10.5px !important;
                 }
+                .tv-custom-modal.editor-mode {
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    max-width: 100vw !important;
+                    max-height: 100vh !important;
+                    border-radius: 0 !important;
+                    margin: 0 !important;
+                }
                 .tv-editor-header {
-                    padding: 10px 14px !important;
+                    padding: 8px 12px !important;
                 }
                 .tv-repo-modal {
                     width: 100vw !important; height: 100% !important; max-width: 100vw !important; max-height: 100% !important;
@@ -1530,12 +1569,20 @@ function setupCustomIndicatorsDialog(widget) {
         function showEditor(existingCode = '', existingName = null, isStrategyTemplate = false, isFork = false, forkTitle = null) {
             if (cleanupEditorFn) cleanupEditorFn();
             isEditing = true;
+            modal.classList.add('editor-mode');
             listWrapper.innerHTML = '';
             
             function triggerEditorFocus() {
                 if (!monacoEditorInstance) return;
                 try {
                     monacoEditorInstance.focus();
+                } catch (_) {}
+            }
+
+            function relayoutEditor() {
+                if (!monacoEditorInstance) return;
+                try {
+                    monacoEditorInstance.layout();
                 } catch (_) {}
             }
 
@@ -1564,6 +1611,7 @@ function setupCustomIndicatorsDialog(widget) {
 
             cleanupEditorFn = () => {
                 window.removeEventListener('keydown', handleEditorKeydown, true);
+                modal.classList.remove('editor-mode');
                 cleanupEditorFn = null;
                 isEditing = false;
             };
@@ -1586,7 +1634,7 @@ function setupCustomIndicatorsDialog(widget) {
                                   <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${headerText}</span>`;
             
             const btnRow = document.createElement('div');
-            btnRow.style.cssText = 'display:flex; gap:8px; flex-shrink:0;';
+            btnRow.style.cssText = 'display:flex; align-items:center; gap:8px; flex-shrink:0;';
             
             const cancelBtn = document.createElement('button');
             cancelBtn.textContent = 'Cancel';
@@ -1600,6 +1648,20 @@ function setupCustomIndicatorsDialog(widget) {
             saveBtn.style.cssText = 'padding:6px 14px; border:none; background:#2962FF; color:#fff; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; transition:0.2s; display:flex; align-items:center;';
             saveBtn.onmouseover = () => saveBtn.style.background = '#1E53E5';
             saveBtn.onmouseout = () => saveBtn.style.background = '#2962FF';
+
+            const closeEditorBtn = document.createElement('div');
+            closeEditorBtn.style.cssText = 'cursor:pointer; color:#787b86; padding:6px; margin-left:4px; border-radius:4px; transition:0.2s; display:flex; align-items:center; justify-content:center;';
+            closeEditorBtn.title = 'Cancel & Exit Editor';
+            closeEditorBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12m0-12L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+            closeEditorBtn.onmouseover = () => { closeEditorBtn.style.background = '#f0f3fa'; closeEditorBtn.style.color = '#131722'; };
+            closeEditorBtn.onmouseout = () => { closeEditorBtn.style.background = 'transparent'; closeEditorBtn.style.color = '#787b86'; };
+            closeEditorBtn.onclick = () => { if (cleanupEditorFn) cleanupEditorFn(); restoreListWrapper(); renderList(searchInput.value); };
+
+            btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(saveBtn);
+            btnRow.appendChild(closeEditorBtn);
+            edHeader.appendChild(titleRow);
+            edHeader.appendChild(btnRow);
             
             const errorDiv = document.createElement('div');
             errorDiv.style.cssText = 'color:#f23645; font-size:12px; padding:12px 24px; background:#ffebec; border-bottom:1px solid #f23645; display:none;';
@@ -1668,13 +1730,8 @@ function setupCustomIndicatorsDialog(widget) {
                 }
             };
             
-            btnRow.appendChild(cancelBtn);
-            btnRow.appendChild(saveBtn);
-            edHeader.appendChild(titleRow);
-            edHeader.appendChild(btnRow);
-            
             const editorContainer = document.createElement('div');
-            editorContainer.style.cssText = 'flex:1; width:100%; outline:none; cursor:text;';
+            editorContainer.style.cssText = 'flex:1; width:100%; height:100%; min-height:0; outline:none; cursor:text; position:relative;';
             editorContainer.tabIndex = 0;
             editorContainer.addEventListener('click', triggerEditorFocus);
             editorContainer.addEventListener('mousedown', triggerEditorFocus);
@@ -1707,9 +1764,10 @@ function setupCustomIndicatorsDialog(widget) {
                         roundedSelection: false, padding: { top: 16 }
                     });
                     triggerEditorFocus();
-                    setTimeout(triggerEditorFocus, 50);
-                    setTimeout(triggerEditorFocus, 150);
-                    setTimeout(triggerEditorFocus, 350);
+                    relayoutEditor();
+                    setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 50);
+                    setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 150);
+                    setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 350);
                 });
             } else if (window.monaco) {
                 monacoEditorInstance = monaco.editor.create(editorContainer, {
@@ -1718,13 +1776,15 @@ function setupCustomIndicatorsDialog(widget) {
                     scrollBeyondLastLine: false, padding: { top: 16 }
                 });
                 triggerEditorFocus();
-                setTimeout(triggerEditorFocus, 50);
-                setTimeout(triggerEditorFocus, 150);
-                setTimeout(triggerEditorFocus, 350);
+                relayoutEditor();
+                setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 50);
+                setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 150);
+                setTimeout(() => { triggerEditorFocus(); relayoutEditor(); }, 350);
             }
         }
         
         function restoreListWrapper() {
+            modal.classList.remove('editor-mode');
             listWrapper.innerHTML = '';
             listWrapper.appendChild(actionsBar);
             listWrapper.appendChild(listHeader);
