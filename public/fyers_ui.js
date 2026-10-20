@@ -114,20 +114,20 @@ class FyersUI {
         if (!window.FyersAPI) return 'Broker Manager';
         const active = window.FyersAPI.getActiveAccount();
         if (!active) {
-            return 'Broker: Disconnected\nClick to manage broker accounts & tokens';
+            return 'Broker: Disconnected\nClick to configure broker tokens';
         }
         const isApiExp = window.FyersAPI.isAccountExpired(active);
         const isRefExp = window.FyersAPI.isRefreshExpired(active);
         
         let statusStr = 'Active (Connected)';
         if (isApiExp) {
-            statusStr = !isRefExp ? 'Access Token Expired (Refreshable)' : 'Token Expired';
+            statusStr = (!isRefExp && active.webuiRefreshToken) ? 'Access Token Expired (Refreshable)' : 'Token Expired';
         } else if (!window.FyersAPI.isConnected) {
             statusStr = 'Active (Offline/Standby)';
         }
         
         const apiExpFormatted = window.FyersAPI.formatExpiry(active.apiExpiresAt);
-        const refreshExpFormatted = active.refreshExpiresAt ? window.FyersAPI.formatExpiry(active.refreshExpiresAt) : 'None';
+        const refreshExpFormatted = active.refreshExpiresAt ? window.FyersAPI.formatExpiry(active.refreshExpiresAt) : (active.webuiRefreshToken ? 'Configured' : 'Not provided');
 
         return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}`;
     }
@@ -150,11 +150,11 @@ class FyersUI {
             let avatarBg = 'linear-gradient(135deg, #2962FF, #1546d4)';
             
             if (isApiExp) {
-                if (!isRefExp) {
+                if (!isRefExp && active.webuiRefreshToken) {
                     dotColor = '#ff9800'; // Amber: access expired but refresh token valid
                     avatarBg = 'linear-gradient(135deg, #e65100, #f57c00)';
                 } else {
-                    dotColor = '#f23645'; // Red: both expired
+                    dotColor = '#f23645'; // Red: expired
                     avatarBg = 'linear-gradient(135deg, #787b86, #5d606b)';
                 }
             }
@@ -390,18 +390,22 @@ class FyersUI {
             ">
                 <div style="font-size: 32px; margin-bottom: 8px;">🔑</div>
                 <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">No Broker Accounts Added</div>
-                <div style="font-size: 13px; color: ${theme.textMuted}; max-width: 380px; margin: 0 auto 16px;">
-                    Add your Fyers App ID, API Access Token, and WebUI Refresh Token to view live option chains and stream market data.
+                <div style="font-size: 13px; color: ${theme.textMuted}; max-width: 420px; margin: 0 auto 18px; line-height: 1.4;">
+                    Add your Fyers App ID and API Access Token to view live option chains and stream market data. WebUI Refresh Token is optional but highly recommended.
                 </div>
-                <button id="bm-btn-add-first" style="
+                <button id="bm-btn-add-first" class="bm-btn-add-trigger" type="button" style="
                     background: ${theme.primary}; 
                     color: #fff; 
                     border: none; 
-                    padding: 9px 18px; 
+                    padding: 10px 20px; 
                     border-radius: 6px; 
                     font-weight: 600; 
-                    font-size: 13px; 
+                    font-size: 14px; 
                     cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    box-shadow: 0 2px 6px rgba(41,98,255,0.3);
                 ">+ Add Your First Account</button>
             </div>
             `;
@@ -414,26 +418,23 @@ class FyersUI {
                 const initials = acc.initials || window.FyersAPI.getInitials(acc.displayName, acc.fyId) || 'FY';
                 
                 let dotColor = '#089981';
-                let statusLabel = 'Active (Valid)';
                 let statusBg = 'rgba(8, 153, 129, 0.12)';
                 let statusColor = '#089981';
 
                 if (isApiExp) {
-                    if (!isRefExp) {
+                    if (!isRefExp && acc.webuiRefreshToken) {
                         dotColor = '#ff9800';
-                        statusLabel = 'API Token Expired';
                         statusBg = 'rgba(255, 152, 0, 0.12)';
                         statusColor = '#ff9800';
                     } else {
                         dotColor = '#f23645';
-                        statusLabel = 'Expired';
                         statusBg = 'rgba(242, 54, 69, 0.12)';
                         statusColor = '#f23645';
                     }
                 }
 
                 const apiExpStr = window.FyersAPI.formatExpiry(acc.apiExpiresAt);
-                const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : 'None';
+                const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : (acc.webuiRefreshToken ? 'Configured' : null);
 
                 return `
                 <div style="
@@ -565,15 +566,19 @@ class FyersUI {
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <span style="color: ${theme.textMuted}; font-weight: 500;">WebUI Refresh Token:</span>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-family: monospace; letter-spacing: 2px; color: ${theme.textMuted}; font-size: 11px;">••••••••••••••••••••••••</span>
-                                <span style="
-                                    font-size: 11px; 
-                                    padding: 1px 6px; 
-                                    border-radius: 3px; 
-                                    background: ${isRefExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
-                                    color: ${isRefExp ? theme.error : theme.success}; 
-                                    font-weight: 600;
-                                ">${refExpStr}</span>
+                                ${refExpStr ? `
+                                    <span style="font-family: monospace; letter-spacing: 2px; color: ${theme.textMuted}; font-size: 11px;">••••••••••••••••••••••••</span>
+                                    <span style="
+                                        font-size: 11px; 
+                                        padding: 1px 6px; 
+                                        border-radius: 3px; 
+                                        background: ${isRefExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
+                                        color: ${isRefExp ? theme.error : theme.success}; 
+                                        font-weight: 600;
+                                    ">${refExpStr}</span>
+                                ` : `
+                                    <span style="font-size: 11px; color: ${theme.textMuted}; font-style: italic;">Not provided (Manual renewal)</span>
+                                `}
                             </div>
                         </div>
 
@@ -598,7 +603,7 @@ class FyersUI {
                 <span style="font-size: 13px; color: ${theme.textMuted}; font-weight: 500;">
                     ${accounts.length} Registered Account${accounts.length === 1 ? '' : 's'}
                 </span>
-                <button id="bm-btn-add-account" style="
+                <button id="bm-btn-add-account" class="bm-btn-add-trigger" type="button" style="
                     background: ${theme.primary}; 
                     color: #fff; 
                     border: none; 
@@ -655,7 +660,7 @@ class FyersUI {
 
         const placeholderRefresh = isReplace 
             ? 'Leave empty to keep existing token, or paste full new token to replace' 
-            : 'Paste WebUI Refresh Token (JWT string)...';
+            : 'Optional WebUI Refresh Token (JWT string)...';
 
         const placeholderWebui = isReplace 
             ? 'Leave empty to keep existing token, or paste full new token to replace' 
@@ -663,7 +668,7 @@ class FyersUI {
 
         return `
             <div style="margin-bottom: 16px;">
-                <button id="bm-btn-back" style="
+                <button id="bm-btn-back" type="button" style="
                     background: transparent; 
                     border: none; 
                     color: ${theme.primary}; 
@@ -681,7 +686,7 @@ class FyersUI {
                 <div style="font-size: 12px; color: ${theme.textMuted}; margin-bottom: 16px;">
                     ${isReplace 
                         ? 'Enter new token strings to replace. Any field left blank preserves the currently saved token.' 
-                        : 'Enter your App ID, API Access Token, and WebUI Refresh Token. All tokens must belong to the same Fyers user.'}
+                        : 'Enter your App ID and API Access Token. WebUI Refresh Token is optional but recommended for automatic token renewal.'}
                 </div>
 
                 <!-- Form Fields -->
@@ -731,7 +736,7 @@ class FyersUI {
                     <!-- WebUI Refresh Token -->
                     <div>
                         <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
-                            WebUI Refresh Token ${!isReplace ? `<span style="color: ${theme.error};">*</span>` : '<span style="font-weight: 400; color:' + theme.textMuted + ';">(optional replacement)</span>'}
+                            WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">(Highly recommended, optional)</span>
                         </label>
                         <textarea id="bm-input-refresh" rows="2" placeholder="${placeholderRefresh}" style="
                             width: 100%; 
@@ -746,7 +751,7 @@ class FyersUI {
                             box-sizing: border-box;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Required to rotate access tokens on the fly without logging in again.
+                            Recommended to obtain fresh access tokens on the fly. Can be left empty for testing or direct API workflows.
                         </div>
                     </div>
 
@@ -790,7 +795,7 @@ class FyersUI {
 
                 <!-- Bottom Action Buttons -->
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                    <button id="bm-btn-cancel-form" style="
+                    <button id="bm-btn-cancel-form" type="button" style="
                         background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; 
                         color: ${theme.text}; 
                         border: none; 
@@ -800,7 +805,7 @@ class FyersUI {
                         font-weight: 600; 
                         cursor: pointer;
                     ">Cancel</button>
-                    <button id="bm-btn-save-account" style="
+                    <button id="bm-btn-save-account" type="button" style="
                         background: ${theme.primary}; 
                         color: #fff; 
                         border: none; 
@@ -816,14 +821,17 @@ class FyersUI {
     }
 
     bindListViewEvents(modal) {
-        const btnAdd = modal.querySelector('#bm-btn-add-account') || modal.querySelector('#bm-btn-add-first');
-        if (btnAdd) {
-            btnAdd.onclick = () => {
+        modal.querySelectorAll('#bm-btn-add-account, #bm-btn-add-first, .bm-btn-add-trigger').forEach(btnAdd => {
+            btnAdd.onclick = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
                 this.viewMode = 'add';
                 this.replaceAccountId = null;
                 this.renderModal();
             };
-        }
+        });
 
         modal.querySelectorAll('.bm-btn-activate').forEach(btn => {
             btn.onclick = (e) => {
@@ -862,7 +870,8 @@ class FyersUI {
     bindFormViewEvents(modal) {
         const btnBack = modal.querySelector('#bm-btn-back');
         const btnCancel = modal.querySelector('#bm-btn-cancel-form');
-        const onCancel = () => {
+        const onCancel = (e) => {
+            if (e) e.preventDefault();
             this.viewMode = 'list';
             this.replaceAccountId = null;
             this.renderModal();
@@ -887,7 +896,8 @@ class FyersUI {
 
         const btnSave = modal.querySelector('#bm-btn-save-account');
         if (btnSave) {
-            btnSave.onclick = async () => {
+            btnSave.onclick = async (e) => {
+                if (e) e.preventDefault();
                 const appId = inputAppId ? inputAppId.value.trim() : '';
                 const apiAccessToken = inputApi ? inputApi.value.trim() : '';
                 const webuiRefreshToken = inputRefresh ? inputRefresh.value.trim() : '';
@@ -945,11 +955,6 @@ class FyersUI {
         const isReplace = this.viewMode === 'replace' && Boolean(this.replaceAccountId);
         const existing = isReplace && window.FyersAPI ? window.FyersAPI.getAccounts().find(a => a.id === this.replaceAccountId) : null;
 
-        // Parse present tokens
-        const infoApi = apiToken ? window.FyersAPI.extractTokenInfo(apiToken) : null;
-        const infoRefresh = refreshToken ? window.FyersAPI.extractTokenInfo(refreshToken) : null;
-        const infoWebui = webuiToken ? window.FyersAPI.extractTokenInfo(webuiToken) : null;
-
         // Validation check
         const check = window.FyersAPI.validateTokens({
             appId,
@@ -981,8 +986,16 @@ class FyersUI {
         const displayName = check.displayName || 'Fyers User';
         const fyId = check.fyId || 'N/A';
         const initials = check.initials || 'FY';
-        const apiExpStr = check.apiExpiresAt ? window.FyersAPI.formatExpiry(check.apiExpiresAt) : 'Kept current';
-        const refExpStr = check.refreshExpiresAt ? window.FyersAPI.formatExpiry(check.refreshExpiresAt) : 'Kept current';
+        const apiExpStr = check.apiExpiresAt ? window.FyersAPI.formatExpiry(check.apiExpiresAt) : (isReplace && existing ? window.FyersAPI.formatExpiry(existing.apiExpiresAt) : 'Kept current');
+        
+        let refExpStr = null;
+        if (check.refreshExpiresAt) {
+            refExpStr = window.FyersAPI.formatExpiry(check.refreshExpiresAt);
+        } else if (isReplace && existing && existing.refreshExpiresAt) {
+            refExpStr = window.FyersAPI.formatExpiry(existing.refreshExpiresAt);
+        }
+
+        const isCrossVerified = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
 
         inspector.innerHTML = `
             <div style="
@@ -1021,12 +1034,14 @@ class FyersUI {
                             ">ID: ${fyId}</span>
                         </div>
                     </div>
-                    <span style="color: ${theme.success}; font-weight: 700; font-size: 12px;">✓ Cross-Verified</span>
+                    <span style="color: ${theme.success}; font-weight: 700; font-size: 12px;">
+                        ${isCrossVerified ? '✓ Cross-Verified' : '✓ Verified'}
+                    </span>
                 </div>
                 <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.5;">
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
-                    • <strong>Refresh Token Expiry:</strong> ${refExpStr}<br>
-                    • All tokens verified to belong to the same verified client ID <code>${fyId}</code>.
+                    • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (No auto-renew)'}<br>
+                    • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
                 </div>
             </div>
         `;
