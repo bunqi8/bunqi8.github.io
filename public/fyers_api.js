@@ -6,7 +6,11 @@ class FyersEngine {
         this.token = localStorage.getItem('fyers_token') || null;
         this.appId = null; // Can be parsed from token if JWT, or we require user to input it
         this.profileName = null;
+        this.fyId = null;
         this.isConnected = false;
+        
+        // Initialize multi-account broker management
+        this.initBrokerAccounts();
         
         // WebSocket state
         
@@ -44,9 +48,404 @@ class FyersEngine {
         });
     }
 
+    // ==========================================
+    // MULTI-ACCOUNT BROKER TOKEN MANAGER & JWT
+    // ==========================================
+
+    parseJwt(token) {
+        if (!token || typeof token !== 'string') return null;
+        try {
+            let clean = token.trim();
+            if (clean.includes(':') && clean.split(':').length === 2 && clean.includes('.')) {
+                clean = clean.split(':')[1];
+            }
+            const parts = clean.split('.');
+            if (parts.length < 2) return null;
+            let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            while (base64.length % 4) base64 += '=';
+            const jsonStr = decodeURIComponent(Array.prototype.map.call(atob(base64), function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonStr);
+        } catch (e) {
+            try {
+                return JSON.parse(atob(token.trim().split('.')[1]));
+            } catch (_) {
+                return null;
+            }
+        }
+    }
+
+    extractTokenInfo(token) {
+        const payload = this.parseJwt(token);
+        if (!payload) return null;
+        return {
+            fyId: payload.fy_id || payload.userId || payload.user_id || payload.sub || null,
+            displayName: payload.display_name || payload.name || payload.fullName || null,
+            appId: payload.app_id || payload.client_id || payload.aud || null,
+            exp: payload.exp ? Number(payload.exp) : null,
+            iat: payload.iat ? Number(payload.iat) : null
+        };
+    }
+
+    getInitials(name, fallbackId) {
+        if (name && typeof name === 'string' && name.trim()) {
+            const parts = name.trim().split(/\s+/).filter(Boolean);
+            if (parts.length >= 2) {
+                return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            } else if (parts.length === 1) {
+                return parts[0].slice(0, 2).toUpperCase();
+            }
+        }
+        if (fallbackId && typeof fallbackId === 'string' && fallbackId.trim()) {
+            return fallbackId.trim().slice(0, 2).toUpperCase();
+        }
+        return 'FY';
+    }
+
+    formatExpiry(timestampSec) {
+        if (!timestampSec) return 'Unknown';
+        const date = new Date(timestampSec * 1000);
+        const now = Date.now();
+        const diffMs = (timestampSec * 1000) - now;
+        const isExpired = diffMs <= 0;
+        
+        const formatted = date.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        }) + ', ' + date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+        
+        let relative = '';
+        const absDiffSec = Math.floor(Math.abs(diffMs) / 1000);
+        if (isExpired) {
+            if (absDiffSec < 3600) relative = `${Math.floor(absDiffSec / 60)}m ago`;
+            else if (absDiffSec < 86400) relative = `${Math.floor(absDiffSec / 3600)}h ago`;
+            else relative = `${Math.floor(absDiffSec / 86400)}d ago`;
+            return `${formatted} (Expired ${relative})`;
+        } else {
+            if (absDiffSec < 3600) relative = `in ${Math.floor(absDiffSec / 60)}m`;
+            else if (absDiffSec < 86400) relative = `in ${Math.floor(absDiffSec / 3600)}h`;
+            else relative = `in ${Math.floor(absDiffSec / 86400)}d`;
+            return `${formatted} (${relative})`;
+        }
+    }
+
+    isAccountExpired(account) {
+        if (!account) return true;
+        if (!account.apiExpiresAt) return false;
+        return account.apiExpiresAt <= Math.floor(Date.now() / 1000);
+    }
+
+    isRefreshExpired(account) {
+        if (!account) return true;
+        if (!account.refreshExpiresAt) return false;
+        return account.refreshExpiresAt <= Math.floor(Date.now() / 1000);
+    }
+
+    getAccounts() {
+        try {
+            const raw = localStorage.getItem('tv_broker_accounts');
+            if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) return list;
+            }
+        } catch (_) {}
+        return [];
+    }
+
+    saveAccounts(accounts) {
+        localStorage.setItem('tv_broker_accounts', JSON.stringify(accounts || []));
+    }
+
+    getActiveAccountId() {
+        return localStorage.getItem('tv_active_broker_id') || null;
+    }
+
+    getActiveAccount() {
+        const accounts = this.getAccounts();
+        if (accounts.length === 0) return null;
+        const activeId = this.getActiveAccountId();
+        if (activeId) {
+            const found = accounts.find(a => a.id === activeId);
+            if (found) return found;
+        }
+        return accounts[0];
+    }
+
+    setActiveAccount(accountId) {
+        const accounts = this.getAccounts();
+        const acc = accounts.find(a => a.id === accountId);
+        if (!acc) return false;
+        
+        localStorage.setItem('tv_active_broker_id', accountId);
+        
+        const authHeader = (acc.apiAccessToken && acc.apiAccessToken.includes(':'))
+            ? acc.apiAccessToken
+            : (acc.appId ? `${acc.appId}:${acc.apiAccessToken}` : acc.apiAccessToken);
+            
+        this.token = authHeader;
+        this.appId = acc.appId;
+        this.profileName = acc.displayName;
+        this.fyId = acc.fyId;
+        this.isConnected = !this.isAccountExpired(acc);
+        
+        localStorage.setItem('fyers_token', authHeader);
+        
+        window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
+            detail: { connected: this.isConnected, name: this.profileName, account: acc }
+        }));
+        return true;
+    }
+
+    initBrokerAccounts() {
+        const accounts = this.getAccounts();
+        // Auto-migrate legacy token if accounts list is currently empty
+        if (accounts.length === 0) {
+            const legacyToken = localStorage.getItem('fyers_token');
+            if (legacyToken) {
+                const info = this.extractTokenInfo(legacyToken);
+                if (info && info.fyId) {
+                    let inferredAppId = info.appId || 'FYERS-APP';
+                    if (legacyToken.includes(':') && legacyToken.split(':').length === 2) {
+                        inferredAppId = legacyToken.split(':')[0];
+                    }
+                    const migrated = {
+                        id: 'acc_' + Date.now(),
+                        broker: 'fyers',
+                        appId: inferredAppId,
+                        fyId: info.fyId,
+                        displayName: info.displayName || info.fyId,
+                        initials: this.getInitials(info.displayName, info.fyId),
+                        apiAccessToken: legacyToken.includes(':') ? legacyToken.split(':')[1] : legacyToken,
+                        webuiRefreshToken: '',
+                        webuiAccessToken: '',
+                        apiExpiresAt: info.exp,
+                        refreshExpiresAt: null,
+                        webuiExpiresAt: null,
+                        createdAt: Date.now(),
+                        updatedAt: Date.now()
+                    };
+                    this.saveAccounts([migrated]);
+                    localStorage.setItem('tv_active_broker_id', migrated.id);
+                }
+            }
+        }
+        
+        // Sync active account state
+        const active = this.getActiveAccount();
+        if (active) {
+            const authHeader = (active.apiAccessToken && active.apiAccessToken.includes(':'))
+                ? active.apiAccessToken
+                : (active.appId ? `${active.appId}:${active.apiAccessToken}` : active.apiAccessToken);
+            this.token = authHeader;
+            this.appId = active.appId;
+            this.profileName = active.displayName;
+            this.fyId = active.fyId;
+            this.isConnected = !this.isAccountExpired(active);
+        }
+    }
+
+    validateTokens({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, isReplace = false, existingAccount = null }) {
+        if (!appId || !appId.trim()) {
+            return { valid: false, error: "App ID is required." };
+        }
+        
+        const hasApi = Boolean(apiAccessToken && apiAccessToken.trim());
+        const hasRefresh = Boolean(webuiRefreshToken && webuiRefreshToken.trim());
+        const hasWebui = Boolean(webuiAccessToken && webuiAccessToken.trim());
+        
+        if (!isReplace) {
+            if (!hasApi) return { valid: false, error: "API Access Token is required." };
+            if (!hasRefresh) return { valid: false, error: "WebUI Refresh Token is required." };
+        } else {
+            if (!hasApi && !hasRefresh && !hasWebui && existingAccount && existingAccount.appId === appId.trim()) {
+                return { valid: false, error: "No changes entered to replace." };
+            }
+        }
+        
+        const infoApi = hasApi ? this.extractTokenInfo(apiAccessToken) : (existingAccount ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.apiExpiresAt } : null);
+        const infoRefresh = hasRefresh ? this.extractTokenInfo(webuiRefreshToken) : (existingAccount ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.refreshExpiresAt } : null);
+        const infoWebui = hasWebui ? this.extractTokenInfo(webuiAccessToken) : (existingAccount && existingAccount.webuiAccessToken ? { fyId: existingAccount.fyId, exp: existingAccount.webuiExpiresAt } : null);
+        
+        if (hasApi && !infoApi) return { valid: false, error: "API Access Token is not a valid JWT format." };
+        if (hasRefresh && !infoRefresh) return { valid: false, error: "WebUI Refresh Token is not a valid JWT format." };
+        if (hasWebui && !infoWebui) return { valid: false, error: "WebUI Access Token is not a valid JWT format." };
+        
+        if (hasApi && !infoApi.fyId) return { valid: false, error: "API Access Token missing User ID ('fy_id')." };
+        if (hasRefresh && !infoRefresh.fyId) return { valid: false, error: "WebUI Refresh Token missing User ID ('fy_id')." };
+        if (hasWebui && !infoWebui.fyId) return { valid: false, error: "WebUI Access Token missing User ID ('fy_id')." };
+        
+        // Cross-token validation
+        const targetFyId = (infoRefresh && infoRefresh.fyId) || (infoApi && infoApi.fyId) || (existingAccount && existingAccount.fyId);
+        
+        if (infoApi && infoRefresh && infoApi.fyId !== infoRefresh.fyId) {
+            return {
+                valid: false,
+                error: `Cross-token validation failed: API Access Token belongs to User ID "${infoApi.fyId}", but WebUI Refresh Token belongs to "${infoRefresh.fyId}". All tokens must belong to the same user.`
+            };
+        }
+        
+        if (infoWebui && targetFyId && infoWebui.fyId !== targetFyId) {
+            return {
+                valid: false,
+                error: `Cross-token validation failed: WebUI Access Token belongs to User ID "${infoWebui.fyId}", which does not match User ID "${targetFyId}".`
+            };
+        }
+        
+        if (existingAccount && targetFyId && existingAccount.fyId && targetFyId !== existingAccount.fyId) {
+            return {
+                valid: false,
+                error: `Cross-token validation failed: Provided tokens belong to User ID "${targetFyId}", but this account is registered to "${existingAccount.fyId}". Replacement tokens must belong to the same user.`
+            };
+        }
+        
+        const displayName = (infoRefresh && infoRefresh.displayName) || (infoApi && infoApi.displayName) || (existingAccount && existingAccount.displayName) || targetFyId || "Fyers User";
+        const initials = this.getInitials(displayName, targetFyId);
+        
+        return {
+            valid: true,
+            fyId: targetFyId,
+            displayName: displayName,
+            initials: initials,
+            apiExpiresAt: (infoApi && infoApi.exp) || null,
+            refreshExpiresAt: (infoRefresh && infoRefresh.exp) || null,
+            webuiExpiresAt: (infoWebui && infoWebui.exp) || null
+        };
+    }
+
+    saveAccount({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, id = null }) {
+        const accounts = this.getAccounts();
+        const isReplace = Boolean(id);
+        const existing = isReplace ? accounts.find(a => a.id === id) : null;
+        
+        const check = this.validateTokens({
+            appId,
+            apiAccessToken,
+            webuiRefreshToken,
+            webuiAccessToken,
+            isReplace,
+            existingAccount: existing
+        });
+        
+        if (!check.valid) {
+            return { success: false, error: check.error };
+        }
+        
+        let accountObj = null;
+        if (isReplace && existing) {
+            accountObj = existing;
+            accountObj.appId = appId.trim();
+            accountObj.fyId = check.fyId;
+            accountObj.displayName = check.displayName;
+            accountObj.initials = check.initials;
+            if (apiAccessToken && apiAccessToken.trim()) {
+                let cleanApi = apiAccessToken.trim();
+                if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
+                    cleanApi = cleanApi.split(':')[1];
+                }
+                accountObj.apiAccessToken = cleanApi;
+                accountObj.apiExpiresAt = check.apiExpiresAt;
+            }
+            if (webuiRefreshToken && webuiRefreshToken.trim()) {
+                accountObj.webuiRefreshToken = webuiRefreshToken.trim();
+                accountObj.refreshExpiresAt = check.refreshExpiresAt;
+            }
+            if (webuiAccessToken && webuiAccessToken.trim()) {
+                accountObj.webuiAccessToken = webuiAccessToken.trim();
+                accountObj.webuiExpiresAt = check.webuiExpiresAt;
+            }
+            accountObj.updatedAt = Date.now();
+        } else {
+            let cleanApi = (apiAccessToken || '').trim();
+            if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
+                cleanApi = cleanApi.split(':')[1];
+            }
+            accountObj = {
+                id: 'acc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                broker: 'fyers',
+                appId: appId.trim(),
+                fyId: check.fyId,
+                displayName: check.displayName,
+                initials: check.initials,
+                apiAccessToken: cleanApi,
+                webuiRefreshToken: (webuiRefreshToken || '').trim(),
+                webuiAccessToken: (webuiAccessToken || '').trim(),
+                apiExpiresAt: check.apiExpiresAt,
+                refreshExpiresAt: check.refreshExpiresAt,
+                webuiExpiresAt: check.webuiExpiresAt,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            accounts.push(accountObj);
+        }
+        
+        this.saveAccounts(accounts);
+        
+        // If it is the active account or the first account, activate it
+        const currentActiveId = this.getActiveAccountId();
+        if (!currentActiveId || currentActiveId === accountObj.id || accounts.length === 1) {
+            this.setActiveAccount(accountObj.id);
+        } else {
+            window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
+                detail: { connected: this.isConnected, name: this.profileName, account: this.getActiveAccount() }
+            }));
+        }
+        
+        return { success: true, account: accountObj };
+    }
+
+    deleteAccount(accountId) {
+        let accounts = this.getAccounts();
+        const remaining = accounts.filter(a => a.id !== accountId);
+        this.saveAccounts(remaining);
+        
+        const activeId = this.getActiveAccountId();
+        if (activeId === accountId) {
+            if (remaining.length > 0) {
+                this.setActiveAccount(remaining[0].id);
+            } else {
+                localStorage.removeItem('tv_active_broker_id');
+                localStorage.removeItem('fyers_token');
+                this.token = null;
+                this.appId = null;
+                this.profileName = null;
+                this.fyId = null;
+                this.isConnected = false;
+                window.dispatchEvent(new CustomEvent('fyers_connection_status', { detail: { connected: false }}));
+            }
+        } else {
+            window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
+                detail: { connected: this.isConnected, name: this.profileName, account: this.getActiveAccount() }
+            }));
+        }
+        return { success: true };
+    }
+
+    markActiveAccountExpired(reason) {
+        this.isConnected = false;
+        window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
+            detail: { connected: false, error: reason || 'Token Expired', account: this.getActiveAccount() }
+        }));
+    }
+
     setToken(token) {
         this.token = token;
         localStorage.setItem('fyers_token', token);
+        const info = this.extractTokenInfo(token);
+        if (info && info.fyId) {
+            const accounts = this.getAccounts();
+            const existing = accounts.find(a => a.fyId === info.fyId);
+            if (existing) {
+                existing.apiAccessToken = token.includes(':') ? token.split(':')[1] : token;
+                existing.apiExpiresAt = info.exp;
+                this.saveAccounts(accounts);
+            }
+        }
     }
     
     async validateAndGetProfile() {
@@ -193,10 +592,7 @@ class FyersEngine {
                         }));
                     } else if (data.s === 'error' || data.s === 'no_data') {
                         if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token'))) {
-                            this.isConnected = false;
-                            this.token = null;
-                            localStorage.removeItem('fyers_token');
-                            alert("Fyers Deep History: Token expired. Please re-authenticate via Broker button.");
+                            this.markActiveAccountExpired('Token Expired');
                         }
                         
                         if (data.s === 'no_data' || (data.message && data.message.toLowerCase().includes('no data'))) {
@@ -352,9 +748,7 @@ class FyersEngine {
                             console.error("Fyers Auth Error:", data.message);
                             this.isPolling = false;
                             this.pollInterval = null;
-                            this.token = null;
-                            localStorage.removeItem('fyers_token');
-                            alert("Fyers Live Data Disconnected: Your access token has expired or is invalid.\n\nPlease click the Broker button to provide a new token.");
+                            this.markActiveAccountExpired('Token Expired');
                             return; 
                         }
                         
