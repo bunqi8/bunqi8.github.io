@@ -119,7 +119,7 @@
                 for (const k in window.PRESEEDED_REMOTE_INDICATORS) {
                     const pre = window.PRESEEDED_REMOTE_INDICATORS[k];
                     const existing = loaded[k];
-                    if (!existing || !existing.code || existing.code !== pre.code || !existing.lastUpdated || (pre.lastUpdated && pre.lastUpdated > (existing.lastUpdated || 0))) {
+                    if (!existing || !existing.code || existing.code !== pre.code || existing.name !== pre.name || !existing.lastUpdated || (pre.lastUpdated && pre.lastUpdated > (existing.lastUpdated || 0))) {
                         loaded[k] = pre;
                         updatedAny = true;
                     }

@@ -9,6 +9,9 @@ window.isStrategyScript = function(code) {
 window.sanitizeIndicatorName = function(name) {
     if (!name || typeof name !== 'string') return name;
     let clean = name;
+    if (clean === 'CM_Ultimate_MA_MTF_V2' || clean === 'CM Ultimate MA MTF V2' || clean === 'UltimateMA') {
+        return 'MA Ultimate MTF v2';
+    }
     clean = clean.replace(/\s*\[\s*(?:LuxAlgo|LazyBear|ChartArt)[^\]]*\]/gi, '');
     clean = clean.replace(/\s*\(\s*by\s+[^)]+\)/gi, '');
     clean = clean.replace(/\s*\[\s*by\s+[^\]]+\]/gi, '');
@@ -42,6 +45,17 @@ window.TVLocalStore = window.TVLocalStore || {
         }
 
         let healed = false;
+        if (primary['CM_Ultimate_MA_MTF_V2']) {
+            primary['MA Ultimate MTF v2'] = { ...primary['CM_Ultimate_MA_MTF_V2'], name: 'MA Ultimate MTF v2' };
+            delete primary['CM_Ultimate_MA_MTF_V2'];
+            healed = true;
+        }
+        if (backup['CM_Ultimate_MA_MTF_V2']) {
+            backup['MA Ultimate MTF v2'] = { ...backup['CM_Ultimate_MA_MTF_V2'], name: 'MA Ultimate MTF v2' };
+            delete backup['CM_Ultimate_MA_MTF_V2'];
+            healed = true;
+        }
+
         for (const k in backup) {
             if (!primary[k] && backup[k]) {
                 primary[k] = backup[k];
