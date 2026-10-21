@@ -157,7 +157,7 @@ class FyersUI {
             engineStatus = 'PAT Configured (Ready to load)';
         }
 
-        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}\nWebUI Token: ${webuiExpFormatted}\nPrivate Engine: ${engineStatus}`;
+        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}\nWebUI Token: ${webuiExpFormatted}\nAuto-Refresh Engine: ${engineStatus}`;
     }
 
     updateButtonState() {
@@ -384,10 +384,10 @@ class FyersUI {
                     display: flex; 
                     align-items: center; 
                     justify-content: space-between; 
-                    padding: 16px 20px 12px 20px; 
+                    padding: 14px clamp(12px, 3vw, 20px) 12px clamp(12px, 3vw, 20px); 
                     background: ${theme.cardBg};
                 ">
-                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
                         <span style="
                             width: 32px; 
                             height: 32px; 
@@ -399,11 +399,12 @@ class FyersUI {
                             justify-content: center; 
                             font-weight: bold; 
                             font-size: 14px;
+                            flex-shrink: 0;
                         ">FY</span>
-                        <div>
-                            <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Broker & Token Manager</h3>
-                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                Fyers API v3 & Private Closed-Source Authentication
+                        <div style="min-width: 0;">
+                            <h3 style="margin: 0; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Broker & Token Manager</h3>
+                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                Fyers API v3 Session & Auto-Refresh Manager
                             </div>
                         </div>
                     </div>
@@ -416,6 +417,7 @@ class FyersUI {
                         line-height: 1; 
                         padding: 4px 8px; 
                         border-radius: 4px;
+                        flex-shrink: 0;
                     " title="Close">✕</button>
                 </div>
 
@@ -423,9 +425,11 @@ class FyersUI {
                 <div style="
                     display: flex; 
                     gap: 6px; 
-                    padding: 0 20px; 
+                    padding: 0 clamp(12px, 3vw, 20px); 
                     border-bottom: 1px solid ${theme.border}; 
                     background: ${theme.cardBg};
+                    overflow-x: auto;
+                    scrollbar-width: none;
                 ">
                     <button id="bm-tab-accounts" type="button" style="
                         background: transparent; 
@@ -439,6 +443,8 @@ class FyersUI {
                         display: inline-flex;
                         align-items: center;
                         gap: 6px;
+                        white-space: nowrap;
+                        flex-shrink: 0;
                         transition: all 0.2s;
                     ">
                         <span>👥</span> Broker Accounts
@@ -463,6 +469,8 @@ class FyersUI {
                         display: inline-flex;
                         align-items: center;
                         gap: 6px;
+                        white-space: nowrap;
+                        flex-shrink: 0;
                         transition: all 0.2s;
                     ">
                         <span>⚡</span> Auto-Refresh & Engine
@@ -477,7 +485,7 @@ class FyersUI {
                 </div>
 
                 <!-- Body (Scrollable) -->
-                <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                <div style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; flex: 1;">
                     ${contentHtml}
                 </div>
             </div>
@@ -558,7 +566,7 @@ class FyersUI {
                 ${!isEngineReady ? `
                     <div style="margin-top: 14px; font-size: 11.5px; color: ${theme.textMuted}; display: flex; align-items: center; justify-content: center; gap: 5px;">
                         <span>⚡</span> Want 1-click browser session sync? 
-                        <a href="#" id="bm-link-setup-engine-empty" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline;">Configure Private Engine</a>
+                        <a href="#" id="bm-link-setup-engine-empty" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline;">Configure Auto-Refresh Engine</a>
                     </div>
                 ` : ''}
             </div>
@@ -1005,11 +1013,11 @@ class FyersUI {
                     gap: 12px;
                     flex-wrap: wrap;
                 ">
-                    <div style="flex: 1; min-width: 240px;">
-                        <div style="font-size: 12.5px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 12.5px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                             <span>⚡</span> <span>1-Click Zero-Touch Token Import</span>
-                            <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.3);">
-                                Private Engine Required
+                            <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); white-space: nowrap;">
+                                Engine Setup Required
                             </span>
                         </div>
                         <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; line-height: 1.4;">
@@ -1030,7 +1038,7 @@ class FyersUI {
                         gap: 5px;
                         white-space: nowrap;
                     ">
-                        <span>⚙️</span> Setup Private Engine
+                        <span>⚙️</span> Setup Engine
                     </button>
                 </div>
                 ` : `
@@ -1425,7 +1433,7 @@ class FyersUI {
                             </span>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 10px;">
                             <!-- PIN -->
                             <div>
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
@@ -2416,10 +2424,17 @@ class FyersUI {
                     background: ${theme.cardBg}; 
                     border: 1px solid ${isEngineActive ? 'rgba(8,153,129,0.3)' : (isPatConfigured ? 'rgba(255,152,0,0.3)' : theme.cardBorder)}; 
                     border-radius: 10px; 
-                    padding: 16px;
+                    padding: clamp(12px, 3vw, 16px);
                 ">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="
+                        display: flex; 
+                        align-items: flex-start; 
+                        justify-content: space-between; 
+                        gap: 12px; 
+                        margin-bottom: 12px;
+                        flex-wrap: wrap;
+                    ">
+                        <div style="display: flex; align-items: flex-start; gap: 10px; min-width: 0; flex: 1 1 200px;">
                             <span style="
                                 width: 32px; 
                                 height: 32px; 
@@ -2430,73 +2445,79 @@ class FyersUI {
                                 align-items: center; 
                                 justify-content: center; 
                                 font-weight: bold; 
-                                font-size: 16px;
+                                font-size: 15px;
+                                flex-shrink: 0;
+                                margin-top: 1px;
                             ">⚡</span>
-                            <div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <strong style="font-size: 14px;">Private Refresh Engine</strong>
+                            <div style="min-width: 0; flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    <strong style="font-size: 14px; white-space: nowrap;">Auto-Refresh Engine</strong>
                                     <span id="bm-engine-version-badge" style="
-                                        font-size: 11px; 
-                                        padding: 2px 8px; 
+                                        font-size: 10.5px; 
+                                        padding: 2px 7px; 
                                         border-radius: 12px; 
                                         font-weight: 700;
+                                        white-space: nowrap;
                                         background: ${isEngineActive ? 'rgba(8,153,129,0.15)' : (isPatConfigured ? 'rgba(255,152,0,0.15)' : 'rgba(120,123,134,0.15)')};
                                         color: ${isEngineActive ? theme.success : (isPatConfigured ? theme.warning : theme.textMuted)};
                                     ">
                                         ${isEngineLoaded ? `🟢 Loaded (v${engineVer})` : (hasCached ? `🟢 Cached (v${engineVer})` : (isPatConfigured ? '🟡 Ready to Load' : '⚪ Setup Required'))}
                                     </span>
                                 </div>
-                                <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 2px;">
-                                    Keeps your proprietary refresh algorithms 100% private in your own repository. Script is permanently cached in this browser.
+                                <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; line-height: 1.35;">
+                                    Script is cached locally in this browser for seamless automatic background renewals.
                                 </div>
                             </div>
                         </div>
 
-                        <button id="bm-btn-test-engine" type="button" style="
+                        <button id="bm-btn-test-engine" type="button" title="Check repository and reload cached engine" style="
                             background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; 
                             color: ${theme.text}; 
                             border: 1px solid ${theme.border}; 
                             padding: 6px 12px; 
                             border-radius: 6px; 
-                            font-size: 12px; 
+                            font-size: 11.5px; 
                             font-weight: 600; 
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
-                        ">🔄 Reload Script</button>
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                            margin-left: auto;
+                        "><span>🔄</span> Reload Script</button>
                     </div>
 
                     <!-- Quick Metrics Grid -->
                     <div style="
                         display: grid; 
-                        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); 
+                        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); 
                         gap: 10px; 
                         padding-top: 10px; 
                         border-top: 1px solid ${theme.border}; 
                         font-size: 11.5px;
                     ">
                         <div>
-                            <span style="color: ${theme.textMuted};">Auto-Refresh Scheduler:</span><br>
-                            <strong style="color: ${cfg.autoRefresh ? theme.success : theme.textMuted}; font-size: 12px;">
+                            <span style="color: ${theme.textMuted}; font-size: 11px;">Auto-Refresh Scheduler:</span><br>
+                            <strong style="color: ${cfg.autoRefresh ? theme.success : theme.textMuted}; font-size: 12px; display: inline-block; margin-top: 2px;">
                                 ${cfg.autoRefresh ? '✓ Enabled (Every 60s)' : '✕ Disabled'}
                             </strong>
                         </div>
                         <div>
-                            <span style="color: ${theme.textMuted};">Browser Engine Cache:</span><br>
-                            <strong style="color: ${isEngineActive ? theme.success : theme.textMuted}; font-size: 12px;">
+                            <span style="color: ${theme.textMuted}; font-size: 11px;">Browser Engine Cache:</span><br>
+                            <strong style="color: ${isEngineActive ? theme.success : theme.textMuted}; font-size: 12px; display: inline-block; margin-top: 2px;">
                                 ${isEngineActive ? `✓ Permanent (v${engineVer || '1.0.0'})` : '✕ Not Cached'}
                             </strong>
                         </div>
-                        <div>
-                            <span style="color: ${theme.textMuted};">Active Account:</span><br>
-                            <strong style="font-size: 12px; color: ${activeAcc ? theme.text : theme.textMuted};">
+                        <div style="min-width: 0; overflow: hidden;">
+                            <span style="color: ${theme.textMuted}; font-size: 11px;">Active Account:</span><br>
+                            <strong style="font-size: 12px; color: ${activeAcc ? theme.text : theme.textMuted}; display: block; margin-top: 2px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${activeAcc ? `${activeAcc.displayName} (${activeAcc.fyId})` : 'None'}">
                                 ${activeAcc ? `${activeAcc.displayName} (${activeAcc.fyId})` : 'None'}
                             </strong>
                         </div>
                         <div>
-                            <span style="color: ${theme.textMuted};">Refresh Readiness:</span><br>
-                            <strong style="font-size: 12px; color: ${(activeAcc && activeAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(activeAcc)) ? theme.success : theme.warning};">
+                            <span style="color: ${theme.textMuted}; font-size: 11px;">Refresh Readiness:</span><br>
+                            <strong style="font-size: 12px; color: ${(activeAcc && activeAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(activeAcc)) ? theme.success : theme.warning}; display: inline-block; margin-top: 2px;">
                                 ${(activeAcc && activeAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(activeAcc)) ? '🟢 Refreshable' : (activeAcc ? '⚠️ Missing Refresh Token' : '—')}
                             </strong>
                         </div>
@@ -2548,7 +2569,7 @@ class FyersUI {
                     </div>
 
                     <!-- Repository & File Path 2-Column Grid -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
                         <div>
                             <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
                                 GitHub Repository <span style="color: ${theme.error};">*</span>
@@ -2564,7 +2585,7 @@ class FyersUI {
                                 box-sizing: border-box;
                             ">
                             <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                                Private repo owner/name.
+                                Repository owner/name.
                             </div>
                         </div>
 
@@ -2583,7 +2604,7 @@ class FyersUI {
                                 box-sizing: border-box;
                             ">
                             <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                                Default for Fyers: <code>fyers_auth.js</code>.
+                                Default: <code>fyers_auth.js</code>.
                             </div>
                         </div>
                     </div>
@@ -2620,20 +2641,23 @@ class FyersUI {
 
                 <!-- Action Buttons & Status Notification Container -->
                 <div>
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; flex-wrap: wrap;">
                         <button id="bm-btn-manual-refresh" type="button" style="
                             background: rgba(41, 98, 255, 0.1); 
                             color: ${theme.primary}; 
                             border: 1px solid rgba(41, 98, 255, 0.35); 
                             padding: 9px 14px; 
                             border-radius: 6px; 
-                            font-size: 13px; 
+                            font-size: 12.5px; 
                             font-weight: 600; 
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 6px;
-                        ">⚡ Refresh Active Token Now</button>
+                            flex: 1 1 200px;
+                            justify-content: center;
+                            white-space: nowrap;
+                        ">⚡ Refresh Active Token</button>
 
                         <button id="bm-btn-save-engine" type="button" style="
                             background: ${theme.primary}; 
@@ -2641,16 +2665,19 @@ class FyersUI {
                             border: none; 
                             padding: 9px 18px; 
                             border-radius: 6px; 
-                            font-size: 13px; 
+                            font-size: 12.5px; 
                             font-weight: 600; 
                             cursor: pointer;
+                            flex: 1 1 180px;
+                            justify-content: center;
+                            white-space: nowrap;
                         ">💾 Save Engine Settings</button>
                     </div>
 
                     <div id="bm-engine-status-msg" style="margin-top: 12px; display: none;"></div>
                 </div>
 
-                <!-- Collapsible Private Script Implementation Guide -->
+                <!-- Collapsible Engine Script Guide -->
                 <details style="
                     background: ${theme.cardBg}; 
                     border: 1px solid ${theme.border}; 
@@ -2659,10 +2686,10 @@ class FyersUI {
                     font-size: 12px;
                 ">
                     <summary style="font-weight: 600; cursor: pointer; color: ${theme.text}; user-select: none;">
-                        📖 Private Engine Script Contract (<code>fyers_auth.js</code> Template)
+                        📖 Engine Script Specification (<code>fyers_auth.js</code> Template)
                     </summary>
                     <div style="margin-top: 10px; color: ${theme.textMuted}; line-height: 1.5;">
-                        Save this file in your private repository <code>${cfg.repo || 'bunqi8/broker-private'}</code> at <code>${cfg.filePath || 'fyers_auth.js'}</code>:
+                        Host this script in your repository <code>${cfg.repo || 'bunqi8/broker-private'}</code> at <code>${cfg.filePath || 'fyers_auth.js'}</code>:
                     </div>
                     <pre style="
                         margin-top: 8px; 
@@ -2674,7 +2701,7 @@ class FyersUI {
                         font-family: monospace; 
                         font-size: 11px; 
                         color: ${theme.text};
-                    "><code>// ${cfg.filePath || 'fyers_auth.js'} - Closed Source Engine
+                    "><code>// ${cfg.filePath || 'fyers_auth.js'} - Engine Script
 window.FyersPrivateEngine = {
     version: "1.0.0",
     broker: "fyers",
@@ -2690,7 +2717,7 @@ window.FyersPrivateEngine = {
      */
     async refreshToken({ appId, webuiRefreshToken, apiAccessToken, webuiAccessToken }) {
         try {
-            // Your proprietary refresh endpoint logic here:
+            // Refresh endpoint logic:
             // e.g. const res = await fetch("https://api-t1.fyers.in/api/v3/validate-refresh-token", ...);
             
             return {
@@ -2805,7 +2832,7 @@ window.FyersPrivateEngine = {
                         if (res.patExpired || res.warning) {
                             showStatus(`⚠️ ${res.warning || 'PAT expired or invalid, but cached engine is active.'} Exposes version <strong>${res.version || '1.0.0'}</strong>. All features remain operational!`, true);
                         } else {
-                            showStatus(`Private engine connected and loaded successfully! Exposes version <strong>${res.version || '1.0.0'}</strong> (permanently cached in browser).`, true);
+                            showStatus(`Engine connected and loaded successfully! Version <strong>${res.version || '1.0.0'}</strong> (cached permanently in this browser).`, true);
                         }
                         const badge = modal.querySelector('#bm-engine-version-badge');
                         if (badge) {
@@ -2817,7 +2844,7 @@ window.FyersPrivateEngine = {
                         showStatus(res.error, false);
                     }
                 } finally {
-                    btnTest.innerHTML = '🔄 Reload Script';
+                    btnTest.innerHTML = '<span>🔄</span> Reload Script';
                     btnTest.disabled = false;
                 }
             };
