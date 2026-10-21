@@ -1,8 +1,2 @@
 const fs = require('fs');
-
-async function test() {
-    const res = await fetch("https://api-t1.fyers.in/data/quotes?symbols=NSE:NIFTY50-INDEX");
-    const data = await res.json();
-    console.log(data);
-}
-test();
+const token = fs.readFileSync('public/fyers_token.txt', 'utf8').trim(); // Wait, I don't have the token!

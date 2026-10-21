@@ -1,207 +1,150 @@
 import re
 
 with open('public/datafeed.js', 'r') as f:
-    js = f.read()
+    content = f.read()
 
-helper_func = """    resolveParquetFiles: async (symbolInfo, resolution, qFrom, qTo) => {
-        const fileSuffix = resolutionToSuffix(resolution);
-        let allFiles = [];
+# Find the start of getBars
+start_idx = content.find('getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {')
+
+# Find the end of getBars by finding the next function subscribeBars
+end_idx = content.find('subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {')
+
+if start_idx == -1 or end_idx == -1:
+    print("Could not find boundaries")
+    exit(1)
+
+new_getBars = """getBars: async (symbolInfo, resolution, periodParams, onHistoryCallback, onErrorCallback) => {
+        let { from, to, countBack, firstDataRequest } = periodParams;
+        const rawFrom = from;
+        const rawTo = to;
         
+        // 1. Live Options (No Parquet)
+        if (symbolInfo.isLive && window.FyersAPI) {
+            let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
+            fyersBars = alignFyersDwmTime(fyersBars, resolution);
+            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution);
+        }
+
+        let conn = null;
+        let finalBars = [];
+        let duckdbHit = false;
+
         try {
-            const expiries = await window.SyncManager.getAllExpiries();
-            for (let exp of expiries) {
-                for (let f of exp.files) {
-                    const filename = f.path.split('/').pop();
-                    
-                    const dateMatch = filename.match(/_(\\d{4}-\\d{2}-\\d{2})_to_(\\d{4}-\\d{2}-\\d{2})\\.parquet/);
-                    if (!dateMatch) continue;
-                    
-                    if (!filename.includes(`_${fileSuffix}_`)) {
-                        if (fileSuffix === 'D' && filename.includes(`_1D_`)) {} 
-                        else if (fileSuffix === '1D' && filename.includes(`_D_`)) {}
-                        else continue;
+            // 2. Identify Fyers Base Symbol for stitching
+            let fyersSymbol = `${symbolInfo.exchange}:${symbolInfo.name}`;
+            if (symbolInfo.type === 'futures' && window.HF_EXPIRIES) {
+                const baseTickerMatch = symbolInfo.name.match(/^([A-Z]+)\d/);
+                if (baseTickerMatch) {
+                    const baseTicker = baseTickerMatch[1] + '_INDEX';
+                    const baseExpiries = window.HF_EXPIRIES.filter(e => e.baseTicker.includes(baseTicker) && e.expiryType === 'M' && !e.isDummy);
+                    if (baseExpiries.length > 0) {
+                        baseExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
+                        const now = Date.now();
+                        let activeExp = baseExpiries.find(e => now < (e.dateObjValue + 86400000));
+                        if (!activeExp) activeExp = baseExpiries[baseExpiries.length - 1];
+                        const yy = activeExp.dateStr.slice(2,4);
+                        const base = activeExp.baseTicker.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '');
+                        fyersSymbol = `${symbolInfo.exchange}:${base}${yy}${activeExp.expiryCode}FUT`;
                     }
-                    
-                    const fStart = new Date(dateMatch[1]).getTime() / 1000;
-                    const fEnd = (new Date(dateMatch[2]).getTime() / 1000) + 86400;
-                    
-                    let isMatch = false;
-                    let priority = 0;
-                    
-                    if (symbolInfo.type === 'futures') {
-                        if (filename.startsWith(symbolInfo.name)) {
-                            isMatch = true; priority = 10;
-                        } else if (filename.includes('FUT_')) {
-                            isMatch = true; priority = 1;
-                        }
-                    } else if (symbolInfo.type === 'index') {
-                        if (filename.startsWith('NIFTY50-INDEX')) {
-                            isMatch = true; priority = 10;
-                        }
-                    } else { // Option
-                        if (filename.startsWith(symbolInfo.name)) {
-                            isMatch = true; priority = 10;
-                        }
+                }
+            }
+
+            // 3. Query DuckDB Parquet Data
+            if (window.db && window.resolveSymbolFiles) {
+                const fileUrls = await window.resolveSymbolFiles(symbolInfo, resolution, rawFrom, rawTo, countBack);
+                if (fileUrls.length > 0) {
+                    let vfsNames = [];
+                    for (let url of fileUrls) {
+                        vfsNames.push(await window.ensureParquetLoaded(url));
                     }
+                    const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
                     
-                    if (isMatch) {
-                        if (!allFiles.find(x => x.path === f.path)) {
-                            allFiles.push({ path: f.path, fStart, fEnd, priority, filename });
+                    conn = await window.db.connect();
+                    
+                    // We query wider to ensure boundaries are caught cleanly
+                    const rangeSQL = `
+                        SELECT time * 1000 AS time, open, high, low, close, volume
+                        FROM (${unionStmts})
+                        WHERE time >= ${rawFrom - 86400} AND time <= ${rawTo + 86400}
+                        ORDER BY time ASC
+                    `;
+                    const rangeResult = await conn.query(rangeSQL);
+                    let parquetBars = arrowToTVBars(rangeResult, resolution);
+                    
+                    if (parquetBars.length > 0) {
+                        duckdbHit = true;
+                        
+                        let coreBars = parquetBars.filter(b => b.time >= rawFrom * 1000 && b.time <= rawTo * 1000);
+                        let earliestParquet = coreBars.length > 0 ? coreBars[0].time / 1000 : (parquetBars[0].time / 1000);
+                        let latestParquet = coreBars.length > 0 ? coreBars[coreBars.length - 1].time / 1000 : (parquetBars[parquetBars.length - 1].time / 1000);
+                        
+                        finalBars = coreBars;
+                        
+                        // LEFT GAP: Fetch Deep History if TV wants older data than Parquet has
+                        if (rawFrom < earliestParquet && window.FyersAPI) {
+                            try {
+                                DFLog.info('getBars', `Fetching LEFT GAP from Fyers: ${rawFrom} to ${earliestParquet}`);
+                                let leftBars = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, earliestParquet);
+                                leftBars = alignFyersDwmTime(Array.isArray(leftBars) ? leftBars : (leftBars.data || []), resolution);
+                                finalBars = leftBars.concat(finalBars);
+                            } catch(e) { DFLog.error('getBars', 'Left gap fetch failed', e); }
+                        }
+                        
+                        // RIGHT GAP: Fetch Recent History if TV wants newer data than Parquet has (Fixes missing days before today!)
+                        if (rawTo > latestParquet && window.FyersAPI) {
+                            try {
+                                DFLog.info('getBars', `Fetching RIGHT GAP from Fyers: ${latestParquet} to ${rawTo}`);
+                                let rightBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, latestParquet, rawTo);
+                                rightBars = alignFyersDwmTime(rightBars, resolution);
+                                finalBars = finalBars.concat(rightBars);
+                            } catch(e) { DFLog.error('getBars', 'Right gap fetch failed', e); }
                         }
                     }
                 }
             }
             
-            // Files that intersect the requested range
-            let intersecting = allFiles.filter(f => f.fEnd >= qFrom && f.fStart <= qTo);
-            
-            // If no intersection (e.g. asking for today, but latest data is 1 month ago),
-            // find the newest files that are BEFORE qTo
-            if (intersecting.length === 0) {
-                let pastFiles = allFiles.filter(f => f.fStart <= qTo);
-                if (pastFiles.length > 0) {
-                    pastFiles.sort((a,b) => b.fEnd - a.fEnd); // Sort newest first
-                    // Take the most recent block of files
-                    const newestEnd = pastFiles[0].fEnd;
-                    intersecting = pastFiles.filter(f => f.fEnd === newestEnd);
+            // 4. If DuckDB returned absolutely nothing for this range
+            let isEnd = false;
+            if (!duckdbHit && window.FyersAPI) {
+                DFLog.info('getBars', `No Parquet data found for range. Falling back to Fyers Deep History.`);
+                let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
+                let deepBars = Array.isArray(res) ? res : (res.data || []);
+                isEnd = res.isEnd || false;
+                
+                finalBars = alignFyersDwmTime(deepBars, resolution);
+            }
+
+            // 5. Final Deduplication and Time Filtering (Bulletproof Pipeline)
+            if (finalBars.length > 0) {
+                // TradingView strictly requires bars to NOT exceed rawTo
+                finalBars = finalBars.filter(b => b.time <= rawTo * 1000);
+                
+                // Pure deduplication by exact timestamp (Parquet + Fyers overlap perfectly deduplicated)
+                const uniqueMap = new Map();
+                for (let b of finalBars) {
+                    uniqueMap.set(b.time, b);
                 }
+                
+                let cleanBars = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
+                
+                DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
+                return safeHistoryCallback(cleanBars, onHistoryCallback, resolution);
             }
             
-            intersecting.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
-            
-            // Limit to top 4 files to prevent DuckDB OOM during UNION
-            let selected = intersecting.slice(0, 4);
-            
-            // If we are looking for Futures, and the exact match didn't fill the quota,
-            // we ALSO want to grab the next older future month so the user can scroll smoothly!
-            // To do this, if we have less than 4 files, we can grab files that ended just before our selected files started.
-            if (symbolInfo.type === 'futures' || symbolInfo.type === 'index') {
-                if (selected.length > 0) {
-                    let oldestStart = Math.min(...selected.map(f => f.fStart));
-                    let olderFiles = allFiles.filter(f => f.fEnd <= oldestStart);
-                    olderFiles.sort((a, b) => b.priority - a.priority || b.fEnd - a.fEnd);
-                    for (let of of olderFiles) {
-                        if (selected.length >= 4) break;
-                        if (!selected.find(s => s.path === of.path)) {
-                            selected.push(of);
-                        }
-                    }
-                }
-            }
-            
-            return selected.map(f => `https://huggingface.co/datasets/deep776/fyers-market-data/resolve/main/${f.path}`);
-            
-        } catch(e) {
-            console.error("Resolve error", e);
-            return [];
+            return onHistoryCallback([], { noData: isEnd || true });
+
+        } catch (error) {
+            if (conn) { try { await conn.close(); } catch (_) {} }
+            DFLog.error('getBars', `Error for ${symbolInfo.name}`, error);
+            onHistoryCallback([], { noData: true });
         }
     },
-"""
 
-js = js.replace("    getBars: async", helper_func + "\n    getBars: async")
+    """
 
-# Now rewrite getBars body
-old_getbars_body_start = r'            // 1. Determine which Parquet file to query.*?let vfsName = await ensureParquetLoaded\(fileUrl\);'
-
-new_getbars_body_start = """            // 1. Resolve Parquet files dynamically based on requested time range and symbol type
-            // This natively supports Index and Futures merging across rollover months!
-            const fileUrls = await Datafeed.resolveParquetFiles(symbolInfo, resolution, from, to);
-            
-            if (fileUrls.length === 0) {
-                DFLog.warn('getBars', `No Parquet files found for ${symbolInfo.name} in range`);
-                return onHistoryCallback([], { noData: true });
-            }
-
-            // 2. Ensure Parquet files are downloaded & registered in DuckDB VFS
-            let vfsNames = [];
-            for (let url of fileUrls) {
-                vfsNames.push(await window.ensureParquetLoaded(url));
-            }
-            
-            // Build UNION query
-            const unionStmts = vfsNames.map(vfs => `SELECT * FROM read_parquet('${vfs}')`).join(' UNION ');
-"""
-
-js = re.sub(old_getbars_body_start, lambda m: new_getbars_body_start, js, flags=re.DOTALL)
-
-
-# Now fix SQL queries inside getBars to use the union alias
-old_range_sql = r"""            const rangeSQL = `
-                SELECT time \* 1000 AS time, open, high, low, close, volume
-                FROM read_parquet\('\$\{vfsName\}'\)
-                WHERE time >= \$\{from\} AND time < \$\{to\}
-                ORDER BY time ASC
-            `;"""
-new_range_sql = """            const rangeSQL = `
-                SELECT time * 1000 AS time, open, high, low, close, volume
-                FROM (
-                    ${unionStmts}
-                )
-                WHERE time >= ${from} AND time < ${to}
-                ORDER BY time ASC
-            `;"""
-js = re.sub(old_range_sql, lambda m: new_range_sql, js, flags=re.DOTALL)
-
-old_latest_sql = r"""                    const latestSQL = `
-                        SELECT time \* 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet\('\$\{vfsName\}'\)
-                        ORDER BY time DESC
-                        LIMIT \$\{countBack\}
-                    `;"""
-new_latest_sql = """                    const latestSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;"""
-js = re.sub(old_latest_sql, lambda m: new_latest_sql, js, flags=re.DOTALL)
-
-old_all_sql = r"""                    const allSQL = `
-                        SELECT time \* 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet\('\$\{vfsName\}'\)
-                    `;"""
-new_all_sql = """                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                    `;"""
-js = re.sub(old_all_sql, lambda m: new_all_sql, js, flags=re.DOTALL)
-
-old_older_sql = r"""                    const olderSQL = `
-                        SELECT time \* 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet\('\$\{vfsName\}'\)
-                        WHERE time < \$\{from\}
-                        ORDER BY time DESC
-                        LIMIT \$\{countBack\}
-                    `;"""
-new_older_sql = """                    const olderSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                        ORDER BY time DESC
-                        LIMIT ${countBack}
-                    `;"""
-js = re.sub(old_older_sql, lambda m: new_older_sql, js, flags=re.DOTALL)
-
-old_all_older_sql = r"""                    const allSQL = `
-                        SELECT time \* 1000 AS time, open, high, low, close, volume
-                        FROM read_parquet\('\$\{vfsName\}'\)
-                        WHERE time < \$\{from\}
-                    `;"""
-new_all_older_sql = """                    const allSQL = `
-                        SELECT time * 1000 AS time, open, high, low, close, volume
-                        FROM (
-                            ${unionStmts}
-                        )
-                        WHERE time < ${from}
-                    `;"""
-js = re.sub(old_all_older_sql, lambda m: new_all_older_sql, js, flags=re.DOTALL)
+new_content = content[:start_idx] + new_getBars + content[end_idx:]
 
 with open('public/datafeed.js', 'w') as f:
-    f.write(js)
+    f.write(new_content)
 
+print("Successfully replaced getBars")
