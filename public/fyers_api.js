@@ -263,6 +263,38 @@ class FyersEngine {
 
     initBrokerAccounts() {
         const accounts = this.getAccounts();
+
+        // Deduplicate any pre-existing duplicate accounts with same (fyId, appId)
+        if (accounts.length > 1) {
+            const seen = new Map();
+            const deduplicated = [];
+            let hadDuplicates = false;
+            
+            for (const acc of accounts) {
+                const key = `${(acc.fyId || '').trim().toUpperCase()}|${(acc.appId || '').trim().toUpperCase()}`;
+                if (!seen.has(key)) {
+                    seen.set(key, acc);
+                    deduplicated.push(acc);
+                } else {
+                    hadDuplicates = true;
+                    // Merge any non-empty tokens from duplicate into the retained account
+                    const prev = seen.get(key);
+                    if (!prev.webuiRefreshToken && acc.webuiRefreshToken) prev.webuiRefreshToken = acc.webuiRefreshToken;
+                    if (!prev.webuiAccessToken && acc.webuiAccessToken) prev.webuiAccessToken = acc.webuiAccessToken;
+                    if (!prev.apiAccessToken && acc.apiAccessToken) prev.apiAccessToken = acc.apiAccessToken;
+                    if (!prev.pin && acc.pin) prev.pin = acc.pin;
+                    if (!prev.secretKey && acc.secretKey) prev.secretKey = acc.secretKey;
+                    if (acc.updatedAt && (!prev.updatedAt || acc.updatedAt > prev.updatedAt)) {
+                        prev.updatedAt = acc.updatedAt;
+                    }
+                }
+            }
+            if (hadDuplicates) {
+                console.log("[FyersEngine] Cleaned up duplicate accounts with identical (fy_id, app_id).");
+                this.saveAccounts(deduplicated);
+            }
+        }
+
         // Auto-migrate legacy token if accounts list is currently empty
         if (accounts.length === 0) {
             const legacyToken = localStorage.getItem('fyers_token');
@@ -459,6 +491,29 @@ class FyersEngine {
                 valid: false,
                 error: `Cross-token validation failed: Provided tokens belong to User ID "${targetFyId}", but this account is registered to "${existingAccount.fyId}". Replacement tokens must belong to the same user.`
             };
+        }
+
+        // Duplicate Check: Disallow adding or updating an account with the exact same (fyId, appId) combination as another existing account
+        if (targetFyId) {
+            const accounts = this.getAccounts();
+            const duplicateAccount = accounts.find(a => {
+                if (existingAccount && a.id === existingAccount.id) return false;
+                const sameFy = (a.fyId || '').trim().toUpperCase() === targetFyId.trim().toUpperCase();
+                const sameApp = (a.appId || '').trim().toUpperCase() === cleanAppId.toUpperCase();
+                return sameFy && sameApp;
+            });
+            
+            if (duplicateAccount) {
+                const label = cleanAppId 
+                    ? `User ID "${targetFyId}" and App ID "${cleanAppId}"` 
+                    : `User ID "${targetFyId}" (WebUI Session)`;
+                return {
+                    valid: false,
+                    isDuplicate: true,
+                    duplicateAccount,
+                    error: `An account for ${label} already exists ("${duplicateAccount.displayName || targetFyId}"). Duplicate accounts with the same User ID and App ID combination are not allowed.`
+                };
+            }
         }
         
         const displayName = (infoRefresh && infoRefresh.displayName) || (infoApi && infoApi.displayName) || (existingAccount && existingAccount.displayName) || targetFyId || "Fyers User";
