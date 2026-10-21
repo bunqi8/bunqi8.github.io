@@ -604,8 +604,13 @@ class FyersUI {
                                         ">ACTIVE</span>
                                     ` : ''}
                                 </div>
-                                <div style="font-size: 12px; color: ${theme.textMuted}; margin-top: 2px;">
-                                    App ID: <code style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px;">${acc.appId || 'N/A'}</code>
+                                <div style="font-size: 12px; color: ${theme.textMuted}; margin-top: 2px; display: flex; align-items: center; gap: 8px;">
+                                    <span>App ID: <code style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px;">${acc.appId || 'N/A'}</code></span>
+                                    ${(acc.pin && acc.secretKey) ? `
+                                        <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.12); color: ${theme.success}; font-weight: 600;">⚡ Auto-Renew Ready</span>
+                                    ` : (acc.webuiRefreshToken ? `
+                                        <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(255,152,0,0.12); color: ${theme.warning}; font-weight: 600;">⚡ Needs PIN & Secret</span>
+                                    ` : '')}
                                 </div>
                             </div>
                         </div>
@@ -975,6 +980,80 @@ class FyersUI {
                             Stored for upcoming webui endpoints.
                         </div>
                     </div>
+
+                    <!-- Auto-Renewal Parameters (Optional) -->
+                    <div style="
+                        background: ${theme.cardBg}; 
+                        border: 1px solid ${theme.border}; 
+                        border-radius: 8px; 
+                        padding: 12px 14px; 
+                        margin-top: 4px;
+                    ">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 12px; font-weight: 700; color: ${theme.text}; display: inline-flex; align-items: center; gap: 6px;">
+                                <span>⚡</span> Auto-Renewal Parameters <span style="font-size: 11px; font-weight: 400; color: ${theme.textMuted};">(for 1-click & background renewal)</span>
+                            </span>
+                            ${isReplace && existing && existing.pin && existing.secretKey ? `
+                                <span style="font-size: 11px; color: ${theme.success}; font-weight: 600;">✓ Configured</span>
+                            ` : ''}
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px;">
+                            <!-- PIN -->
+                            <div>
+                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                                    Fyers 4-Digit PIN
+                                </label>
+                                <input type="password" id="bm-input-pin" maxlength="6" placeholder="${isReplace && existing && existing.pin ? '•••• (Saved - leave blank)' : '4-digit login PIN'}" style="
+                                    width: 100%; 
+                                    padding: 8px 10px; 
+                                    background: ${theme.inputBg}; 
+                                    color: ${theme.inputText}; 
+                                    border: 1px solid ${theme.inputBorder}; 
+                                    border-radius: 5px; 
+                                    font-size: 12px; 
+                                    box-sizing: border-box;
+                                ">
+                            </div>
+
+                            <!-- Secret Key -->
+                            <div>
+                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                                    App Secret Key
+                                </label>
+                                <input type="password" id="bm-input-secret" placeholder="${isReplace && existing && existing.secretKey ? '•••••••• (Saved - leave blank)' : 'API App Secret Key'}" style="
+                                    width: 100%; 
+                                    padding: 8px 10px; 
+                                    background: ${theme.inputBg}; 
+                                    color: ${theme.inputText}; 
+                                    border: 1px solid ${theme.inputBorder}; 
+                                    border-radius: 5px; 
+                                    font-size: 12px; 
+                                    box-sizing: border-box;
+                                ">
+                            </div>
+                        </div>
+
+                        <!-- Redirect URI -->
+                        <div>
+                            <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                                App Redirect URI
+                            </label>
+                            <input type="text" id="bm-input-redirect" value="${(existing && existing.redirectUri) ? existing.redirectUri : 'https://trade.fyers.in/api-login/redirect-uri/index.html'}" placeholder="e.g. https://trade.fyers.in/api-login/redirect-uri/index.html" style="
+                                width: 100%; 
+                                padding: 8px 10px; 
+                                background: ${theme.inputBg}; 
+                                color: ${theme.inputText}; 
+                                border: 1px solid ${theme.inputBorder}; 
+                                border-radius: 5px; 
+                                font-size: 12px; 
+                                box-sizing: border-box;
+                            ">
+                        </div>
+                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 6px; line-height: 1.4;">
+                            Used exclusively by your private engine to auto-renew API tokens on expiration. Write-only & stored in local browser storage.
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Live Token Inspector & Cross-Validation Container -->
@@ -1113,6 +1192,9 @@ class FyersUI {
         const inputApi = modal.querySelector('#bm-input-api');
         const inputRefresh = modal.querySelector('#bm-input-refresh');
         const inputWebui = modal.querySelector('#bm-input-webui');
+        const inputPin = modal.querySelector('#bm-input-pin');
+        const inputSecret = modal.querySelector('#bm-input-secret');
+        const inputRedirect = modal.querySelector('#bm-input-redirect');
 
         const runValidation = () => this.updateLiveInspector(modal);
 
@@ -1120,6 +1202,9 @@ class FyersUI {
         if (inputApi) inputApi.addEventListener('input', runValidation);
         if (inputRefresh) inputRefresh.addEventListener('input', runValidation);
         if (inputWebui) inputWebui.addEventListener('input', runValidation);
+        if (inputPin) inputPin.addEventListener('input', runValidation);
+        if (inputSecret) inputSecret.addEventListener('input', runValidation);
+        if (inputRedirect) inputRedirect.addEventListener('input', runValidation);
 
         // Initial run
         runValidation();
@@ -1132,6 +1217,9 @@ class FyersUI {
                 const apiAccessToken = inputApi ? inputApi.value.trim() : '';
                 const webuiRefreshToken = inputRefresh ? inputRefresh.value.trim() : '';
                 const webuiAccessToken = inputWebui ? inputWebui.value.trim() : '';
+                const pin = inputPin ? inputPin.value.trim() : '';
+                const secretKey = inputSecret ? inputSecret.value.trim() : '';
+                const redirectUri = inputRedirect ? inputRedirect.value.trim() : '';
                 const errorBox = modal.querySelector('#bm-form-error');
 
                 // Warning check for replacing non-expired active tokens
@@ -1165,6 +1253,9 @@ class FyersUI {
                     apiAccessToken,
                     webuiRefreshToken,
                     webuiAccessToken,
+                    pin,
+                    secretKey,
+                    redirectUri,
                     id: this.replaceAccountId
                 });
 
@@ -1267,6 +1358,12 @@ class FyersUI {
 
         const isCrossVerified = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
 
+        const inputPin = modal.querySelector('#bm-input-pin');
+        const inputSecret = modal.querySelector('#bm-input-secret');
+        const hasPin = Boolean((inputPin && inputPin.value.trim()) || (isReplace && existing && existing.pin));
+        const hasSecret = Boolean((inputSecret && inputSecret.value.trim()) || (isReplace && existing && existing.secretKey));
+        const autoRenewReady = Boolean(isCrossVerified && hasPin && hasSecret);
+
         inspector.innerHTML = `
             <div style="
                 background: rgba(8,153,129,0.08); 
@@ -1311,6 +1408,7 @@ class FyersUI {
                 <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.5;">
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
                     • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (No auto-renew)'}<br>
+                    • <strong>Auto-Renew Engine:</strong> ${autoRenewReady ? `<span style="color: ${theme.success}; font-weight: 600;">✓ Ready (PIN & Secret configured)</span>` : `<span style="color: ${theme.textMuted};">Enter PIN & Secret Key below for 1-click renewal</span>`}<br>
                     • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
                     ${isReplace && !refreshToken && existing && existing.webuiRefreshToken ? '<br>• <em>Existing WebUI Refresh Token will be preserved without changes.</em>' : ''}
                 </div>
