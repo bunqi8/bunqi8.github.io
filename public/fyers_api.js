@@ -160,6 +160,12 @@ class FyersEngine {
         return account.refreshExpiresAt <= Math.floor(Date.now() / 1000);
     }
 
+    isWebuiExpired(account) {
+        if (!account) return true;
+        if (!account.webuiExpiresAt) return false;
+        return account.webuiExpiresAt <= Math.floor(Date.now() / 1000);
+    }
+
     getAccounts() {
         try {
             const raw = localStorage.getItem('tv_broker_accounts');
@@ -190,16 +196,43 @@ class FyersEngine {
         return accounts[0];
     }
 
-    setActiveAccount(accountId) {
+    async getDecryptedAccount(account) {
+        if (!account) return null;
+        const copy = { ...account };
+        if (copy.apiAccessToken && copy.apiAccessToken.startsWith('enc:v1:')) {
+            copy.apiAccessToken = await this.decryptSensitive(copy.apiAccessToken);
+        }
+        if (copy.webuiRefreshToken && copy.webuiRefreshToken.startsWith('enc:v1:')) {
+            copy.webuiRefreshToken = await this.decryptSensitive(copy.webuiRefreshToken);
+        }
+        if (copy.webuiAccessToken && copy.webuiAccessToken.startsWith('enc:v1:')) {
+            copy.webuiAccessToken = await this.decryptSensitive(copy.webuiAccessToken);
+        }
+        if (copy.pin && copy.pin.startsWith('enc:v1:')) {
+            copy.pin = await this.decryptSensitive(copy.pin);
+        }
+        if (copy.secretKey && copy.secretKey.startsWith('enc:v1:')) {
+            copy.secretKey = await this.decryptSensitive(copy.secretKey);
+        }
+        return copy;
+    }
+
+    async setActiveAccount(accountId) {
         const accounts = this.getAccounts();
         const acc = accounts.find(a => a.id === accountId);
         if (!acc) return false;
         
         localStorage.setItem('tv_active_broker_id', accountId);
         
-        const authHeader = (acc.apiAccessToken && acc.apiAccessToken.includes(':'))
-            ? acc.apiAccessToken
-            : (acc.appId ? `${acc.appId}:${acc.apiAccessToken}` : acc.apiAccessToken);
+        // Decrypt API Access Token for in-memory session
+        let rawApi = acc.apiAccessToken || '';
+        if (rawApi && rawApi.startsWith('enc:v1:')) {
+            rawApi = await this.decryptSensitive(rawApi);
+        }
+        
+        const authHeader = (rawApi && rawApi.includes(':'))
+            ? rawApi
+            : (acc.appId ? `${acc.appId}:${rawApi}` : rawApi);
             
         this.token = authHeader;
         this.appId = acc.appId;
@@ -207,7 +240,13 @@ class FyersEngine {
         this.fyId = acc.fyId;
         this.isConnected = !this.isAccountExpired(acc);
         
-        localStorage.setItem('fyers_token', authHeader);
+        // Store encrypted token in localStorage for legacy compatibility
+        try {
+            if (authHeader && authHeader.trim()) {
+                const enc = await this.encryptSensitive(authHeader);
+                localStorage.setItem('fyers_token', enc);
+            }
+        } catch (_) {}
         
         window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
             detail: { connected: this.isConnected, name: this.profileName, account: acc }
@@ -249,20 +288,27 @@ class FyersEngine {
             }
         }
         
-        // Auto-encrypt unencrypted credentials if any
-        this.autoEncryptAccounts().catch(() => {});
+        // Auto-encrypt unencrypted credentials & sync active session
+        this.autoEncryptAccounts().then(() => {
+            const active = this.getActiveAccount();
+            if (active) {
+                return this.setActiveAccount(active.id);
+            }
+        }).catch(() => {});
         
-        // Sync active account state
+        // Synchronous fallback session sync (if already plaintext or immediate)
         const active = this.getActiveAccount();
         if (active) {
-            const authHeader = (active.apiAccessToken && active.apiAccessToken.includes(':'))
-                ? active.apiAccessToken
-                : (active.appId ? `${active.appId}:${active.apiAccessToken}` : active.apiAccessToken);
-            this.token = authHeader;
             this.appId = active.appId;
             this.profileName = active.displayName;
             this.fyId = active.fyId;
             this.isConnected = !this.isAccountExpired(active);
+            if (active.apiAccessToken && !active.apiAccessToken.startsWith('enc:v1:')) {
+                const authHeader = (active.apiAccessToken.includes(':'))
+                    ? active.apiAccessToken
+                    : (active.appId ? `${active.appId}:${active.apiAccessToken}` : active.apiAccessToken);
+                this.token = authHeader;
+            }
         }
     }
 
@@ -270,17 +316,75 @@ class FyersEngine {
         const accounts = this.getAccounts();
         let changed = false;
         for (const acc of accounts) {
+            // 1. API Access Token
+            if (acc.apiAccessToken && typeof acc.apiAccessToken === 'string' && !acc.apiAccessToken.startsWith('enc:v1:') && acc.apiAccessToken.trim() !== '') {
+                if (!acc.apiExpiresAt) {
+                    const info = this.extractTokenInfo(acc.apiAccessToken);
+                    if (info && info.exp) acc.apiExpiresAt = info.exp;
+                }
+                acc.apiAccessToken = await this.encryptSensitive(acc.apiAccessToken);
+                changed = true;
+            }
+
+            // 2. WebUI Refresh Token
+            if (acc.webuiRefreshToken && typeof acc.webuiRefreshToken === 'string' && !acc.webuiRefreshToken.startsWith('enc:v1:') && acc.webuiRefreshToken.trim() !== '') {
+                if (!acc.refreshExpiresAt) {
+                    const info = this.extractTokenInfo(acc.webuiRefreshToken);
+                    if (info && info.exp) acc.refreshExpiresAt = info.exp;
+                }
+                acc.webuiRefreshToken = await this.encryptSensitive(acc.webuiRefreshToken);
+                changed = true;
+            }
+
+            // 3. WebUI Access Token
+            if (acc.webuiAccessToken && typeof acc.webuiAccessToken === 'string' && !acc.webuiAccessToken.startsWith('enc:v1:') && acc.webuiAccessToken.trim() !== '') {
+                if (!acc.webuiExpiresAt) {
+                    const info = this.extractTokenInfo(acc.webuiAccessToken);
+                    if (info && info.exp) acc.webuiExpiresAt = info.exp;
+                }
+                acc.webuiAccessToken = await this.encryptSensitive(acc.webuiAccessToken);
+                changed = true;
+            }
+
+            // If webuiExpiresAt missing but token already encrypted, decrypt once to extract expiry
+            if (!acc.webuiExpiresAt && acc.webuiAccessToken && acc.webuiAccessToken.startsWith('enc:v1:')) {
+                try {
+                    const dec = await this.decryptSensitive(acc.webuiAccessToken);
+                    if (dec) {
+                        const info = this.extractTokenInfo(dec);
+                        if (info && info.exp) {
+                            acc.webuiExpiresAt = info.exp;
+                            changed = true;
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            // 4. PIN
             if (acc.pin && typeof acc.pin === 'string' && !acc.pin.startsWith('enc:v1:') && acc.pin.trim() !== '') {
                 acc.pin = await this.encryptSensitive(acc.pin);
                 changed = true;
             }
+
+            // 5. Secret Key
             if (acc.secretKey && typeof acc.secretKey === 'string' && !acc.secretKey.startsWith('enc:v1:') && acc.secretKey.trim() !== '') {
                 acc.secretKey = await this.encryptSensitive(acc.secretKey);
                 changed = true;
             }
         }
+
         if (changed) {
             this.saveAccounts(accounts);
+            window.dispatchEvent(new CustomEvent('fyers_accounts_migrated', { detail: { accounts } }));
+        }
+
+        // Also ensure standalone fyers_token in localStorage is encrypted
+        const legacyToken = localStorage.getItem('fyers_token');
+        if (legacyToken && !legacyToken.startsWith('enc:v1:')) {
+            try {
+                const enc = await this.encryptSensitive(legacyToken);
+                localStorage.setItem('fyers_token', enc);
+            } catch (_) {}
         }
     }
 
@@ -534,15 +638,15 @@ class FyersEngine {
                 if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
                     cleanApi = cleanApi.split(':')[1];
                 }
-                accountObj.apiAccessToken = cleanApi;
+                accountObj.apiAccessToken = await this.encryptSensitive(cleanApi);
                 accountObj.apiExpiresAt = check.apiExpiresAt;
             }
             if (webuiRefreshToken && webuiRefreshToken.trim()) {
-                accountObj.webuiRefreshToken = webuiRefreshToken.trim();
+                accountObj.webuiRefreshToken = await this.encryptSensitive(webuiRefreshToken.trim());
                 accountObj.refreshExpiresAt = check.refreshExpiresAt;
             }
             if (webuiAccessToken && webuiAccessToken.trim()) {
-                accountObj.webuiAccessToken = webuiAccessToken.trim();
+                accountObj.webuiAccessToken = await this.encryptSensitive(webuiAccessToken.trim());
                 accountObj.webuiExpiresAt = check.webuiExpiresAt;
             }
             if (pin !== null && pin !== undefined && pin.trim() !== '') {
@@ -560,8 +664,11 @@ class FyersEngine {
             if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
                 cleanApi = cleanApi.split(':')[1];
             }
-            const encPin = pin ? await this.encryptSensitive(pin) : '';
-            const encSecret = secretKey ? await this.encryptSensitive(secretKey) : '';
+            const encApi = cleanApi ? await this.encryptSensitive(cleanApi) : '';
+            const encRefresh = webuiRefreshToken ? await this.encryptSensitive(webuiRefreshToken.trim()) : '';
+            const encWebui = webuiAccessToken ? await this.encryptSensitive(webuiAccessToken.trim()) : '';
+            const encPin = pin ? await this.encryptSensitive(pin.trim()) : '';
+            const encSecret = secretKey ? await this.encryptSensitive(secretKey.trim()) : '';
             accountObj = {
                 id: 'acc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 broker: 'fyers',
@@ -569,9 +676,9 @@ class FyersEngine {
                 fyId: check.fyId,
                 displayName: check.displayName,
                 initials: check.initials,
-                apiAccessToken: cleanApi,
-                webuiRefreshToken: (webuiRefreshToken || '').trim(),
-                webuiAccessToken: (webuiAccessToken || '').trim(),
+                apiAccessToken: encApi,
+                webuiRefreshToken: encRefresh,
+                webuiAccessToken: encWebui,
                 pin: encPin,
                 secretKey: encSecret,
                 redirectUri: (redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html').trim(),
@@ -589,7 +696,7 @@ class FyersEngine {
         // If it is the active account or the first account, activate it
         const currentActiveId = this.getActiveAccountId();
         if (!currentActiveId || currentActiveId === accountObj.id || accounts.length === 1) {
-            this.setActiveAccount(accountObj.id);
+            await this.setActiveAccount(accountObj.id);
         } else {
             window.dispatchEvent(new CustomEvent('fyers_connection_status', { 
                 detail: { connected: this.isConnected, name: this.profileName, account: this.getActiveAccount() }
@@ -846,16 +953,29 @@ class FyersEngine {
                 this.showToast(`Requesting fresh access token for ${account.displayName}...`, 'info', 2000);
             }
 
-            // Decrypt PIN and Secret Key in memory if present
-            const rawPin = account.pin ? await this.decryptSensitive(account.pin) : '';
-            const rawSecret = account.secretKey ? await this.decryptSensitive(account.secretKey) : '';
+            // Decrypt ALL credentials and tokens in memory before passing to engine
+            const rawRefresh = (account.webuiRefreshToken && account.webuiRefreshToken.startsWith('enc:v1:'))
+                ? await this.decryptSensitive(account.webuiRefreshToken)
+                : (account.webuiRefreshToken || '');
+            const rawApi = (account.apiAccessToken && account.apiAccessToken.startsWith('enc:v1:'))
+                ? await this.decryptSensitive(account.apiAccessToken)
+                : (account.apiAccessToken || '');
+            const rawWebui = (account.webuiAccessToken && account.webuiAccessToken.startsWith('enc:v1:'))
+                ? await this.decryptSensitive(account.webuiAccessToken)
+                : (account.webuiAccessToken || '');
+            const rawPin = (account.pin && account.pin.startsWith('enc:v1:'))
+                ? await this.decryptSensitive(account.pin)
+                : (account.pin || '');
+            const rawSecret = (account.secretKey && account.secretKey.startsWith('enc:v1:'))
+                ? await this.decryptSensitive(account.secretKey)
+                : (account.secretKey || '');
 
             // Call proprietary refreshToken logic
             const res = await engine.refreshToken({
                 appId: account.appId,
-                webuiRefreshToken: account.webuiRefreshToken,
-                apiAccessToken: account.apiAccessToken,
-                webuiAccessToken: account.webuiAccessToken,
+                webuiRefreshToken: rawRefresh,
+                apiAccessToken: rawApi,
+                webuiAccessToken: rawWebui,
                 pin: rawPin,
                 secretKey: rawSecret,
                 redirectUri: account.redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html'
@@ -880,32 +1000,35 @@ class FyersEngine {
                 return { success: false, error: err };
             }
 
-            // Update account tokens
-            account.apiAccessToken = cleanApi;
+            // 1. Update API Access Token (Encrypted)
+            account.apiAccessToken = await this.encryptSensitive(cleanApi);
             if (info && info.exp) {
                 account.apiExpiresAt = info.exp;
             }
 
-            // If refresh token rotation is supported
+            // 2. Update WebUI Refresh Token (Encrypted)
             if (res.webuiRefreshToken) {
-                account.webuiRefreshToken = res.webuiRefreshToken.trim();
-                const refInfo = this.extractTokenInfo(account.webuiRefreshToken);
+                const cleanRefresh = res.webuiRefreshToken.trim().replace(/^\./, '');
+                account.webuiRefreshToken = await this.encryptSensitive(cleanRefresh);
+                const refInfo = this.extractTokenInfo(cleanRefresh);
                 if (refInfo && refInfo.exp) account.refreshExpiresAt = refInfo.exp;
             }
 
+            // 3. Update WebUI Access Token (Encrypted) - generated during step 1 of refresh
             if (res.webuiAccessToken) {
-                account.webuiAccessToken = res.webuiAccessToken.trim();
-                const webInfo = this.extractTokenInfo(account.webuiAccessToken);
+                const cleanWebui = res.webuiAccessToken.trim().replace(/^\./, '');
+                account.webuiAccessToken = await this.encryptSensitive(cleanWebui);
+                const webInfo = this.extractTokenInfo(cleanWebui);
                 if (webInfo && webInfo.exp) account.webuiExpiresAt = webInfo.exp;
             }
 
             account.updatedAt = Date.now();
             this.saveAccounts(accounts);
 
-            // If active account, re-activate with updated header
+            // Re-activate active account with newly decrypted access token
             const activeId = this.getActiveAccountId();
             if (activeId === account.id || accounts.length === 1) {
-                this.setActiveAccount(account.id);
+                await this.setActiveAccount(account.id);
             }
 
             const expStr = this.formatExpiry(account.apiExpiresAt);

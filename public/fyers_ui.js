@@ -129,6 +129,7 @@ class FyersUI {
         
         const apiExpFormatted = window.FyersAPI.formatExpiry(active.apiExpiresAt);
         const refreshExpFormatted = active.refreshExpiresAt ? window.FyersAPI.formatExpiry(active.refreshExpiresAt) : (active.webuiRefreshToken ? 'Configured' : 'Not provided');
+        const webuiExpFormatted = active.webuiExpiresAt ? window.FyersAPI.formatExpiry(active.webuiExpiresAt) : (active.webuiAccessToken ? 'Configured' : 'Not provided');
 
         const engineCfg = window.FyersAPI.getEngineConfig ? window.FyersAPI.getEngineConfig() : null;
         let engineStatus = 'Not configured';
@@ -138,7 +139,7 @@ class FyersUI {
             engineStatus = 'PAT Configured (Ready to load)';
         }
 
-        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}\nPrivate Engine: ${engineStatus}`;
+        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}\nWebUI Token: ${webuiExpFormatted}\nPrivate Engine: ${engineStatus}`;
     }
 
     updateButtonState() {
@@ -246,6 +247,13 @@ class FyersUI {
         });
 
         window.addEventListener('fyers_token_refreshed', () => {
+            this.updateButtonState();
+            if (document.getElementById(this.modalId)) {
+                this.renderModal();
+            }
+        });
+
+        window.addEventListener('fyers_accounts_migrated', () => {
             this.updateButtonState();
             if (document.getElementById(this.modalId)) {
                 this.renderModal();
@@ -542,6 +550,8 @@ class FyersUI {
 
                 const apiExpStr = window.FyersAPI.formatExpiry(acc.apiExpiresAt);
                 const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : null;
+                const webuiExpStr = acc.webuiExpiresAt ? window.FyersAPI.formatExpiry(acc.webuiExpiresAt) : null;
+                const isWebuiExp = window.FyersAPI.isWebuiExpired ? window.FyersAPI.isWebuiExpired(acc) : false;
                 const hasRenewalCreds = Boolean(acc.pin && acc.secretKey);
 
                 return `
@@ -805,12 +815,13 @@ class FyersUI {
                                         font-size: 11px; 
                                         padding: 3px 8px; 
                                         border-radius: 6px; 
-                                        background: rgba(41,98,255,0.08); 
-                                        color: #2962FF; 
+                                        background: ${isWebuiExp ? 'rgba(242,54,69,0.08)' : 'rgba(8,153,129,0.08)'}; 
+                                        color: ${isWebuiExp ? '#f23645' : '#089981'}; 
                                         font-weight: 500;
-                                        border: 1px solid rgba(41,98,255,0.22);
+                                        border: 1px solid ${isWebuiExp ? 'rgba(242,54,69,0.22)' : 'rgba(8,153,129,0.22)'};
                                     ">
-                                        🔒 Stored (Standby)
+                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isWebuiExp ? '#f23645' : '#089981'};"></span>
+                                        ${webuiExpStr || 'Configured (Active)'}
                                     </span>
                                 ` : `
                                     <span style="font-size: 11px; color: ${theme.textMuted};">— Not provided</span>
@@ -868,7 +879,7 @@ class FyersUI {
             ">
                 <span style="font-size: 14px; line-height: 1.2;">🔒</span>
                 <div>
-                    <strong style="color: ${theme.text};">Hardware-Grade Security:</strong> Sensitive credentials (PIN & Secret Key) are encrypted client-side using <strong>AES-256 GCM</strong> before saving. Tokens are write-only and never exposed in plaintext. When editing, empty fields preserve existing tokens.
+                    <strong style="color: ${theme.text};">Hardware-Grade Security:</strong> All tokens and credentials (API Access Token, WebUI Refresh Token, WebUI Access Token, PIN, and Secret Key) are encrypted client-side using <strong>AES-256 GCM</strong> before saving. No plaintext credentials exist in browser storage.
                 </div>
             </div>
         `;
@@ -1477,6 +1488,13 @@ class FyersUI {
             refExpStr = window.FyersAPI.formatExpiry(existing.refreshExpiresAt) + ' (Kept current)';
         }
 
+        let webuiExpStr = null;
+        if (check.webuiExpiresAt) {
+            webuiExpStr = window.FyersAPI.formatExpiry(check.webuiExpiresAt);
+        } else if (isReplace && existing && existing.webuiExpiresAt) {
+            webuiExpStr = window.FyersAPI.formatExpiry(existing.webuiExpiresAt) + ' (Kept current)';
+        }
+
         const isCrossVerified = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
 
         const hasPin = Boolean((inputPin && inputPin.value.trim()) || (isReplace && existing && existing.pin));
@@ -1527,6 +1545,7 @@ class FyersUI {
                 <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.55;">
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
                     • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (Manual renewal)'}<br>
+                    • <strong>WebUI Access Token:</strong> ${webuiExpStr || 'Not provided (Standby)'}<br>
                     • <strong>Auto-Renew Engine:</strong> ${autoRenewReady ? `<span style="color: ${theme.success}; font-weight: 600;">✓ Ready (AES-256 Encrypted)</span>` : `<span style="color: ${theme.textMuted};">Enter PIN & Secret Key below for 1-click renewal</span>`}<br>
                     • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
                     ${isReplace && !refreshToken && existing && existing.webuiRefreshToken ? '<br>• <em>Existing WebUI Refresh Token will be preserved without changes.</em>' : ''}
