@@ -1019,108 +1019,94 @@ class FyersUI {
                                 <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: ui-monospace, monospace;">Self-Destruct on Ingestion</span>
                             </div>
 
-                            <!-- 3 Easy Execution Methods -->
+                            <!-- 2 Easy Execution Methods -->
                             <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 12px;">
                                 <div style="font-weight: 700; color: ${theme.text}; margin-bottom: 8px; font-size: 12.5px;">
-                                    Step 1: Run on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> (Choose any method below):
+                                    Step 1: Run on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> (Choose either method):
                                 </div>
                                 
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 10px;">
-                                    <!-- Option A: Bookmarklet -->
-                                    <div style="border: 1px solid rgba(41,98,255,0.25); background: rgba(41,98,255,0.04); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 10px;">
+                                    <!-- Option A: Bookmarklet & Address Bar Runner (Merged) -->
+                                    <div style="border: 1px solid rgba(41,98,255,0.25); background: rgba(41,98,255,0.04); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;">
                                         <div>
-                                            <div style="font-weight: 600; color: ${theme.primary}; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
-                                                <span>⭐</span> Option A: Bookmarklet
+                                            <div style="font-weight: 700; color: ${theme.primary}; margin-bottom: 6px; font-size: 12.5px; display: flex; align-items: center; gap: 5px;">
+                                                <span>⭐</span> Option A: Bookmarklet & Address Bar
                                             </div>
-                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
-                                                Drag to bookmarks bar. When viewing Fyers Web, click it once to sync!
+                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 10px; line-height: 1.45;">
+                                                <div>• <strong>Drag to Bookmarks:</strong> Drag the button to your bookmarks bar and click it anytime on Fyers.</div>
+                                                <div style="margin-top: 4px;">• <strong>Or Paste in Address Bar:</strong> Click <em>Copy for Address Bar</em>, then on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> address bar type <code style="color: #089981; font-weight: 700; background: rgba(8,153,129,0.12); padding: 1px 4px; border-radius: 3px;">j</code> then paste & hit Enter!</div>
                                             </div>
                                         </div>
-                                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                                        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
                                             <a id="bm-link-bookmarklet" href="#" draggable="true" title="Drag me to your Bookmarks Bar!" style="
                                                 background: ${theme.primary};
                                                 color: #fff;
-                                                padding: 5px 8px;
-                                                border-radius: 4px;
+                                                padding: 6px 10px;
+                                                border-radius: 5px;
                                                 font-size: 11px;
                                                 font-weight: 600;
                                                 text-decoration: none;
                                                 cursor: grab;
                                                 display: inline-flex;
                                                 align-items: center;
-                                                gap: 3px;
+                                                gap: 4px;
                                             ">
                                                 <span>⭐</span> Drag: "Sync Tokens"
                                             </a>
-                                            <button id="bm-btn-copy-bookmarklet" type="button" style="
+                                            <button id="bm-btn-copy-addressbar" type="button" title="Copies script without leading 'j' for address bar" style="
                                                 background: ${theme.cardBg};
                                                 color: ${theme.text};
+                                                border: 1px solid rgba(8,153,129,0.45);
+                                                padding: 6px 10px;
+                                                border-radius: 5px;
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                cursor: pointer;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>🔗</span> Copy for Address Bar
+                                            </button>
+                                            <button id="bm-btn-copy-bookmarklet" type="button" title="Copy raw bookmarklet URL" style="
+                                                background: transparent;
+                                                color: ${theme.textMuted};
                                                 border: 1px solid ${theme.border};
-                                                padding: 5px 7px;
-                                                border-radius: 4px;
+                                                padding: 6px 8px;
+                                                border-radius: 5px;
                                                 font-size: 11px;
                                                 cursor: pointer;
-                                            ">Copy</button>
+                                            ">Copy URL</button>
                                         </div>
                                     </div>
 
                                     <!-- Option B: Console Snippet -->
-                                    <div style="border: 1px solid ${theme.border}; background: rgba(0,0,0,0.02); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                                    <div style="border: 1px solid ${theme.border}; background: rgba(0,0,0,0.02); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;">
                                         <div>
-                                            <div style="font-weight: 600; color: ${theme.text}; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
-                                                <span>💻</span> Option B: Console
+                                            <div style="font-weight: 700; color: ${theme.text}; margin-bottom: 6px; font-size: 12.5px; display: flex; align-items: center; gap: 5px;">
+                                                <span>💻</span> Option B: Console Script
                                             </div>
-                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
-                                                Open Console (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd>) on trade.fyers.in, paste & hit Enter.
+                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 10px; line-height: 1.45;">
+                                                Open DevTools (<kbd style="font-size: 10px; padding: 1px 4px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 3px;">F12</kbd> or right-click → Inspect → Console) on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a>, paste the script and press Enter.
                                             </div>
                                         </div>
                                         <button id="bm-btn-copy-extractor-script" type="button" style="
                                             background: ${theme.cardBg};
                                             color: ${theme.text};
                                             border: 1px solid ${theme.border};
-                                            padding: 5px 8px;
-                                            border-radius: 4px;
-                                            font-size: 11px;
+                                            padding: 7px 12px;
+                                            border-radius: 5px;
+                                            font-size: 11.5px;
                                             font-weight: 600;
                                             cursor: pointer;
                                             display: inline-flex;
                                             align-items: center;
                                             justify-content: center;
-                                            gap: 4px;
+                                            gap: 5px;
                                             width: 100%;
                                             box-sizing: border-box;
                                         ">
                                             <span>📋</span> Copy Console Script
-                                        </button>
-                                    </div>
-
-                                    <!-- Option C: Address Bar Quick Runner -->
-                                    <div style="border: 1px solid rgba(8,153,129,0.3); background: rgba(8,153,129,0.04); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
-                                        <div>
-                                            <div style="font-weight: 600; color: #089981; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
-                                                <span>🔗</span> Option C: Address Bar
-                                            </div>
-                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
-                                                Type <code style="color: #089981; font-weight: 700; background: rgba(8,153,129,0.1); padding: 1px 3px; border-radius: 3px;">j</code> in address bar on trade.fyers.in, paste & hit Enter!
-                                            </div>
-                                        </div>
-                                        <button id="bm-btn-copy-addressbar" type="button" style="
-                                            background: ${theme.cardBg};
-                                            color: ${theme.text};
-                                            border: 1px solid rgba(8,153,129,0.4);
-                                            padding: 5px 8px;
-                                            border-radius: 4px;
-                                            font-size: 11px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            justify-content: center;
-                                            gap: 4px;
-                                            width: 100%;
-                                            box-sizing: border-box;
-                                        ">
-                                            <span>🔗</span> Copy Address Bar Script
                                         </button>
                                     </div>
                                 </div>
@@ -2228,7 +2214,7 @@ class FyersUI {
                             <div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <strong style="font-size: 14px;">Private Refresh Engine</strong>
-                                    <span style="
+                                    <span id="bm-engine-version-badge" style="
                                         font-size: 11px; 
                                         padding: 2px 8px; 
                                         border-radius: 12px; 
@@ -2588,6 +2574,12 @@ window.FyersPrivateEngine = {
                     const res = await window.FyersAPI.loadPrivateEngine(true);
                     if (res.success) {
                         showStatus(`Private engine connected and loaded successfully! Exposes version <strong>${res.version || '1.0.0'}</strong>.`, true);
+                        const badge = modal.querySelector('#bm-engine-version-badge');
+                        if (badge) {
+                            badge.innerHTML = `🟢 Loaded (v${res.version || '1.0.0'})`;
+                            badge.style.background = 'rgba(8,153,129,0.15)';
+                            badge.style.color = theme.success;
+                        }
                     } else {
                         showStatus(res.error, false);
                     }
