@@ -150,6 +150,11 @@ class FyersEngine {
 
     isAccountExpired(account) {
         if (!account) return true;
+        if (!account.apiAccessToken) {
+            // If no API token exists, check WebUI access token if present
+            if (account.webuiAccessToken) return this.isWebuiExpired(account);
+            return true;
+        }
         if (!account.apiExpiresAt) return false;
         return account.apiExpiresAt <= Math.floor(Date.now() / 1000);
     }
@@ -232,13 +237,15 @@ class FyersEngine {
         
         const authHeader = (rawApi && rawApi.includes(':'))
             ? rawApi
-            : (acc.appId ? `${acc.appId}:${rawApi}` : rawApi);
+            : (acc.appId && rawApi ? `${acc.appId}:${rawApi}` : rawApi);
             
-        this.token = authHeader;
-        this.appId = acc.appId;
-        this.profileName = acc.displayName;
-        this.fyId = acc.fyId;
-        this.isConnected = !this.isAccountExpired(acc);
+        this.token = authHeader || null;
+        this.appId = acc.appId || null;
+        this.profileName = acc.displayName || 'Fyers User';
+        this.fyId = acc.fyId || null;
+        const hasValidApi = Boolean(rawApi) && !this.isAccountExpired(acc);
+        const hasValidWebui = Boolean(acc.webuiAccessToken) && !this.isWebuiExpired(acc);
+        this.isConnected = hasValidApi || hasValidWebui;
         
         // Store encrypted token in localStorage for legacy compatibility
         try {
@@ -399,10 +406,7 @@ class FyersEngine {
         isReplace = false, 
         existingAccount = null 
     }) {
-        if (!appId || !appId.trim()) {
-            return { valid: false, error: "App ID is required." };
-        }
-        
+        const cleanAppId = (appId || '').trim();
         const hasApi = Boolean(apiAccessToken && apiAccessToken.trim());
         const hasRefresh = Boolean(webuiRefreshToken && webuiRefreshToken.trim());
         const hasWebui = Boolean(webuiAccessToken && webuiAccessToken.trim());
@@ -411,17 +415,18 @@ class FyersEngine {
         const hasRedirect = Boolean(redirectUri && redirectUri.trim() && (!existingAccount || existingAccount.redirectUri !== redirectUri.trim()));
         
         if (!isReplace) {
-            if (!hasApi) return { valid: false, error: "API Access Token is required." };
-            // WebUI Refresh Token is optional but highly recommended
+            if (!hasApi && !hasRefresh && !hasWebui) {
+                return { valid: false, error: "At least one token is required (API Access Token, WebUI Refresh Token, or WebUI Access Token)." };
+            }
         } else {
-            const hasAnyChange = hasApi || hasRefresh || hasWebui || hasPin || hasSecret || hasRedirect || (existingAccount && existingAccount.appId !== appId.trim());
+            const hasAnyChange = hasApi || hasRefresh || hasWebui || hasPin || hasSecret || hasRedirect || (appId !== undefined && existingAccount && (existingAccount.appId || '') !== cleanAppId);
             if (!hasAnyChange) {
                 return { valid: false, error: "No changes entered to replace.", noChanges: true };
             }
         }
         
-        const infoApi = hasApi ? this.extractTokenInfo(apiAccessToken) : (existingAccount ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.apiExpiresAt } : null);
-        const infoRefresh = hasRefresh ? this.extractTokenInfo(webuiRefreshToken) : (existingAccount ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.refreshExpiresAt } : null);
+        const infoApi = hasApi ? this.extractTokenInfo(apiAccessToken) : (existingAccount && existingAccount.apiAccessToken ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.apiExpiresAt } : null);
+        const infoRefresh = hasRefresh ? this.extractTokenInfo(webuiRefreshToken) : (existingAccount && existingAccount.webuiRefreshToken ? { fyId: existingAccount.fyId, displayName: existingAccount.displayName, exp: existingAccount.refreshExpiresAt } : null);
         const infoWebui = hasWebui ? this.extractTokenInfo(webuiAccessToken) : (existingAccount && existingAccount.webuiAccessToken ? { fyId: existingAccount.fyId, exp: existingAccount.webuiExpiresAt } : null);
         
         if (hasApi && !infoApi) return { valid: false, error: "API Access Token is not a valid JWT format." };
@@ -433,9 +438,9 @@ class FyersEngine {
         if (hasWebui && !infoWebui.fyId) return { valid: false, error: "WebUI Access Token missing User ID ('fy_id')." };
         
         // Cross-token validation
-        const targetFyId = (infoRefresh && infoRefresh.fyId) || (infoApi && infoApi.fyId) || (existingAccount && existingAccount.fyId);
+        const targetFyId = (infoRefresh && infoRefresh.fyId) || (infoWebui && infoWebui.fyId) || (infoApi && infoApi.fyId) || (existingAccount && existingAccount.fyId);
         
-        if (infoApi && infoRefresh && infoApi.fyId !== infoRefresh.fyId) {
+        if (infoApi && infoRefresh && infoApi.fyId && infoRefresh.fyId && infoApi.fyId !== infoRefresh.fyId) {
             return {
                 valid: false,
                 error: `Cross-token validation failed: API Access Token belongs to User ID "${infoApi.fyId}", but WebUI Refresh Token belongs to "${infoRefresh.fyId}". All tokens must belong to the same user.`
@@ -629,7 +634,9 @@ class FyersEngine {
         let accountObj = null;
         if (isReplace && existing) {
             accountObj = existing;
-            accountObj.appId = appId.trim();
+            if (appId !== undefined && appId !== null) {
+                accountObj.appId = (appId || '').trim();
+            }
             accountObj.fyId = check.fyId;
             accountObj.displayName = check.displayName;
             accountObj.initials = check.initials;
@@ -672,7 +679,7 @@ class FyersEngine {
             accountObj = {
                 id: 'acc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 broker: 'fyers',
-                appId: appId.trim(),
+                appId: (appId || '').trim(),
                 fyId: check.fyId,
                 displayName: check.displayName,
                 initials: check.initials,
@@ -1032,7 +1039,7 @@ class FyersEngine {
         }
     }
 
-    async refreshAccountToken(accountId = null, isManual = false) {
+    async refreshAccountToken(accountId = null, isManual = false, customPin = null) {
         if (this._isRefreshing) {
             const msg = "Token refresh already in progress...";
             if (isManual) this.showToast(msg, 'warning');
@@ -1092,47 +1099,68 @@ class FyersEngine {
             const rawWebui = (account.webuiAccessToken && account.webuiAccessToken.startsWith('enc:v1:'))
                 ? await this.decryptSensitive(account.webuiAccessToken)
                 : (account.webuiAccessToken || '');
-            const rawPin = (account.pin && account.pin.startsWith('enc:v1:'))
+            const storedPin = (account.pin && account.pin.startsWith('enc:v1:'))
                 ? await this.decryptSensitive(account.pin)
                 : (account.pin || '');
             const rawSecret = (account.secretKey && account.secretKey.startsWith('enc:v1:'))
                 ? await this.decryptSensitive(account.secretKey)
                 : (account.secretKey || '');
+            const rawAppId = (account.appId || '').trim();
+
+            let targetPin = customPin || storedPin;
+            if (!targetPin) {
+                if (isManual) {
+                    const promptVal = prompt(`Enter 4-digit Fyers login PIN for ${account.displayName || account.fyId || 'account'} (used for this refresh session only without storing):`);
+                    if (promptVal === null) {
+                        return { success: false, error: "Token refresh cancelled: PIN was not entered." };
+                    }
+                    targetPin = promptVal.trim();
+                    if (!targetPin) {
+                        const err = "4-digit PIN is required to refresh Fyers tokens.";
+                        this.showToast(err, 'error');
+                        return { success: false, error: err };
+                    }
+                } else {
+                    console.log(`[FyersEngine] Skipping background renewal for ${account.displayName || account.id}: PIN not stored (manual refresh available with 1-time PIN prompt).`);
+                    return { success: false, error: "Auto-refresh paused: PIN not stored" };
+                }
+            }
 
             // Call proprietary refreshToken logic
             const res = await engine.refreshToken({
-                appId: account.appId,
+                appId: rawAppId,
                 webuiRefreshToken: rawRefresh,
                 apiAccessToken: rawApi,
                 webuiAccessToken: rawWebui,
-                pin: rawPin,
+                pin: targetPin,
                 secretKey: rawSecret,
                 redirectUri: account.redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html'
             });
 
-            if (!res || !res.success || !res.apiAccessToken) {
-                const err = (res && res.error) ? res.error : "Private engine failed to generate fresh token.";
-                this.showToast(`Token refresh failed: ${err}`, 'error');
+            if (!res || !res.success) {
+                const err = (res && res.error) ? res.error : "Private engine failed to refresh tokens.";
+                if (isManual) this.showToast(`Token refresh failed: ${err}`, 'error');
                 return { success: false, error: err };
             }
 
-            // Clean token if prefixed with app_id
-            let cleanApi = res.apiAccessToken.trim();
-            if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
-                cleanApi = cleanApi.split(':')[1];
-            }
+            // 1. Update API Access Token (Encrypted) if generated
+            if (res.apiAccessToken) {
+                let cleanApi = res.apiAccessToken.trim();
+                if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
+                    cleanApi = cleanApi.split(':')[1];
+                }
 
-            const info = this.extractTokenInfo(cleanApi);
-            if (info && info.fyId && account.fyId && info.fyId !== account.fyId) {
-                const err = `Refreshed token User ID ("${info.fyId}") does not match account User ID ("${account.fyId}").`;
-                this.showToast(err, 'error');
-                return { success: false, error: err };
-            }
+                const info = this.extractTokenInfo(cleanApi);
+                if (info && info.fyId && account.fyId && info.fyId !== account.fyId) {
+                    const err = `Refreshed token User ID ("${info.fyId}") does not match account User ID ("${account.fyId}").`;
+                    this.showToast(err, 'error');
+                    return { success: false, error: err };
+                }
 
-            // 1. Update API Access Token (Encrypted)
-            account.apiAccessToken = await this.encryptSensitive(cleanApi);
-            if (info && info.exp) {
-                account.apiExpiresAt = info.exp;
+                account.apiAccessToken = await this.encryptSensitive(cleanApi);
+                if (info && info.exp) {
+                    account.apiExpiresAt = info.exp;
+                }
             }
 
             // 2. Update WebUI Refresh Token (Encrypted)
@@ -1160,8 +1188,13 @@ class FyersEngine {
                 await this.setActiveAccount(account.id);
             }
 
-            const expStr = this.formatExpiry(account.apiExpiresAt);
-            this.showToast(`⚡ Access token refreshed for ${account.displayName} (${account.fyId})! Valid ${expStr}.`, 'success', 5000);
+            if (res.apiAccessToken) {
+                const expStr = this.formatExpiry(account.apiExpiresAt);
+                this.showToast(`⚡ All tokens refreshed for ${account.displayName || account.fyId}! Valid ${expStr}.`, 'success', 5000);
+            } else {
+                const webExpStr = account.webuiExpiresAt ? this.formatExpiry(account.webuiExpiresAt) : 'Active';
+                this.showToast(`⚡ WebUI session refreshed for ${account.displayName || account.fyId}! WebUI token valid ${webExpStr}.`, 'success', 5000);
+            }
 
             window.dispatchEvent(new CustomEvent('fyers_token_refreshed', { detail: { account } }));
             return { success: true, account };
@@ -1180,8 +1213,8 @@ class FyersEngine {
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
         }
-        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.4')) {
-            console.log("[FyersAPI] Updating private engine to latest v1.4.4...");
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.5')) {
+            console.log("[FyersAPI] Updating private engine to latest v1.4.5...");
             const reloadRes = await this.loadPrivateEngine(true);
             if (reloadRes.success) {
                 engineRes = reloadRes;
@@ -1247,13 +1280,29 @@ class FyersEngine {
         if (!active || !active.webuiRefreshToken) return;
         if (this.isRefreshExpired(active)) return;
 
-        if (active.apiExpiresAt) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const remainingSec = active.apiExpiresAt - nowSec;
-            const leadSec = (cfg.leadTimeMinutes || 10) * 60;
+        // Auto-refresh requires stored PIN. If PIN is not stored, auto-refresh is paused.
+        if (!active.pin) {
+            return;
+        }
 
+        const nowSec = Math.floor(Date.now() / 1000);
+        const leadSec = (cfg.leadTimeMinutes || 10) * 60;
+
+        // Check if API token needs renewal
+        if (active.apiAccessToken && active.apiExpiresAt) {
+            const remainingSec = active.apiExpiresAt - nowSec;
             if (remainingSec <= leadSec) {
-                console.log(`[FyersEngine] Active token expires in ${Math.round(remainingSec / 60)}m (<= ${cfg.leadTimeMinutes}m threshold). Running auto-refresh...`);
+                console.log(`[FyersEngine] Active API token expires in ${Math.round(remainingSec / 60)}m (<= ${cfg.leadTimeMinutes}m threshold). Running auto-refresh...`);
+                await this.refreshAccountToken(active.id, false);
+                return;
+            }
+        }
+
+        // Check if WebUI access token needs renewal (when API token is absent or already refreshed)
+        if (active.webuiAccessToken && active.webuiExpiresAt) {
+            const remainingWebuiSec = active.webuiExpiresAt - nowSec;
+            if (remainingWebuiSec <= leadSec) {
+                console.log(`[FyersEngine] Active WebUI token expires in ${Math.round(remainingWebuiSec / 60)}m (<= ${cfg.leadTimeMinutes}m threshold). Running auto-refresh...`);
                 await this.refreshAccountToken(active.id, false);
             }
         }
