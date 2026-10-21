@@ -10,9 +10,11 @@
     class MT5UI {
         constructor() {
             this.btnId = 'header-toolbar-mt5-broker-btn';
+            this.wrapperId = 'header-toolbar-mt5-manager';
             this.modalId = 'mt5-fleet-manager-modal';
             this.activeTab = 'fleet'; // 'fleet' or 'settings'
             this.viewMode = 'list'; // 'list' or 'add'
+            this.cachedIframeDoc = null;
             this.init();
         }
 
@@ -55,86 +57,193 @@
             };
         }
 
-        injectButton() {
-            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
-            const targetDoc = iframe && iframe.contentDocument ? iframe.contentDocument : document;
-            if (targetDoc.getElementById(this.btnId)) return;
+        getTooltipText() {
+            if (!window.MT5API) return 'Broker: MetaTrader 5\nStatus: Initializing...';
+            const acc = window.MT5API.getActiveAccount();
+            const isConn = window.MT5API.isConnected;
+            const accounts = window.MT5API.accounts || [];
+            if (!acc) {
+                return `Broker: MetaTrader 5\nStatus: Disconnected\nAccounts Configured: ${accounts.length}\nClick to configure MT5 fleet`;
+            }
+            const balanceStr = acc.balance != null ? `$${Number(acc.balance).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
+            const equityStr = acc.equity != null ? `$${Number(acc.equity).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
+            return `Broker: MetaTrader 5\nAccount: ${acc.nickname || 'Default'} (#${acc.login || 'N/A'})\nServer: ${acc.server || 'N/A'}\nStatus: ${isConn ? 'Connected' : 'Connecting...'}\nBalance: ${balanceStr}\nEquity: ${equityStr}\nFleet: ${accounts.length} Accounts Active\nClick to manage MT5 fleet`;
+        }
 
-            // Search for header toolbar container
-            const toolbar = targetDoc.querySelector('.toolbar-2yv4zHqA') || 
-                            targetDoc.querySelector('[data-name="header-toolbar"]') ||
-                            targetDoc.querySelector('.apply-common-tooltip') ||
-                            document.querySelector('#header-toolbar-properties');
+        injectButton(targetEl = null, iframeDoc = null) {
+            if (!iframeDoc) {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
+                if (iframe) {
+                    try {
+                        iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    } catch (_) {}
+                }
+            }
+            const targetDoc = iframeDoc || document;
+            this.cachedIframeDoc = targetDoc;
 
-            const btn = document.createElement('div');
-            btn.id = this.btnId;
-            btn.style.cssText = `
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                padding: 4px 10px;
-                margin: 0 4px;
-                border-radius: 6px;
-                background: rgba(41, 98, 255, 0.12);
-                border: 1px solid rgba(41, 98, 255, 0.35);
-                color: #2962ff;
-                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
-                font-size: 12px;
-                font-weight: 600;
-                cursor: pointer;
-                user-select: none;
-                transition: all 0.2s;
-                z-index: 99;
-                white-space: nowrap;
+            if (targetDoc.getElementById(this.btnId)) {
+                this.ensureButtonPosition(targetDoc, targetEl);
+                this.updateButtonState();
+                return;
+            }
+
+            const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
+            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+
+            const btnHtml = `
+            <div class="group-MBOVGQRI" id="${this.wrapperId}" style="margin: 0 4px; display: inline-flex; align-items: center;">
+                <button aria-label="MetaTrader 5 Fleet" data-role="button" tabindex="-1" type="button" 
+                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-broker-btn" 
+                    id="${this.btnId}" style="padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 100%; border: none; background: transparent;">
+                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;">
+                        <span class="tv-broker-avatar tv-mt5-avatar" style="
+                            width: 22px; 
+                            height: 22px; 
+                            border-radius: 50%; 
+                            background: #787b86; 
+                            color: #ffffff; 
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                            font-weight: 700; 
+                            font-size: 10px; 
+                            line-height: 22px; 
+                            text-align: center; 
+                            display: flex; 
+                            align-items: center; 
+                            justify-content: center; 
+                            user-select: none;
+                            letter-spacing: 0.3px;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                        ">MT</span>
+                        <span class="tv-broker-status-dot tv-mt5-status-dot" style="
+                            position: absolute; 
+                            bottom: 2px; 
+                            right: 2px; 
+                            width: 6.5px; 
+                            height: 6.5px; 
+                            border-radius: 50%; 
+                            background: #787b86; 
+                            box-shadow: 0 0 0 1.5px #ffffff;
+                        "></span>
+                    </span>
+                </button>
+            </div>
             `;
 
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.openModal();
-            };
-
-            if (toolbar && toolbar.parentNode) {
-                toolbar.parentNode.insertBefore(btn, toolbar.nextSibling);
+            // Place DIRECTLY next to Fyers button if available, or right before symbol search
+            if (fyersWrapper && fyersWrapper.parentNode) {
+                fyersWrapper.insertAdjacentHTML('afterend', btnHtml);
+            } else if (symbolSearch && symbolSearch.parentNode) {
+                symbolSearch.insertAdjacentHTML('beforebegin', btnHtml);
+            } else if (targetEl && targetEl.parentNode) {
+                targetEl.insertAdjacentHTML('beforebegin', btnHtml);
             } else {
-                // Fixed top-right fallback in chart
-                btn.style.position = 'fixed';
-                btn.style.top = '10px';
-                btn.style.right = '175px';
-                btn.style.zIndex = '9999';
-                btn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-                document.body.appendChild(btn);
+                const firstGroup = targetDoc.querySelector('.group-wWM3zP_M') || targetDoc.querySelector('.group-MBOVGQRI');
+                if (firstGroup && firstGroup.parentNode) {
+                    firstGroup.insertAdjacentHTML('beforebegin', btnHtml);
+                }
+            }
+
+            const btn = targetDoc.getElementById(this.btnId);
+            if (btn) {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.openModal();
+                });
+
+                btn.addEventListener('mouseenter', () => {
+                    const tooltipText = this.getTooltipText();
+                    btn.setAttribute('title', tooltipText);
+                    btn.setAttribute('data-tooltip', tooltipText);
+                });
+
+                btn.addEventListener('mouseleave', () => {
+                    btn.removeAttribute('title');
+                });
             }
 
             this.updateButtonState();
         }
 
+        ensureButtonPosition(targetDoc, targetEl = null) {
+            if (!targetDoc) return;
+            const mt5Wrapper = targetDoc.getElementById(this.wrapperId);
+            const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
+            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+
+            if (mt5Wrapper && fyersWrapper && fyersWrapper.parentNode) {
+                if (fyersWrapper.nextElementSibling !== mt5Wrapper) {
+                    fyersWrapper.parentNode.insertBefore(mt5Wrapper, fyersWrapper.nextSibling);
+                }
+            } else if (mt5Wrapper && symbolSearch && symbolSearch.parentNode) {
+                if (symbolSearch.previousElementSibling !== mt5Wrapper) {
+                    symbolSearch.parentNode.insertBefore(mt5Wrapper, symbolSearch);
+                }
+            }
+        }
+
         updateButtonState() {
-            const btn = document.getElementById(this.btnId) || 
-                        (document.querySelector('iframe') && document.querySelector('iframe').contentDocument && document.querySelector('iframe').contentDocument.getElementById(this.btnId));
+            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
+            let targetDoc = document;
+            if (iframe) {
+                try {
+                    targetDoc = iframe.contentDocument || iframe.contentWindow.document || document;
+                } catch (_) {}
+            }
+            this.ensureButtonPosition(targetDoc);
+
+            const btn = targetDoc.getElementById(this.btnId);
             if (!btn) return;
 
             const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
             const isConn = window.MT5API ? window.MT5API.isConnected : false;
-            const dotColor = isConn ? '#089981' : '#ff9800';
+
+            let dotColor = '#787b86';
+            let avatarBg = '#787b86';
+            let label = 'MT';
 
             if (acc) {
-                const eqStr = acc.equity ? `$${Math.round(acc.equity).toLocaleString()}` : '';
-                btn.innerHTML = `
-                    <span style="font-size: 13px;">⚡</span>
-                    <span>MT5: <strong>${acc.nickname}</strong></span>
-                    ${eqStr ? `<span style="opacity: 0.8; font-size: 11px;">(${eqStr})</span>` : ''}
-                    <span style="width: 7px; height: 7px; border-radius: 50%; background: ${dotColor}; display: inline-block;"></span>
-                `;
-                btn.title = `MT5: ${acc.nickname} (${acc.server})\nEquity: $${acc.equity}\nStatus: ${isConn ? 'Connected' : 'Connecting...'}`;
-            } else {
-                btn.innerHTML = `
-                    <span style="font-size: 13px;">⚡</span>
-                    <span>MT5 Fleet</span>
-                    <span style="width: 7px; height: 7px; border-radius: 50%; background: ${dotColor}; display: inline-block;"></span>
-                `;
-                btn.title = "Click to configure MT5 Cloud Bridge";
+                dotColor = isConn ? '#089981' : '#ff9800';
+                avatarBg = isConn ? 'linear-gradient(135deg, #089981, #00796b)' : 'linear-gradient(135deg, #ff9800, #e65100)';
+                label = (acc.nickname || 'MT').slice(0, 2).toUpperCase();
             }
+
+            btn.innerHTML = `
+            <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;">
+                <span class="tv-broker-avatar tv-mt5-avatar" style="
+                    width: 22px; 
+                    height: 22px; 
+                    border-radius: 50%; 
+                    background: ${avatarBg}; 
+                    color: #ffffff; 
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                    font-weight: 700; 
+                    font-size: 10px; 
+                    line-height: 22px; 
+                    text-align: center; 
+                    display: flex; 
+                    align-items: center; 
+                    justify-content: center; 
+                    letter-spacing: 0.3px; 
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                    user-select: none;
+                ">${label}</span>
+                <span class="tv-broker-status-dot tv-mt5-status-dot" style="
+                    position: absolute; 
+                    bottom: 2px; 
+                    right: 2px; 
+                    width: 6.5px; 
+                    height: 6.5px; 
+                    border-radius: 50%; 
+                    background: ${dotColor}; 
+                    box-shadow: 0 0 0 1.5px #ffffff;
+                "></span>
+            </span>
+            `;
+
+            const tooltipText = this.getTooltipText();
+            btn.setAttribute('title', tooltipText);
         }
 
         openModal() {

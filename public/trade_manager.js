@@ -32,6 +32,8 @@
                             accountIds: multiAccounts,
                             symbol: params.symbol,
                             type: params.type,
+                            orderType: params.orderType,
+                            price: params.price,
                             baseLots: params.lots,
                             sl: params.sl,
                             tp: params.tp
@@ -95,10 +97,10 @@
             return this.adapters[this.activeBrokerName] || null;
         }
 
-        async placeOrder({ symbol, type, lots, sl = 0.0, tp = 0.0, broadcast = false }) {
+        async placeOrder({ symbol, type, lots, orderType = 'market', price = 0.0, sl = 0.0, tp = 0.0, broadcast = false }) {
             const adapter = this.getAdapter();
             if (!adapter) return { success: false, error: 'No active broker adapter.' };
-            return await adapter.placeOrder({ symbol, type, lots, sl, tp, broadcast });
+            return await adapter.placeOrder({ symbol, type, lots, orderType, price, sl, tp, broadcast });
         }
 
         async modifyPosition({ ticket, sl, tp, accountId = null }) {
