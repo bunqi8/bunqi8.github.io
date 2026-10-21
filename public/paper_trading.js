@@ -102,6 +102,18 @@
             return this.state.positions || [];
         }
 
+        getOrders() {
+            return this.state.orders || [];
+        }
+
+        cancelOrder(ticket) {
+            const idx = (this.state.orders || []).findIndex(o => o.ticket === ticket);
+            if (idx === -1) return { success: false, error: 'Order not found' };
+            this.state.orders.splice(idx, 1);
+            this.saveState();
+            return { success: true };
+        }
+
         getHistory() {
             return this.state.history || [];
         }
