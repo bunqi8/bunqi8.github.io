@@ -238,7 +238,14 @@ function bootWidget() {
             "paneProperties.vertGridProperties.color": "#f0f3fa",
             "paneProperties.horzGridProperties.color": "#f0f3fa",
             "scalesProperties.textColor": "#131722",
-            "scalesProperties.lineColor": "#D1D4DC"
+            "scalesProperties.lineColor": "#D1D4DC",
+            "tradingProperties.showPositions": true,
+            "tradingProperties.showOrders": true,
+            "tradingProperties.positionPL.visibility": true,
+            "tradingProperties.bracketsPL.visibility": true,
+            "tradingProperties.positionAndBracketsPL": true,
+            "tradingProperties.showReverse": false,
+            "tradingProperties.extendLeft": true
         },
         
         enabled_features: [
