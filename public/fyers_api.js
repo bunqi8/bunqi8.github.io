@@ -331,7 +331,7 @@ class FyersEngine {
         };
     }
 
-    saveAccount({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, id = null }) {
+    saveAccount({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, pin = null, secretKey = null, redirectUri = null, id = null }) {
         const accounts = this.getAccounts();
         const isReplace = Boolean(id);
         const existing = isReplace ? accounts.find(a => a.id === id) : null;
@@ -372,6 +372,15 @@ class FyersEngine {
                 accountObj.webuiAccessToken = webuiAccessToken.trim();
                 accountObj.webuiExpiresAt = check.webuiExpiresAt;
             }
+            if (pin !== null && pin !== undefined && pin.trim() !== '') {
+                accountObj.pin = pin.trim();
+            }
+            if (secretKey !== null && secretKey !== undefined && secretKey.trim() !== '') {
+                accountObj.secretKey = secretKey.trim();
+            }
+            if (redirectUri !== null && redirectUri !== undefined && redirectUri.trim() !== '') {
+                accountObj.redirectUri = redirectUri.trim();
+            }
             accountObj.updatedAt = Date.now();
         } else {
             let cleanApi = (apiAccessToken || '').trim();
@@ -388,6 +397,9 @@ class FyersEngine {
                 apiAccessToken: cleanApi,
                 webuiRefreshToken: (webuiRefreshToken || '').trim(),
                 webuiAccessToken: (webuiAccessToken || '').trim(),
+                pin: (pin || '').trim(),
+                secretKey: (secretKey || '').trim(),
+                redirectUri: (redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html').trim(),
                 apiExpiresAt: check.apiExpiresAt,
                 refreshExpiresAt: check.refreshExpiresAt,
                 webuiExpiresAt: check.webuiExpiresAt,
@@ -664,7 +676,10 @@ class FyersEngine {
                 appId: account.appId,
                 webuiRefreshToken: account.webuiRefreshToken,
                 apiAccessToken: account.apiAccessToken,
-                webuiAccessToken: account.webuiAccessToken
+                webuiAccessToken: account.webuiAccessToken,
+                pin: account.pin || '',
+                secretKey: account.secretKey || '',
+                redirectUri: account.redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html'
             });
 
             if (!res || !res.success || !res.apiAccessToken) {
