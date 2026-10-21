@@ -1,14 +1,16 @@
 /**
  * Authentic Native TradingView On-Chart Trading Suite & Side Order Panel (100% Visual Fidelity)
  * Features:
- *  1. Native on-chart Buy/Sell widget anchored directly inside <div class="legendMainSourceWrapper-YTFIJ62h">
- *     under the series title, naturally pushing indicators down without any overlap!
- *  2. Dual Modes: DOCKED (Right or Left, dynamically resizes chart canvas so price axis is fully visible)
- *     and UNDOCKED / FLOATING (movable draggable card with rounded corners and drop shadow).
- *  3. Header Toolbar [ ⇋ Trade ⌵ ] toggle button matching native TradingView.
- *  4. Real-time chart close price auto-detection (for NIFTY, Gold, Forex, etc.) so prices match the active chart.
- *  5. 100% Light Theme styling matching TradingView screenshots (pure white #ffffff, #e0e3eb borders).
- *  6. One-Click Trading toggle and full Trading Settings modal.
+ *  1. Native on-chart Buy/Sell widget anchored directly inside <div class="legendMainSourceWrapper-YTFIJ62h">.
+ *  2. Filled vs Non-Filled Button states based on live broker / paper trading connection status.
+ *  3. Authentic TV hover tooltips with keyboard shortcuts ("Buy Market | Shift B", "Sell Market | Shift S").
+ *  4. Lot selection handle shown ONLY when One-Click Trading is enabled.
+ *  5. Authentic TradingView Quantity Keypad Popup (Image 2) with stepper and preset buttons.
+ *  6. Intelligent Broker Routing:
+ *     - NSE/BSE/MCX -> Fyers Broker check
+ *     - Forex/Crypto/US -> MT5 Broker check
+ *     - Paper Trading -> Works across ALL charts with real-time simulation, trade history & reset.
+ *  7. Dual Modes: DOCKED (Right/Left with chart canvas shift) and FLOATING (draggable card).
  */
 
 (function(window) {
@@ -21,13 +23,15 @@
             this.settingsModalId = 'tv-trading-settings-modal';
             this.toolbarBtnId = 'header-toolbar-trade-btn';
             this.toolbarGroupId = 'header-toolbar-trade-manager';
+            this.keypadPopupId = 'tv-native-qty-keypad-popup';
+            this.tooltipId = 'tv-native-chart-tooltip';
 
             // Settings & State
             this.settings = this.loadSettings();
 
             // Order state
             this.selectedSide = 'BUY'; // 'BUY' or 'SELL'
-            this.selectedTab = 'order'; // 'order' or 'dom'
+            this.selectedTab = 'order'; // 'order' or 'dom' or 'history'
             this.orderType = 'market'; // 'market', 'limit', 'stop'
             this.limitPrice = 0.0;
             this.stopPrice = 0.0;
@@ -59,13 +63,13 @@
         loadSettings() {
             const defaults = {
                 showBuySellButtons: true,
-                oneClickTrading: false, // Default false: opens order ticket on click
+                oneClickTrading: false, // Default false: lot toggle hidden until enabled
                 dockMode: 'docked', // 'docked' or 'floating'
                 dockSide: 'right', // 'right' or 'left'
                 defaultLots: 1.0,
             };
             try {
-                const saved = localStorage.getItem('tv_trading_settings_v5');
+                const saved = localStorage.getItem('tv_trading_settings_v6');
                 return saved ? Object.assign(defaults, JSON.parse(saved)) : defaults;
             } catch (_) {
                 return defaults;
@@ -77,7 +81,7 @@
                 this.settings.dockMode = this.dockMode;
                 this.settings.dockSide = this.dockSide;
                 this.settings.defaultLots = this.lots;
-                localStorage.setItem('tv_trading_settings_v5', JSON.stringify(this.settings));
+                localStorage.setItem('tv_trading_settings_v6', JSON.stringify(this.settings));
             } catch (_) {}
         }
 
@@ -141,14 +145,14 @@
                 this.mount();
             }
 
-            // Bind to TradingEngine
+            // Bind to TradingEngine positions
             if (window.TradingEngine) {
                 window.TradingEngine.onPositionUpdate((pos) => {
                     this.positions = pos || [];
                 });
             }
 
-            // Bind to live ticks from broker
+            // Bind to live ticks
             if (window.MT5API) {
                 window.MT5API.subscribeQuotes(this.currentSymbol, (tick) => {
                     if (tick && tick.bid && tick.ask) {
@@ -159,12 +163,26 @@
                 });
             }
 
-            // Sync with chart symbol and price changes
+            // Sync with chart symbol, legend updates, and toolbar
             setInterval(() => {
                 this.detectSymbolChange();
                 this.renderOnChartWidget();
                 this.injectToolbarButton();
             }, 800);
+
+            // Bind global keyboard shortcuts (Shift+B for Buy, Shift+S for Sell)
+            window.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                if (e.shiftKey && e.key.toUpperCase() === 'B') {
+                    e.preventDefault();
+                    if (this.settings.oneClickTrading) this.executeInstantOrder('BUY');
+                    else this.openOrderTicket('BUY');
+                } else if (e.shiftKey && e.key.toUpperCase() === 'S') {
+                    e.preventDefault();
+                    if (this.settings.oneClickTrading) this.executeInstantOrder('SELL');
+                    else this.openOrderTicket('SELL');
+                }
+            });
         }
 
         mount() {
@@ -267,7 +285,6 @@
             </div>
             `;
 
-            // Insert after MT5 button if present, or after Fyers, or before symbol search
             if (mt5Wrapper && mt5Wrapper.parentNode) {
                 mt5Wrapper.insertAdjacentHTML('afterend', btnHtml);
             } else if (fyersWrapper && fyersWrapper.parentNode) {
@@ -312,7 +329,7 @@
 
         // ==========================================
         // 2. NATIVE ON-CHART BUY/SELL WIDGET (Image 1)
-        // Fitted directly inside .legendMainSourceWrapper-YTFIJ62h
+        // With Filled vs Non-Filled states, Tooltips & Keypad
         // ==========================================
         renderOnChartWidget() {
             const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
@@ -362,7 +379,7 @@
                 z-index: 20;
             `;
 
-            // Place directly inside legendMainSourceWrapper right after the main series row
+            // Place inside legendMainSourceWrapper right after the main series row
             const seriesItem = legendWrapper.querySelector('[data-qa-id="legend-series-item"]') || 
                                legendWrapper.querySelector('[class*="series-"]') || 
                                legendWrapper.firstElementChild;
@@ -377,30 +394,51 @@
 
             this.syncPricesWithChart();
 
+            // Check if broker is connected for current chart symbol
+            const isBrokerConnected = window.TradingEngine ? window.TradingEngine.isBrokerConnected(this.currentSymbol) : false;
+            const isOneClick = Boolean(this.settings.oneClickTrading);
+
             const spreadPoints = this.getSpreadFormatted();
             const bidFormatted = this.formatPrice(this.currentBid);
             const askFormatted = this.formatPrice(this.currentAsk);
 
-            // If widget exists and rendered, quickly update live price nodes
-            const bidDisp = widget.querySelector('#tv-native-bid-disp');
-            const askDisp = widget.querySelector('#tv-native-ask-disp');
-            const spreadDisp = widget.querySelector('#tv-native-spread-disp');
-            const lotDisp = widget.querySelector('#tv-native-lot-disp');
+            // Re-render full HTML if connection state or one-click state changed
+            const curConnectedAttr = widget.getAttribute('data-connected');
+            const curOneClickAttr = widget.getAttribute('data-oneclick');
+            const needsFullRebuild = curConnectedAttr !== String(isBrokerConnected) || curOneClickAttr !== String(isOneClick);
 
-            if (bidDisp && askDisp && spreadDisp && lotDisp) {
-                bidDisp.innerText = bidFormatted;
-                askDisp.innerText = askFormatted;
-                spreadDisp.innerText = spreadPoints;
-                lotDisp.innerText = this.lots;
-                return;
+            if (!needsFullRebuild) {
+                const bidDisp = widget.querySelector('#tv-native-bid-disp');
+                const askDisp = widget.querySelector('#tv-native-ask-disp');
+                const spreadDisp = widget.querySelector('#tv-native-spread-disp');
+                const lotDisp = widget.querySelector('#tv-native-lot-disp');
+                const centerLotDisp = widget.querySelector('#tv-native-center-lot-disp');
+
+                if (bidDisp && askDisp && spreadDisp) {
+                    bidDisp.innerText = bidFormatted;
+                    askDisp.innerText = askFormatted;
+                    spreadDisp.innerText = spreadPoints;
+                    if (lotDisp) lotDisp.innerText = this.lots;
+                    if (centerLotDisp) centerLotDisp.innerText = this.lots;
+                    return;
+                }
             }
+
+            widget.setAttribute('data-connected', String(isBrokerConnected));
+            widget.setAttribute('data-oneclick', String(isOneClick));
+
+            // FILLED vs NON-FILLED styles based on broker connection!
+            const sellBg = isBrokerConnected ? '#f23645' : '#ffffff';
+            const sellTextColor = isBrokerConnected ? '#ffffff' : '#f23645';
+            const buyBg = isBrokerConnected ? '#2962ff' : '#ffffff';
+            const buyTextColor = isBrokerConnected ? '#ffffff' : '#2962ff';
 
             widget.innerHTML = `
                 <!-- Main Buy / Sell Buttons Row -->
-                <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; position: relative;">
                     <!-- SELL BUTTON -->
-                    <button id="tv-native-btn-sell" type="button" title="Sell ${this.currentSymbol}" style="
-                        background: #ffffff;
+                    <button id="tv-native-btn-sell" type="button" style="
+                        background: ${sellBg};
                         border: 1px solid #f23645;
                         border-radius: 4px;
                         padding: 2px 10px;
@@ -412,26 +450,37 @@
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                        transition: transform 0.1s;
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                        transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-bid-disp" style="color: #f23645; font-size: 12px; font-weight: 700; line-height: 1.15;">${bidFormatted}</span>
-                        <span style="color: #f23645; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">SELL</span>
+                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${bidFormatted}</span>
+                        <span style="color: ${sellTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">SELL</span>
                     </button>
 
-                    <!-- SPREAD -->
-                    <div id="tv-native-spread-disp" style="
-                        color: #131722;
-                        font-size: 11px;
-                        font-weight: 600;
-                        min-width: 24px;
-                        text-align: center;
-                        letter-spacing: 0.2px;
-                    ">${spreadPoints}</div>
+                    <!-- SPREAD & CENTER QUANTITY PILL -->
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 28px;">
+                        <span id="tv-native-spread-disp" style="color: #131722; font-size: 10.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
+                        ${isOneClick ? `
+                            <button id="tv-native-center-lot-btn" type="button" style="
+                                background: #f0f3fa;
+                                border: none;
+                                border-radius: 3px;
+                                padding: 1px 4px;
+                                font-size: 10px;
+                                font-weight: 700;
+                                color: #131722;
+                                cursor: pointer;
+                                margin-top: 1px;
+                                line-height: 1.1;
+                            ">
+                                <span id="tv-native-center-lot-disp">${this.lots}</span>
+                            </button>
+                        ` : ''}
+                    </div>
 
                     <!-- BUY BUTTON -->
-                    <button id="tv-native-btn-buy" type="button" title="Buy ${this.currentSymbol}" style="
-                        background: #ffffff;
+                    <button id="tv-native-btn-buy" type="button" style="
+                        background: ${buyBg};
                         border: 1px solid #2962ff;
                         border-radius: 4px;
                         padding: 2px 10px;
@@ -443,17 +492,18 @@
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                        transition: transform 0.1s;
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                        transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-ask-disp" style="color: #2962ff; font-size: 12px; font-weight: 700; line-height: 1.15;">${askFormatted}</span>
-                        <span style="color: #2962ff; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">BUY</span>
+                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${askFormatted}</span>
+                        <span style="color: ${buyTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">BUY</span>
                     </button>
                 </div>
 
-                <!-- LOT SELECTOR PILL (Placed directly underneath Sell button) -->
+                <!-- LOT SELECTOR PILL (Shown ONLY when One-Click Trading is enabled!) -->
+                ${isOneClick ? `
                 <div style="position: relative; align-self: flex-start; margin-top: 1px;">
-                    <button id="tv-native-lot-toggle-btn" type="button" title="Select Lot Size" style="
+                    <button id="tv-native-lot-toggle-btn" type="button" title="Select Quantity" style="
                         background: #ffffff;
                         border: 1px solid #d1d4dc;
                         border-radius: 3px;
@@ -474,98 +524,130 @@
                         </svg>
                         <span id="tv-native-lot-disp">${this.lots}</span>
                     </button>
+                </div>
+                ` : ''}
 
-                    <!-- Dropdown lot menu -->
-                    <div id="tv-native-lot-dropdown" style="
-                        display: none;
-                        position: absolute;
-                        top: 22px;
-                        left: 0;
-                        background: #ffffff;
-                        border: 1px solid #e0e3eb;
+                <!-- Floating Tooltip Container -->
+                <div id="${this.tooltipId}" style="
+                    display: none;
+                    position: absolute;
+                    top: 36px;
+                    left: 0;
+                    background: #2a2e39;
+                    color: #ffffff;
+                    border-radius: 6px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+                    padding: 5px 10px;
+                    font-size: 12px;
+                    font-weight: 500;
+                    align-items: center;
+                    gap: 8px;
+                    z-index: 9999;
+                    pointer-events: none;
+                    white-space: nowrap;
+                "></div>
+
+                <!-- Authentic TradingView Quantity Keypad Popup (Image 2) -->
+                <div id="${this.keypadPopupId}" style="
+                    display: none;
+                    position: absolute;
+                    top: 56px;
+                    left: 0;
+                    background: #ffffff;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+                    padding: 12px;
+                    width: 175px;
+                    z-index: 99999;
+                    flex-direction: column;
+                    gap: 8px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+                ">
+                    <div style="font-size: 12px; color: #787b86; font-weight: 500;">Quantity</div>
+
+                    <!-- Input row with stepper -->
+                    <div style="
+                        border: 1.5px solid #2962ff;
                         border-radius: 6px;
-                        box-shadow: 0 6px 18px rgba(0,0,0,0.15);
-                        padding: 6px;
-                        z-index: 9999;
-                        min-width: 110px;
-                        flex-direction: column;
-                        gap: 4px;
+                        padding: 3px 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        height: 30px;
+                        background: #ffffff;
                     ">
-                        <div style="font-size: 9px; color: #787b86; font-weight: 700; padding: 2px 4px;">QUICK LOTS</div>
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
-                            ${[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0].map(v => `
-                                <button class="tv-lot-preset-btn" data-lot="${v}" style="
-                                    background: ${this.lots === v ? '#2962ff' : '#f0f3fa'};
-                                    color: ${this.lots === v ? '#ffffff' : '#131722'};
-                                    border: none;
-                                    border-radius: 3px;
-                                    padding: 3px 0;
-                                    font-size: 10px;
-                                    font-weight: 600;
-                                    cursor: pointer;
-                                ">${v}</button>
-                            `).join('')}
-                        </div>
-                        <div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #e0e3eb; display: flex; align-items: center; gap: 4px;">
-                            <input type="number" id="tv-lot-custom-in" step="0.01" min="0.01" value="${this.lots}" style="
-                                width: 100%;
-                                padding: 3px 5px;
-                                background: #ffffff;
-                                color: #131722;
-                                border: 1px solid #d1d4dc;
-                                border-radius: 3px;
-                                font-size: 11px;
-                                font-weight: 600;
-                                text-align: center;
-                                outline: none;
-                                box-sizing: border-box;
-                            ">
-                        </div>
+                        <input type="number" id="tv-keypad-qty-in" step="1" min="0.01" value="${this.lots}" style="
+                            width: 100%;
+                            border: none;
+                            outline: none;
+                            font-size: 15px;
+                            font-weight: 600;
+                            color: #131722;
+                            background: transparent;
+                        ">
+                    </div>
+
+                    <!-- Presets Keypad Grid -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <button type="button" class="tv-keypad-btn" data-act="minus" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 13px; font-weight: 600; color: #131722; cursor: pointer;">−</button>
+                        <button type="button" class="tv-keypad-btn" data-act="plus" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 13px; font-weight: 600; color: #131722; cursor: pointer;">+</button>
+
+                        <button type="button" class="tv-keypad-btn" data-val="1" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">1</button>
+                        <button type="button" class="tv-keypad-btn" data-val="5" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">5</button>
+
+                        <button type="button" class="tv-keypad-btn" data-val="25" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">25</button>
+                        <button type="button" class="tv-keypad-btn" data-val="100" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">100</button>
+
+                        <button type="button" class="tv-keypad-btn" data-val="500" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">500</button>
+                        <button type="button" class="tv-keypad-btn" data-val="1000" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">1000</button>
+
+                        <button type="button" class="tv-keypad-btn" data-act="clear" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">C</button>
+                        <button type="button" class="tv-keypad-btn" data-act="reset" style="background: #ffffff; border: 1px solid #e0e3eb; border-radius: 6px; height: 30px; font-size: 12px; font-weight: 600; color: #131722; cursor: pointer;">⟲</button>
                     </div>
                 </div>
             `;
 
-            this.bindOnChartEvents(widget, iframeDoc);
+            this.bindOnChartEvents(widget, iframeDoc, isBrokerConnected);
         }
 
-        bindOnChartEvents(widget, iframeDoc) {
+        bindOnChartEvents(widget, iframeDoc, isBrokerConnected) {
             const btnSell = widget.querySelector('#tv-native-btn-sell');
             const btnBuy = widget.querySelector('#tv-native-btn-buy');
             const lotToggleBtn = widget.querySelector('#tv-native-lot-toggle-btn');
-            const lotDropdown = widget.querySelector('#tv-native-lot-dropdown');
+            const centerLotBtn = widget.querySelector('#tv-native-center-lot-btn');
+            const keypadPopup = widget.querySelector('#' + this.keypadPopupId);
+            const tooltip = widget.querySelector('#' + this.tooltipId);
 
-            if (lotToggleBtn && lotDropdown) {
-                lotToggleBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    const isOpen = lotDropdown.style.display === 'flex';
-                    lotDropdown.style.display = isOpen ? 'none' : 'flex';
-                };
-
-                iframeDoc.addEventListener('click', () => {
-                    if (lotDropdown) lotDropdown.style.display = 'none';
-                });
-
-                lotDropdown.querySelectorAll('.tv-lot-preset-btn').forEach(b => {
-                    b.onclick = (e) => {
-                        e.stopPropagation();
-                        const val = parseFloat(e.target.getAttribute('data-lot'));
-                        this.setLots(val);
-                        lotDropdown.style.display = 'none';
-                    };
-                });
-
-                const customIn = lotDropdown.querySelector('#tv-lot-custom-in');
-                if (customIn) {
-                    customIn.onchange = (e) => {
-                        const val = Math.max(0.01, parseFloat(e.target.value) || 1.0);
-                        this.setLots(val);
-                    };
+            // Tooltips
+            const showTooltip = (targetEl, text, hotkey) => {
+                if (!tooltip) return;
+                const offsetLeft = targetEl.offsetLeft;
+                tooltip.style.left = offsetLeft + 'px';
+                if (isBrokerConnected) {
+                    tooltip.innerHTML = `
+                        <span>${text}</span>
+                        <span style="color: rgba(255,255,255,0.3);">|</span>
+                        <span style="background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; padding: 1px 5px; font-size: 10.5px; font-weight: 600;">Shift</span>
+                        <span style="background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; padding: 1px 5px; font-size: 10.5px; font-weight: 600;">${hotkey}</span>
+                    `;
+                } else {
+                    const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
+                    tooltip.innerHTML = `<span>Connect ${brokerName} to Trade</span>`;
                 }
-            }
+                tooltip.style.display = 'flex';
+            };
+
+            const hideTooltip = () => {
+                if (tooltip) tooltip.style.display = 'none';
+            };
 
             if (btnSell) {
+                btnSell.onmouseenter = () => showTooltip(btnSell, 'Sell Market', 'S');
+                btnSell.onmouseleave = hideTooltip;
                 btnSell.onclick = (e) => {
                     e.stopPropagation();
+                    hideTooltip();
                     if (this.settings.oneClickTrading) {
                         this.executeInstantOrder('SELL');
                     } else {
@@ -575,14 +657,72 @@
             }
 
             if (btnBuy) {
+                btnBuy.onmouseenter = () => showTooltip(btnBuy, 'Buy Market', 'B');
+                btnBuy.onmouseleave = hideTooltip;
                 btnBuy.onclick = (e) => {
                     e.stopPropagation();
+                    hideTooltip();
                     if (this.settings.oneClickTrading) {
                         this.executeInstantOrder('BUY');
                     } else {
                         this.openOrderTicket('BUY');
                     }
                 };
+            }
+
+            // Keypad Popup Toggle
+            const toggleKeypad = (e) => {
+                e.stopPropagation();
+                if (!keypadPopup) return;
+                const isOpen = keypadPopup.style.display === 'flex';
+                keypadPopup.style.display = isOpen ? 'none' : 'flex';
+            };
+
+            if (lotToggleBtn) lotToggleBtn.onclick = toggleKeypad;
+            if (centerLotBtn) centerLotBtn.onclick = toggleKeypad;
+
+            iframeDoc.addEventListener('click', () => {
+                if (keypadPopup) keypadPopup.style.display = 'none';
+            });
+
+            // Keypad Button Actions
+            if (keypadPopup) {
+                const qtyIn = keypadPopup.querySelector('#tv-keypad-qty-in');
+                if (qtyIn) {
+                    qtyIn.onchange = (e) => {
+                        const val = Math.max(0.01, parseFloat(e.target.value) || 1.0);
+                        this.setLots(val);
+                    };
+                }
+
+                keypadPopup.querySelectorAll('.tv-keypad-btn').forEach(b => {
+                    b.onclick = (e) => {
+                        e.stopPropagation();
+                        const val = b.getAttribute('data-val');
+                        const act = b.getAttribute('data-act');
+
+                        if (val) {
+                            this.setLots(parseFloat(val));
+                            if (qtyIn) qtyIn.value = val;
+                        } else if (act === 'plus') {
+                            const cur = parseFloat(this.lots) || 1.0;
+                            const next = cur < 1 ? Math.round((cur + 0.1) * 10) / 10 : cur + 1;
+                            this.setLots(next);
+                            if (qtyIn) qtyIn.value = next;
+                        } else if (act === 'minus') {
+                            const cur = parseFloat(this.lots) || 1.0;
+                            const next = Math.max(0.01, cur <= 1 ? Math.max(0.01, Math.round((cur - 0.1) * 10) / 10) : cur - 1);
+                            this.setLots(next);
+                            if (qtyIn) qtyIn.value = next;
+                        } else if (act === 'clear') {
+                            this.setLots(0.01);
+                            if (qtyIn) qtyIn.value = '';
+                        } else if (act === 'reset') {
+                            this.setLots(1.0);
+                            if (qtyIn) qtyIn.value = 1.0;
+                        }
+                    };
+                });
             }
         }
 
@@ -601,6 +741,8 @@
             this.saveSettings();
             const disp = document.getElementById('tv-native-lot-disp');
             if (disp) disp.innerText = this.lots;
+            const centerDisp = document.getElementById('tv-native-center-lot-disp');
+            if (centerDisp) centerDisp.innerText = this.lots;
             const unitsIn = document.getElementById('tv-ticket-units-in');
             if (unitsIn) unitsIn.value = this.lots;
             this.updateFinancialSummary();
@@ -609,24 +751,20 @@
         async executeInstantOrder(type) {
             const lots = this.lots;
             const refPrice = type === 'BUY' ? this.currentAsk : this.currentBid;
-            const multiCount = window.MT5API ? window.MT5API.multiAccountSelection.size : 0;
-            const shouldBroadcast = multiCount > 1;
+            const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
 
             if (window.FyersAPI && window.FyersAPI.showToast) {
-                window.FyersAPI.showToast(`Submitting 1-Click ${type} ${lots} ${this.currentSymbol}...`, 'info');
+                window.FyersAPI.showToast(`[${brokerName}] Submitting ${type} ${lots} ${this.currentSymbol}...`, 'info');
             }
 
             const res = await window.TradingEngine.placeOrder({
                 symbol: this.currentSymbol,
                 type: type,
-                lots: lots,
-                broadcast: shouldBroadcast
+                lots: lots
             });
 
             if (res && res.success) {
-                const msg = shouldBroadcast 
-                    ? `⚡ Broadcast ${type} executed across ${res.total_accounts} accounts!` 
-                    : `✓ 1-Click: ${type} ${lots} ${this.currentSymbol} filled at ${refPrice}!`;
+                const msg = `✓ [${brokerName}] 1-Click: ${type} ${lots} ${this.currentSymbol} filled at ${refPrice}!`;
                 if (window.FyersAPI && window.FyersAPI.showToast) {
                     window.FyersAPI.showToast(msg, 'success');
                 }
@@ -637,6 +775,7 @@
 
         // ==========================================
         // 3. NATIVE SIDE TRADE PANEL (DOCKED OR FLOATING)
+        // With Broker Selector & History Tab
         // ==========================================
         renderSidePanel() {
             let panel = document.getElementById(this.sidePanelId);
@@ -669,7 +808,6 @@
                     user-select: none;
                 `;
             } else {
-                // Floating Undocked Window (Image 2)
                 const fPos = this.floatingPos;
                 panel.style.cssText = `
                     position: fixed;
@@ -700,13 +838,16 @@
             const bidFormatted = this.formatPrice(this.currentBid);
             const askFormatted = this.formatPrice(this.currentAsk);
 
+            const activeBrokerMode = window.TradingEngine ? window.TradingEngine.activeBrokerMode : 'auto';
+            const activeBrokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Paper Trading';
+
             panel.innerHTML = `
-                <!-- 1. Header Bar (Drag handle in floating mode) -->
+                <!-- 1. Header Bar -->
                 <div id="tv-panel-drag-header" style="
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 12px 14px;
+                    padding: 10px 14px;
                     border-bottom: 1px solid ${theme.border};
                     cursor: ${isDocked ? 'default' : 'move'};
                 ">
@@ -725,10 +866,13 @@
                             font-weight: 800;
                             letter-spacing: -0.5px;
                         ">TV</div>
-                        <span id="tv-side-panel-symbol" style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${this.currentSymbol}</span>
+                        <div>
+                            <span id="tv-side-panel-symbol" style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${this.currentSymbol}</span>
+                            <span style="font-size: 10px; color: #2962ff; font-weight: 600; margin-left: 4px;">[${activeBrokerName}]</span>
+                        </div>
                     </div>
 
-                    <!-- Right Controls: Dock/Undock, DOM, Settings, Close -->
+                    <!-- Right Controls -->
                     <div style="display: flex; align-items: center; gap: 4px;">
                         <button id="tv-panel-btn-dock-toggle" type="button" title="${isDocked ? 'Undock to Floating Window' : 'Dock to Side'}" style="
                             background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center;
@@ -767,10 +911,31 @@
                     </div>
                 </div>
 
-                <!-- 2. Subtabs: Order | DOM -->
+                <!-- Broker Switcher Pill Bar -->
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; font-size: 11px;">
+                    <span style="color: ${theme.textMuted}; font-weight: 600;">Broker:</span>
+                    <select id="tv-panel-broker-select" style="
+                        background: ${theme.inputBg};
+                        color: ${theme.text};
+                        border: 1px solid ${theme.border};
+                        border-radius: 4px;
+                        padding: 2px 6px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        outline: none;
+                        cursor: pointer;
+                    ">
+                        <option value="auto" ${activeBrokerMode === 'auto' ? 'selected' : ''}>⚡ Auto (Fyers/MT5)</option>
+                        <option value="paper" ${activeBrokerMode === 'paper' ? 'selected' : ''}>📝 Paper Trading</option>
+                        <option value="mt5" ${activeBrokerMode === 'mt5' ? 'selected' : ''}>MT5 Broker</option>
+                        <option value="fyers" ${activeBrokerMode === 'fyers' ? 'selected' : ''}>Fyers Broker</option>
+                    </select>
+                </div>
+
+                <!-- 2. Subtabs: Order | DOM | History -->
                 <div style="
                     display: flex;
-                    margin: 10px 14px 6px;
+                    margin: 8px 14px 4px;
                     background: ${theme.subtabBg};
                     border-radius: 6px;
                     padding: 2px;
@@ -799,11 +964,25 @@
                         cursor: pointer;
                         box-shadow: ${this.selectedTab === 'dom' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'};
                     ">DOM</button>
+                    <button id="tv-subtab-history" type="button" style="
+                        flex: 1;
+                        padding: 5px 0;
+                        border: none;
+                        border-radius: 4px;
+                        background: ${this.selectedTab === 'history' ? theme.panelBg : 'transparent'};
+                        color: ${this.selectedTab === 'history' ? theme.text : theme.textMuted};
+                        font-weight: ${this.selectedTab === 'history' ? '700' : '500'};
+                        font-size: 12px;
+                        cursor: pointer;
+                        box-shadow: ${this.selectedTab === 'history' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'};
+                    ">History</button>
                 </div>
 
                 <!-- Main Scrollable Body -->
                 <div id="tv-panel-content-body" style="flex: 1; overflow-y: auto; padding: 6px 14px 14px; display: flex; flex-direction: column; gap: 12px;">
-                    ${this.selectedTab === 'order' ? this.getOrderTabHtml(theme, isBuy, spreadPoints, bidFormatted, askFormatted) : this.getDomTabHtml(theme)}
+                    ${this.selectedTab === 'order' 
+                        ? this.getOrderTabHtml(theme, isBuy, spreadPoints, bidFormatted, askFormatted) 
+                        : (this.selectedTab === 'dom' ? this.getDomTabHtml(theme) : this.getHistoryTabHtml(theme))}
                 </div>
 
                 <!-- 3. Bottom Execution Button (Order Tab Only) -->
@@ -898,7 +1077,7 @@
                     </div>
                 </div>
 
-                <!-- B. Order Type Tabs (Market, Limit, Stop) -->
+                <!-- B. Order Type Tabs -->
                 <div style="
                     display: flex;
                     align-items: center;
@@ -945,7 +1124,7 @@
                 </div>
                 ` : ''}
 
-                <!-- C. Units / Lots Selector (with blue border accent matching SS) -->
+                <!-- C. Units / Lots Selector -->
                 <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 11px; color: ${theme.textMuted}; font-weight: 500;">Units ⌵</span>
@@ -999,9 +1178,8 @@
                     </div>
                 </div>
 
-                <!-- E. Exits Accordion (Take Profit & Stop Loss) -->
+                <!-- E. Exits Accordion -->
                 <div style="border-top: 1px solid ${theme.border}; padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-                    <!-- Accordion Header -->
                     <div id="tv-ticket-exits-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
                         <span style="font-size: 12.5px; font-weight: 700; color: ${theme.text};">Exits</span>
                         <span style="color: ${theme.textMuted}; font-size: 11px;">${this.isExitsExpanded ? '⌃' : '⌵'}</span>
@@ -1146,15 +1324,70 @@
             `;
         }
 
+        getHistoryTabHtml(theme) {
+            const history = window.PaperTrading ? window.PaperTrading.getHistory() : [];
+            const summary = window.PaperTrading ? window.PaperTrading.getAccountSummary() : null;
+
+            return `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 11.5px; font-weight: 700; color: ${theme.text};">Closed Trades (${history.length})</div>
+                    <div style="display: flex; gap: 4px;">
+                        <button id="tv-btn-clear-history" type="button" style="background: rgba(242,54,69,0.1); color: #f23645; border: 1px solid rgba(242,54,69,0.25); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; cursor: pointer;">Clear</button>
+                        <button id="tv-btn-reset-account" type="button" style="background: rgba(41,98,255,0.1); color: #2962ff; border: 1px solid rgba(41,98,255,0.25); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; cursor: pointer;">Reset $100k</button>
+                    </div>
+                </div>
+
+                ${summary ? `
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px; margin-bottom: 8px;">
+                        <div>Balance: <strong>$${summary.balance.toLocaleString()}</strong></div>
+                        <div>Equity: <strong>$${summary.equity.toLocaleString()}</strong></div>
+                        <div>Used Margin: <strong>$${summary.usedMargin.toLocaleString()}</strong></div>
+                        <div>Free Margin: <strong>$${summary.freeMargin.toLocaleString()}</strong></div>
+                    </div>
+                ` : ''}
+
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${history.length === 0 ? `
+                        <div style="text-align: center; color: ${theme.textMuted}; font-size: 11.5px; padding: 24px 0;">No closed trades yet.</div>
+                    ` : history.map(h => {
+                        const isProf = h.profit >= 0;
+                        return `
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-left: 3px solid ${isProf ? '#089981' : '#f23645'}; border-radius: 4px; padding: 6px 8px; font-size: 11px;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <strong>${h.type} ${h.lots} ${h.symbol}</strong>
+                                    <strong style="color: ${isProf ? '#089981' : '#f23645'};">${isProf ? '+' : ''}$${Number(h.profit).toFixed(2)}</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; color: ${theme.textMuted}; font-size: 10px; margin-top: 2px;">
+                                    <span>${h.open_price} → ${h.close_price}</span>
+                                    <span>${h.reason || 'Closed'}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
         bindSidePanelEvents(panel) {
             const btnClose = panel.querySelector('#tv-panel-btn-close');
             const btnDockToggle = panel.querySelector('#tv-panel-btn-dock-toggle');
             const btnDomToggle = panel.querySelector('#tv-panel-btn-dom-toggle');
             const btnSettings = panel.querySelector('#tv-panel-btn-settings');
+            const brokerSelect = panel.querySelector('#tv-panel-broker-select');
+
             const subtabOrder = panel.querySelector('#tv-subtab-order');
             const subtabDom = panel.querySelector('#tv-subtab-dom');
+            const subtabHistory = panel.querySelector('#tv-subtab-history');
 
             if (btnClose) btnClose.onclick = () => this.closeOrderTicket();
+
+            if (brokerSelect) {
+                brokerSelect.onchange = (e) => {
+                    if (window.TradingEngine) {
+                        window.TradingEngine.setBrokerMode(e.target.value);
+                    }
+                };
+            }
 
             if (btnDockToggle) {
                 btnDockToggle.onclick = () => {
@@ -1183,6 +1416,32 @@
                 subtabDom.onclick = () => {
                     this.selectedTab = 'dom';
                     this.renderSidePanel();
+                };
+            }
+            if (subtabHistory) {
+                subtabHistory.onclick = () => {
+                    this.selectedTab = 'history';
+                    this.renderSidePanel();
+                };
+            }
+
+            // History actions
+            const btnClear = panel.querySelector('#tv-btn-clear-history');
+            const btnReset = panel.querySelector('#tv-btn-reset-account');
+            if (btnClear) {
+                btnClear.onclick = () => {
+                    if (window.PaperTrading && confirm('Clear all paper trading trade history?')) {
+                        window.PaperTrading.clearHistory();
+                        this.renderSidePanel();
+                    }
+                };
+            }
+            if (btnReset) {
+                btnReset.onclick = () => {
+                    if (window.PaperTrading && confirm('Reset Paper Trading account to $100,000 balance?')) {
+                        window.PaperTrading.resetAccount(100000.00);
+                        this.renderSidePanel();
+                    }
                 };
             }
 
@@ -1302,13 +1561,11 @@
                 tp = tpIn ? (parseFloat(tpIn.value) || 0.0) : 0.0;
             }
 
-            const multiCount = window.MT5API ? window.MT5API.multiAccountSelection.size : 0;
-            const shouldBroadcast = multiCount > 1;
-
+            const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
             const btn = document.getElementById('tv-ticket-btn-execute');
             if (btn) {
                 btn.style.opacity = '0.7';
-                btn.innerText = 'Submitting Order...';
+                btn.innerText = `Submitting to ${brokerName}...`;
             }
 
             const res = await window.TradingEngine.placeOrder({
@@ -1318,8 +1575,7 @@
                 lots: lots,
                 price: price,
                 sl: sl,
-                tp: tp,
-                broadcast: shouldBroadcast
+                tp: tp
             });
 
             if (btn) {
@@ -1328,9 +1584,7 @@
             }
 
             if (res && res.success) {
-                const msg = shouldBroadcast 
-                    ? `⚡ Broadcast ${type} executed across ${res.total_accounts} accounts!` 
-                    : `✓ ${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} submitted!`;
+                const msg = `✓ [${brokerName}] ${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} submitted!`;
                 if (window.FyersAPI && window.FyersAPI.showToast) {
                     window.FyersAPI.showToast(msg, 'success');
                 }
@@ -1354,9 +1608,6 @@
             this.updateToolbarBtnState();
         }
 
-        // ==========================================
-        // 4. CHART RESIZE & CANVAS SHIFT (Image 3)
-        // ==========================================
         updateChartContainerLayout() {
             const chartCont = document.getElementById('tv_chart_container');
             if (!chartCont) return;
@@ -1387,9 +1638,6 @@
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
         }
 
-        // ==========================================
-        // 5. TRADING SETTINGS MODAL (Images 3 & 4)
-        // ==========================================
         openTradingSettingsModal() {
             let modal = document.getElementById(this.settingsModalId);
             if (!modal) {
@@ -1426,7 +1674,6 @@
                     display: flex;
                     flex-direction: column;
                 ">
-                    <!-- Header -->
                     <div style="
                         display: flex;
                         justify-content: space-between;
@@ -1444,9 +1691,7 @@
                         </button>
                     </div>
 
-                    <!-- Content -->
                     <div style="padding: 18px; display: flex; flex-direction: column; gap: 18px; font-size: 12.5px;">
-                        <!-- GENERAL SECTION -->
                         <div>
                             <div style="font-size: 11px; font-weight: 700; color: ${theme.textMuted}; letter-spacing: 0.5px; margin-bottom: 12px;">
                                 GENERAL
@@ -1467,13 +1712,12 @@
                                 <div>
                                     <div style="font-weight: 600; color: ${theme.text};">One-click trading</div>
                                     <div style="color: ${theme.textMuted}; font-size: 11px; margin-top: 2px;">
-                                        Instantly place, edit, cancel orders, or close positions without confirmation
+                                        Instantly place orders with 1-click and show quantity keypad on chart
                                     </div>
                                 </div>
                             </label>
                         </div>
 
-                        <!-- APPEARANCE SECTION -->
                         <div style="border-top: 1px solid ${theme.border}; padding-top: 16px;">
                             <div style="font-size: 11px; font-weight: 700; color: ${theme.textMuted}; letter-spacing: 0.5px; margin-bottom: 12px;">
                                 APPEARANCE
@@ -1500,7 +1744,6 @@
                         </div>
                     </div>
 
-                    <!-- Footer Buttons -->
                     <div style="
                         display: flex;
                         justify-content: flex-end;
@@ -1572,9 +1815,6 @@
             }
         }
 
-        // ==========================================
-        // 6. DRAG HELPER (For floating panel)
-        // ==========================================
         makeDraggable(element, handle, onSave) {
             if (!handle) return;
             let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -1617,10 +1857,15 @@
         }
 
         // ==========================================
-        // 7. PRICE & CALCULATIONS HELPERS
+        // 4. PRICE & CALCULATIONS HELPERS
         // ==========================================
         updatePrices() {
             this.syncPricesWithChart();
+
+            // Feed ticks to paper trading engine
+            if (window.PaperTrading) {
+                window.PaperTrading.onPriceTick(this.currentSymbol, this.currentBid, this.currentAsk);
+            }
 
             // Update side panel
             const ticketBid = document.getElementById('tv-ticket-bid-val');
@@ -1660,6 +1905,11 @@
         }
 
         getAvailableMarginFormatted() {
+            const adapterKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
+            if (adapterKey === 'paper' && window.PaperTrading) {
+                const s = window.PaperTrading.getAccountSummary();
+                return Number(s.freeMargin).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
             if (window.MT5API) {
                 const acc = window.MT5API.getActiveAccount();
                 if (acc && acc.margin_free != null) {
@@ -1711,50 +1961,6 @@
             return Number(price).toFixed(2);
         }
     }
-
-    // Inject styles for toggle switches
-    const styleEl = document.createElement('style');
-    styleEl.innerHTML = `
-        /* iOS-style toggle switches */
-        .tv-toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 32px;
-            height: 18px;
-        }
-        .tv-toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .tv-toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #b2b5be;
-            transition: .15s;
-            border-radius: 18px;
-        }
-        .tv-toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 14px;
-            width: 14px;
-            left: 2px;
-            bottom: 2px;
-            background-color: white;
-            transition: .15s;
-            border-radius: 50%;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
-        .tv-toggle-switch input:checked + .tv-toggle-slider {
-            background-color: #2962ff;
-        }
-        .tv-toggle-switch input:checked + .tv-toggle-slider:before {
-            transform: translateX(14px);
-        }
-    `;
-    document.head.appendChild(styleEl);
 
     // Export singleton
     window.TradeUI = new TradeUI();
