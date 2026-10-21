@@ -523,6 +523,7 @@ class FyersUI {
     }
 
     getListViewHtml(theme, accounts, activeAccount) {
+        const isEngineReady = Boolean(window.FyersAPI && typeof window.FyersAPI.isPrivateEngineReady === 'function' && window.FyersAPI.isPrivateEngineReady());
         let cardsHtml = '';
 
         if (accounts.length === 0) {
@@ -554,6 +555,12 @@ class FyersUI {
                     gap: 6px;
                     box-shadow: 0 2px 8px rgba(41,98,255,0.25);
                 ">+ Add Your First Account</button>
+                ${!isEngineReady ? `
+                    <div style="margin-top: 14px; font-size: 11.5px; color: ${theme.textMuted}; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                        <span>⚡</span> Want 1-click browser session sync? 
+                        <a href="#" id="bm-link-setup-engine-empty" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline;">Configure Private Engine</a>
+                    </div>
+                ` : ''}
             </div>
             `;
         } else {
@@ -877,6 +884,7 @@ class FyersUI {
                     ${accounts.length} Registered Account${accounts.length === 1 ? '' : 's'}
                 </span>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    ${isEngineReady ? `
                     <button id="bm-btn-open-extractor-direct" type="button" style="
                         background: rgba(41, 98, 255, 0.08); 
                         color: ${theme.primary}; 
@@ -892,6 +900,7 @@ class FyersUI {
                     ">
                         <span>⚡</span> 1-Click Browser Import
                     </button>
+                    ` : ''}
                     <button id="bm-btn-add-account" class="bm-btn-add-trigger" type="button" style="
                         background: ${theme.primary}; 
                         color: #fff; 
@@ -941,6 +950,7 @@ class FyersUI {
     getFormViewHtml(theme, accounts) {
         const isReplace = this.viewMode === 'replace' && Boolean(this.replaceAccountId);
         const existing = isReplace ? accounts.find(a => a.id === this.replaceAccountId) : null;
+        const isEngineReady = Boolean(window.FyersAPI && typeof window.FyersAPI.isPrivateEngineReady === 'function' && window.FyersAPI.isPrivateEngineReady());
 
         const title = isReplace 
             ? `Edit Account: ${existing ? existing.displayName : ''} (${existing ? existing.fyId : ''})` 
@@ -981,8 +991,51 @@ class FyersUI {
                         : 'Configure your Fyers App ID and API Access Token. WebUI Refresh Token enables automatic background renewal.'}
                 </div>
 
-                <!-- 1-Click Browser Extractor Card -->
+                ${!isEngineReady ? `
+                <!-- Engine Setup Recommendation Banner (When PAT is not configured and engine is not cached) -->
                 <div style="
+                    background: ${theme.isDark ? 'rgba(41, 98, 255, 0.06)' : 'rgba(41, 98, 255, 0.04)'};
+                    border: 1px solid rgba(41, 98, 255, 0.2);
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 16px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                ">
+                    <div style="flex: 1; min-width: 240px;">
+                        <div style="font-size: 12.5px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
+                            <span>⚡</span> <span>1-Click Zero-Touch Token Import</span>
+                            <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.3);">
+                                Private Engine Required
+                            </span>
+                        </div>
+                        <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; line-height: 1.4;">
+                            To extract session tokens directly from trade.fyers.in with 1-click and enable automatic renewals, configure your GitHub PAT in the <strong>Auto-Refresh & Engine</strong> tab.
+                        </div>
+                    </div>
+                    <button id="bm-btn-goto-engine-from-form" type="button" style="
+                        background: rgba(41, 98, 255, 0.12);
+                        color: #2962FF;
+                        border: 1px solid rgba(41, 98, 255, 0.35);
+                        padding: 6px 14px;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        white-space: nowrap;
+                    ">
+                        <span>⚙️</span> Setup Private Engine
+                    </button>
+                </div>
+                ` : `
+                <!-- 1-Click Browser Extractor Card -->
+                <div id="bm-extractor-container" style="
                     background: linear-gradient(135deg, rgba(41, 98, 255, 0.08) 0%, rgba(8, 153, 129, 0.08) 100%);
                     border: 1px solid rgba(41, 98, 255, 0.28);
                     border-radius: 8px;
@@ -1070,7 +1123,7 @@ class FyersUI {
                                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(41,98,255,0.2); display: flex; flex-direction: column; gap: 6px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
                                         <div style="min-width: 0; flex: 1;">
-                                            <div style="font-size: 11px; color: ${theme.textMuted};">Endpoint URL:</div>
+                                             <div style="font-size: 11px; color: ${theme.textMuted};">Endpoint URL:</div>
                                             <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests in Inspector" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all;">
                                                 Initializing live channel...
                                             </a>
@@ -1115,7 +1168,7 @@ class FyersUI {
                             </details>
 
                             <!-- 1-Click Zero-Touch Execution Card -->
-                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
+                            <div id="bm-step1-execution-card" style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
                                 <div style="font-weight: 700; color: ${theme.text}; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
                                     <span>⚡</span> Step 1: Copy & Run Extractor on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a>
                                 </div>
@@ -1229,6 +1282,7 @@ class FyersUI {
                         </div>
                     </div>
                 </div>
+                `}
 
                 <!-- Form Fields -->
                 <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -1525,12 +1579,33 @@ class FyersUI {
             };
         });
 
+        const linkSetupEngineEmpty = modal.querySelector('#bm-link-setup-engine-empty');
+        if (linkSetupEngineEmpty) {
+            linkSetupEngineEmpty.onclick = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                this.activeTab = 'engine';
+                this.renderModal();
+            };
+        }
+
         const btnOpenExtractorDirect = modal.querySelector('#bm-btn-open-extractor-direct');
         if (btnOpenExtractorDirect) {
             btnOpenExtractorDirect.onclick = (e) => {
                 if (e) {
                     e.preventDefault();
                     e.stopPropagation();
+                }
+                const isReady = Boolean(window.FyersAPI && typeof window.FyersAPI.isPrivateEngineReady === 'function' && window.FyersAPI.isPrivateEngineReady());
+                if (!isReady) {
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('Please configure your GitHub PAT in the Auto-Refresh & Engine tab to use 1-click import.', 'warning');
+                    }
+                    this.activeTab = 'engine';
+                    this.renderModal();
+                    return;
                 }
                 this.viewMode = 'add';
                 this.replaceAccountId = null;
@@ -1590,6 +1665,15 @@ class FyersUI {
         };
         if (btnBack) btnBack.onclick = onCancel;
         if (btnCancel) btnCancel.onclick = onCancel;
+
+        const btnGotoEngine = modal.querySelector('#bm-btn-goto-engine-from-form');
+        if (btnGotoEngine) {
+            btnGotoEngine.onclick = (e) => {
+                if (e) e.preventDefault();
+                this.activeTab = 'engine';
+                this.renderModal();
+            };
+        }
 
         const inputAppId = modal.querySelector('#bm-input-appid');
         const inputApi = modal.querySelector('#bm-input-api');
@@ -1716,6 +1800,8 @@ class FyersUI {
                     : (receiver.inspectorUrl || (receiver.webhookUuid ? `https://ntfy.sh/${receiver.webhookUuid}` : whUrl));
 
                 const whCard = modal.querySelector('#bm-webhook-card');
+                const step1Card = modal.querySelector('#bm-step1-execution-card');
+                if (step1Card) step1Card.style.display = '';
                 const whLink = modal.querySelector('#bm-webhook-link');
                 const btnOpenWh = modal.querySelector('#bm-btn-open-inspector');
                 const btnCopyWh = modal.querySelector('#bm-btn-copy-webhook');
@@ -1768,6 +1854,11 @@ class FyersUI {
 
         const handleReceiverError = (err) => {
             console.error("[FyersUI] Receiver session error:", err);
+            const whCard = modal.querySelector('#bm-webhook-card');
+            if (whCard) whCard.style.display = 'none';
+            const step1Card = modal.querySelector('#bm-step1-execution-card');
+            if (step1Card) step1Card.style.display = 'none';
+
             const statusText = modal.querySelector('#bm-listener-status-text');
             if (statusText) {
                 statusText.innerHTML = `⚠️ <strong>Bridge Error:</strong> ${err.message || err} <button id="bm-btn-force-reload-engine" type="button" style="margin-left: 8px; background: rgba(41,98,255,0.15); color: #2962FF; border: 1px solid rgba(41,98,255,0.3); padding: 2px 7px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: 600;">🔄 Reload Engine</button>`;
@@ -1781,6 +1872,7 @@ class FyersUI {
                             await window.FyersAPI.loadPrivateEngine(true);
                             this._e2eeReceiver = null;
                             await ensureReceiverSession();
+                            if (step1Card) step1Card.style.display = '';
                         } catch (reErr) {
                             btnReload.innerText = '🔄 Retry';
                             btnReload.disabled = false;
@@ -1791,7 +1883,9 @@ class FyersUI {
             }
         };
 
-        if (this._extractorOpen) {
+        const isEngineReady = Boolean(window.FyersAPI && typeof window.FyersAPI.isPrivateEngineReady === 'function' && window.FyersAPI.isPrivateEngineReady());
+
+        if (isEngineReady && this._extractorOpen) {
             ensureReceiverSession().catch((err) => {
                 handleReceiverError(err);
             });
@@ -1803,6 +1897,14 @@ class FyersUI {
         if (btnToggleExtractor && extractorPanel) {
             btnToggleExtractor.onclick = (e) => {
                 if (e) e.preventDefault();
+                if (!isEngineReady) {
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('Please configure your GitHub PAT in the Auto-Refresh & Engine tab first.', 'warning');
+                    }
+                    this.activeTab = 'engine';
+                    this.renderModal();
+                    return;
+                }
                 this._extractorOpen = !this._extractorOpen;
                 extractorPanel.style.display = this._extractorOpen ? 'block' : 'none';
                 btnToggleExtractor.innerHTML = `<span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Zero-Touch Assistant'}</span>`;

@@ -873,6 +873,20 @@ class FyersEngine {
         return { owner: 'bunqi8', repo: parts[0] || 'broker-private' };
     }
 
+    isPrivateEngineReady() {
+        if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.createE2EESession === 'function') {
+            return true;
+        }
+        if (this.hasCachedPrivateEngine()) {
+            return true;
+        }
+        const cfg = this.getEngineConfig();
+        if (cfg && cfg.githubPat && cfg.githubPat.trim().length > 10) {
+            return true;
+        }
+        return false;
+    }
+
     hasCachedPrivateEngine() {
         if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
             return true;
