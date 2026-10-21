@@ -249,6 +249,9 @@ class FyersEngine {
             }
         }
         
+        // Auto-encrypt unencrypted credentials if any
+        this.autoEncryptAccounts().catch(() => {});
+        
         // Sync active account state
         const active = this.getActiveAccount();
         if (active) {
@@ -260,6 +263,24 @@ class FyersEngine {
             this.profileName = active.displayName;
             this.fyId = active.fyId;
             this.isConnected = !this.isAccountExpired(active);
+        }
+    }
+
+    async autoEncryptAccounts() {
+        const accounts = this.getAccounts();
+        let changed = false;
+        for (const acc of accounts) {
+            if (acc.pin && typeof acc.pin === 'string' && !acc.pin.startsWith('enc:v1:') && acc.pin.trim() !== '') {
+                acc.pin = await this.encryptSensitive(acc.pin);
+                changed = true;
+            }
+            if (acc.secretKey && typeof acc.secretKey === 'string' && !acc.secretKey.startsWith('enc:v1:') && acc.secretKey.trim() !== '') {
+                acc.secretKey = await this.encryptSensitive(acc.secretKey);
+                changed = true;
+            }
+        }
+        if (changed) {
+            this.saveAccounts(accounts);
         }
     }
 
@@ -291,7 +312,7 @@ class FyersEngine {
         } else {
             const hasAnyChange = hasApi || hasRefresh || hasWebui || hasPin || hasSecret || hasRedirect || (existingAccount && existingAccount.appId !== appId.trim());
             if (!hasAnyChange) {
-                return { valid: false, error: "No changes entered to replace." };
+                return { valid: false, error: "No changes entered to replace.", noChanges: true };
             }
         }
         
@@ -345,7 +366,139 @@ class FyersEngine {
         };
     }
 
-    saveAccount({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, pin = null, secretKey = null, redirectUri = null, id = null }) {
+    // ==========================================
+    // HARDWARE-GRADE CLIENT-SIDE AES-256 GCM ENCRYPTION
+    // ==========================================
+
+    async getCryptoKey() {
+        if (this._cachedCryptoKey) return this._cachedCryptoKey;
+
+        let salt = localStorage.getItem('tv_broker_crypto_salt');
+        if (!salt) {
+            const randomBytes = new Uint8Array(16);
+            if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+                crypto.getRandomValues(randomBytes);
+            } else if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+                window.crypto.getRandomValues(randomBytes);
+            } else if (typeof require === 'function') {
+                require('crypto').randomFillSync(randomBytes);
+            }
+            salt = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            localStorage.setItem('tv_broker_crypto_salt', salt);
+        }
+
+        const subtle = (typeof crypto !== 'undefined' && crypto.subtle)
+            ? crypto.subtle
+            : (typeof window !== 'undefined' && window.crypto && window.crypto.subtle
+                ? window.crypto.subtle
+                : (typeof require === 'function' ? require('crypto').webcrypto?.subtle : null));
+
+        if (!subtle) {
+            throw new Error("Web Crypto API is not available on this platform.");
+        }
+
+        const enc = new TextEncoder();
+        const baseSeed = `fyers_secure_vault_${typeof window !== 'undefined' && window.location ? window.location.origin : 'tradingview'}_${salt}`;
+        const keyMaterial = await subtle.importKey(
+            "raw",
+            enc.encode(baseSeed),
+            { name: "PBKDF2" },
+            false,
+            ["deriveKey"]
+        );
+
+        this._cachedCryptoKey = await subtle.deriveKey(
+            {
+                name: "PBKDF2",
+                salt: enc.encode("fyers_credential_salt_v1"),
+                iterations: 100000,
+                hash: "SHA-256"
+            },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+
+        return this._cachedCryptoKey;
+    }
+
+    async encryptSensitive(plaintext) {
+        if (!plaintext || typeof plaintext !== 'string' || !plaintext.trim()) return '';
+        const clean = plaintext.trim();
+        if (clean.startsWith('enc:v1:')) return clean; // already encrypted
+
+        const key = await this.getCryptoKey();
+        const subtle = (typeof crypto !== 'undefined' && crypto.subtle)
+            ? crypto.subtle
+            : (typeof window !== 'undefined' && window.crypto ? window.crypto.subtle : null);
+
+        const iv = new Uint8Array(12);
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            crypto.getRandomValues(iv);
+        } else if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+            window.crypto.getRandomValues(iv);
+        } else if (typeof require === 'function') {
+            require('crypto').randomFillSync(iv);
+        }
+
+        const enc = new TextEncoder();
+        const encrypted = await subtle.encrypt(
+            { name: "AES-GCM", iv },
+            key,
+            enc.encode(clean)
+        );
+
+        let ivBinary = '';
+        for (let i = 0; i < iv.length; i++) ivBinary += String.fromCharCode(iv[i]);
+        const b64Iv = btoa(ivBinary);
+
+        const cipherBytes = new Uint8Array(encrypted);
+        let cipherBinary = '';
+        for (let i = 0; i < cipherBytes.length; i++) cipherBinary += String.fromCharCode(cipherBytes[i]);
+        const b64Cipher = btoa(cipherBinary);
+
+        return `enc:v1:${b64Iv}:${b64Cipher}`;
+    }
+
+    async decryptSensitive(ciphertext) {
+        if (!ciphertext || typeof ciphertext !== 'string' || !ciphertext.trim()) return '';
+        const clean = ciphertext.trim();
+        if (!clean.startsWith('enc:v1:')) return clean; // legacy plaintext fallback
+
+        try {
+            const parts = clean.split(':');
+            if (parts.length < 4) return clean;
+            const b64Iv = parts[2];
+            const b64Cipher = parts[3];
+
+            const ivStr = atob(b64Iv);
+            const iv = new Uint8Array(ivStr.length);
+            for (let i = 0; i < ivStr.length; i++) iv[i] = ivStr.charCodeAt(i);
+
+            const cipherStr = atob(b64Cipher);
+            const cipherBytes = new Uint8Array(cipherStr.length);
+            for (let i = 0; i < cipherStr.length; i++) cipherBytes[i] = cipherStr.charCodeAt(i);
+
+            const key = await this.getCryptoKey();
+            const subtle = (typeof crypto !== 'undefined' && crypto.subtle)
+                ? crypto.subtle
+                : (typeof window !== 'undefined' && window.crypto ? window.crypto.subtle : null);
+
+            const decrypted = await subtle.decrypt(
+                { name: "AES-GCM", iv },
+                key,
+                cipherBytes.buffer
+            );
+
+            return new TextDecoder().decode(decrypted);
+        } catch (e) {
+            console.error("[FyersEngine] Decryption failed:", e);
+            return '';
+        }
+    }
+
+    async saveAccount({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, pin = null, secretKey = null, redirectUri = null, id = null }) {
         const accounts = this.getAccounts();
         const isReplace = Boolean(id);
         const existing = isReplace ? accounts.find(a => a.id === id) : null;
@@ -363,6 +516,9 @@ class FyersEngine {
         });
         
         if (!check.valid) {
+            if (check.noChanges && existing) {
+                return { success: true, account: existing, noChanges: true };
+            }
             return { success: false, error: check.error };
         }
         
@@ -390,10 +546,10 @@ class FyersEngine {
                 accountObj.webuiExpiresAt = check.webuiExpiresAt;
             }
             if (pin !== null && pin !== undefined && pin.trim() !== '') {
-                accountObj.pin = pin.trim();
+                accountObj.pin = await this.encryptSensitive(pin.trim());
             }
             if (secretKey !== null && secretKey !== undefined && secretKey.trim() !== '') {
-                accountObj.secretKey = secretKey.trim();
+                accountObj.secretKey = await this.encryptSensitive(secretKey.trim());
             }
             if (redirectUri !== null && redirectUri !== undefined && redirectUri.trim() !== '') {
                 accountObj.redirectUri = redirectUri.trim();
@@ -404,6 +560,8 @@ class FyersEngine {
             if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
                 cleanApi = cleanApi.split(':')[1];
             }
+            const encPin = pin ? await this.encryptSensitive(pin) : '';
+            const encSecret = secretKey ? await this.encryptSensitive(secretKey) : '';
             accountObj = {
                 id: 'acc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
                 broker: 'fyers',
@@ -414,8 +572,8 @@ class FyersEngine {
                 apiAccessToken: cleanApi,
                 webuiRefreshToken: (webuiRefreshToken || '').trim(),
                 webuiAccessToken: (webuiAccessToken || '').trim(),
-                pin: (pin || '').trim(),
-                secretKey: (secretKey || '').trim(),
+                pin: encPin,
+                secretKey: encSecret,
                 redirectUri: (redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html').trim(),
                 apiExpiresAt: check.apiExpiresAt,
                 refreshExpiresAt: check.refreshExpiresAt,
@@ -688,14 +846,18 @@ class FyersEngine {
                 this.showToast(`Requesting fresh access token for ${account.displayName}...`, 'info', 2000);
             }
 
+            // Decrypt PIN and Secret Key in memory if present
+            const rawPin = account.pin ? await this.decryptSensitive(account.pin) : '';
+            const rawSecret = account.secretKey ? await this.decryptSensitive(account.secretKey) : '';
+
             // Call proprietary refreshToken logic
             const res = await engine.refreshToken({
                 appId: account.appId,
                 webuiRefreshToken: account.webuiRefreshToken,
                 apiAccessToken: account.apiAccessToken,
                 webuiAccessToken: account.webuiAccessToken,
-                pin: account.pin || '',
-                secretKey: account.secretKey || '',
+                pin: rawPin,
+                secretKey: rawSecret,
                 redirectUri: account.redirectUri || 'https://trade.fyers.in/api-login/redirect-uri/index.html'
             });
 
