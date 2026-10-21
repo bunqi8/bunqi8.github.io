@@ -39,14 +39,13 @@ class FyersUI {
         if (!iframeDoc) return;
         this.cachedIframeDoc = iframeDoc;
         if (iframeDoc.getElementById(this.btnId)) {
+            this.ensureButtonPosition(iframeDoc, targetEl);
             this.updateButtonState();
             return;
         }
 
-        // Determine best placement in header toolbar (after dataset timing or option chain if present)
-        const insertAnchor = iframeDoc.getElementById('header-toolbar-dataset-timing') || 
-                             iframeDoc.getElementById('header-toolbar-option-chain') || 
-                             targetEl;
+        // Place directly BEFORE the symbol search box so it is the very first button in the toolbar
+        const symbolSearch = iframeDoc.getElementById('header-toolbar-symbol-search') || targetEl;
 
         const btnHtml = `
         <div class="group-MBOVGQRI" id="header-toolbar-broker-manager" style="margin: 0 4px; display: inline-flex; align-items: center;">
@@ -85,10 +84,15 @@ class FyersUI {
         </div>
         `;
         
-        if (insertAnchor && insertAnchor.parentNode) {
-            insertAnchor.insertAdjacentHTML('afterend', btnHtml);
+        if (symbolSearch && symbolSearch.parentNode) {
+            symbolSearch.insertAdjacentHTML('beforebegin', btnHtml);
         } else if (targetEl && targetEl.parentNode) {
-            targetEl.insertAdjacentHTML('afterend', btnHtml);
+            targetEl.insertAdjacentHTML('beforebegin', btnHtml);
+        } else {
+            const firstGroup = iframeDoc.querySelector('.group-wWM3zP_M') || iframeDoc.querySelector('.group-MBOVGQRI');
+            if (firstGroup && firstGroup.parentNode) {
+                firstGroup.insertAdjacentHTML('beforebegin', btnHtml);
+            }
         }
 
         const btn = iframeDoc.getElementById(this.btnId);
@@ -111,6 +115,15 @@ class FyersUI {
         }
 
         this.updateButtonState();
+    }
+
+    ensureButtonPosition(iframeDoc, targetEl = null) {
+        if (!iframeDoc) return;
+        const btnWrapper = iframeDoc.getElementById('header-toolbar-broker-manager');
+        const symbolSearch = iframeDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+        if (btnWrapper && symbolSearch && symbolSearch.parentNode && symbolSearch.previousElementSibling !== btnWrapper) {
+            symbolSearch.parentNode.insertBefore(btnWrapper, symbolSearch);
+        }
     }
 
     getTooltipText() {
@@ -152,6 +165,7 @@ class FyersUI {
         if (!iframe) return;
         const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
         this.cachedIframeDoc = iframeDoc;
+        this.ensureButtonPosition(iframeDoc);
         const btn = iframeDoc.getElementById(this.btnId);
         if (!btn) return;
 
@@ -1281,10 +1295,12 @@ class FyersUI {
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                             <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
-                                WebUI Access Token <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
+                                WebUI Access Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(optional)'}</span>
                             </label>
                             ${isReplace && existing && existing.webuiAccessToken ? `
-                                <span style="font-size: 11px; color: ${theme.primary}; font-weight: 600;">🔒 Currently Stored</span>
+                                <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isWebuiExpired(existing) ? theme.error : theme.success};">
+                                    ${window.FyersAPI.isWebuiExpired(existing) ? '🔴 Expired' : '🟢 Stored & Active'} (${existing.webuiExpiresAt ? window.FyersAPI.formatExpiry(existing.webuiExpiresAt) : 'Encrypted & Active'})
+                                </span>
                             ` : (isReplace ? `<span style="font-size: 11px; color: ${theme.textMuted};">Not configured</span>` : '')}
                         </div>
                         <textarea id="bm-input-webui" rows="2" placeholder="${placeholderWebui}" style="
@@ -1301,7 +1317,7 @@ class FyersUI {
                             outline: none;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Stored in standby for upcoming direct web UI integration endpoints.
+                            Used for direct web UI integration, automated renewals, and broker session sync.
                         </div>
                     </div>
 
