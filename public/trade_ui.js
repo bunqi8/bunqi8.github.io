@@ -447,8 +447,8 @@
                 const centerLotDisp = widget.querySelector('#tv-native-center-lot-disp');
 
                 if (bidDisp && askDisp && spreadDisp) {
-                    bidDisp.innerText = bidFormatted;
-                    askDisp.innerText = askFormatted;
+                    bidDisp.innerHTML = this.formatPipPriceHtml(this.currentBid);
+                    askDisp.innerHTML = this.formatPipPriceHtml(this.currentAsk);
                     spreadDisp.innerText = spreadPoints;
                     if (centerLotDisp) centerLotDisp.innerText = this.lots;
                     return;
@@ -484,7 +484,7 @@
                         box-shadow: 0 1px 2px rgba(0,0,0,0.06);
                         transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${bidFormatted}</span>
+                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentBid)}</span>
                         <span style="color: ${sellTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">SELL</span>
                     </button>
 
@@ -527,7 +527,7 @@
                         box-shadow: 0 1px 2px rgba(0,0,0,0.06);
                         transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${askFormatted}</span>
+                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentAsk)}</span>
                         <span style="color: ${buyTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">BUY</span>
                     </button>
                 </div>
@@ -1280,30 +1280,7 @@
                     </div>
                 </div>
 
-                ${this.ticketTab === 'dom' ? `
-                    <!-- DOM View Mode -->
-                    <div style="flex: 1; overflow-y: auto; padding: 10px 16px; display: flex; flex-direction: column; gap: 8px;">
-                        <div style="display: flex; justify-content: space-between; font-size: 11px; color: ${theme.textMuted}; font-weight: 600; border-bottom: 1px solid ${theme.border}; padding-bottom: 4px;">
-                            <span>Bid Size</span>
-                            <span>Price</span>
-                            <span>Ask Size</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 2px; font-size: 12px; font-weight: 600;">
-                            ${[3, 2, 1, 0, -1, -2, -3].map(offset => {
-                                const step = this.currentBid > 500 ? 0.5 : 0.05;
-                                const p = (this.currentBid + offset * step).toFixed(2);
-                                const isCur = offset === 0;
-                                return `
-                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; border-radius: 4px; background: ${isCur ? '#e8f0fe' : '#fafbfc'};">
-                                        <span style="color: #2962ff; width: 40px;">${offset <= 0 ? Math.floor(Math.random() * 40 + 5) : ''}</span>
-                                        <strong style="color: ${theme.text};">${p}</strong>
-                                        <span style="color: #f23645; width: 40px; text-align: right;">${offset >= 0 ? Math.floor(Math.random() * 40 + 5) : ''}</span>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                ` : `
+                ${this.ticketTab === 'dom' ? this.renderDomLadder(theme) : `
                     <!-- 3. Scrollable Order Form Body -->
                     <div style="flex: 1; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px;">
                         <!-- Split Sell / Buy Quote Box -->
@@ -1327,7 +1304,7 @@
                                 transition: background 0.15s;
                             ">
                                 <span style="color: ${!isBuy ? theme.sellColor : theme.textMuted}; font-size: 11.5px; font-weight: 600;">Sell</span>
-                                <span id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${bidFormatted}</span>
+                                <span id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${this.formatPipPriceHtml(this.currentBid)}</span>
                             </div>
 
                             <!-- CENTER SPREAD BADGE PILL -->
@@ -1360,7 +1337,7 @@
                                 transition: background 0.15s;
                             ">
                                 <span style="color: ${theme.buyColor}; font-size: 11.5px; font-weight: 600;">Buy</span>
-                                <span id="tv-ticket-ask-val" style="color: ${theme.buyColor}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${askFormatted}</span>
+                                <span id="tv-ticket-ask-val" style="color: ${theme.buyColor}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
                             </div>
                         </div>
 
@@ -1649,6 +1626,433 @@
             this.bindSideOrderTicketEvents(panel);
         }
 
+        renderDomLadder(theme) {
+            const cleanSym = this.currentSymbol.split(':').pop().toUpperCase();
+            const curPositions = (window.PaperTrading && window.TradingEngine && window.TradingEngine.getActiveBrokerKey(this.currentSymbol) === 'paper') 
+                ? window.PaperTrading.getPositions() 
+                : (this.positions || []);
+            const positions = curPositions.filter(p => p.symbol.split(':').pop().toUpperCase() === cleanSym);
+            const totalLots = positions.reduce((sum, p) => sum + (p.type === 'BUY' ? p.lots : -p.lots), 0);
+            const totalProfit = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
+            const hasPosition = positions.length > 0 && Math.abs(totalLots) > 0.0001;
+
+            const posText = hasPosition ? `${Math.abs(totalLots)} ${totalLots > 0 ? 'BUY' : 'SELL'}` : '—';
+            const pnlText = hasPosition ? (totalProfit >= 0 ? `+${totalProfit.toFixed(2)} USD` : `${totalProfit.toFixed(2)} USD`) : '—';
+            const pnlColor = totalProfit > 0 ? '#089981' : (totalProfit < 0 ? '#f23645' : theme.text);
+
+            const step = this.currentBid > 1000 ? 0.5 : (this.currentBid > 100 ? 0.1 : (this.currentBid > 10 ? 0.05 : 0.0001));
+            const offsets = [7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7];
+
+            const rowsHtml = offsets.map((offset) => {
+                const priceNum = this.currentBid + offset * step;
+                const priceFormatted = this.formatPrice(priceNum);
+                const isMarket = offset === 0;
+
+                const askDepth = offset >= 0 ? Math.floor(Math.sin((offset + 1) * 0.5) * 45 + 12) : 0;
+                const bidDepth = offset <= 0 ? Math.floor(Math.sin((Math.abs(offset) + 1) * 0.5) * 45 + 12) : 0;
+                const maxDepth = 60;
+                const askMeterPct = Math.min(100, Math.round((askDepth / maxDepth) * 100));
+                const bidMeterPct = Math.min(100, Math.round((bidDepth / maxDepth) * 100));
+
+                return `
+                    <div class="tv-dom-row" data-price="${priceNum}" style="
+                        display: grid;
+                        grid-template-columns: 1fr 100px 1fr;
+                        height: 25px;
+                        align-items: center;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        border-bottom: 1px solid ${theme.border};
+                        background: ${isMarket ? '#e8f0fe' : '#ffffff'};
+                        position: relative;
+                        cursor: pointer;
+                        user-select: none;
+                        transition: background 0.1s;
+                    ">
+                        <!-- BID CELL (LEFT) -->
+                        <div class="tv-dom-cell-bid" data-price="${priceNum}" title="Click to place Buy order @ ${priceFormatted}" style="
+                            height: 100%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: flex-end;
+                            padding-right: 10px;
+                            position: relative;
+                            overflow: hidden;
+                        ">
+                            ${bidDepth > 0 ? `
+                                <div style="
+                                    position: absolute;
+                                    right: 0;
+                                    top: 0;
+                                    bottom: 0;
+                                    width: ${bidMeterPct}%;
+                                    background: rgba(41, 98, 255, 0.14);
+                                    pointer-events: none;
+                                "></div>
+                                <span style="position: relative; z-index: 1; color: #2962ff; font-weight: 700;">${bidDepth}</span>
+                            ` : ''}
+                        </div>
+
+                        <!-- PRICE CELL (CENTER) -->
+                        <div style="
+                            height: 100%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            border-left: 1px solid ${theme.border};
+                            border-right: 1px solid ${theme.border};
+                            background: ${isMarket ? '#d2e3fc' : '#f8f9fa'};
+                            color: #131722;
+                            font-weight: 700;
+                            letter-spacing: -0.2px;
+                        ">
+                            ${priceFormatted}
+                        </div>
+
+                        <!-- ASK CELL (RIGHT) -->
+                        <div class="tv-dom-cell-ask" data-price="${priceNum}" title="Click to place Sell order @ ${priceFormatted}" style="
+                            height: 100%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: flex-start;
+                            padding-left: 10px;
+                            position: relative;
+                            overflow: hidden;
+                        ">
+                            ${askDepth > 0 ? `
+                                <div style="
+                                    position: absolute;
+                                    left: 0;
+                                    top: 0;
+                                    bottom: 0;
+                                    width: ${askMeterPct}%;
+                                    background: rgba(242, 54, 69, 0.14);
+                                    pointer-events: none;
+                                "></div>
+                                <span style="position: relative; z-index: 1; color: #f23645; font-weight: 700;">${askDepth}</span>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #ffffff;">
+                    <!-- 1. Column Header -->
+                    <div style="
+                        display: grid;
+                        grid-template-columns: 1fr 100px 1fr;
+                        padding: 6px 0;
+                        background: #f8f9fa;
+                        border-bottom: 1px solid ${theme.border};
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #787b86;
+                        text-align: center;
+                    ">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 8px;">
+                            <span id="tv-dom-cancel-all-buy" title="Cancel All Buy Orders" style="cursor: pointer; opacity: 0.6; font-size: 10px;">✕</span>
+                            <span>Bid size</span>
+                        </div>
+                        <div style="border-left: 1px solid ${theme.border}; border-right: 1px solid ${theme.border};">Price</div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 8px;">
+                            <span>Ask size</span>
+                            <span id="tv-dom-cancel-all-sell" title="Cancel All Sell Orders" style="cursor: pointer; opacity: 0.6; font-size: 10px;">✕</span>
+                        </div>
+                    </div>
+
+                    <!-- 2. Scrollable Ladder Rows -->
+                    <div id="tv-dom-rows-scroll" style="flex: 1; overflow-y: auto;">
+                        ${rowsHtml}
+                    </div>
+
+                    <!-- 3. Bottom Action Controls matching TV 100% -->
+                    <div style="border-top: 1px solid ${theme.border}; background: #ffffff; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Position / P&L Info Row -->
+                        <div style="display: flex; gap: 8px;">
+                            <button id="tv-dom-pos-badge" type="button" style="
+                                flex: 1;
+                                height: 26px;
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                background: #f0f3fa;
+                                color: #131722;
+                                font-size: 11px;
+                                font-weight: 700;
+                                cursor: default;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                            ">${posText}</button>
+                            <button id="tv-dom-pnl-badge" type="button" style="
+                                flex: 1;
+                                height: 26px;
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                background: #f0f3fa;
+                                color: ${pnlColor};
+                                font-size: 11px;
+                                font-weight: 700;
+                                cursor: default;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                            ">${pnlText}</button>
+                        </div>
+
+                        <!-- Flatten / CXL All / Reverse Buttons -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                            <button id="tv-dom-btn-flatten" type="button" ${hasPosition ? '' : 'disabled'} style="
+                                height: 28px;
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                background: #f0f3fa;
+                                color: #131722;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: ${hasPosition ? 'pointer' : 'not-allowed'};
+                                opacity: ${hasPosition ? '1' : '0.5'};
+                            ">Flatten</button>
+                            <button id="tv-dom-btn-cxl-all" type="button" style="
+                                height: 28px;
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                background: #f0f3fa;
+                                color: #131722;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">CXL All</button>
+                            <button id="tv-dom-btn-reverse" type="button" ${hasPosition ? '' : 'disabled'} style="
+                                height: 28px;
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                background: #f0f3fa;
+                                color: #131722;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: ${hasPosition ? 'pointer' : 'not-allowed'};
+                                opacity: ${hasPosition ? '1' : '0.5'};
+                            ">Reverse</button>
+                        </div>
+
+                        <!-- Buy Mkt | Units | Sell Mkt -->
+                        <div style="display: grid; grid-template-columns: 1fr 70px 1fr; gap: 6px; align-items: center;">
+                            <button id="tv-dom-btn-buy-mkt" type="button" style="
+                                height: 34px;
+                                border: none;
+                                border-radius: 4px;
+                                background: #2962ff;
+                                color: #ffffff;
+                                font-size: 12.5px;
+                                font-weight: 700;
+                                cursor: pointer;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                transition: opacity 0.15s;
+                            ">Buy Mkt</button>
+
+                            <input id="tv-dom-units-in" type="number" step="any" min="0.01" value="${this.lots}" style="
+                                height: 32px;
+                                border: 1px solid #d1d4dc;
+                                border-radius: 4px;
+                                background: #ffffff;
+                                color: #131722;
+                                font-size: 13px;
+                                font-weight: 700;
+                                text-align: center;
+                                outline: none;
+                                width: 100%;
+                                box-sizing: border-box;
+                            " />
+
+                            <button id="tv-dom-btn-sell-mkt" type="button" style="
+                                height: 34px;
+                                border: none;
+                                border-radius: 4px;
+                                background: #f23645;
+                                color: #ffffff;
+                                font-size: 12.5px;
+                                font-weight: 700;
+                                cursor: pointer;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                transition: opacity 0.15s;
+                            ">Sell Mkt</button>
+                        </div>
+
+                        <!-- Time in Force Selector -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: ${theme.textMuted}; padding-top: 2px;">
+                            <span>Details</span>
+                            <select id="tv-dom-tif-select" style="
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                padding: 2px 6px;
+                                font-size: 11px;
+                                font-weight: 600;
+                                background: #ffffff;
+                                color: #131722;
+                                outline: none;
+                                cursor: pointer;
+                            ">
+                                <option value="Day" ${this.timeInForce === 'Day' ? 'selected' : ''}>Day</option>
+                                <option value="GTC" ${this.timeInForce === 'GTC' ? 'selected' : ''}>GTC</option>
+                                <option value="IOC" ${this.timeInForce === 'IOC' ? 'selected' : ''}>IOC</option>
+                                <option value="Week" ${this.timeInForce === 'Week' ? 'selected' : ''}>Week</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        bindDomLadderEvents(panel) {
+            const btnFlatten = panel.querySelector('#tv-dom-btn-flatten');
+            const btnCxlAll = panel.querySelector('#tv-dom-btn-cxl-all');
+            const btnReverse = panel.querySelector('#tv-dom-btn-reverse');
+            const btnBuyMkt = panel.querySelector('#tv-dom-btn-buy-mkt');
+            const btnSellMkt = panel.querySelector('#tv-dom-btn-sell-mkt');
+            const unitsIn = panel.querySelector('#tv-dom-units-in');
+            const cancelAllBuy = panel.querySelector('#tv-dom-cancel-all-buy');
+            const cancelAllSell = panel.querySelector('#tv-dom-cancel-all-sell');
+            const tifSelect = panel.querySelector('#tv-dom-tif-select');
+
+            if (btnFlatten) {
+                btnFlatten.onclick = async () => {
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.flatten(this.currentSymbol);
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (btnCxlAll) {
+                btnCxlAll.onclick = async () => {
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.cancelAllOrders(this.currentSymbol);
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (btnReverse) {
+                btnReverse.onclick = async () => {
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.reverse(this.currentSymbol);
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (btnBuyMkt) {
+                btnBuyMkt.onclick = async () => {
+                    const units = unitsIn ? parseFloat(unitsIn.value) || this.lots : this.lots;
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.placeOrder({
+                            symbol: this.currentSymbol,
+                            side: 'BUY',
+                            orderType: 'market',
+                            lots: units
+                        });
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (btnSellMkt) {
+                btnSellMkt.onclick = async () => {
+                    const units = unitsIn ? parseFloat(unitsIn.value) || this.lots : this.lots;
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.placeOrder({
+                            symbol: this.currentSymbol,
+                            side: 'SELL',
+                            orderType: 'market',
+                            lots: units
+                        });
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (unitsIn) {
+                unitsIn.oninput = (e) => {
+                    const val = Math.max(0.01, parseFloat(e.target.value) || 1.0);
+                    this.setLots(val);
+                };
+            }
+            if (cancelAllBuy) {
+                cancelAllBuy.onclick = async () => {
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.cancelAllOrders(this.currentSymbol);
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (cancelAllSell) {
+                cancelAllSell.onclick = async () => {
+                    if (window.TradingEngine) {
+                        await window.TradingEngine.cancelAllOrders(this.currentSymbol);
+                        this.renderSideOrderTicket();
+                    }
+                };
+            }
+            if (tifSelect) {
+                tifSelect.onchange = (e) => {
+                    this.timeInForce = e.target.value;
+                };
+            }
+
+            // Price Row cell clicks (Bid = Buy limit/stop, Ask = Sell limit/stop)
+            panel.querySelectorAll('.tv-dom-cell-bid').forEach(cell => {
+                cell.onclick = (e) => {
+                    e.stopPropagation();
+                    const p = parseFloat(cell.getAttribute('data-price'));
+                    if (isNaN(p)) return;
+                    const orderType = p < this.currentBid ? 'limit' : 'stop';
+                    if (this.settings.oneClickTrading) {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.placeOrder({
+                                symbol: this.currentSymbol,
+                                side: 'BUY',
+                                orderType: orderType,
+                                price: p,
+                                lots: this.lots
+                            });
+                        }
+                    } else {
+                        this.ticketTab = 'order';
+                        this.selectedSide = 'BUY';
+                        this.orderType = orderType;
+                        this.limitPrice = p;
+                        this.renderSideOrderTicket();
+                    }
+                };
+            });
+
+            panel.querySelectorAll('.tv-dom-cell-ask').forEach(cell => {
+                cell.onclick = (e) => {
+                    e.stopPropagation();
+                    const p = parseFloat(cell.getAttribute('data-price'));
+                    if (isNaN(p)) return;
+                    const orderType = p > this.currentAsk ? 'limit' : 'stop';
+                    if (this.settings.oneClickTrading) {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.placeOrder({
+                                symbol: this.currentSymbol,
+                                side: 'SELL',
+                                orderType: orderType,
+                                price: p,
+                                lots: this.lots
+                            });
+                        }
+                    } else {
+                        this.ticketTab = 'order';
+                        this.selectedSide = 'SELL';
+                        this.orderType = orderType;
+                        this.limitPrice = p;
+                        this.renderSideOrderTicket();
+                    }
+                };
+            });
+        }
+
         bindSideOrderTicketEvents(panel) {
             const btnClose = panel.querySelector('#tv-ticket-btn-close');
             const btnDock = panel.querySelector('#tv-ticket-btn-dock');
@@ -1677,6 +2081,11 @@
                     this.ticketTab = 'dom';
                     this.renderSideOrderTicket();
                 };
+            }
+
+            if (this.ticketTab === 'dom') {
+                this.bindDomLadderEvents(panel);
+                return;
             }
 
             if (splitSell) {
@@ -3049,8 +3458,8 @@
             const ticketBid = document.getElementById('tv-ticket-bid-val');
             const ticketAsk = document.getElementById('tv-ticket-ask-val');
             const ticketSpread = document.getElementById('tv-ticket-spread-badge');
-            if (ticketBid) ticketBid.innerText = this.formatPrice(this.currentBid);
-            if (ticketAsk) ticketAsk.innerText = this.formatPrice(this.currentAsk);
+            if (ticketBid) ticketBid.innerHTML = this.formatPipPriceHtml(this.currentBid);
+            if (ticketAsk) ticketAsk.innerHTML = this.formatPipPriceHtml(this.currentAsk);
             if (ticketSpread) ticketSpread.innerText = this.getSpreadFormatted();
 
             this.updateFinancialSummary();
@@ -3134,6 +3543,18 @@
             }
             if (price < 10) return Number(price).toFixed(5);
             return Number(price).toFixed(2);
+        }
+
+        formatPipPriceHtml(price) {
+            const str = this.formatPrice(price);
+            if (!str || str.length < 2) return str;
+            const dotIdx = str.lastIndexOf('.');
+            if (dotIdx !== -1 && dotIdx < str.length - 1) {
+                const base = str.slice(0, -1);
+                const last = str.slice(-1);
+                return `${base}<span style="font-size: 0.72em; vertical-align: 0.35em; line-height: 0; font-weight: 700; margin-left: 0.5px;">${last}</span>`;
+            }
+            return str;
         }
 
         syncPricesWithChart() {

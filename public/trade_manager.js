@@ -284,6 +284,61 @@
             return await adapter.closePartial(position, percent);
         }
 
+        async flatten(symbol = null) {
+            const targetSymbol = symbol || (window.TradeUI ? window.TradeUI.currentSymbol : null);
+            const adapter = this.getActiveAdapter(targetSymbol);
+            if (!adapter || typeof adapter.getPositions !== 'function') return { success: false };
+            const positions = await adapter.getPositions();
+            const cleanSym = targetSymbol ? targetSymbol.split(':').pop().toUpperCase() : null;
+            const targetPos = cleanSym ? positions.filter(p => p.symbol.split(':').pop().toUpperCase() === cleanSym) : positions;
+            let count = 0;
+            for (const pos of targetPos) {
+                await this.closePosition({ ticket: pos.ticket, symbol: pos.symbol, lots: pos.lots });
+                count++;
+            }
+            this.notifyPositionListeners();
+            return { success: true, count };
+        }
+
+        async cancelAllOrders(symbol = null) {
+            const targetSymbol = symbol || (window.TradeUI ? window.TradeUI.currentSymbol : null);
+            const adapter = this.getActiveAdapter(targetSymbol);
+            if (!adapter || typeof adapter.getOrders !== 'function') return { success: false };
+            const orders = await adapter.getOrders();
+            const cleanSym = targetSymbol ? targetSymbol.split(':').pop().toUpperCase() : null;
+            const targetOrders = cleanSym ? orders.filter(o => o.symbol.split(':').pop().toUpperCase() === cleanSym) : orders;
+            let count = 0;
+            for (const o of targetOrders) {
+                await this.cancelOrder(o.ticket || o.id);
+                count++;
+            }
+            return { success: true, count };
+        }
+
+        async reverse(symbol = null) {
+            const targetSymbol = symbol || (window.TradeUI ? window.TradeUI.currentSymbol : null);
+            const adapter = this.getActiveAdapter(targetSymbol);
+            if (!adapter || typeof adapter.getPositions !== 'function') return { success: false };
+            const positions = await adapter.getPositions();
+            const cleanSym = targetSymbol ? targetSymbol.split(':').pop().toUpperCase() : null;
+            const targetPos = cleanSym ? positions.filter(p => p.symbol.split(':').pop().toUpperCase() === cleanSym) : positions;
+            if (!targetPos || targetPos.length === 0) return { success: false, error: 'No position to reverse' };
+
+            for (const pos of targetPos) {
+                await this.closePosition({ ticket: pos.ticket, symbol: pos.symbol, lots: pos.lots });
+                const oppositeSide = (pos.type === 'BUY' || pos.side === 'BUY') ? 'SELL' : 'BUY';
+                await this.placeOrder({
+                    symbol: pos.symbol,
+                    side: oppositeSide,
+                    orderType: 'market',
+                    lots: pos.lots,
+                    comment: 'DOM Reverse'
+                });
+            }
+            this.notifyPositionListeners();
+            return { success: true };
+        }
+
         async getPositions(brokerKey = null) {
             const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
             if (!adapter || typeof adapter.getPositions !== 'function') return [];
