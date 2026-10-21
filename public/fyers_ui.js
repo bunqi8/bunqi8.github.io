@@ -1630,6 +1630,7 @@ class FyersUI {
                 if (id) {
                     this.viewMode = 'replace';
                     this.replaceAccountId = id;
+                    this._extractorOpen = false;
                     this.renderModal();
                 }
             };
