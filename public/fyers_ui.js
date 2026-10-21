@@ -489,29 +489,30 @@ class FyersUI {
             cardsHtml = `
             <div style="
                 text-align: center; 
-                padding: 36px 16px; 
+                padding: 40px 20px; 
                 border: 2px dashed ${theme.border}; 
-                border-radius: 10px; 
+                border-radius: 12px; 
                 margin-bottom: 16px;
+                background: ${theme.isDark ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.01)'};
             ">
-                <div style="font-size: 32px; margin-bottom: 8px;">🔑</div>
-                <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">No Broker Accounts Added</div>
-                <div style="font-size: 13px; color: ${theme.textMuted}; max-width: 420px; margin: 0 auto 18px; line-height: 1.4;">
-                    Add your Fyers App ID and API Access Token to view live option chains and stream market data. WebUI Refresh Token is optional but highly recommended.
+                <div style="font-size: 34px; margin-bottom: 10px;">🔑</div>
+                <div style="font-weight: 700; font-size: 15px; margin-bottom: 6px;">No Broker Accounts Added</div>
+                <div style="font-size: 13px; color: ${theme.textMuted}; max-width: 440px; margin: 0 auto 20px; line-height: 1.5;">
+                    Add your Fyers App ID and API Access Token to stream live quotes, depth, and option chains. WebUI Refresh Token is optional but enables automatic background renewal.
                 </div>
                 <button id="bm-btn-add-first" class="bm-btn-add-trigger" type="button" style="
                     background: ${theme.primary}; 
                     color: #fff; 
                     border: none; 
-                    padding: 10px 20px; 
+                    padding: 9px 18px; 
                     border-radius: 6px; 
                     font-weight: 600; 
-                    font-size: 14px; 
+                    font-size: 13.5px; 
                     cursor: pointer;
                     display: inline-flex;
                     align-items: center;
                     gap: 6px;
-                    box-shadow: 0 2px 6px rgba(41,98,255,0.3);
+                    box-shadow: 0 2px 8px rgba(41,98,255,0.25);
                 ">+ Add Your First Account</button>
             </div>
             `;
@@ -541,135 +542,175 @@ class FyersUI {
 
                 const apiExpStr = window.FyersAPI.formatExpiry(acc.apiExpiresAt);
                 const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : null;
+                const hasRenewalCreds = Boolean(acc.pin && acc.secretKey);
 
                 return `
                 <div style="
                     background: ${theme.cardBg}; 
-                    border: 1px solid ${isActive ? theme.primary : theme.cardBorder}; 
+                    border: 1px solid ${isActive ? 'rgba(41, 98, 255, 0.45)' : theme.cardBorder}; 
                     border-radius: 10px; 
                     padding: 16px; 
                     margin-bottom: 14px; 
                     position: relative;
-                    box-shadow: ${isActive ? '0 0 0 1px ' + theme.primary : 'none'};
+                    box-shadow: ${isActive ? '0 4px 14px rgba(41, 98, 255, 0.08)' : '0 1px 3px rgba(0,0,0,0.04)'};
                 ">
-                    <!-- Top Row: Avatar, Name, ID, Active Pill, Action Buttons -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
+                    <!-- Top Row: Avatar, User Info & Single-Line Unified Action Bar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+                        <!-- Left: Avatar + Details -->
+                        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
                             <!-- Circular Avatar with Status Dot -->
-                            <div style="position: relative; width: 34px; height: 34px; flex-shrink: 0;">
+                            <div style="position: relative; width: 36px; height: 36px; flex-shrink: 0;">
                                 <div style="
-                                    width: 34px; 
-                                    height: 34px; 
+                                    width: 36px; 
+                                    height: 36px; 
                                     border-radius: 50%; 
                                     background: linear-gradient(135deg, ${theme.primary}, #1546d4); 
                                     color: #fff; 
-                                    font-weight: bold; 
+                                    font-weight: 700; 
                                     font-size: 13px; 
                                     display: flex; 
                                     align-items: center; 
                                     justify-content: center;
+                                    letter-spacing: 0.5px;
+                                    box-shadow: 0 2px 5px rgba(41,98,255,0.25);
                                 ">${initials}</div>
                                 <span style="
                                     position: absolute; 
-                                    bottom: 0px; 
-                                    right: 0px; 
+                                    bottom: -1px; 
+                                    right: -1px; 
                                     width: 9px; 
                                     height: 9px; 
                                     border-radius: 50%; 
                                     background: ${dotColor}; 
-                                    box-shadow: 0 0 0 1.5px ${theme.cardBg};
+                                    box-shadow: 0 0 0 2px ${theme.cardBg};
                                 "></span>
                             </div>
 
-                            <div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-weight: 700; font-size: 15px;">${acc.displayName || 'Fyers User'}</span>
+                            <div style="min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    <span style="font-weight: 700; font-size: 15px; color: ${theme.text};">${acc.displayName || 'Fyers User'}</span>
                                     <span style="
                                         font-size: 11px; 
-                                        font-family: monospace; 
-                                        background: ${statusBg}; 
-                                        color: ${statusColor}; 
+                                        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; 
+                                        background: rgba(41,98,255,0.08); 
+                                        color: #2962FF; 
                                         padding: 2px 6px; 
                                         border-radius: 4px; 
                                         font-weight: 600;
+                                        border: 1px solid rgba(41,98,255,0.2);
                                     ">${acc.fyId || 'N/A'}</span>
                                     ${isActive ? `
                                         <span style="
-                                            background: rgba(41, 98, 255, 0.15); 
-                                            color: ${theme.primary}; 
-                                            font-size: 11px; 
+                                            display: inline-flex; 
+                                            align-items: center; 
+                                            gap: 4px; 
+                                            font-size: 10.5px; 
                                             font-weight: 700; 
                                             padding: 2px 7px; 
-                                            border-radius: 12px;
+                                            border-radius: 10px;
+                                            background: rgba(8, 153, 129, 0.12); 
+                                            color: #089981;
+                                            border: 1px solid rgba(8, 153, 129, 0.25);
                                         ">ACTIVE</span>
                                     ` : ''}
                                 </div>
-                                <div style="font-size: 12px; color: ${theme.textMuted}; margin-top: 2px; display: flex; align-items: center; gap: 8px;">
-                                    <span>App ID: <code style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px;">${acc.appId || 'N/A'}</code></span>
-                                    ${(acc.pin && acc.secretKey) ? `
-                                        <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.12); color: ${theme.success}; font-weight: 600;">⚡ Auto-Renew Ready</span>
+                                <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <span>App ID: <strong style="font-family: ui-monospace, monospace; color: ${theme.text}; font-size: 11px; background: ${theme.isDark ? '#232733' : '#eaedf2'}; padding: 1px 5px; border-radius: 3px; font-weight: 500;">${acc.appId || 'N/A'}</strong></span>
+                                    <span style="color: ${theme.border};">•</span>
+                                    ${hasRenewalCreds ? `
+                                        <span style="font-size: 11px; color: #089981; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                            <span>🔒</span> Auto-Renew Ready (Encrypted)
+                                        </span>
                                     ` : (acc.webuiRefreshToken ? `
-                                        <span style="font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: rgba(255,152,0,0.12); color: ${theme.warning}; font-weight: 600;">⚡ Needs PIN & Secret</span>
-                                    ` : '')}
+                                        <span style="font-size: 11px; color: #ff9800; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                            <span>⚡</span> Needs PIN & Secret
+                                        </span>
+                                    ` : `
+                                        <span style="font-size: 11px; color: ${theme.textMuted};">Direct API Token</span>
+                                    `)}
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Card Action Buttons -->
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <!-- Right: Action Buttons (Strictly Single-Line, Unified 30px Height) -->
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                             ${acc.webuiRefreshToken ? `
-                                <button class="bm-btn-refresh-token" data-id="${acc.id}" title="Refresh access token now using private engine" style="
+                                <button class="bm-btn-refresh-token" data-id="${acc.id}" title="Refresh access token now using private engine" type="button" style="
+                                    height: 30px; 
+                                    padding: 0 12px; 
                                     background: rgba(41, 98, 255, 0.1); 
-                                    color: ${theme.primary}; 
+                                    color: #2962FF; 
                                     border: 1px solid rgba(41, 98, 255, 0.35); 
-                                    padding: 5px 10px; 
-                                    border-radius: 5px; 
+                                    border-radius: 6px; 
                                     font-size: 12px; 
                                     font-weight: 600; 
                                     cursor: pointer;
                                     display: inline-flex;
                                     align-items: center;
-                                    gap: 4px;
-                                ">⚡ Refresh</button>
+                                    gap: 5px;
+                                    white-space: nowrap;
+                                    box-sizing: border-box;
+                                ">
+                                    <span style="font-size: 12px;">⚡</span> Refresh
+                                </button>
                             ` : ''}
                             ${!isActive ? `
-                                <button class="bm-btn-activate" data-id="${acc.id}" style="
+                                <button class="bm-btn-activate" data-id="${acc.id}" title="Set as primary active broker account" type="button" style="
+                                    height: 30px; 
+                                    padding: 0 10px; 
                                     background: transparent; 
-                                    color: ${theme.primary}; 
-                                    border: 1px solid ${theme.primary}; 
-                                    padding: 5px 10px; 
-                                    border-radius: 5px; 
+                                    color: #2962FF; 
+                                    border: 1px solid #2962FF; 
+                                    border-radius: 6px; 
                                     font-size: 12px; 
                                     font-weight: 600; 
                                     cursor: pointer;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    white-space: nowrap;
+                                    box-sizing: border-box;
                                 ">Set Active</button>
                             ` : ''}
-                            <button class="bm-btn-replace" data-id="${acc.id}" style="
-                                background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; 
+                            <button class="bm-btn-replace" data-id="${acc.id}" title="Edit or replace credentials for this account" type="button" style="
+                                height: 30px; 
+                                padding: 0 11px; 
+                                background: ${theme.isDark ? '#262a35' : '#eaedf2'}; 
                                 color: ${theme.text}; 
-                                border: none; 
-                                padding: 5px 10px; 
-                                border-radius: 5px; 
+                                border: 1px solid ${theme.isDark ? '#363c4a' : '#d2d6df'}; 
+                                border-radius: 6px; 
                                 font-size: 12px; 
                                 font-weight: 500; 
                                 cursor: pointer;
-                            ">🔄 Replace Tokens</button>
-                            <button class="bm-btn-delete" data-id="${acc.id}" title="Delete Account" style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                white-space: nowrap;
+                                box-sizing: border-box;
+                            ">
+                                <span style="font-size: 12px;">✏️</span> Edit
+                            </button>
+                            <button class="bm-btn-delete" data-id="${acc.id}" title="Delete Account" type="button" style="
+                                width: 30px; 
+                                height: 30px; 
+                                padding: 0; 
                                 background: transparent; 
-                                color: ${theme.error}; 
-                                border: 1px solid rgba(242,54,69,0.3); 
-                                padding: 5px 8px; 
-                                border-radius: 5px; 
-                                font-size: 12px; 
+                                color: #f23645; 
+                                border: 1px solid rgba(242, 54, 69, 0.25); 
+                                border-radius: 6px; 
+                                font-size: 13px; 
                                 cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                box-sizing: border-box;
                             ">🗑</button>
                         </div>
                     </div>
 
-                    <!-- Token Credentials Panel (Clean, Structured, No Long Dots) -->
+                    <!-- Token Credentials Panel (Sleek Modern Inset Card) -->
                     <div style="
-                        background: ${theme.bg}; 
-                        border: 1px solid ${theme.border}; 
+                        background: ${theme.isDark ? '#141720' : '#ffffff'}; 
+                        border: 1px solid ${theme.isDark ? '#242836' : '#e6e9ef'}; 
                         border-radius: 8px; 
                         overflow: hidden;
                         font-size: 12px;
@@ -679,11 +720,11 @@ class FyersUI {
                             display: flex; 
                             justify-content: space-between; 
                             align-items: center; 
-                            padding: 9px 12px; 
-                            border-bottom: 1px solid ${theme.border};
+                            padding: 8px 14px; 
+                            border-bottom: 1px solid ${theme.isDark ? '#1e222e' : '#f0f2f6'};
                         ">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 14px;">🔑</span>
+                                <span style="font-size: 13px;">🔑</span>
                                 <span style="font-weight: 600; color: ${theme.text};">API Access Token</span>
                             </div>
                             <div>
@@ -694,13 +735,13 @@ class FyersUI {
                                         gap: 5px; 
                                         font-size: 11px; 
                                         padding: 3px 8px; 
-                                        border-radius: 12px; 
-                                        background: ${isApiExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
-                                        color: ${isApiExp ? theme.error : theme.success}; 
-                                        font-weight: 600;
-                                        border: 1px solid ${isApiExp ? 'rgba(242,54,69,0.25)' : 'rgba(8,153,129,0.25)'};
+                                        border-radius: 6px; 
+                                        background: ${isApiExp ? 'rgba(242,54,69,0.08)' : 'rgba(8,153,129,0.08)'}; 
+                                        color: ${isApiExp ? '#f23645' : '#089981'}; 
+                                        font-weight: 500;
+                                        border: 1px solid ${isApiExp ? 'rgba(242,54,69,0.22)' : 'rgba(8,153,129,0.22)'};
                                     ">
-                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isApiExp ? theme.error : theme.success};"></span>
+                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isApiExp ? '#f23645' : '#089981'};"></span>
                                         ${apiExpStr}
                                     </span>
                                 ` : `
@@ -714,11 +755,11 @@ class FyersUI {
                             display: flex; 
                             justify-content: space-between; 
                             align-items: center; 
-                            padding: 9px 12px; 
-                            border-bottom: 1px solid ${theme.border};
+                            padding: 8px 14px; 
+                            border-bottom: 1px solid ${theme.isDark ? '#1e222e' : '#f0f2f6'};
                         ">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 14px;">🔄</span>
+                                <span style="font-size: 13px;">🔄</span>
                                 <span style="font-weight: 600; color: ${theme.text};">WebUI Refresh Token</span>
                             </div>
                             <div>
@@ -729,13 +770,13 @@ class FyersUI {
                                         gap: 5px; 
                                         font-size: 11px; 
                                         padding: 3px 8px; 
-                                        border-radius: 12px; 
-                                        background: ${isRefExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
-                                        color: ${isRefExp ? theme.error : theme.success}; 
-                                        font-weight: 600;
-                                        border: 1px solid ${isRefExp ? 'rgba(242,54,69,0.25)' : 'rgba(8,153,129,0.25)'};
+                                        border-radius: 6px; 
+                                        background: ${isRefExp ? 'rgba(242,54,69,0.08)' : 'rgba(8,153,129,0.08)'}; 
+                                        color: ${isRefExp ? '#f23645' : '#089981'}; 
+                                        font-weight: 500;
+                                        border: 1px solid ${isRefExp ? 'rgba(242,54,69,0.22)' : 'rgba(8,153,129,0.22)'};
                                     ">
-                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isRefExp ? theme.error : theme.success};"></span>
+                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isRefExp ? '#f23645' : '#089981'};"></span>
                                         ${refExpStr || 'Configured'}
                                     </span>
                                 ` : `
@@ -749,10 +790,10 @@ class FyersUI {
                             display: flex; 
                             justify-content: space-between; 
                             align-items: center; 
-                            padding: 9px 12px;
+                            padding: 8px 14px;
                         ">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 14px;">🌐</span>
+                                <span style="font-size: 13px;">🌐</span>
                                 <span style="font-weight: 600; color: ${theme.text};">WebUI Access Token</span>
                             </div>
                             <div>
@@ -763,11 +804,11 @@ class FyersUI {
                                         gap: 5px; 
                                         font-size: 11px; 
                                         padding: 3px 8px; 
-                                        border-radius: 12px; 
-                                        background: rgba(41,98,255,0.1); 
-                                        color: ${theme.primary}; 
-                                        font-weight: 600;
-                                        border: 1px solid rgba(41,98,255,0.25);
+                                        border-radius: 6px; 
+                                        background: rgba(41,98,255,0.08); 
+                                        color: #2962FF; 
+                                        font-weight: 500;
+                                        border: 1px solid rgba(41,98,255,0.22);
                                     ">
                                         🔒 Stored (Standby)
                                     </span>
@@ -800,6 +841,7 @@ class FyersUI {
                     display: inline-flex; 
                     align-items: center; 
                     gap: 6px;
+                    box-shadow: 0 2px 6px rgba(41,98,255,0.25);
                 ">
                     <span>+</span> Add Broker Account
                 </button>
@@ -813,19 +855,20 @@ class FyersUI {
             <!-- Privacy & Write-Only Notice Footer -->
             <div style="
                 margin-top: 16px; 
-                padding: 10px 14px; 
+                padding: 11px 14px; 
                 background: ${theme.cardBg}; 
-                border-radius: 6px; 
+                border-radius: 8px; 
                 border: 1px solid ${theme.border}; 
                 font-size: 11.5px; 
                 color: ${theme.textMuted}; 
                 display: flex; 
                 align-items: flex-start; 
-                gap: 8px;
+                gap: 9px;
+                line-height: 1.45;
             ">
-                <span style="font-size: 14px;">🔒</span>
+                <span style="font-size: 14px; line-height: 1.2;">🔒</span>
                 <div>
-                    <strong>Write-Only Security:</strong> Raw token strings are strictly write-only and never exposed in plaintext. When replacing tokens, blank fields safely preserve their existing saved tokens.
+                    <strong style="color: ${theme.text};">Hardware-Grade Security:</strong> Sensitive credentials (PIN & Secret Key) are encrypted client-side using <strong>AES-256 GCM</strong> before saving. Tokens are write-only and never exposed in plaintext. When editing, empty fields preserve existing tokens.
                 </div>
             </div>
         `;
@@ -836,19 +879,19 @@ class FyersUI {
         const existing = isReplace ? accounts.find(a => a.id === this.replaceAccountId) : null;
 
         const title = isReplace 
-            ? `Replace Tokens: ${existing ? existing.displayName : ''} (${existing ? existing.fyId : ''})` 
+            ? `Edit Account: ${existing ? existing.displayName : ''} (${existing ? existing.fyId : ''})` 
             : 'Add New Broker Account';
 
         const placeholderApi = isReplace 
-            ? 'Leave empty to keep existing token, or paste full new token to replace' 
+            ? 'Leave blank to preserve current saved token, or paste new token string...' 
             : 'Paste full API Access Token (JWT string)...';
 
         const placeholderRefresh = isReplace 
-            ? 'Leave empty to keep existing token, or paste full new token to replace' 
+            ? 'Leave blank to preserve current saved token, or paste new token string...' 
             : 'Optional WebUI Refresh Token (JWT string)...';
 
         const placeholderWebui = isReplace 
-            ? 'Leave empty to keep existing token, or paste full new token to replace' 
+            ? 'Leave blank to preserve current saved token, or paste new token string...' 
             : 'Optional WebUI Access Token (JWT string)...';
 
         return `
@@ -867,18 +910,18 @@ class FyersUI {
                     gap: 4px;
                 ">← Back to Accounts</button>
 
-                <h4 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700;">${title}</h4>
-                <div style="font-size: 12px; color: ${theme.textMuted}; margin-bottom: 16px;">
+                <h4 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700; color: ${theme.text};">${title}</h4>
+                <div style="font-size: 12px; color: ${theme.textMuted}; margin-bottom: 16px; line-height: 1.4;">
                     ${isReplace 
-                        ? 'Enter new token strings to replace. Any field left blank is 100% preserved without deletion.' 
-                        : 'Enter your App ID and API Access Token. WebUI Refresh Token is optional but recommended for automatic token renewal.'}
+                        ? 'Update credentials below. Blank fields are 100% preserved and will not be overwritten or cleared.' 
+                        : 'Configure your Fyers App ID and API Access Token. WebUI Refresh Token enables automatic background renewal.'}
                 </div>
 
                 <!-- Form Fields -->
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <!-- App ID -->
                     <div>
-                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
+                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: ${theme.text};">
                             App ID <span style="color: ${theme.error};">*</span>
                         </label>
                         <input type="text" id="bm-input-appid" value="${existing ? existing.appId : ''}" placeholder="e.g. XC12345-100" style="
@@ -890,21 +933,22 @@ class FyersUI {
                             border-radius: 6px; 
                             font-size: 13px; 
                             box-sizing: border-box;
+                            outline: none;
                         ">
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Your registered Fyers Client / App ID.
+                            Your registered Fyers Client App ID (e.g. XC12345-100).
                         </div>
                     </div>
 
                     <!-- API Access Token -->
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <label style="font-size: 12px; font-weight: 600;">
+                            <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
                                 API Access Token ${!isReplace ? `<span style="color: ${theme.error};">*</span>` : '<span style="font-weight: 400; color:' + theme.textMuted + ';">(leave blank to keep current)</span>'}
                             </label>
                             ${isReplace && existing && existing.apiAccessToken ? `
                                 <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isAccountExpired(existing) ? theme.error : theme.success};">
-                                    ${window.FyersAPI.isAccountExpired(existing) ? '🔴 Expired' : '🟢 Currently Active'} (${window.FyersAPI.formatExpiry(existing.apiExpiresAt)})
+                                    ${window.FyersAPI.isAccountExpired(existing) ? '🔴 Expired' : '🟢 Stored & Active'} (${window.FyersAPI.formatExpiry(existing.apiExpiresAt)})
                                 </span>
                             ` : ''}
                         </div>
@@ -916,24 +960,25 @@ class FyersUI {
                             border: 1px solid ${theme.inputBorder}; 
                             border-radius: 6px; 
                             font-size: 12px; 
-                            font-family: monospace; 
+                            font-family: ui-monospace, monospace; 
                             resize: vertical; 
                             box-sizing: border-box;
+                            outline: none;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Used for all data feeds, historical quotes, and live order placement.
+                            Used for market data streaming, historical bars, and depth feeds.
                         </div>
                     </div>
 
                     <!-- WebUI Refresh Token -->
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <label style="font-size: 12px; font-weight: 600;">
+                            <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
                                 WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(Highly recommended, optional)'}</span>
                             </label>
                             ${isReplace && existing && existing.webuiRefreshToken ? `
                                 <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isRefreshExpired(existing) ? theme.error : theme.success};">
-                                    ${window.FyersAPI.isRefreshExpired(existing) ? '🔴 Expired' : '🟢 Currently Active'} (${window.FyersAPI.formatExpiry(existing.refreshExpiresAt)})
+                                    ${window.FyersAPI.isRefreshExpired(existing) ? '🔴 Expired' : '🟢 Stored & Active'} (${window.FyersAPI.formatExpiry(existing.refreshExpiresAt)})
                                 </span>
                             ` : (isReplace ? `<span style="font-size: 11px; color: ${theme.textMuted};">Not configured</span>` : '')}
                         </div>
@@ -945,19 +990,20 @@ class FyersUI {
                             border: 1px solid ${theme.inputBorder}; 
                             border-radius: 6px; 
                             font-size: 12px; 
-                            font-family: monospace; 
+                            font-family: ui-monospace, monospace; 
                             resize: vertical; 
                             box-sizing: border-box;
+                            outline: none;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Recommended to obtain fresh access tokens on the fly. Can be left empty for testing or direct API workflows.
+                            Allows generating new access tokens on the fly without logging in again.
                         </div>
                     </div>
 
                     <!-- WebUI Access Token -->
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <label style="font-size: 12px; font-weight: 600;">
+                            <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
                                 WebUI Access Token <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
                             </label>
                             ${isReplace && existing && existing.webuiAccessToken ? `
@@ -972,36 +1018,48 @@ class FyersUI {
                             border: 1px solid ${theme.inputBorder}; 
                             border-radius: 6px; 
                             font-size: 12px; 
-                            font-family: monospace; 
+                            font-family: ui-monospace, monospace; 
                             resize: vertical; 
                             box-sizing: border-box;
+                            outline: none;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Stored for upcoming webui endpoints.
+                            Stored in standby for upcoming direct web UI integration endpoints.
                         </div>
                     </div>
 
-                    <!-- Auto-Renewal Parameters (Optional) -->
+                    <!-- Auto-Renewal Parameters (Client-Side Encrypted) -->
                     <div style="
                         background: ${theme.cardBg}; 
                         border: 1px solid ${theme.border}; 
                         border-radius: 8px; 
-                        padding: 12px 14px; 
+                        padding: 14px 16px; 
                         margin-top: 4px;
                     ">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="font-size: 12px; font-weight: 700; color: ${theme.text}; display: inline-flex; align-items: center; gap: 6px;">
-                                <span>⚡</span> Auto-Renewal Parameters <span style="font-size: 11px; font-weight: 400; color: ${theme.textMuted};">(for 1-click & background renewal)</span>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; flex-wrap: wrap;">
+                            <span style="font-size: 12.5px; font-weight: 700; color: ${theme.text}; display: inline-flex; align-items: center; gap: 6px;">
+                                <span>⚡</span> Auto-Renewal Parameters
                             </span>
-                            ${isReplace && existing && existing.pin && existing.secretKey ? `
-                                <span style="font-size: 11px; color: ${theme.success}; font-weight: 600;">✓ Configured</span>
-                            ` : ''}
+                            <span style="
+                                font-size: 10.5px; 
+                                padding: 2px 8px; 
+                                border-radius: 10px; 
+                                font-weight: 600; 
+                                background: rgba(8, 153, 129, 0.1); 
+                                color: #089981; 
+                                border: 1px solid rgba(8, 153, 129, 0.25);
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                            ">
+                                <span>🔒</span> AES-256 GCM Client-Side Encrypted
+                            </span>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
                             <!-- PIN -->
                             <div>
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
                                     Fyers 4-Digit PIN
                                 </label>
                                 <input type="password" id="bm-input-pin" maxlength="6" placeholder="${isReplace && existing && existing.pin ? '•••• (Saved - leave blank)' : '4-digit login PIN'}" style="
@@ -1010,15 +1068,16 @@ class FyersUI {
                                     background: ${theme.inputBg}; 
                                     color: ${theme.inputText}; 
                                     border: 1px solid ${theme.inputBorder}; 
-                                    border-radius: 5px; 
+                                    border-radius: 6px; 
                                     font-size: 12px; 
                                     box-sizing: border-box;
+                                    outline: none;
                                 ">
                             </div>
 
                             <!-- Secret Key -->
                             <div>
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
                                     App Secret Key
                                 </label>
                                 <input type="password" id="bm-input-secret" placeholder="${isReplace && existing && existing.secretKey ? '•••••••• (Saved - leave blank)' : 'API App Secret Key'}" style="
@@ -1027,16 +1086,17 @@ class FyersUI {
                                     background: ${theme.inputBg}; 
                                     color: ${theme.inputText}; 
                                     border: 1px solid ${theme.inputBorder}; 
-                                    border-radius: 5px; 
+                                    border-radius: 6px; 
                                     font-size: 12px; 
                                     box-sizing: border-box;
+                                    outline: none;
                                 ">
                             </div>
                         </div>
 
                         <!-- Redirect URI -->
                         <div>
-                            <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">
+                            <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
                                 App Redirect URI
                             </label>
                             <input type="text" id="bm-input-redirect" value="${(existing && existing.redirectUri) ? existing.redirectUri : 'https://trade.fyers.in/api-login/redirect-uri/index.html'}" placeholder="e.g. https://trade.fyers.in/api-login/redirect-uri/index.html" style="
@@ -1045,13 +1105,14 @@ class FyersUI {
                                 background: ${theme.inputBg}; 
                                 color: ${theme.inputText}; 
                                 border: 1px solid ${theme.inputBorder}; 
-                                border-radius: 5px; 
+                                border-radius: 6px; 
                                 font-size: 12px; 
                                 box-sizing: border-box;
+                                outline: none;
                             ">
                         </div>
-                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 6px; line-height: 1.4;">
-                            Used exclusively by your private engine to auto-renew API tokens on expiration. Write-only & stored in local browser storage.
+                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 6px; line-height: 1.45;">
+                            Encrypted on your machine before saving to browser storage. Used exclusively by your private engine to auto-renew API tokens on expiration.
                         </div>
                     </div>
                 </div>
@@ -1062,36 +1123,40 @@ class FyersUI {
                 <!-- Error Box -->
                 <div id="bm-form-error" style="
                     margin-top: 12px; 
-                    padding: 10px 12px; 
-                    background: rgba(242,54,69,0.1); 
+                    padding: 10px 14px; 
+                    background: rgba(242,54,69,0.08); 
                     border: 1px solid ${theme.error}; 
                     color: ${theme.error}; 
                     border-radius: 6px; 
                     font-size: 12px; 
                     display: none;
+                    line-height: 1.45;
                 "></div>
 
                 <!-- Bottom Action Buttons -->
                 <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
                     <button id="bm-btn-cancel-form" type="button" style="
-                        background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; 
+                        background: ${theme.isDark ? '#262a35' : '#eaedf2'}; 
                         color: ${theme.text}; 
-                        border: none; 
-                        padding: 9px 16px; 
+                        border: 1px solid ${theme.isDark ? '#363c4a' : '#d2d6df'}; 
+                        padding: 8px 16px; 
                         border-radius: 6px; 
                         font-size: 13px; 
-                        font-weight: 600; 
+                        font-weight: 500; 
                         cursor: pointer;
+                        box-sizing: border-box;
                     ">Cancel</button>
                     <button id="bm-btn-save-account" type="button" style="
                         background: ${theme.primary}; 
                         color: #fff; 
                         border: none; 
-                        padding: 9px 18px; 
+                        padding: 8px 20px; 
                         border-radius: 6px; 
                         font-size: 13px; 
                         font-weight: 600; 
                         cursor: pointer;
+                        box-shadow: 0 2px 6px rgba(41,98,255,0.25);
+                        box-sizing: border-box;
                     ">Save & Connect</button>
                 </div>
             </div>
@@ -1248,35 +1313,51 @@ class FyersUI {
                 btnSave.innerText = 'Verifying & Saving...';
                 btnSave.disabled = true;
 
-                const res = window.FyersAPI.saveAccount({
-                    appId,
-                    apiAccessToken,
-                    webuiRefreshToken,
-                    webuiAccessToken,
-                    pin,
-                    secretKey,
-                    redirectUri,
-                    id: this.replaceAccountId
-                });
+                try {
+                    const res = await window.FyersAPI.saveAccount({
+                        appId,
+                        apiAccessToken,
+                        webuiRefreshToken,
+                        webuiAccessToken,
+                        pin,
+                        secretKey,
+                        redirectUri,
+                        id: this.replaceAccountId
+                    });
 
-                if (!res.success) {
+                    if (!res || !res.success) {
+                        if (errorBox) {
+                            errorBox.innerText = (res && res.error) ? res.error : "Failed to save account credentials.";
+                            errorBox.style.display = 'block';
+                        }
+                        btnSave.innerText = 'Save & Connect';
+                        btnSave.disabled = false;
+                        return;
+                    }
+
+                    if (res.noChanges && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('No changes detected. Existing credentials preserved.', 'info');
+                    } else if (window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('Broker credentials encrypted & saved successfully!', 'success');
+                    }
+
+                    // Test live profile verification in background
+                    try {
+                        await window.FyersAPI.validateAndGetProfile();
+                    } catch (_) {}
+
+                    this.viewMode = 'list';
+                    this.replaceAccountId = null;
+                    this.renderModal();
+                } catch (err) {
+                    console.error("[FyersUI] Save account error:", err);
                     if (errorBox) {
-                        errorBox.innerText = res.error;
+                        errorBox.innerText = `Error saving credentials: ${err.message || err}`;
                         errorBox.style.display = 'block';
                     }
                     btnSave.innerText = 'Save & Connect';
                     btnSave.disabled = false;
-                    return;
                 }
-
-                // Test live profile verification in background
-                try {
-                    await window.FyersAPI.validateAndGetProfile();
-                } catch (_) {}
-
-                this.viewMode = 'list';
-                this.replaceAccountId = null;
-                this.renderModal();
             };
         }
     }
@@ -1321,16 +1402,45 @@ class FyersUI {
         });
 
         if (!check.valid) {
+            // In replace mode, if user simply hasn't changed anything yet, show friendly standby state!
+            if (check.noChanges && isReplace && existing) {
+                inspector.innerHTML = `
+                    <div style="
+                        background: ${theme.isDark ? 'rgba(41,98,255,0.06)' : 'rgba(41,98,255,0.04)'}; 
+                        border: 1px solid rgba(41,98,255,0.22); 
+                        border-radius: 8px; 
+                        padding: 12px 14px; 
+                        font-size: 12px; 
+                        color: ${theme.text};
+                    ">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 14px;">ℹ️</span>
+                                <strong style="font-size: 12.5px;">Account Edit Mode (${existing.displayName || existing.fyId})</strong>
+                            </div>
+                            <span style="font-size: 11px; color: #2962FF; font-weight: 600;">🔒 Safe Write-Only</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.5;">
+                            Leave any field blank to safely preserve its existing credentials. Enter new values only for credentials you wish to update or replace.
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
             inspector.innerHTML = `
                 <div style="
                     background: rgba(242,54,69,0.08); 
                     border: 1px solid rgba(242,54,69,0.3); 
-                    border-radius: 6px; 
-                    padding: 10px 14px; 
+                    border-radius: 8px; 
+                    padding: 12px 14px; 
                     font-size: 12px; 
                     color: ${theme.error};
+                    line-height: 1.45;
                 ">
-                    <div style="font-weight: 600; margin-bottom: 4px;">⚠️ Verification Status</div>
+                    <div style="font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <span>⚠️</span> <span>Verification Status</span>
+                    </div>
                     <div>${check.error}</div>
                 </div>
             `;
@@ -1377,7 +1487,7 @@ class FyersUI {
             <div style="
                 background: rgba(8,153,129,0.08); 
                 border: 1px solid rgba(8,153,129,0.3); 
-                border-radius: 6px; 
+                border-radius: 8px; 
                 padding: 12px 14px; 
                 font-size: 12px; 
                 color: ${theme.text};
@@ -1399,12 +1509,12 @@ class FyersUI {
                         <div>
                             <strong style="font-size: 13px;">${displayName}</strong>
                             <span style="
-                                font-family: monospace; 
+                                font-family: ui-monospace, monospace; 
                                 font-size: 11px; 
                                 background: rgba(8,153,129,0.15); 
                                 color: ${theme.success}; 
                                 padding: 2px 6px; 
-                                border-radius: 3px; 
+                                border-radius: 4px; 
                                 font-weight: 600; 
                                 margin-left: 6px;
                             ">ID: ${fyId}</span>
@@ -1414,10 +1524,10 @@ class FyersUI {
                         ${isCrossVerified ? '✓ Cross-Verified' : '✓ Verified'}
                     </span>
                 </div>
-                <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.5;">
+                <div style="font-size: 11.5px; color: ${theme.textMuted}; line-height: 1.55;">
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
-                    • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (No auto-renew)'}<br>
-                    • <strong>Auto-Renew Engine:</strong> ${autoRenewReady ? `<span style="color: ${theme.success}; font-weight: 600;">✓ Ready (PIN & Secret configured)</span>` : `<span style="color: ${theme.textMuted};">Enter PIN & Secret Key below for 1-click renewal</span>`}<br>
+                    • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (Manual renewal)'}<br>
+                    • <strong>Auto-Renew Engine:</strong> ${autoRenewReady ? `<span style="color: ${theme.success}; font-weight: 600;">✓ Ready (AES-256 Encrypted)</span>` : `<span style="color: ${theme.textMuted};">Enter PIN & Secret Key below for 1-click renewal</span>`}<br>
                     • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
                     ${isReplace && !refreshToken && existing && existing.webuiRefreshToken ? '<br>• <em>Existing WebUI Refresh Token will be preserved without changes.</em>' : ''}
                 </div>
@@ -1429,7 +1539,7 @@ class FyersUI {
                     padding: 10px 12px; 
                     background: rgba(255,152,0,0.1); 
                     border: 1px solid rgba(255,152,0,0.4); 
-                    border-radius: 6px; 
+                    border-radius: 8px; 
                     font-size: 12px; 
                     color: ${theme.warning};
                 ">
