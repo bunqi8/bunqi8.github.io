@@ -1175,13 +1175,13 @@ class FyersEngine {
         }
     }
 
-    async createE2EESession(options = { enableWebhook: true, autoDeleteWebhook: false }) {
+    async createE2EESession(options = { enableWebhook: true, autoDeleteWebhook: true }) {
         let engineRes = await this.loadPrivateEngine(false);
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
         }
-        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.3')) {
-            console.log("[FyersAPI] Updating private engine to latest v1.4.3...");
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.4')) {
+            console.log("[FyersAPI] Updating private engine to latest v1.4.4...");
             const reloadRes = await this.loadPrivateEngine(true);
             if (reloadRes.success) {
                 engineRes = reloadRes;
