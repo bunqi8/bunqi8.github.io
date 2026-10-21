@@ -1046,15 +1046,22 @@ class FyersEngine {
         }
     }
 
-    async createE2EESession() {
-        const engineRes = await this.loadPrivateEngine(false);
+    async createE2EESession(options = { enableWebhook: true }) {
+        let engineRes = await this.loadPrivateEngine(false);
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
         }
         if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function') {
+            console.log("[FyersAPI] createE2EESession not found in cached engine. Forcing reload from GitHub...");
+            engineRes = await this.loadPrivateEngine(true);
+            if (!engineRes.success) {
+                throw new Error(engineRes.error || "Failed to reload private engine from GitHub.");
+            }
+        }
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function') {
             throw new Error("Private broker engine does not implement createE2EESession(). Please verify your private repository.");
         }
-        return await window.FyersPrivateEngine.createE2EESession();
+        return await window.FyersPrivateEngine.createE2EESession(options);
     }
 
     async generateTokensDirect({ appId, webuiRefreshToken, webuiAccessToken, pin, secretKey, redirectUri }) {

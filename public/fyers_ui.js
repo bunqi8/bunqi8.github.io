@@ -1019,26 +1019,28 @@ class FyersUI {
                                 <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: ui-monospace, monospace;">Self-Destruct on Ingestion</span>
                             </div>
 
-                            <!-- 2 Easy Execution Methods -->
+                            <!-- 3 Easy Execution Methods -->
                             <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 12px;">
                                 <div style="font-weight: 700; color: ${theme.text}; margin-bottom: 8px; font-size: 12.5px;">
-                                    Step 1: Run on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> (Choose either method):
+                                    Step 1: Run on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> (Choose any method below):
                                 </div>
                                 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px;">
-                                    <!-- Method A: Bookmarklet -->
-                                    <div style="border: 1px solid rgba(41,98,255,0.2); background: rgba(41,98,255,0.04); border-radius: 6px; padding: 10px;">
-                                        <div style="font-weight: 600; color: ${theme.primary}; margin-bottom: 4px; font-size: 12px;">
-                                            ⭐ Option A: Bookmarklet (0 Keystrokes)
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                                    <!-- Option A: Bookmarklet -->
+                                    <div style="border: 1px solid rgba(41,98,255,0.25); background: rgba(41,98,255,0.04); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                                        <div>
+                                            <div style="font-weight: 600; color: ${theme.primary}; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                                                <span>⭐</span> Option A: Bookmarklet
+                                            </div>
+                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
+                                                Drag to bookmarks bar. When viewing Fyers Web, click it once to sync!
+                                            </div>
                                         </div>
-                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
-                                            Drag to your browser bookmarks bar. When viewing Fyers Web, click it once to automatically sync!
-                                        </div>
-                                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                             <a id="bm-link-bookmarklet" href="#" draggable="true" title="Drag me to your Bookmarks Bar!" style="
                                                 background: ${theme.primary};
                                                 color: #fff;
-                                                padding: 5px 10px;
+                                                padding: 5px 8px;
                                                 border-radius: 4px;
                                                 font-size: 11px;
                                                 font-weight: 600;
@@ -1046,50 +1048,85 @@ class FyersUI {
                                                 cursor: grab;
                                                 display: inline-flex;
                                                 align-items: center;
-                                                gap: 4px;
+                                                gap: 3px;
                                             ">
-                                                <span>⭐</span> Drag: "Fyers Token Sync"
+                                                <span>⭐</span> Drag: "Sync Tokens"
                                             </a>
                                             <button id="bm-btn-copy-bookmarklet" type="button" style="
                                                 background: ${theme.cardBg};
                                                 color: ${theme.text};
                                                 border: 1px solid ${theme.border};
-                                                padding: 5px 8px;
+                                                padding: 5px 7px;
                                                 border-radius: 4px;
                                                 font-size: 11px;
                                                 cursor: pointer;
-                                            ">Copy URL</button>
+                                            ">Copy</button>
                                         </div>
                                     </div>
 
-                                    <!-- Method B: Console Snippet -->
-                                    <div style="border: 1px solid ${theme.border}; background: rgba(0,0,0,0.02); border-radius: 6px; padding: 10px;">
-                                        <div style="font-weight: 600; color: ${theme.text}; margin-bottom: 4px; font-size: 12px;">
-                                            💻 Option B: Console Script
-                                        </div>
-                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
-                                            Copy script, open Console (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd>) on trade.fyers.in, paste & hit Enter.
+                                    <!-- Option B: Console Snippet -->
+                                    <div style="border: 1px solid ${theme.border}; background: rgba(0,0,0,0.02); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                                        <div>
+                                            <div style="font-weight: 600; color: ${theme.text}; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                                                <span>💻</span> Option B: Console
+                                            </div>
+                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
+                                                Open Console (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd>) on trade.fyers.in, paste & hit Enter.
+                                            </div>
                                         </div>
                                         <button id="bm-btn-copy-extractor-script" type="button" style="
                                             background: ${theme.cardBg};
                                             color: ${theme.text};
                                             border: 1px solid ${theme.border};
-                                            padding: 5px 10px;
+                                            padding: 5px 8px;
                                             border-radius: 4px;
                                             font-size: 11px;
                                             font-weight: 600;
                                             cursor: pointer;
                                             display: inline-flex;
                                             align-items: center;
+                                            justify-content: center;
                                             gap: 4px;
+                                            width: 100%;
+                                            box-sizing: border-box;
                                         ">
-                                            <span>📋</span> Copy 1-Click Console Script
+                                            <span>📋</span> Copy Console Script
+                                        </button>
+                                    </div>
+
+                                    <!-- Option C: Address Bar Quick Runner -->
+                                    <div style="border: 1px solid rgba(8,153,129,0.3); background: rgba(8,153,129,0.04); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+                                        <div>
+                                            <div style="font-weight: 600; color: #089981; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                                                <span>🔗</span> Option C: Address Bar
+                                            </div>
+                                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
+                                                Type <code style="color: #089981; font-weight: 700; background: rgba(8,153,129,0.1); padding: 1px 3px; border-radius: 3px;">j</code> in address bar on trade.fyers.in, paste & hit Enter!
+                                            </div>
+                                        </div>
+                                        <button id="bm-btn-copy-addressbar" type="button" style="
+                                            background: ${theme.cardBg};
+                                            color: ${theme.text};
+                                            border: 1px solid rgba(8,153,129,0.4);
+                                            padding: 5px 8px;
+                                            border-radius: 4px;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            justify-content: center;
+                                            gap: 4px;
+                                            width: 100%;
+                                            box-sizing: border-box;
+                                        ">
+                                            <span>🔗</span> Copy Address Bar Script
                                         </button>
                                     </div>
                                 </div>
 
                                 <div style="font-size: 11px; color: ${theme.textMuted}; line-height: 1.4;">
-                                    ⚡ <strong>How it works:</strong> The script silently encrypts your session cookies with RSA-2048 + AES-256 and dispatches them directly to this tab. Once received, the ephemeral webhook channel is <strong>instantly self-destructed and deleted</strong> from the server.
+                                    ⚡ <strong>Zero-Touch Privacy:</strong> The script silently encrypts your session cookies with ephemeral RSA-2048 + AES-256 and dispatches them directly to this tab. Once received, the temporary bridge is <strong>instantly self-destructed and purged</strong>.
                                 </div>
                             </div>
 
@@ -1103,7 +1140,7 @@ class FyersUI {
                                 </summary>
                                 <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
                                     <div style="font-size: 11px; color: ${theme.textMuted};">
-                                        If your browser blocks the zero-touch network dispatch, paste the encrypted payload here:
+                                        If your browser blocks zero-touch network dispatch, paste the encrypted payload here:
                                     </div>
                                     <textarea id="bm-input-extractor-payload" rows="2" placeholder="Paste encrypted ciphertext blob here..." style="
                                         width: 100%;
@@ -1152,12 +1189,6 @@ class FyersUI {
                                     </div>
                                 </div>
                             </details>
-                        </div>
-                    </div>
-                </div>
-
-                            <!-- Decryption Status Box -->
-                            <div id="bm-extractor-status" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 11.5px; line-height: 1.4;"></div>
                         </div>
                     </div>
                 </div>
@@ -1645,12 +1676,33 @@ class FyersUI {
             return this._e2eeReceiver;
         };
 
+        const handleReceiverError = (err) => {
+            const statusText = modal.querySelector('#bm-listener-status-text');
+            if (statusText) {
+                statusText.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err} <button id="bm-btn-force-reload-engine" type="button" style="margin-left: 8px; background: rgba(41,98,255,0.15); color: #2962FF; border: 1px solid rgba(41,98,255,0.3); padding: 2px 7px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: 600;">🔄 Reload Engine</button>`;
+                const btnReload = statusText.querySelector('#bm-btn-force-reload-engine');
+                if (btnReload) {
+                    btnReload.onclick = async (e) => {
+                        if (e) e.preventDefault();
+                        btnReload.innerText = '⏳ Reloading...';
+                        btnReload.disabled = true;
+                        try {
+                            await window.FyersAPI.loadPrivateEngine(true);
+                            this._e2eeReceiver = null;
+                            await ensureReceiverSession();
+                        } catch (reErr) {
+                            btnReload.innerText = '🔄 Retry';
+                            btnReload.disabled = false;
+                            alert(`Reload failed: ${reErr.message || reErr}`);
+                        }
+                    };
+                }
+            }
+        };
+
         if (this._extractorOpen) {
             ensureReceiverSession().catch((err) => {
-                const statusText = modal.querySelector('#bm-listener-status-text');
-                if (statusText) {
-                    statusText.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err}`;
-                }
+                handleReceiverError(err);
             });
         }
 
@@ -1668,8 +1720,7 @@ class FyersUI {
                 btnToggleExtractor.style.border = `1px solid ${this._extractorOpen ? 'rgba(41, 98, 255, 0.35)' : 'transparent'}`;
                 if (this._extractorOpen) {
                     ensureReceiverSession().catch((err) => {
-                        const statusText = modal.querySelector('#bm-listener-status-text');
-                        if (statusText) statusText.innerHTML = `⚠️ <strong>Private Engine Required:</strong> ${err.message || err}`;
+                        handleReceiverError(err);
                     });
                 } else if (this._e2eeReceiver && typeof this._e2eeReceiver.stopListening === 'function') {
                     this._e2eeReceiver.stopListening();
@@ -1687,13 +1738,13 @@ class FyersUI {
                         const bmUrl = receiver.generateBookmarklet();
                         await navigator.clipboard.writeText(bmUrl);
                         btnCopyBookmarklet.innerText = '✓ Copied!';
-                        setTimeout(() => { btnCopyBookmarklet.innerText = 'Copy URL'; }, 2500);
+                        setTimeout(() => { btnCopyBookmarklet.innerText = 'Copy'; }, 2500);
                         if (window.FyersAPI && window.FyersAPI.showToast) {
                             window.FyersAPI.showToast('⭐ Bookmarklet URL copied! Paste as a bookmark in your browser.', 'success', 3000);
                         }
                     }
                 } catch (err) {
-                    alert(`Could not generate bookmarklet: ${err.message || err}`);
+                    handleReceiverError(err);
                 }
             };
         }
@@ -1715,28 +1766,63 @@ class FyersUI {
                     }
                     setTimeout(() => {
                         if (btnCopyScript) {
-                            btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Console Script';
+                            btnCopyScript.innerHTML = '<span>📋</span> Copy Console Script';
                             btnCopyScript.style.background = theme.cardBg;
                             btnCopyScript.disabled = false;
                         }
                     }, 3500);
                 } catch (err) {
                     btnCopyScript.disabled = false;
-                    btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Console Script';
-                    if (statusBox) {
-                        statusBox.style.display = 'block';
-                        statusBox.style.background = 'rgba(242,54,69,0.08)';
-                        statusBox.style.color = '#f23645';
-                        statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
-                        statusBox.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err}<br><button id="bm-btn-go-engine-tab" type="button" style="margin-top:6px; background:#2962FF; color:#fff; border:none; padding:4px 9px; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer;">⚙️ Open Engine Settings</button>`;
-                        const btnGo = statusBox.querySelector('#bm-btn-go-engine-tab');
-                        if (btnGo) {
-                            btnGo.onclick = () => {
-                                this.activeTab = 'engine';
-                                this.renderModal();
-                            };
-                        }
+                    btnCopyScript.innerHTML = '<span>📋</span> Copy Console Script';
+                    handleReceiverError(err);
+                }
+            };
+        }
+
+        const btnCopyAddressBar = modal.querySelector('#bm-btn-copy-addressbar');
+        if (btnCopyAddressBar) {
+            btnCopyAddressBar.onclick = async (e) => {
+                if (e) e.preventDefault();
+                btnCopyAddressBar.innerHTML = '<span>⏳</span> Initializing...';
+                btnCopyAddressBar.disabled = true;
+                try {
+                    const receiver = await ensureReceiverSession();
+                    let script = '';
+                    if (receiver && typeof receiver.generateBookmarklet === 'function') {
+                        const bm = receiver.generateBookmarklet();
+                        // Strip leading 'j' so it becomes 'avascript:...'
+                        // Browsers strip 'javascript:' when pasted into the address bar.
+                        // By copying 'avascript:...', user types 'j' in address bar first, then pastes, or pastes and types 'j' at the beginning!
+                        script = bm.replace(/^javascript:/i, 'avascript:');
+                    } else if (receiver && typeof receiver.generateExtractorScript === 'function') {
+                        const raw = receiver.generateExtractorScript();
+                        const min = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/\s+/g, " ").trim();
+                        script = 'avascript:' + encodeURIComponent(min);
                     }
+                    if (!script) {
+                        throw new Error("Could not generate address bar script.");
+                    }
+                    await navigator.clipboard.writeText(script);
+                    btnCopyAddressBar.innerHTML = '<span>✓</span> Copied! Type "j" first';
+                    btnCopyAddressBar.style.background = '#089981';
+                    btnCopyAddressBar.style.color = '#ffffff';
+
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('🔗 Copied! Go to trade.fyers.in address bar: Type "j" then paste & hit Enter.', 'success', 5000);
+                    }
+
+                    setTimeout(() => {
+                        if (btnCopyAddressBar) {
+                            btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Script';
+                            btnCopyAddressBar.style.background = theme.cardBg;
+                            btnCopyAddressBar.style.color = theme.text;
+                            btnCopyAddressBar.disabled = false;
+                        }
+                    }, 4000);
+                } catch (err) {
+                    btnCopyAddressBar.disabled = false;
+                    btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Script';
+                    handleReceiverError(err);
                 }
             };
         }
