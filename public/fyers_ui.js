@@ -1039,68 +1039,76 @@ class FyersUI {
                                 <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: ui-monospace, monospace;">Self-Destruct on Ingestion</span>
                             </div>
 
-                            <!-- Live Webhook Channel & Inspector Card (Prominently Visible at Top) -->
-                            <div id="bm-webhook-card" style="
-                                background: rgba(41, 98, 255, 0.08); 
-                                border: 1px solid rgba(41, 98, 255, 0.3); 
-                                border-radius: 8px; 
-                                padding: 12px 14px; 
+                            <!-- Collapsible Bridge Channel & Inspector Details (Hidden by Default) -->
+                            <details id="bm-webhook-card" style="
+                                background: rgba(41, 98, 255, 0.05); 
+                                border: 1px solid rgba(41, 98, 255, 0.22); 
+                                border-radius: 6px; 
+                                padding: 7px 11px; 
                                 font-size: 11.5px;
                             ">
-                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
-                                    <div style="display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 1;">
-                                        <span style="font-size: 18px; line-height: 1.2;">📡</span>
+                                <summary style="
+                                    font-weight: 600; 
+                                    color: ${theme.primary}; 
+                                    cursor: pointer; 
+                                    user-select: none; 
+                                    display: flex; 
+                                    align-items: center; 
+                                    justify-content: space-between;
+                                    gap: 8px;
+                                ">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span>📡</span>
+                                        <span>Live Bridge & Webhook Inspector (Testing / Advanced)</span>
+                                    </div>
+                                    <span style="font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.15); color: #089981;">🟢 Active</span>
+                                </summary>
+                                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(41,98,255,0.2); display: flex; flex-direction: column; gap: 6px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
                                         <div style="min-width: 0; flex: 1;">
-                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                <span style="font-weight: 700; color: ${theme.primary}; font-size: 12.5px;">Live Bridge & Webhook Endpoint</span>
-                                                <span style="font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(8,153,129,0.18); color: #089981; border: 1px solid rgba(8,153,129,0.35);">🟢 Active Endpoint</span>
-                                            </div>
-                                            <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                <span style="color: ${theme.textMuted}; font-size: 11px;">URL:</span>
-                                                <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests in Inspector" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11.5px; word-break: break-all;">
-                                                    Initializing live channel...
-                                                </a>
-                                            </div>
+                                            <div style="font-size: 11px; color: ${theme.textMuted};">Endpoint URL:</div>
+                                            <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests in Inspector" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all;">
+                                                Initializing live channel...
+                                            </a>
+                                        </div>
+                                        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+                                            <button id="bm-btn-copy-webhook" type="button" title="Copy Webhook Endpoint URL" style="
+                                                background: ${theme.cardBg}; 
+                                                color: ${theme.text}; 
+                                                border: 1px solid ${theme.border}; 
+                                                padding: 4px 8px; 
+                                                border-radius: 4px; 
+                                                font-size: 11px; 
+                                                font-weight: 600; 
+                                                cursor: pointer;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>📋</span> Copy URL
+                                            </button>
+                                            <a id="bm-btn-open-inspector" href="#" target="_blank" rel="noopener noreferrer" title="Open Live Real-Time Inspector in a new tab" style="
+                                                background: ${theme.primary}; 
+                                                color: #ffffff; 
+                                                border: none; 
+                                                padding: 4px 10px; 
+                                                border-radius: 4px; 
+                                                font-size: 11px; 
+                                                font-weight: 600; 
+                                                text-decoration: none;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>↗</span> Open Live Inspector
+                                            </a>
                                         </div>
                                     </div>
-                                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
-                                        <button id="bm-btn-copy-webhook" type="button" title="Copy Webhook Endpoint URL" style="
-                                            background: ${theme.cardBg}; 
-                                            color: ${theme.text}; 
-                                            border: 1px solid ${theme.border}; 
-                                            padding: 5px 10px; 
-                                            border-radius: 5px; 
-                                            font-size: 11.5px; 
-                                            font-weight: 600; 
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 4px;
-                                        ">
-                                            <span>📋</span> Copy URL
-                                        </button>
-                                        <a id="bm-btn-open-inspector" href="#" target="_blank" rel="noopener noreferrer" title="Open Live Real-Time Inspector in a new tab" style="
-                                            background: ${theme.primary}; 
-                                            color: #ffffff; 
-                                            border: none; 
-                                            padding: 5px 12px; 
-                                            border-radius: 5px; 
-                                            font-size: 11.5px; 
-                                            font-weight: 600; 
-                                            text-decoration: none;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 5px;
-                                            box-shadow: 0 2px 6px rgba(41,98,255,0.3);
-                                        ">
-                                            <span>↗</span> Open Live Inspector
-                                        </a>
+                                    <div style="font-size: 10.5px; color: ${theme.textMuted}; line-height: 1.35;">
+                                        💡 Live payloads are encrypted in memory with temporary RSA-2048 keys and erased upon ingestion.
                                     </div>
                                 </div>
-                                <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 8px; line-height: 1.4; border-top: 1px dashed rgba(41,98,255,0.2); padding-top: 6px;">
-                                    💡 <strong>Live Channel Inspection:</strong> Click <em>Open Live Inspector</em> to view real-time incoming token payloads on ntfy.sh as they arrive. Payloads are end-to-end encrypted with your browser's private in-memory RSA key.
-                                </div>
-                            </div>
+                            </details>
 
                             <!-- 1-Click Zero-Touch Execution Card -->
                             <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
@@ -1608,13 +1616,17 @@ class FyersUI {
             if (!res || !res.success) return;
             if (inputRefresh) inputRefresh.value = res.webuiRefreshToken || '';
             if (inputWebui) inputWebui.value = res.webuiAccessToken || '';
-            if (inputAppId && !inputAppId.value.trim() && res.fyersId) {
-                inputAppId.value = `${res.fyersId}-100`;
-            }
+            // Do NOT overwrite App ID with fyId! User sets their registered App ID
             runValidation();
 
             const userName = res.displayName ? `${res.displayName} (${res.fyersId})` : (res.fyersId || 'User');
             const refExp = res.refreshExpiresAt ? window.FyersAPI.formatExpiry(res.refreshExpiresAt) : 'Active';
+
+            const whCard = modal.querySelector('#bm-webhook-card');
+            if (whCard) {
+                whCard.open = false;
+                whCard.style.display = 'none';
+            }
 
             const statusText = modal.querySelector('#bm-listener-status-text');
             if (statusText) {
@@ -1685,7 +1697,7 @@ class FyersUI {
             this._receiverPromise = (async () => {
                 const statusText = modal.querySelector('#bm-listener-status-text');
                 if (statusText) statusText.innerText = 'Creating ephemeral RAM keypair & channel...';
-                const receiver = await window.FyersAPI.createE2EESession({ enableWebhook: true, autoDeleteWebhook: false });
+                const receiver = await window.FyersAPI.createE2EESession({ enableWebhook: true, autoDeleteWebhook: true });
                 this._e2eeReceiver = receiver;
                 
                 const bookmarkletLink = modal.querySelector('#bm-link-bookmarklet');
@@ -1704,7 +1716,7 @@ class FyersUI {
                 const btnOpenWh = modal.querySelector('#bm-btn-open-inspector');
                 const btnCopyWh = modal.querySelector('#bm-btn-copy-webhook');
 
-                if (whCard) whCard.style.display = 'block';
+                if (whCard) whCard.style.display = '';
                 if (whLink && whUrl) {
                     whLink.href = whInspector || whUrl;
                     whLink.innerText = whUrl;
@@ -1732,13 +1744,13 @@ class FyersUI {
                     statusText.innerText = '🟢 Zero-Touch Bridge Active — Waiting for 1-click execution on trade.fyers.in...';
                 }
 
-                // Automatically listen (retaining channel for testing)
+                // Automatically listen with autoDeleteWebhook: true for self-destruct upon ingestion
                 if (typeof receiver.startListening === 'function') {
                     receiver.startListening((res) => {
                         applyDecryptedResult(res);
                     }, (err) => {
                         console.warn("[FyersUI] Bridge listener notice:", err);
-                    }, { autoDeleteWebhook: false });
+                    }, { autoDeleteWebhook: true });
                 }
                 return receiver;
             })();
