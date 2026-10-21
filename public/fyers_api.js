@@ -17,13 +17,13 @@ class FyersEngine {
         // Auto-refresh scheduler
         this.setupAutoRefreshScheduler();
 
-        // Lazily preload private engine if PAT is present
+        // Lazily preload private engine if PAT is present or cached script exists
         setTimeout(() => {
             const cfg = this.getEngineConfig();
-            if (cfg && cfg.githubPat) {
+            if (cfg && (cfg.githubPat || this.hasCachedPrivateEngine())) {
                 this.loadPrivateEngine(false).catch(() => {});
             }
-        }, 3000);
+        }, 1500);
         
         // WebSocket state
         
@@ -811,30 +811,84 @@ class FyersEngine {
         return { owner: 'bunqi8', repo: parts[0] || 'broker-private' };
     }
 
-    async loadPrivateEngine(forceReload = false) {
-        if (!forceReload && window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
-            return { success: true, engine: window.FyersPrivateEngine, cached: true };
+    hasCachedPrivateEngine() {
+        if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+            return true;
         }
+        try {
+            const cfg = this.getEngineConfig();
+            const { owner, repo } = this.parseRepo(cfg.repo);
+            const filePath = cfg.filePath || 'fyers_auth.js';
+            const cacheKey = `tv_private_script_${owner}_${repo}_${filePath}`;
+            const cached = localStorage.getItem(cacheKey) || sessionStorage.getItem(cacheKey);
+            return Boolean(cached && cached.trim().length > 50);
+        } catch (_) {
+            return false;
+        }
+    }
 
-        const cfg = this.getEngineConfig();
-        if (!cfg.githubPat) {
+    getCachedEngineMeta() {
+        try {
+            const cfg = this.getEngineConfig();
+            const { owner, repo } = this.parseRepo(cfg.repo);
+            const filePath = cfg.filePath || 'fyers_auth.js';
+            const metaKey = `tv_private_script_meta_${owner}_${repo}_${filePath}`;
+            const raw = localStorage.getItem(metaKey);
+            return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    clearCachedPrivateEngine() {
+        try {
+            const cfg = this.getEngineConfig();
+            const { owner, repo } = this.parseRepo(cfg.repo);
+            const filePath = cfg.filePath || 'fyers_auth.js';
+            const cacheKey = `tv_private_script_${owner}_${repo}_${filePath}`;
+            const metaKey = `tv_private_script_meta_${owner}_${repo}_${filePath}`;
+            localStorage.removeItem(cacheKey);
+            localStorage.removeItem(metaKey);
+            sessionStorage.removeItem(cacheKey);
+        } catch (_) {}
+    }
+
+    async loadPrivateEngine(forceReload = false) {
+        // Fast path: if already in memory and reload not forced
+        if (!forceReload && window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+            const meta = this.getCachedEngineMeta();
             return { 
-                success: false, 
-                error: "GitHub Personal Access Token (PAT) is not configured. Please configure your PAT in Auto-Refresh Settings." 
+                success: true, 
+                engine: window.FyersPrivateEngine, 
+                cached: true, 
+                version: window.FyersPrivateEngine.version || (meta ? meta.version : '1.0.0'),
+                meta 
             };
         }
 
+        const cfg = this.getEngineConfig();
         const { owner, repo } = this.parseRepo(cfg.repo);
         const filePath = cfg.filePath || 'fyers_auth.js';
         const cacheKey = `tv_private_script_${owner}_${repo}_${filePath}`;
+        const metaKey = `tv_private_script_meta_${owner}_${repo}_${filePath}`;
 
+        // Step 1: If not forcing reload, try to load from persistent localStorage cache
         if (!forceReload) {
             try {
-                const cachedScript = sessionStorage.getItem(cacheKey);
-                if (cachedScript) {
+                const cachedScript = localStorage.getItem(cacheKey) || sessionStorage.getItem(cacheKey);
+                if (cachedScript && cachedScript.trim().length > 50) {
                     (new Function(cachedScript))();
                     if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
-                        return { success: true, engine: window.FyersPrivateEngine, cached: true };
+                        const meta = this.getCachedEngineMeta();
+                        const ver = window.FyersPrivateEngine.version || (meta ? meta.version : '1.0.0');
+                        console.log(`[FyersEngine] Loaded private engine from persistent cache (v${ver}).`);
+                        return { 
+                            success: true, 
+                            engine: window.FyersPrivateEngine, 
+                            cached: true, 
+                            version: ver,
+                            meta 
+                        };
                     }
                 }
             } catch (e) {
@@ -842,30 +896,81 @@ class FyersEngine {
             }
         }
 
-        // Fetch from GitHub raw API
+        // Helper to attempt running the cached script if network / PAT fails
+        const tryRunCachedFallback = (reason) => {
+            try {
+                const cachedScript = localStorage.getItem(cacheKey) || sessionStorage.getItem(cacheKey);
+                if (cachedScript && cachedScript.trim().length > 50) {
+                    (new Function(cachedScript))();
+                    if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+                        const meta = this.getCachedEngineMeta();
+                        const ver = window.FyersPrivateEngine.version || (meta ? meta.version : '1.0.0');
+                        console.warn(`[FyersEngine] ${reason}. Successfully fell back to cached engine (v${ver}).`);
+                        return {
+                            success: true,
+                            engine: window.FyersPrivateEngine,
+                            cached: true,
+                            version: ver,
+                            meta,
+                            warning: `${reason}. Continuing seamlessly with last cached engine (v${ver}).`
+                        };
+                    }
+                }
+            } catch (fallbackErr) {
+                console.error("[FyersEngine] Fallback execution failed:", fallbackErr);
+            }
+            return null;
+        };
+
+        // Step 2: If no PAT configured, check if we can fall back to cache
+        if (!cfg.githubPat || !cfg.githubPat.trim()) {
+            const fallback = tryRunCachedFallback("No GitHub PAT configured");
+            if (fallback) return fallback;
+
+            return { 
+                success: false, 
+                error: "GitHub Personal Access Token (PAT) is required to download the private engine for the first time." 
+            };
+        }
+
+        // Step 3: Fetch fresh version from GitHub API using PAT
         const rawUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
         try {
             const res = await fetch(rawUrl, {
                 headers: {
-                    'Authorization': `Bearer ${cfg.githubPat}`,
+                    'Authorization': `Bearer ${cfg.githubPat.trim()}`,
                     'Accept': 'application/vnd.github.v3.raw',
                     'X-GitHub-Api-Version': '2022-11-28'
                 }
             });
 
             if (!res.ok) {
+                // If authentication fails (HTTP 401 or 403 - PAT expired or revoked), fall back to cached version!
+                if (res.status === 401 || res.status === 403) {
+                    const fallback = tryRunCachedFallback(`GitHub PAT expired or invalid (HTTP ${res.status})`);
+                    if (fallback) {
+                        fallback.patExpired = true;
+                        return fallback;
+                    }
+                    return { 
+                        success: false, 
+                        patExpired: true,
+                        error: `GitHub Authentication Failed (HTTP ${res.status}). Your PAT may be expired or lack "repo" (contents:read) scope.` 
+                    };
+                }
+
                 if (res.status === 404) {
+                    const fallback = tryRunCachedFallback(`File "${filePath}" not found in repo "${owner}/${repo}"`);
+                    if (fallback) return fallback;
                     return { 
                         success: false, 
                         error: `File "${filePath}" not found in private repo "${owner}/${repo}". Check repository name and file path.` 
                     };
                 }
-                if (res.status === 401 || res.status === 403) {
-                    return { 
-                        success: false, 
-                        error: `GitHub Authentication Failed (HTTP ${res.status}). Ensure your PAT has "repo" (contents:read) permission.` 
-                    };
-                }
+
+                const fallback = tryRunCachedFallback(`GitHub API error HTTP ${res.status}`);
+                if (fallback) return fallback;
+
                 return { 
                     success: false, 
                     error: `GitHub API error: HTTP ${res.status} (${res.statusText || 'Request failed'})` 
@@ -874,6 +979,8 @@ class FyersEngine {
 
             const scriptText = await res.text();
             if (!scriptText || !scriptText.trim()) {
+                const fallback = tryRunCachedFallback("Empty script received from GitHub");
+                if (fallback) return fallback;
                 return { success: false, error: "Private engine script fetched from repository is empty." };
             }
 
@@ -881,24 +988,46 @@ class FyersEngine {
             (new Function(scriptText))();
 
             if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.refreshToken !== 'function') {
+                const fallback = tryRunCachedFallback("Script did not implement required engine contract");
+                if (fallback) return fallback;
                 return { 
                     success: false, 
                     error: "Script loaded, but window.FyersPrivateEngine.refreshToken() is not defined. Verify your script implements the required contract." 
                 };
             }
 
-            // Cache in sessionStorage
+            // Cache permanently in localStorage so it survives tab closures & PAT expiration
+            const ver = window.FyersPrivateEngine.version || '1.0.0';
+            const meta = {
+                version: ver,
+                timestamp: Date.now(),
+                repo: `${owner}/${repo}`,
+                filePath: filePath,
+                size: scriptText.length
+            };
+
             try {
+                localStorage.setItem(cacheKey, scriptText);
+                localStorage.setItem(metaKey, JSON.stringify(meta));
                 sessionStorage.setItem(cacheKey, scriptText);
                 this.engineLastLoaded = Date.now();
-            } catch (_) {}
+                console.log(`[FyersEngine] Successfully fetched and cached private engine v${ver} from GitHub.`);
+            } catch (storageErr) {
+                console.warn("[FyersEngine] Failed to write script to localStorage:", storageErr);
+            }
 
             return { 
                 success: true, 
                 engine: window.FyersPrivateEngine, 
-                version: window.FyersPrivateEngine.version || '1.0.0' 
+                version: ver,
+                fresh: true,
+                meta
             };
         } catch (err) {
+            // Network failure / offline: fall back to cached version!
+            const fallback = tryRunCachedFallback(`Network connection error (${err.message})`);
+            if (fallback) return fallback;
+
             return { success: false, error: `Network error connecting to GitHub: ${err.message}` };
         }
     }
@@ -1046,7 +1175,7 @@ class FyersEngine {
         }
     }
 
-    async createE2EESession(options = { enableWebhook: true }) {
+    async createE2EESession(options = { enableWebhook: true, autoDeleteWebhook: false }) {
         let engineRes = await this.loadPrivateEngine(false);
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
@@ -1099,7 +1228,8 @@ class FyersEngine {
 
     async checkAndAutoRenewTokens() {
         const cfg = this.getEngineConfig();
-        if (!cfg.autoRefresh || !cfg.githubPat) return;
+        if (!cfg.autoRefresh) return;
+        if (!cfg.githubPat && !this.hasCachedPrivateEngine()) return;
 
         const active = this.getActiveAccount();
         if (!active || !active.webuiRefreshToken) return;
