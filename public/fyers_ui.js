@@ -4,6 +4,7 @@ class FyersUI {
     constructor() {
         this.btnId = 'btn-fyers-broker';
         this.modalId = 'broker-manager-modal';
+        this.activeTab = 'accounts'; // 'accounts' | 'engine'
         this.viewMode = 'list'; // 'list' | 'add' | 'replace'
         this.replaceAccountId = null;
         this.cachedIframeDoc = null;
@@ -129,7 +130,15 @@ class FyersUI {
         const apiExpFormatted = window.FyersAPI.formatExpiry(active.apiExpiresAt);
         const refreshExpFormatted = active.refreshExpiresAt ? window.FyersAPI.formatExpiry(active.refreshExpiresAt) : (active.webuiRefreshToken ? 'Configured' : 'Not provided');
 
-        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}`;
+        const engineCfg = window.FyersAPI.getEngineConfig ? window.FyersAPI.getEngineConfig() : null;
+        let engineStatus = 'Not configured';
+        if (window.FyersPrivateEngine) {
+            engineStatus = `Ready (v${window.FyersPrivateEngine.version || '1.0.0'})`;
+        } else if (engineCfg && engineCfg.githubPat) {
+            engineStatus = 'PAT Configured (Ready to load)';
+        }
+
+        return `Broker: Fyers\nUser: ${active.displayName || 'User'}\nID: ${active.fyId || 'N/A'}\nStatus: ${statusStr}\nAPI Token: ${apiExpFormatted}\nRefresh Token: ${refreshExpFormatted}\nPrivate Engine: ${engineStatus}`;
     }
 
     updateButtonState() {
@@ -236,6 +245,13 @@ class FyersUI {
             }
         });
 
+        window.addEventListener('fyers_token_refreshed', () => {
+            this.updateButtonState();
+            if (document.getElementById(this.modalId)) {
+                this.renderModal();
+            }
+        });
+
         // Periodic check every 30 seconds for token expiration
         setInterval(() => {
             this.updateButtonState();
@@ -295,11 +311,23 @@ class FyersUI {
         const accounts = window.FyersAPI ? window.FyersAPI.getAccounts() : [];
         const activeAccount = window.FyersAPI ? window.FyersAPI.getActiveAccount() : null;
 
+        const engineCfg = window.FyersAPI ? window.FyersAPI.getEngineConfig() : null;
+        let engineDotColor = '#787b86';
+        if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+            engineDotColor = '#089981';
+        } else if (engineCfg && engineCfg.githubPat) {
+            engineDotColor = '#ff9800';
+        }
+
         let contentHtml = '';
-        if (this.viewMode === 'list') {
-            contentHtml = this.getListViewHtml(theme, accounts, activeAccount);
+        if (this.activeTab === 'accounts') {
+            if (this.viewMode === 'list') {
+                contentHtml = this.getListViewHtml(theme, accounts, activeAccount);
+            } else {
+                contentHtml = this.getFormViewHtml(theme, accounts);
+            }
         } else {
-            contentHtml = this.getFormViewHtml(theme, accounts);
+            contentHtml = this.getEngineViewHtml(theme);
         }
 
         modal.innerHTML = `
@@ -322,8 +350,7 @@ class FyersUI {
                     display: flex; 
                     align-items: center; 
                     justify-content: space-between; 
-                    padding: 16px 20px; 
-                    border-bottom: 1px solid ${theme.border};
+                    padding: 16px 20px 12px 20px; 
                     background: ${theme.cardBg};
                 ">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -342,7 +369,7 @@ class FyersUI {
                         <div>
                             <h3 style="margin: 0; font-size: 16px; font-weight: 700;">Broker & Token Manager</h3>
                             <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                Fyers API v3 & WebUI Token Authentication
+                                Fyers API v3 & Private Closed-Source Authentication
                             </div>
                         </div>
                     </div>
@@ -358,6 +385,63 @@ class FyersUI {
                     " title="Close">✕</button>
                 </div>
 
+                <!-- Tabs Navigation -->
+                <div style="
+                    display: flex; 
+                    gap: 6px; 
+                    padding: 0 20px; 
+                    border-bottom: 1px solid ${theme.border}; 
+                    background: ${theme.cardBg};
+                ">
+                    <button id="bm-tab-accounts" type="button" style="
+                        background: transparent; 
+                        border: none; 
+                        border-bottom: 2px solid ${this.activeTab === 'accounts' ? theme.primary : 'transparent'}; 
+                        color: ${this.activeTab === 'accounts' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted}; 
+                        padding: 10px 14px; 
+                        font-size: 13px; 
+                        font-weight: 600; 
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        transition: all 0.2s;
+                    ">
+                        <span>👥</span> Broker Accounts
+                        <span style="
+                            background: ${this.activeTab === 'accounts' ? theme.primary : (theme.isDark ? '#2a2e39' : '#e0e3eb')};
+                            color: ${this.activeTab === 'accounts' ? '#ffffff' : theme.textMuted};
+                            font-size: 11px;
+                            padding: 1px 6px;
+                            border-radius: 10px;
+                            font-weight: 700;
+                        ">${accounts.length}</span>
+                    </button>
+                    <button id="bm-tab-engine" type="button" style="
+                        background: transparent; 
+                        border: none; 
+                        border-bottom: 2px solid ${this.activeTab === 'engine' ? theme.primary : 'transparent'}; 
+                        color: ${this.activeTab === 'engine' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted}; 
+                        padding: 10px 14px; 
+                        font-size: 13px; 
+                        font-weight: 600; 
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        transition: all 0.2s;
+                    ">
+                        <span>⚡</span> Auto-Refresh & Engine
+                        <span style="
+                            width: 7.5px; 
+                            height: 7.5px; 
+                            border-radius: 50%; 
+                            background: ${engineDotColor}; 
+                            display: inline-block;
+                        "></span>
+                    </button>
+                </div>
+
                 <!-- Body (Scrollable) -->
                 <div style="padding: 20px; overflow-y: auto; flex: 1;">
                     ${contentHtml}
@@ -369,10 +453,32 @@ class FyersUI {
         const btnClose = document.getElementById('bm-btn-close');
         if (btnClose) btnClose.onclick = () => modal.style.display = 'none';
 
-        if (this.viewMode === 'list') {
-            this.bindListViewEvents(modal);
+        const tabAccounts = modal.querySelector('#bm-tab-accounts');
+        if (tabAccounts) {
+            tabAccounts.onclick = (e) => {
+                e.preventDefault();
+                this.activeTab = 'accounts';
+                this.renderModal();
+            };
+        }
+
+        const tabEngine = modal.querySelector('#bm-tab-engine');
+        if (tabEngine) {
+            tabEngine.onclick = (e) => {
+                e.preventDefault();
+                this.activeTab = 'engine';
+                this.renderModal();
+            };
+        }
+
+        if (this.activeTab === 'accounts') {
+            if (this.viewMode === 'list') {
+                this.bindListViewEvents(modal);
+            } else {
+                this.bindFormViewEvents(modal);
+            }
         } else {
-            this.bindFormViewEvents(modal);
+            this.bindEngineViewEvents(modal);
         }
     }
 
@@ -506,6 +612,21 @@ class FyersUI {
 
                         <!-- Card Action Buttons -->
                         <div style="display: flex; align-items: center; gap: 8px;">
+                            ${acc.webuiRefreshToken ? `
+                                <button class="bm-btn-refresh-token" data-id="${acc.id}" title="Refresh access token now using private engine" style="
+                                    background: rgba(41, 98, 255, 0.1); 
+                                    color: ${theme.primary}; 
+                                    border: 1px solid rgba(41, 98, 255, 0.35); 
+                                    padding: 5px 10px; 
+                                    border-radius: 5px; 
+                                    font-size: 12px; 
+                                    font-weight: 600; 
+                                    cursor: pointer;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                ">⚡ Refresh</button>
+                            ` : ''}
                             ${!isActive ? `
                                 <button class="bm-btn-activate" data-id="${acc.id}" style="
                                     background: transparent; 
@@ -899,6 +1020,37 @@ class FyersUI {
     }
 
     bindListViewEvents(modal) {
+        modal.querySelectorAll('.bm-btn-refresh-token').forEach(btn => {
+            btn.onclick = async (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                const id = btn.getAttribute('data-id');
+                if (!id || !window.FyersAPI) return;
+
+                const cfg = window.FyersAPI.getEngineConfig ? window.FyersAPI.getEngineConfig() : null;
+                if (!cfg || !cfg.githubPat) {
+                    if (window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('Please configure your GitHub PAT in the Auto-Refresh & Engine tab first.', 'warning');
+                    }
+                    this.activeTab = 'engine';
+                    this.renderModal();
+                    return;
+                }
+
+                btn.innerHTML = '⏳ Refreshing...';
+                btn.style.opacity = '0.7';
+                btn.disabled = true;
+
+                try {
+                    await window.FyersAPI.refreshAccountToken(id, true);
+                } finally {
+                    this.renderModal();
+                }
+            };
+        });
+
         modal.querySelectorAll('#bm-btn-add-account, #bm-btn-add-first, .bm-btn-add-trigger').forEach(btnAdd => {
             btnAdd.onclick = (e) => {
                 if (e) {
@@ -1183,6 +1335,450 @@ class FyersUI {
                 </div>
             ` : ''}
         `;
+    }
+
+    getEngineViewHtml(theme) {
+        const cfg = window.FyersAPI ? window.FyersAPI.getEngineConfig() : {
+            repo: 'bunqi8/broker-private',
+            filePath: 'fyers_auth.js',
+            githubPat: '',
+            autoRefresh: true,
+            leadTimeMinutes: 10
+        };
+
+        const isEngineLoaded = Boolean(window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function');
+        const engineVer = isEngineLoaded ? (window.FyersPrivateEngine.version || '1.0.0') : null;
+        const activeAcc = window.FyersAPI ? window.FyersAPI.getActiveAccount() : null;
+
+        const isPatConfigured = Boolean(cfg.githubPat && cfg.githubPat.trim());
+
+        return `
+            <div style="display: flex; flex-direction: column; gap: 18px;">
+                <!-- Engine Status Banner Card -->
+                <div style="
+                    background: ${theme.cardBg}; 
+                    border: 1px solid ${isEngineLoaded ? 'rgba(8,153,129,0.3)' : (isPatConfigured ? 'rgba(255,152,0,0.3)' : theme.cardBorder)}; 
+                    border-radius: 10px; 
+                    padding: 16px;
+                ">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="
+                                width: 32px; 
+                                height: 32px; 
+                                border-radius: 8px; 
+                                background: ${isEngineLoaded ? theme.success : (isPatConfigured ? theme.warning : '#787b86')}; 
+                                color: #fff; 
+                                display: flex; 
+                                align-items: center; 
+                                justify-content: center; 
+                                font-weight: bold; 
+                                font-size: 16px;
+                            ">⚡</span>
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <strong style="font-size: 14px;">Private Refresh Engine</strong>
+                                    <span style="
+                                        font-size: 11px; 
+                                        padding: 2px 8px; 
+                                        border-radius: 12px; 
+                                        font-weight: 700;
+                                        background: ${isEngineLoaded ? 'rgba(8,153,129,0.15)' : (isPatConfigured ? 'rgba(255,152,0,0.15)' : 'rgba(120,123,134,0.15)')};
+                                        color: ${isEngineLoaded ? theme.success : (isPatConfigured ? theme.warning : theme.textMuted)};
+                                    ">
+                                        ${isEngineLoaded ? `🟢 Loaded (v${engineVer})` : (isPatConfigured ? '🟡 Ready to Load' : '⚪ Setup Required')}
+                                    </span>
+                                </div>
+                                <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 2px;">
+                                    Keeps your proprietary refresh algorithms 100% private in your own repository.
+                                </div>
+                            </div>
+                        </div>
+
+                        <button id="bm-btn-test-engine" type="button" style="
+                            background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; 
+                            color: ${theme.text}; 
+                            border: 1px solid ${theme.border}; 
+                            padding: 6px 12px; 
+                            border-radius: 6px; 
+                            font-size: 12px; 
+                            font-weight: 600; 
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                        ">🔄 Reload Script</button>
+                    </div>
+
+                    <!-- Quick Metrics Grid -->
+                    <div style="
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); 
+                        gap: 10px; 
+                        padding-top: 10px; 
+                        border-top: 1px solid ${theme.border}; 
+                        font-size: 11.5px;
+                    ">
+                        <div>
+                            <span style="color: ${theme.textMuted};">Auto-Refresh Scheduler:</span><br>
+                            <strong style="color: ${cfg.autoRefresh ? theme.success : theme.textMuted}; font-size: 12px;">
+                                ${cfg.autoRefresh ? '✓ Enabled (Every 60s)' : '✕ Disabled'}
+                            </strong>
+                        </div>
+                        <div>
+                            <span style="color: ${theme.textMuted};">Active Account:</span><br>
+                            <strong style="font-size: 12px; color: ${activeAcc ? theme.text : theme.textMuted};">
+                                ${activeAcc ? `${activeAcc.displayName} (${activeAcc.fyId})` : 'None'}
+                            </strong>
+                        </div>
+                        <div>
+                            <span style="color: ${theme.textMuted};">Refresh Readiness:</span><br>
+                            <strong style="font-size: 12px; color: ${(activeAcc && activeAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(activeAcc)) ? theme.success : theme.warning};">
+                                ${(activeAcc && activeAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(activeAcc)) ? '🟢 Refreshable' : (activeAcc ? '⚠️ Missing Refresh Token' : '—')}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Engine Settings Form -->
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <!-- GitHub PAT -->
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="font-size: 12px; font-weight: 600;">
+                                GitHub Personal Access Token (PAT) <span style="color: ${theme.error};">*</span>
+                            </label>
+                            <span style="font-size: 11px; font-weight: 600; color: ${isPatConfigured ? theme.success : theme.warning};">
+                                ${isPatConfigured ? '✓ Configured & Stored' : '⚠️ Not Configured'}
+                            </span>
+                        </div>
+                        <div style="position: relative; display: flex; align-items: center;">
+                            <input type="password" id="bm-input-engine-pat" placeholder="${isPatConfigured ? 'ghp_•••••••••••••••• (Saved - leave empty to keep)' : 'Paste GitHub PAT (ghp_... or github_pat_...)'}" style="
+                                width: 100%; 
+                                padding: 9px 38px 9px 12px; 
+                                background: ${theme.inputBg}; 
+                                color: ${theme.inputText}; 
+                                border: 1px solid ${theme.inputBorder}; 
+                                border-radius: 6px; 
+                                font-size: 13px; 
+                                font-family: monospace;
+                                box-sizing: border-box;
+                            ">
+                            <button id="bm-btn-toggle-pat" type="button" title="Show/Hide PAT" style="
+                                position: absolute; 
+                                right: 8px; 
+                                background: transparent; 
+                                border: none; 
+                                color: ${theme.textMuted}; 
+                                cursor: pointer; 
+                                font-size: 14px; 
+                                padding: 4px;
+                            ">👁️</button>
+                        </div>
+                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 4px; line-height: 1.4;">
+                            ${isPatConfigured 
+                                ? 'Leave blank to preserve current PAT. Enter a new token to replace.' 
+                                : 'Create a classic or fine-grained GitHub PAT with <code>repo</code> (read repository contents) scope.'}
+                        </div>
+                    </div>
+
+                    <!-- Repository & File Path 2-Column Grid -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
+                                GitHub Repository <span style="color: ${theme.error};">*</span>
+                            </label>
+                            <input type="text" id="bm-input-engine-repo" value="${cfg.repo || 'bunqi8/broker-private'}" placeholder="e.g. bunqi8/broker-private" style="
+                                width: 100%; 
+                                padding: 9px 12px; 
+                                background: ${theme.inputBg}; 
+                                color: ${theme.inputText}; 
+                                border: 1px solid ${theme.inputBorder}; 
+                                border-radius: 6px; 
+                                font-size: 13px; 
+                                box-sizing: border-box;
+                            ">
+                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
+                                Private repo owner/name.
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
+                                Script File Path <span style="color: ${theme.error};">*</span>
+                            </label>
+                            <input type="text" id="bm-input-engine-file" value="${cfg.filePath || 'fyers_auth.js'}" placeholder="e.g. fyers_auth.js" style="
+                                width: 100%; 
+                                padding: 9px 12px; 
+                                background: ${theme.inputBg}; 
+                                color: ${theme.inputText}; 
+                                border: 1px solid ${theme.inputBorder}; 
+                                border-radius: 6px; 
+                                font-size: 13px; 
+                                box-sizing: border-box;
+                            ">
+                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
+                                Default for Fyers: <code>fyers_auth.js</code>.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto-Refresh Toggle -->
+                    <div style="
+                        background: ${theme.cardBg}; 
+                        border: 1px solid ${theme.border}; 
+                        border-radius: 8px; 
+                        padding: 12px 14px; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: space-between; 
+                        gap: 12px;
+                    ">
+                        <div>
+                            <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">
+                                Automatic Background Token Renewal
+                            </div>
+                            <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 2px;">
+                                Periodically checks token expiration and seamlessly requests fresh token ~10 minutes before expiry.
+                            </div>
+                        </div>
+                        <label style="position: relative; display: inline-flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="bm-check-auto-refresh" ${cfg.autoRefresh !== false ? 'checked' : ''} style="
+                                width: 18px; 
+                                height: 18px; 
+                                accent-color: ${theme.primary}; 
+                                cursor: pointer;
+                            ">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Action Buttons & Status Notification Container -->
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px;">
+                        <button id="bm-btn-manual-refresh" type="button" style="
+                            background: rgba(41, 98, 255, 0.1); 
+                            color: ${theme.primary}; 
+                            border: 1px solid rgba(41, 98, 255, 0.35); 
+                            padding: 9px 14px; 
+                            border-radius: 6px; 
+                            font-size: 13px; 
+                            font-weight: 600; 
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 6px;
+                        ">⚡ Refresh Active Token Now</button>
+
+                        <button id="bm-btn-save-engine" type="button" style="
+                            background: ${theme.primary}; 
+                            color: #ffffff; 
+                            border: none; 
+                            padding: 9px 18px; 
+                            border-radius: 6px; 
+                            font-size: 13px; 
+                            font-weight: 600; 
+                            cursor: pointer;
+                        ">💾 Save Engine Settings</button>
+                    </div>
+
+                    <div id="bm-engine-status-msg" style="margin-top: 12px; display: none;"></div>
+                </div>
+
+                <!-- Collapsible Private Script Implementation Guide -->
+                <details style="
+                    background: ${theme.cardBg}; 
+                    border: 1px solid ${theme.border}; 
+                    border-radius: 8px; 
+                    padding: 12px 14px; 
+                    font-size: 12px;
+                ">
+                    <summary style="font-weight: 600; cursor: pointer; color: ${theme.text}; user-select: none;">
+                        📖 Private Engine Script Contract (<code>fyers_auth.js</code> Template)
+                    </summary>
+                    <div style="margin-top: 10px; color: ${theme.textMuted}; line-height: 1.5;">
+                        Save this file in your private repository <code>${cfg.repo || 'bunqi8/broker-private'}</code> at <code>${cfg.filePath || 'fyers_auth.js'}</code>:
+                    </div>
+                    <pre style="
+                        margin-top: 8px; 
+                        padding: 12px; 
+                        background: ${theme.bg}; 
+                        border: 1px solid ${theme.border}; 
+                        border-radius: 6px; 
+                        overflow-x: auto; 
+                        font-family: monospace; 
+                        font-size: 11px; 
+                        color: ${theme.text};
+                    "><code>// ${cfg.filePath || 'fyers_auth.js'} - Closed Source Engine
+window.FyersPrivateEngine = {
+    version: "1.0.0",
+    broker: "fyers",
+
+    /**
+     * Called automatically by TradingView frontend.
+     * @param {Object} params
+     * @param {string} params.appId - Fyers App ID (e.g. XC12345-100)
+     * @param {string} params.webuiRefreshToken - WebUI Refresh JWT token
+     * @param {string} params.apiAccessToken - Existing API Access Token
+     * @param {string} params.webuiAccessToken - Existing WebUI Access Token
+     * @returns {Promise<{success: boolean, apiAccessToken?: string, webuiRefreshToken?: string, error?: string}>}
+     */
+    async refreshToken({ appId, webuiRefreshToken, apiAccessToken, webuiAccessToken }) {
+        try {
+            // Your proprietary refresh endpoint logic here:
+            // e.g. const res = await fetch("https://api-t1.fyers.in/api/v3/validate-refresh-token", ...);
+            
+            return {
+                success: true,
+                apiAccessToken: "eyJhbGciOi...", // New API JWT
+                webuiRefreshToken: webuiRefreshToken // New refresh token if rotated
+            };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+};</code></pre>
+                </details>
+            </div>
+        `;
+    }
+
+    bindEngineViewEvents(modal) {
+        const inputPat = modal.querySelector('#bm-input-engine-pat');
+        const inputRepo = modal.querySelector('#bm-input-engine-repo');
+        const inputFile = modal.querySelector('#bm-input-engine-file');
+        const checkAuto = modal.querySelector('#bm-check-auto-refresh');
+        const btnTogglePat = modal.querySelector('#bm-btn-toggle-pat');
+        const btnSave = modal.querySelector('#bm-btn-save-engine');
+        const btnTest = modal.querySelector('#bm-btn-test-engine');
+        const btnManual = modal.querySelector('#bm-btn-manual-refresh');
+        const statusBox = modal.querySelector('#bm-engine-status-msg');
+
+        if (btnTogglePat && inputPat) {
+            btnTogglePat.onclick = () => {
+                inputPat.type = inputPat.type === 'password' ? 'text' : 'password';
+            };
+        }
+
+        const showStatus = (text, isSuccess) => {
+            if (!statusBox) return;
+            const theme = this.getTheme();
+            statusBox.style.display = 'block';
+            statusBox.style.padding = '10px 14px';
+            statusBox.style.borderRadius = '6px';
+            statusBox.style.fontSize = '12px';
+            statusBox.style.lineHeight = '1.4';
+            if (isSuccess) {
+                statusBox.style.background = 'rgba(8,153,129,0.1)';
+                statusBox.style.border = `1px solid ${theme.success}`;
+                statusBox.style.color = theme.success;
+                statusBox.innerHTML = `<strong>✓ Success:</strong> ${text}`;
+            } else {
+                statusBox.style.background = 'rgba(242,54,69,0.1)';
+                statusBox.style.border = `1px solid ${theme.error}`;
+                statusBox.style.color = theme.error;
+                statusBox.innerHTML = `<strong>⚠️ Error:</strong> ${text}`;
+            }
+        };
+
+        if (btnSave) {
+            btnSave.onclick = (e) => {
+                if (e) e.preventDefault();
+                const githubPat = inputPat ? inputPat.value.trim() : '';
+                const repo = inputRepo ? inputRepo.value.trim() : '';
+                const filePath = inputFile ? inputFile.value.trim() : '';
+                const autoRefresh = checkAuto ? checkAuto.checked : true;
+
+                if (!repo) {
+                    showStatus('Repository name cannot be empty (e.g. bunqi8/broker-private).', false);
+                    return;
+                }
+                if (!filePath) {
+                    showStatus('Script file path cannot be empty (e.g. fyers_auth.js).', false);
+                    return;
+                }
+
+                if (window.FyersAPI) {
+                    window.FyersAPI.saveEngineConfig({
+                        githubPat,
+                        repo,
+                        filePath,
+                        autoRefresh
+                    });
+                    if (window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('Private engine settings saved!', 'success');
+                    }
+                }
+
+                this.renderModal();
+            };
+        }
+
+        if (btnTest) {
+            btnTest.onclick = async (e) => {
+                if (e) e.preventDefault();
+                if (!window.FyersAPI) return;
+
+                const githubPat = inputPat ? inputPat.value.trim() : '';
+                const repo = inputRepo ? inputRepo.value.trim() : '';
+                const filePath = inputFile ? inputFile.value.trim() : '';
+                const autoRefresh = checkAuto ? checkAuto.checked : true;
+
+                window.FyersAPI.saveEngineConfig({
+                    githubPat,
+                    repo,
+                    filePath,
+                    autoRefresh
+                });
+
+                btnTest.innerHTML = '⏳ Fetching...';
+                btnTest.disabled = true;
+
+                try {
+                    const res = await window.FyersAPI.loadPrivateEngine(true);
+                    if (res.success) {
+                        showStatus(`Private engine connected and loaded successfully! Exposes version <strong>${res.version || '1.0.0'}</strong>.`, true);
+                    } else {
+                        showStatus(res.error, false);
+                    }
+                } finally {
+                    btnTest.innerHTML = '🔄 Reload Script';
+                    btnTest.disabled = false;
+                }
+            };
+        }
+
+        if (btnManual) {
+            btnManual.onclick = async (e) => {
+                if (e) e.preventDefault();
+                if (!window.FyersAPI) return;
+
+                const active = window.FyersAPI.getActiveAccount();
+                if (!active) {
+                    showStatus('No active broker account configured. Add an account first.', false);
+                    return;
+                }
+                if (!active.webuiRefreshToken) {
+                    showStatus(`Active account "${active.displayName}" does not have a WebUI Refresh Token configured. Add a refresh token in the Accounts tab to enable renewal.`, false);
+                    return;
+                }
+
+                btnManual.innerHTML = '⏳ Refreshing...';
+                btnManual.disabled = true;
+
+                try {
+                    const res = await window.FyersAPI.refreshAccountToken(active.id, true);
+                    if (res.success) {
+                        showStatus(`Active token refreshed successfully! Valid until ${window.FyersAPI.formatExpiry(res.account.apiExpiresAt)}.`, true);
+                    } else {
+                        showStatus(res.error, false);
+                    }
+                } finally {
+                    btnManual.innerHTML = '⚡ Refresh Active Token Now';
+                    btnManual.disabled = false;
+                }
+            };
+        }
     }
 }
 
