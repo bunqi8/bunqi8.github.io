@@ -107,6 +107,46 @@
         boot() {
             this.syncPricesWithChart();
             this.injectCSS();
+            this.mount();
+
+            // Bind to TradingEngine positions
+            if (window.TradingEngine) {
+                window.TradingEngine.onPositionUpdate((pos) => {
+                    this.positions = pos || [];
+                    this.renderChartOverlay();
+                    if (this.isPanelOpen) this.renderSidePanel();
+                });
+            }
+
+            // Bind to PaperTrading updates
+            if (window.PaperTrading) {
+                window.PaperTrading.onUpdate(() => {
+                    if (window.TradingEngine && window.TradingEngine.getActiveBrokerKey(this.currentSymbol) === 'paper') {
+                        this.positions = window.PaperTrading.getPositions();
+                        this.renderChartOverlay();
+                        if (this.isPanelOpen) this.renderSidePanel();
+                    }
+                });
+            }
+
+            // Bind to live ticks from broker
+            if (window.MT5API) {
+                window.MT5API.subscribeQuotes(this.currentSymbol, (tick) => {
+                    if (tick && tick.bid && tick.ask) {
+                        this.currentBid = Number(tick.bid);
+                        this.currentAsk = Number(tick.ask);
+                        this.updatePrices();
+                    }
+                });
+            }
+
+            // Periodic sync interval: detects symbol, mounts/updates buttons in legend, updates prices and toolbar
+            setInterval(() => {
+                this.detectSymbolChange();
+                this.renderOnChartWidget();
+                this.injectToolbarButton();
+                this.updatePrices();
+            }, 500);
 
             // Keyboard Shortcuts
             window.addEventListener('keydown', (e) => {
@@ -690,7 +730,7 @@
 
             // Get active positions for current chart symbol
             const currentSym = this.currentSymbol.split(':').pop().toUpperCase();
-            const allPositions = window.TradingEngine ? (window.PaperTrading ? window.PaperTrading.getPositions() : this.positions) : [];
+            const allPositions = (this.positions && this.positions.length > 0) ? this.positions : (window.PaperTrading ? window.PaperTrading.getPositions() : []);
             const symPositions = (allPositions || []).filter(p => p.symbol.toUpperCase() === currentSym);
 
             if (symPositions.length === 0 && !this.ghostPlacement) {
@@ -709,44 +749,28 @@
                 // 1. Position Entry Line
                 if (entryY !== null && entryY >= 0 && entryY <= chartPane.offsetHeight) {
                     html += `
-                        <div style="position: absolute; top: ${entryY}px; left: 0; right: 0; border-top: 1.5px dotted ${isBuy ? '#2962ff' : '#f23645'}; pointer-events: none;">
-                            <!-- Interactive TradingView Position Badge -->
+                        <div style="position: absolute; top: ${entryY}px; left: 0; right: 0; border-top: 1.5px dotted ${isBuy ? '#2962ff' : '#f23645'}; pointer-events: none; z-index: 20;">
+                            <!-- Interactive TradingView Position Badge (Matching Image 4) -->
                             <div style="
                                 position: absolute;
-                                right: 110px;
+                                right: 80px;
                                 transform: translateY(-50%);
                                 display: inline-flex;
                                 align-items: center;
-                                background: #ffffff;
-                                border: 1px solid #d1d4dc;
-                                border-radius: 4px;
-                                box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+                                gap: 3px;
                                 pointer-events: auto;
                                 font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
                                 font-size: 11px;
-                                overflow: hidden;
+                                white-space: nowrap;
+                                background: transparent;
                             ">
-                                <span style="background: ${isBuy ? '#2962ff' : '#f23645'}; color: #ffffff; font-weight: 700; padding: 3px 7px;">${pos.type}</span>
-                                <button type="button" class="tv-ov-btn-tp" data-ticket="${pos.ticket}" title="Set Take Profit" style="background: transparent; border: none; border-left: 1px dashed #089981; color: #089981; font-weight: 700; padding: 3px 6px; cursor: pointer;">TP</button>
-                                <button type="button" class="tv-ov-btn-sl" data-ticket="${pos.ticket}" title="Set Stop Loss" style="background: transparent; border: none; border-left: 1px dashed #f23645; color: #f23645; font-weight: 700; padding: 3px 6px; cursor: pointer;">SL</button>
-                                <span style="padding: 3px 6px; font-weight: 700; color: #131722; border-left: 1px solid #e0e3eb;">${pos.lots}</span>
-                                <span style="padding: 3px 6px; font-weight: 700; color: ${pnlColor}; border-left: 1px solid #e0e3eb;">${pnlFormatted}</span>
-                                <button type="button" class="tv-ov-btn-close" data-ticket="${pos.ticket}" title="Close Position" style="background: transparent; border: none; border-left: 1px solid #e0e3eb; color: #787b86; padding: 3px 7px; cursor: pointer; font-weight: 700;">✕</button>
+                                <span style="background: ${isBuy ? '#2962ff' : '#f23645'}; color: #ffffff; font-weight: 700; padding: 2px 8px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">${pos.type}</span>
+                                <button type="button" class="tv-ov-btn-tp" data-ticket="${pos.ticket}" title="Set Take Profit" style="background: #ffffff; border: 1px dashed #089981; color: #089981; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">TP</button>
+                                <button type="button" class="tv-ov-btn-sl" data-ticket="${pos.ticket}" title="Set Stop Loss" style="background: #ffffff; border: 1px dashed #f23645; color: #f23645; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">SL</button>
+                                <span style="background: #ffffff; border: 1px solid #d1d4dc; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
+                                <span style="background: #ffffff; border: 1px solid #d1d4dc; color: ${pnlColor}; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pnlFormatted}</span>
+                                <button type="button" class="tv-ov-btn-close" data-ticket="${pos.ticket}" title="Close Position" style="background: #ffffff; border: 1px solid #d1d4dc; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
                             </div>
-
-                            <!-- Right Price Scale Label -->
-                            <div style="
-                                position: absolute;
-                                right: 0;
-                                transform: translateY(-50%);
-                                background: ${isBuy ? '#2962ff' : '#f23645'};
-                                color: #ffffff;
-                                font-size: 11px;
-                                font-weight: 700;
-                                padding: 2px 6px;
-                                border-radius: 2px 0 0 2px;
-                                pointer-events: none;
-                            ">${this.formatPrice(pos.open_price)}</div>
                         </div>
                     `;
                 }
@@ -758,29 +782,25 @@
                         const tpDiff = isBuy ? (pos.tp - pos.open_price) : (pos.open_price - pos.tp);
                         const tpProfit = (tpDiff * pos.lots * 100).toFixed(2);
                         html += `
-                            <div style="position: absolute; top: ${tpY}px; left: 0; right: 0; border-top: 1.5px dashed #089981; pointer-events: none;">
+                            <div style="position: absolute; top: ${tpY}px; left: 0; right: 0; border-top: 1.5px dashed #089981; pointer-events: none; z-index: 20;">
                                 <div class="tv-ov-drag-tp" data-ticket="${pos.ticket}" style="
                                     position: absolute;
-                                    right: 150px;
+                                    right: 80px;
                                     transform: translateY(-50%);
                                     display: inline-flex;
                                     align-items: center;
-                                    background: #ffffff;
-                                    border: 1px solid #089981;
-                                    border-radius: 4px;
-                                    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+                                    gap: 3px;
                                     pointer-events: auto;
                                     font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
                                     font-size: 11px;
+                                    white-space: nowrap;
                                     cursor: ns-resize;
-                                    overflow: hidden;
                                 ">
-                                    <span style="background: #089981; color: #ffffff; font-weight: 700; padding: 3px 6px;">TP</span>
-                                    <span style="padding: 3px 6px; font-weight: 700; color: #131722; border-left: 1px solid #d1d4dc;">${pos.lots}</span>
-                                    <span style="padding: 3px 6px; font-weight: 700; color: #089981; border-left: 1px solid #d1d4dc;">+$${tpProfit}</span>
-                                    <button type="button" class="tv-ov-btn-del-tp" data-ticket="${pos.ticket}" title="Cancel TP" style="background: transparent; border: none; border-left: 1px solid #d1d4dc; color: #787b86; padding: 3px 6px; cursor: pointer; font-weight: 700;">✕</button>
+                                    <span style="background: #089981; color: #ffffff; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">TP</span>
+                                    <span style="background: #ffffff; border: 1px solid #089981; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
+                                    <span style="background: #ffffff; border: 1px solid #089981; color: #089981; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">+$${tpProfit}</span>
+                                    <button type="button" class="tv-ov-btn-del-tp" data-ticket="${pos.ticket}" title="Cancel TP" style="background: #ffffff; border: 1px solid #089981; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
                                 </div>
-                                <div style="position: absolute; right: 0; transform: translateY(-50%); background: #089981; color: #ffffff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 2px 0 0 2px; pointer-events: none;">${this.formatPrice(pos.tp)}</div>
                             </div>
                         `;
                     }
@@ -793,29 +813,25 @@
                         const slDiff = isBuy ? (pos.open_price - pos.sl) : (pos.sl - pos.open_price);
                         const slLoss = (slDiff * pos.lots * 100).toFixed(2);
                         html += `
-                            <div style="position: absolute; top: ${slY}px; left: 0; right: 0; border-top: 1.5px dashed #f23645; pointer-events: none;">
+                            <div style="position: absolute; top: ${slY}px; left: 0; right: 0; border-top: 1.5px dashed #f23645; pointer-events: none; z-index: 20;">
                                 <div class="tv-ov-drag-sl" data-ticket="${pos.ticket}" style="
                                     position: absolute;
-                                    right: 150px;
+                                    right: 80px;
                                     transform: translateY(-50%);
                                     display: inline-flex;
                                     align-items: center;
-                                    background: #ffffff;
-                                    border: 1px solid #f23645;
-                                    border-radius: 4px;
-                                    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+                                    gap: 3px;
                                     pointer-events: auto;
                                     font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
                                     font-size: 11px;
+                                    white-space: nowrap;
                                     cursor: ns-resize;
-                                    overflow: hidden;
                                 ">
-                                    <span style="background: #f23645; color: #ffffff; font-weight: 700; padding: 3px 6px;">SL</span>
-                                    <span style="padding: 3px 6px; font-weight: 700; color: #131722; border-left: 1px solid #d1d4dc;">${pos.lots}</span>
-                                    <span style="padding: 3px 6px; font-weight: 700; color: #f23645; border-left: 1px solid #d1d4dc;">-$${slLoss}</span>
-                                    <button type="button" class="tv-ov-btn-del-sl" data-ticket="${pos.ticket}" title="Cancel SL" style="background: transparent; border: none; border-left: 1px solid #d1d4dc; color: #787b86; padding: 3px 6px; cursor: pointer; font-weight: 700;">✕</button>
+                                    <span style="background: #f23645; color: #ffffff; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">SL</span>
+                                    <span style="background: #ffffff; border: 1px solid #f23645; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
+                                    <span style="background: #ffffff; border: 1px solid #f23645; color: #f23645; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">-$${slLoss}</span>
+                                    <button type="button" class="tv-ov-btn-del-sl" data-ticket="${pos.ticket}" title="Cancel SL" style="background: #ffffff; border: 1px solid #f23645; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
                                 </div>
-                                <div style="position: absolute; right: 0; transform: translateY(-50%); background: #f23645; color: #ffffff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 2px 0 0 2px; pointer-events: none;">${this.formatPrice(pos.sl)}</div>
                             </div>
                         `;
                     }
