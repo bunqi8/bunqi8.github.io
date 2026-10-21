@@ -1046,6 +1046,36 @@ class FyersEngine {
         }
     }
 
+    async createE2EESession() {
+        const engineRes = await this.loadPrivateEngine(false);
+        if (!engineRes.success) {
+            throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
+        }
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function') {
+            throw new Error("Private broker engine does not implement createE2EESession(). Please verify your private repository.");
+        }
+        return await window.FyersPrivateEngine.createE2EESession();
+    }
+
+    async generateTokensDirect({ appId, webuiRefreshToken, webuiAccessToken, pin, secretKey, redirectUri }) {
+        const engineRes = await this.loadPrivateEngine(false);
+        if (!engineRes.success) {
+            return { success: false, error: engineRes.error };
+        }
+        const engine = window.FyersPrivateEngine;
+        if (!engine || typeof engine.refreshToken !== 'function') {
+            return { success: false, error: "Private engine refreshToken() is not available." };
+        }
+        return await engine.refreshToken({
+            appId,
+            webuiRefreshToken,
+            webuiAccessToken,
+            pin,
+            secretKey,
+            redirectUri: redirectUri || "https://trade.fyers.in/api-login/redirect-uri/index.html"
+        });
+    }
+
     setupAutoRefreshScheduler() {
         if (this._schedulerInterval) clearInterval(this._schedulerInterval);
         

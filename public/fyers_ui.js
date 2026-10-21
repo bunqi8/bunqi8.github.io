@@ -8,6 +8,8 @@ class FyersUI {
         this.viewMode = 'list'; // 'list' | 'add' | 'replace'
         this.replaceAccountId = null;
         this.cachedIframeDoc = null;
+        this._extractorOpen = false;
+        this._e2eeReceiver = null;
         this.setupEventListeners();
     }
 
@@ -836,26 +838,43 @@ class FyersUI {
 
         return `
             <!-- Top Controls Bar -->
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; flex-wrap: wrap;">
                 <span style="font-size: 13px; color: ${theme.textMuted}; font-weight: 500;">
                     ${accounts.length} Registered Account${accounts.length === 1 ? '' : 's'}
                 </span>
-                <button id="bm-btn-add-account" class="bm-btn-add-trigger" type="button" style="
-                    background: ${theme.primary}; 
-                    color: #fff; 
-                    border: none; 
-                    padding: 7px 14px; 
-                    border-radius: 6px; 
-                    font-size: 13px; 
-                    font-weight: 600; 
-                    cursor: pointer; 
-                    display: inline-flex; 
-                    align-items: center; 
-                    gap: 6px;
-                    box-shadow: 0 2px 6px rgba(41,98,255,0.25);
-                ">
-                    <span>+</span> Add Broker Account
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="bm-btn-open-extractor-direct" type="button" style="
+                        background: rgba(41, 98, 255, 0.08); 
+                        color: ${theme.primary}; 
+                        border: 1px solid rgba(41, 98, 255, 0.25); 
+                        padding: 7px 12px; 
+                        border-radius: 6px; 
+                        font-size: 12.5px; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        display: inline-flex; 
+                        align-items: center; 
+                        gap: 6px;
+                    ">
+                        <span>⚡</span> 1-Click Browser Import
+                    </button>
+                    <button id="bm-btn-add-account" class="bm-btn-add-trigger" type="button" style="
+                        background: ${theme.primary}; 
+                        color: #fff; 
+                        border: none; 
+                        padding: 7px 14px; 
+                        border-radius: 6px; 
+                        font-size: 13px; 
+                        font-weight: 600; 
+                        cursor: pointer; 
+                        display: inline-flex; 
+                        align-items: center; 
+                        gap: 6px;
+                        box-shadow: 0 2px 6px rgba(41,98,255,0.25);
+                    ">
+                        <span>+</span> Add Broker Account
+                    </button>
+                </div>
             </div>
 
             <!-- Accounts List -->
@@ -926,6 +945,148 @@ class FyersUI {
                     ${isReplace 
                         ? 'Update credentials below. Blank fields are 100% preserved and will not be overwritten or cleared.' 
                         : 'Configure your Fyers App ID and API Access Token. WebUI Refresh Token enables automatic background renewal.'}
+                </div>
+
+                <!-- 1-Click Browser Extractor Card -->
+                <div style="
+                    background: linear-gradient(135deg, rgba(41, 98, 255, 0.08) 0%, rgba(8, 153, 129, 0.08) 100%);
+                    border: 1px solid rgba(41, 98, 255, 0.28);
+                    border-radius: 8px;
+                    padding: 12px 14px;
+                    margin-bottom: 16px;
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
+                                <span>⚡</span> 1-Click Browser Extractor
+                                <span style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(8,153,129,0.15); color: #089981; border: 1px solid rgba(8,153,129,0.3);">
+                                    RSA-2048 + AES-256 E2EE
+                                </span>
+                            </div>
+                            <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; line-height: 1.35;">
+                                Extract session tokens directly from an open <a href="https://trade.fyers.in" target="_blank" style="color: ${theme.primary}; text-decoration: none; font-weight: 600;">trade.fyers.in</a> tab with zero cookie searching.
+                            </div>
+                        </div>
+                        <button id="bm-btn-toggle-extractor" type="button" style="
+                            background: ${this._extractorOpen ? 'rgba(41, 98, 255, 0.15)' : theme.primary};
+                            color: ${this._extractorOpen ? theme.primary : '#ffffff'};
+                            border: 1px solid ${this._extractorOpen ? 'rgba(41, 98, 255, 0.35)' : 'transparent'};
+                            padding: 6px 12px;
+                            border-radius: 6px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                        ">
+                            <span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Extractor Assistant'}</span>
+                        </button>
+                    </div>
+
+                    <!-- Collapsible Extractor Panel -->
+                    <div id="bm-extractor-panel" style="display: ${this._extractorOpen ? 'block' : 'none'}; margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(41,98,255,0.25);">
+                        <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+                            <!-- Steps Container -->
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px;">
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">1</span>
+                                        <span style="color: ${theme.text}; line-height: 1.4;">
+                                            Open <a href="https://trade.fyers.in" target="_blank" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline;">trade.fyers.in</a> in a new tab where you are already logged in.
+                                        </span>
+                                    </div>
+                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">2</span>
+                                        <div style="flex: 1;">
+                                            <div style="color: ${theme.text}; line-height: 1.4; margin-bottom: 6px;">
+                                                Click below to copy the secure 1-click script (pre-baked with an ephemeral RSA key for this session):
+                                            </div>
+                                            <button id="bm-btn-copy-extractor-script" type="button" style="
+                                                background: ${theme.primary};
+                                                color: #fff;
+                                                border: none;
+                                                padding: 6px 12px;
+                                                border-radius: 5px;
+                                                font-size: 11.5px;
+                                                font-weight: 600;
+                                                cursor: pointer;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 5px;
+                                            ">
+                                                <span>📋</span> Copy 1-Click Extractor Script
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">3</span>
+                                        <span style="color: ${theme.text}; line-height: 1.4;">
+                                            On your <strong>trade.fyers.in</strong> tab, press <kbd style="background: ${theme.inputBg}; border: 1px solid ${theme.border}; border-radius: 3px; padding: 1px 4px; font-size: 11px;">F12</kbd> (or right-click → Inspect → Console), paste and hit Enter. The script encrypts your session tokens and copies them to your clipboard.
+                                        </span>
+                                    </div>
+                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
+                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">4</span>
+                                        <span style="color: ${theme.text}; line-height: 1.4;">
+                                            Paste the encrypted ciphertext below (or click <em>Paste from Clipboard</em>):
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Payload Input Area -->
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <textarea id="bm-input-extractor-payload" rows="2" placeholder="Paste encrypted ciphertext blob here..." style="
+                                    width: 100%;
+                                    padding: 7px 10px;
+                                    background: ${theme.inputBg};
+                                    color: ${theme.inputText};
+                                    border: 1px solid ${theme.inputBorder};
+                                    border-radius: 6px;
+                                    font-size: 11.5px;
+                                    font-family: ui-monospace, monospace;
+                                    box-sizing: border-box;
+                                    resize: vertical;
+                                    outline: none;
+                                "></textarea>
+                                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                    <button id="bm-btn-decrypt-payload" type="button" style="
+                                        background: ${theme.success};
+                                        color: #fff;
+                                        border: none;
+                                        padding: 6px 12px;
+                                        border-radius: 5px;
+                                        font-size: 11.5px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 5px;
+                                    ">
+                                        <span>📥</span> Decrypt & Auto-Fill Tokens
+                                    </button>
+                                    <button id="bm-btn-paste-clipboard" type="button" style="
+                                        background: ${theme.cardBg};
+                                        color: ${theme.text};
+                                        border: 1px solid ${theme.border};
+                                        padding: 6px 11px;
+                                        border-radius: 5px;
+                                        font-size: 11.5px;
+                                        font-weight: 500;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 5px;
+                                    ">
+                                        <span>📋</span> Paste from Clipboard
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Decryption Status Box -->
+                            <div id="bm-extractor-status" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 11.5px; line-height: 1.4;"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Form Fields -->
@@ -1214,9 +1375,24 @@ class FyersUI {
                 }
                 this.viewMode = 'add';
                 this.replaceAccountId = null;
+                this._extractorOpen = false;
                 this.renderModal();
             };
         });
+
+        const btnOpenExtractorDirect = modal.querySelector('#bm-btn-open-extractor-direct');
+        if (btnOpenExtractorDirect) {
+            btnOpenExtractorDirect.onclick = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                this.viewMode = 'add';
+                this.replaceAccountId = null;
+                this._extractorOpen = true;
+                this.renderModal();
+            };
+        }
 
         modal.querySelectorAll('.bm-btn-activate').forEach(btn => {
             btn.onclick = (e) => {
@@ -1253,12 +1429,15 @@ class FyersUI {
     }
 
     bindFormViewEvents(modal) {
+        const theme = this.getTheme();
         const btnBack = modal.querySelector('#bm-btn-back');
         const btnCancel = modal.querySelector('#bm-btn-cancel-form');
         const onCancel = (e) => {
             if (e) e.preventDefault();
             this.viewMode = 'list';
             this.replaceAccountId = null;
+            this._extractorOpen = false;
+            this._e2eeReceiver = null;
             this.renderModal();
         };
         if (btnBack) btnBack.onclick = onCancel;
@@ -1284,6 +1463,206 @@ class FyersUI {
 
         // Initial run
         runValidation();
+
+        // 1-Click Browser Extractor Events
+        const btnToggleExtractor = modal.querySelector('#bm-btn-toggle-extractor');
+        const extractorPanel = modal.querySelector('#bm-extractor-panel');
+        if (btnToggleExtractor && extractorPanel) {
+            btnToggleExtractor.onclick = (e) => {
+                if (e) e.preventDefault();
+                this._extractorOpen = !this._extractorOpen;
+                extractorPanel.style.display = this._extractorOpen ? 'block' : 'none';
+                btnToggleExtractor.innerHTML = `<span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Extractor Assistant'}</span>`;
+                btnToggleExtractor.style.background = this._extractorOpen ? 'rgba(41, 98, 255, 0.15)' : theme.primary;
+                btnToggleExtractor.style.color = this._extractorOpen ? theme.primary : '#ffffff';
+                btnToggleExtractor.style.border = `1px solid ${this._extractorOpen ? 'rgba(41, 98, 255, 0.35)' : 'transparent'}`;
+            };
+        }
+
+        const btnCopyScript = modal.querySelector('#bm-btn-copy-extractor-script');
+        if (btnCopyScript) {
+            btnCopyScript.onclick = async (e) => {
+                if (e) e.preventDefault();
+                btnCopyScript.innerHTML = '<span>⏳</span> Generating Session...';
+                btnCopyScript.disabled = true;
+                try {
+                    if (!this._e2eeReceiver) {
+                        this._e2eeReceiver = await window.FyersAPI.createE2EESession();
+                    }
+                    const script = this._e2eeReceiver.generateExtractorScript();
+                    await navigator.clipboard.writeText(script);
+                    btnCopyScript.innerHTML = '<span>✓</span> Script Copied to Clipboard!';
+                    btnCopyScript.style.background = '#089981';
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast('📋 Extractor script copied! Paste it into the Console on trade.fyers.in', 'success', 4000);
+                    }
+                    setTimeout(() => {
+                        if (btnCopyScript) {
+                            btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Extractor Script';
+                            btnCopyScript.style.background = theme.primary;
+                            btnCopyScript.disabled = false;
+                        }
+                    }, 3500);
+                } catch (err) {
+                    btnCopyScript.disabled = false;
+                    btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Extractor Script';
+                    if (statusBox) {
+                        statusBox.style.display = 'block';
+                        statusBox.style.background = 'rgba(242,54,69,0.08)';
+                        statusBox.style.color = '#f23645';
+                        statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
+                        statusBox.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err}<br><button id="bm-btn-go-engine-tab" type="button" style="margin-top:6px; background:#2962FF; color:#fff; border:none; padding:4px 9px; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer;">⚙️ Open Engine Settings</button>`;
+                        const btnGo = statusBox.querySelector('#bm-btn-go-engine-tab');
+                        if (btnGo) {
+                            btnGo.onclick = () => {
+                                this.activeTab = 'engine';
+                                this.renderModal();
+                            };
+                        }
+                    }
+                }
+            };
+        }
+
+        const statusBox = modal.querySelector('#bm-extractor-status');
+        const payloadInput = modal.querySelector('#bm-input-extractor-payload');
+
+        const handleDecrypt = async (payloadStr) => {
+            const raw = (payloadStr || (payloadInput ? payloadInput.value : '')).trim();
+            if (!raw) {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(242,54,69,0.08)';
+                    statusBox.style.color = '#f23645';
+                    statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
+                    statusBox.innerHTML = '⚠️ Please paste the encrypted ciphertext blob first.';
+                }
+                return;
+            }
+
+            if (!this._e2eeReceiver) {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(242,54,69,0.08)';
+                    statusBox.style.color = '#f23645';
+                    statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
+                    statusBox.innerHTML = '⚠️ Session keypair expired or not found. Please click "Copy 1-Click Extractor Script" to generate a fresh keypair and run on Fyers Web.';
+                }
+                return;
+            }
+
+            try {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(41,98,255,0.08)';
+                    statusBox.style.color = '#2962FF';
+                    statusBox.style.border = '1px solid rgba(41,98,255,0.25)';
+                    statusBox.innerHTML = '⏳ Decrypting session with RSA-2048 private key...';
+                }
+
+                const res = await this._e2eeReceiver.decrypt(raw);
+                if (!res || !res.success) {
+                    throw new Error("Decryption returned invalid or unverified result.");
+                }
+
+                if (inputRefresh) inputRefresh.value = res.webuiRefreshToken || '';
+                if (inputWebui) inputWebui.value = res.webuiAccessToken || '';
+
+                if (inputAppId && !inputAppId.value.trim() && res.fyersId) {
+                    inputAppId.value = `${res.fyersId}-100`;
+                }
+
+                runValidation();
+
+                const userName = res.displayName ? `${res.displayName} (${res.fyersId})` : (res.fyersId || 'User');
+                const refExp = res.refreshExpiresAt ? window.FyersAPI.formatExpiry(res.refreshExpiresAt) : 'Active';
+
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(8,153,129,0.1)';
+                    statusBox.style.color = '#089981';
+                    statusBox.style.border = '1px solid rgba(8,153,129,0.3)';
+                    statusBox.innerHTML = `
+                        <div style="font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 5px;">
+                            <span>✓</span> Decrypted & Auto-Filled Successfully!
+                        </div>
+                        <div>Account: <strong>${userName}</strong> • WebUI Refresh Token valid ${refExp}.</div>
+                        <div style="margin-top: 6px; font-size: 11px; color: ${theme.text};">
+                            If you entered your PIN & Secret Key below, click <button id="bm-btn-generate-api-now" type="button" style="background: #2962FF; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 2px;">⚡ Generate API Token Now</button> or click <strong>Save & Connect</strong>.
+                        </div>
+                    `;
+
+                    const btnGenNow = statusBox.querySelector('#bm-btn-generate-api-now');
+                    if (btnGenNow) {
+                        btnGenNow.onclick = async (e) => {
+                            if (e) e.preventDefault();
+                            const pinVal = inputPin ? inputPin.value.trim() : '';
+                            const secretVal = inputSecret ? inputSecret.value.trim() : '';
+                            const appVal = inputAppId ? inputAppId.value.trim() : '';
+                            if (!pinVal || !secretVal) {
+                                alert("Please enter your 4-digit PIN and App Secret Key in the fields below first!");
+                                return;
+                            }
+                            btnGenNow.innerText = 'Generating...';
+                            btnGenNow.disabled = true;
+                            const genRes = await window.FyersAPI.generateTokensDirect({
+                                appId: appVal,
+                                webuiRefreshToken: res.webuiRefreshToken,
+                                webuiAccessToken: res.webuiAccessToken,
+                                pin: pinVal,
+                                secretKey: secretVal
+                            });
+                            if (genRes.success && genRes.apiAccessToken) {
+                                if (inputApi) inputApi.value = genRes.apiAccessToken;
+                                if (genRes.webuiRefreshToken && inputRefresh) inputRefresh.value = genRes.webuiRefreshToken;
+                                if (genRes.webuiAccessToken && inputWebui) inputWebui.value = genRes.webuiAccessToken;
+                                runValidation();
+                                btnGenNow.innerText = '✓ API Token Generated!';
+                                btnGenNow.style.background = '#089981';
+                            } else {
+                                btnGenNow.innerText = 'Generation Failed';
+                                btnGenNow.disabled = false;
+                                alert(`Failed to generate API token: ${genRes.error || 'Unknown error'}`);
+                            }
+                        };
+                    }
+                }
+
+                if (window.FyersAPI && window.FyersAPI.showToast) {
+                    window.FyersAPI.showToast(`✓ Decrypted tokens for ${userName}! Form updated.`, 'success', 3500);
+                }
+            } catch (err) {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(242,54,69,0.08)';
+                    statusBox.style.color = '#f23645';
+                    statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
+                    statusBox.innerHTML = `❌ Decryption failed: ${err.message || err}`;
+                }
+            }
+        };
+
+        const btnDecrypt = modal.querySelector('#bm-btn-decrypt-payload');
+        if (btnDecrypt) {
+            btnDecrypt.onclick = (e) => {
+                if (e) e.preventDefault();
+                handleDecrypt();
+            };
+        }
+
+        const btnPasteClipboard = modal.querySelector('#bm-btn-paste-clipboard');
+        if (btnPasteClipboard) {
+            btnPasteClipboard.onclick = async (e) => {
+                if (e) e.preventDefault();
+                try {
+                    const text = await navigator.clipboard.readText();
+                    if (payloadInput) payloadInput.value = text;
+                    await handleDecrypt(text);
+                } catch (clipErr) {
+                    alert(`Clipboard read failed: ${clipErr.message || clipErr}. Please paste manually into the text box.`);
+                }
+            };
+        }
 
         const btnSave = modal.querySelector('#bm-btn-save-account');
         if (btnSave) {
