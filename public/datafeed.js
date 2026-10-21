@@ -481,6 +481,39 @@ const Datafeed = {
             isLive = true;
             actualName = symbolName.split('|')[0];
         }
+
+        // MT5 Forex, Commodity & Index Symbols Resolution
+        const MT5_POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30', 'NAS100', 'SPX500', 'BTCUSD', 'ETHUSD', 'AUDUSD', 'USDCAD', 'USDCHF'];
+        const isMt5 = actualName.startsWith('MT5:') || MT5_POPULAR.some(s => actualName.toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith(s));
+        if (isMt5) {
+            let priceScale = 100000;
+            if (actualName.includes('JPY') || actualName.includes('XAU') || actualName.includes('US30') || actualName.includes('NAS')) {
+                priceScale = 100;
+            }
+            const symbolInfo = {
+                name: actualName,
+                full_name: actualName,
+                isLive: true,
+                description: `MT5: ${actualName}`,
+                type: actualName.includes('XAU') ? 'commodity' : (actualName.includes('US30') || actualName.includes('NAS') ? 'index' : 'forex'),
+                exchange: 'MT5',
+                session: '24x7',
+                timezone: 'UTC',
+                minmov: 1,
+                pricescale: priceScale,
+                has_intraday: true,
+                has_empty_bars: false,
+                has_daily: true,
+                has_weekly_and_monthly: false,
+                supported_resolutions: configurationData.supported_resolutions,
+                intraday_multipliers: ['1', '5', '15', '30', '60'],
+                has_seconds: false,
+                volume_precision: 2,
+                data_status: 'streaming',
+            };
+            setTimeout(() => onSymbolResolvedCallback(symbolInfo));
+            return;
+        }
         
         if (actualName.includes('SENSEX') || actualName.includes('BANKEX')) {
             exchange = 'BSE';
@@ -792,10 +825,23 @@ const Datafeed = {
         countBack = countBack || 300;
         
         // 1. Live Options (No Parquet)
-        if (symbolInfo.isLive && window.FyersAPI) {
+        if (symbolInfo.isLive && window.FyersAPI && symbolInfo.exchange !== 'MT5') {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
             fyersBars = alignFyersDwmTime(fyersBars, resolution);
             return safeHistoryCallback(fyersBars, onHistoryCallback, resolution, symbolInfo);
+        }
+
+        // 1b. MT5 Live Feed
+        if (symbolInfo.exchange === 'MT5' && window.MT5API) {
+            try {
+                const mt5Bars = await window.MT5API.fetchBars(symbolInfo.name, resolution, countBack || 500);
+                if (mt5Bars && mt5Bars.length > 0) {
+                    onHistoryCallback(mt5Bars, { noData: false });
+                    return;
+                }
+            } catch (err) {
+                console.warn('[datafeed] MT5 fetchBars error:', err);
+            }
         }
 
         let conn = null;
@@ -992,6 +1038,27 @@ const Datafeed = {
     subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscriberUID, onResetCacheNeededCallback) => {
         DFLog.info('subscribeBars', `UID: ${subscriberUID}`);
         window._tvResetCache = onResetCacheNeededCallback;
+
+        // MT5 Live Subscription Hook
+        if (symbolInfo.exchange === 'MT5' && window.MT5API) {
+            const mt5Cb = (tick) => {
+                if (tick && tick.last) {
+                    onRealtimeCallback({
+                        time: tick.time || Date.now(),
+                        close: tick.last,
+                        open: tick.last,
+                        high: tick.last,
+                        low: tick.last,
+                        volume: tick.volume || 1
+                    });
+                }
+            };
+            window.MT5API.subscribeQuotes(symbolInfo.name, mt5Cb);
+            if (!window._mt5Subscribers) window._mt5Subscribers = new Map();
+            window._mt5Subscribers.set(subscriberUID, mt5Cb);
+            return;
+        }
+
         if (!window.FyersAPI) return;
         
         let fyersSymbol = symbolInfo.name;
@@ -1065,6 +1132,14 @@ const Datafeed = {
 
     unsubscribeBars: (subscriberUID) => {
         DFLog.info('unsubscribeBars', `UID: ${subscriberUID}`);
+        if (window._mt5Subscribers && window._mt5Subscribers.has(subscriberUID)) {
+            const mt5Cb = window._mt5Subscribers.get(subscriberUID);
+            if (window.MT5API && mt5Cb) {
+                window.MT5API.unsubscribeQuotes(mt5Cb);
+            }
+            window._mt5Subscribers.delete(subscriberUID);
+            return;
+        }
         if (window._tvSubscribers && window._tvSubscribers.has(subscriberUID)) {
             const sub = window._tvSubscribers.get(subscriberUID);
             if (window.FyersAPI) window.FyersAPI.unsubscribe(sub.symbol, sub.cb);
