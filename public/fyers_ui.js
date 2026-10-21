@@ -2093,6 +2093,53 @@ class FyersUI {
                 return;
             }
 
+            if (check.isDuplicate && check.duplicateAccount) {
+                inspector.innerHTML = `
+                    <div style="
+                        background: rgba(242,54,69,0.08); 
+                        border: 1px solid rgba(242,54,69,0.3); 
+                        border-radius: 8px; 
+                        padding: 12px 14px; 
+                        font-size: 12px; 
+                        color: ${theme.error};
+                        line-height: 1.45;
+                    ">
+                        <div style="font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                            <span>⚠️</span> <span>Duplicate Account Detected</span>
+                        </div>
+                        <div>${check.error}</div>
+                        <div style="margin-top: 10px;">
+                            <button id="bm-btn-switch-to-dup" type="button" style="
+                                background: #2962FF; 
+                                color: #fff; 
+                                border: none; 
+                                padding: 6px 14px; 
+                                border-radius: 6px; 
+                                font-size: 12px; 
+                                font-weight: 600; 
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                            ">
+                                <span>✏️</span> Switch to Edit Existing Account (${check.duplicateAccount.displayName || check.duplicateAccount.fyId})
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                const btnSwitch = inspector.querySelector('#bm-btn-switch-to-dup');
+                if (btnSwitch) {
+                    btnSwitch.onclick = (e) => {
+                        if (e) e.preventDefault();
+                        this.viewMode = 'replace';
+                        this.replaceAccountId = check.duplicateAccount.id;
+                        this.renderModal();
+                    };
+                }
+                return;
+            }
+
             inspector.innerHTML = `
                 <div style="
                     background: rgba(242,54,69,0.08); 
