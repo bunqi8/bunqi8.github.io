@@ -63,10 +63,7 @@
             this.currentBid = 22811.35;
             this.currentAsk = 22811.85;
             this.positions = [];
-
-            // Interactive chart dragging state
-            this.activeDrag = null; // { type: 'tp'|'sl', ticket, startY, startPrice }
-            this.ghostPlacement = null; // { type: 'tp'|'sl', ticket, isBuy }
+            this.nativeLines = new Map(); // Official TradingView line tool adapters
 
             this.init();
         }
@@ -113,7 +110,7 @@
             if (window.TradingEngine) {
                 window.TradingEngine.onPositionUpdate((pos) => {
                     this.positions = pos || [];
-                    this.renderChartOverlay();
+                    this.syncNativeChartLines();
                     if (this.isPanelOpen) this.renderSidePanel();
                 });
             }
@@ -123,7 +120,7 @@
                 window.PaperTrading.onUpdate(() => {
                     if (window.TradingEngine && window.TradingEngine.getActiveBrokerKey(this.currentSymbol) === 'paper') {
                         this.positions = window.PaperTrading.getPositions();
-                        this.renderChartOverlay();
+                        this.syncNativeChartLines();
                         if (this.isPanelOpen) this.renderSidePanel();
                     }
                 });
@@ -140,22 +137,19 @@
                 });
             }
 
-            // Periodic sync interval: detects symbol, mounts/updates buttons in legend, updates prices and toolbar
+            // Periodic sync interval: detects symbol, mounts/updates buttons in legend, updates prices, toolbar, and chart lines
             setInterval(() => {
                 this.detectSymbolChange();
                 this.renderOnChartWidget();
                 this.injectToolbarButton();
                 this.updatePrices();
+                this.syncNativeChartLines();
             }, 500);
 
             // Keyboard Shortcuts
             window.addEventListener('keydown', (e) => {
                 if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
                 if (e.key === 'Escape') {
-                    if (this.ghostPlacement) {
-                        this.ghostPlacement = null;
-                        this.renderChartOverlay();
-                    }
                     this.hideKeypad();
                 } else if (e.shiftKey && e.key.toUpperCase() === 'B') {
                     e.preventDefault();
@@ -167,18 +161,6 @@
                     else this.openOrderTicket('SELL');
                 }
             });
-
-            // Re-render chart overlay on animation frames
-            this.startOverlayLoop();
-        }
-
-        startOverlayLoop() {
-            let lastRangeStr = '';
-            const loop = () => {
-                this.renderChartOverlay();
-                requestAnimationFrame(loop);
-            };
-            requestAnimationFrame(loop);
         }
 
         mount() {
@@ -212,6 +194,8 @@
                         const newSym = titleBtn.innerText.trim();
                         if (newSym && newSym !== this.currentSymbol) {
                             this.currentSymbol = newSym;
+                            this.clearAllNativeChartLines();
+                            this.syncNativeChartLines();
                             this.renderHeader();
                             this.updatePrices();
                             this.renderOnChartWidget();
@@ -694,349 +678,376 @@
         }
 
         // ==========================================
-        // 4. INTERACTIVE ON-CHART TRADING OVERLAY (Matching Image 4)
-        // Position line, TP line, SL line, and Draggable Modifications
+        // 4. OFFICIAL NATIVE ON-CHART TRADING PRIMITIVES
+        // Direct canvas-rendered position and order lines via TradingView
+        // Official createPositionLine & createOrderLine with draggable TP/SL
         // ==========================================
-        renderChartOverlay() {
-            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
-            if (!iframe) return;
-            let iframeDoc;
+        async getChartApi() {
+            if (!window.tvWidget) return null;
             try {
-                iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-            } catch (_) { return; }
-            if (!iframeDoc) return;
+                const chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
+                if (chart && typeof chart.createPositionLine === 'function') {
+                    return chart;
+                }
+            } catch (_) {}
+            return null;
+        }
 
-            const chartPane = iframeDoc.querySelector('.chart-gui-wrapper[data-qa-id="pane-widget-chart-gui-wrapper"]') ||
-                              iframeDoc.querySelector('.chart-gui-wrapper') ||
-                              iframeDoc.querySelector('td.chart-markup-table');
-            if (!chartPane) return;
+        async syncNativeChartLines() {
+            const chart = await this.getChartApi();
+            if (!chart) return;
 
-            let overlay = iframeDoc.getElementById(this.overlayContainerId);
-            if (!overlay) {
-                overlay = iframeDoc.createElement('div');
-                overlay.id = this.overlayContainerId;
-                overlay.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    pointer-events: none;
-                    z-index: 15;
-                    overflow: visible;
-                `;
-                chartPane.appendChild(overlay);
+            // Remove any legacy HTML overlays from prior sessions
+            try {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                if (iframe && iframe.contentDocument) {
+                    const oldOverlay = iframe.contentDocument.getElementById(this.overlayContainerId);
+                    if (oldOverlay) oldOverlay.remove();
+                    const oldGhost = iframe.contentDocument.getElementById('tv-chart-ghost-line');
+                    if (oldGhost) oldGhost.remove();
+                }
+            } catch (_) {}
+
+            // Ensure TradingView trading properties are enabled in the chart model
+            try {
+                const model = chart._chartWidget?.model?.()?.model?.();
+                if (model && model.properties) {
+                    const tp = model.properties().tradingProperties;
+                    if (tp) {
+                        if (tp.showPositions && !tp.showPositions.value()) tp.showPositions.setValue(true);
+                        if (tp.showOrders && !tp.showOrders.value()) tp.showOrders.setValue(true);
+                        if (tp.positionPL && tp.positionPL.visibility && !tp.positionPL.visibility.value()) tp.positionPL.visibility.setValue(true);
+                        if (tp.bracketsPL && tp.bracketsPL.visibility && !tp.bracketsPL.visibility.value()) tp.bracketsPL.visibility.setValue(true);
+                    }
+                }
+            } catch (_) {}
+
+            // Active positions for current chart symbol
+            const currentSym = (this.currentSymbol || '').split(':').pop().toUpperCase();
+            const allPositions = (this.positions && this.positions.length > 0)
+                ? this.positions
+                : (window.PaperTrading ? window.PaperTrading.getPositions() : []);
+            const symPositions = (allPositions || []).filter(p => p.symbol && p.symbol.toUpperCase() === currentSym);
+            const activeTickets = new Set(symPositions.map(p => p.ticket));
+
+            // 1. Remove closed position lines
+            for (const [ticket, data] of this.nativeLines.entries()) {
+                if (!activeTickets.has(ticket)) {
+                    try { if (data.posLine) data.posLine.remove(); } catch (_) {}
+                    try { if (data.tpLine) data.tpLine.remove(); } catch (_) {}
+                    try { if (data.slLine) data.slLine.remove(); } catch (_) {}
+                    this.nativeLines.delete(ticket);
+                }
             }
 
-            // Get active positions for current chart symbol
-            const currentSym = this.currentSymbol.split(':').pop().toUpperCase();
-            const allPositions = (this.positions && this.positions.length > 0) ? this.positions : (window.PaperTrading ? window.PaperTrading.getPositions() : []);
-            const symPositions = (allPositions || []).filter(p => p.symbol.toUpperCase() === currentSym);
-
-            if (symPositions.length === 0 && !this.ghostPlacement) {
-                overlay.innerHTML = '';
-                return;
-            }
-
-            let html = '';
-            symPositions.forEach(pos => {
-                const isBuy = pos.type === 'BUY';
-                const entryY = this.priceToY(pos.open_price);
-                const pnl = pos.profit || 0.0;
-                const pnlFormatted = `${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}`;
-                const pnlColor = pnl >= 0 ? '#089981' : '#f23645';
-
-                // 1. Position Entry Line
-                if (entryY !== null && entryY >= 0 && entryY <= chartPane.offsetHeight) {
-                    html += `
-                        <div style="position: absolute; top: ${entryY}px; left: 0; right: 0; border-top: 1.5px dotted ${isBuy ? '#2962ff' : '#f23645'}; pointer-events: none; z-index: 20;">
-                            <!-- Interactive TradingView Position Badge (Matching Image 4) -->
-                            <div style="
-                                position: absolute;
-                                right: 80px;
-                                transform: translateY(-50%);
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 3px;
-                                pointer-events: auto;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
-                                font-size: 11px;
-                                white-space: nowrap;
-                                background: transparent;
-                            ">
-                                <span style="background: ${isBuy ? '#2962ff' : '#f23645'}; color: #ffffff; font-weight: 700; padding: 2px 8px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">${pos.type}</span>
-                                <button type="button" class="tv-ov-btn-tp" data-ticket="${pos.ticket}" title="Set Take Profit" style="background: #ffffff; border: 1px dashed #089981; color: #089981; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">TP</button>
-                                <button type="button" class="tv-ov-btn-sl" data-ticket="${pos.ticket}" title="Set Stop Loss" style="background: #ffffff; border: 1px dashed #f23645; color: #f23645; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">SL</button>
-                                <span style="background: #ffffff; border: 1px solid #d1d4dc; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
-                                <span style="background: #ffffff; border: 1px solid #d1d4dc; color: ${pnlColor}; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pnlFormatted}</span>
-                                <button type="button" class="tv-ov-btn-close" data-ticket="${pos.ticket}" title="Close Position" style="background: #ffffff; border: 1px solid #d1d4dc; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
-                            </div>
-                        </div>
-                    `;
+            // 2. Synchronize active positions
+            for (const pos of symPositions) {
+                let data = this.nativeLines.get(pos.ticket);
+                if (!data) {
+                    data = {
+                        posLine: null,
+                        tpLine: null,
+                        slLine: null,
+                        creatingPos: false,
+                        creatingTp: false,
+                        creatingSl: false,
+                        posConfigured: false,
+                        tpConfigured: false,
+                        slConfigured: false,
+                        lastPrice: null,
+                        lastPnl: null,
+                        lastLots: null,
+                        lastTp: null,
+                        lastSl: null
+                    };
+                    this.nativeLines.set(pos.ticket, data);
                 }
 
-                // 2. Take Profit Line (Green Dashed & Draggable)
+                // Entry Position Line
+                if (!data.posLine && !data.creatingPos) {
+                    data.creatingPos = true;
+                    chart.createPositionLine().then(line => {
+                        data.posLine = line;
+                        data.creatingPos = false;
+                        this.applyPositionLineProperties(line, pos, data);
+                    }).catch(err => {
+                        console.error("[TradeUI] Error creating position line:", err);
+                        data.creatingPos = false;
+                    });
+                } else if (data.posLine) {
+                    this.applyPositionLineProperties(data.posLine, pos, data);
+                }
+
+                // Take Profit Line
                 if (pos.tp && pos.tp > 0) {
-                    const tpY = this.priceToY(pos.tp);
-                    if (tpY !== null && tpY >= 0 && tpY <= chartPane.offsetHeight) {
-                        const tpDiff = isBuy ? (pos.tp - pos.open_price) : (pos.open_price - pos.tp);
-                        const tpProfit = (tpDiff * pos.lots * 100).toFixed(2);
-                        html += `
-                            <div style="position: absolute; top: ${tpY}px; left: 0; right: 0; border-top: 1.5px dashed #089981; pointer-events: none; z-index: 20;">
-                                <div class="tv-ov-drag-tp" data-ticket="${pos.ticket}" style="
-                                    position: absolute;
-                                    right: 80px;
-                                    transform: translateY(-50%);
-                                    display: inline-flex;
-                                    align-items: center;
-                                    gap: 3px;
-                                    pointer-events: auto;
-                                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
-                                    font-size: 11px;
-                                    white-space: nowrap;
-                                    cursor: ns-resize;
-                                ">
-                                    <span style="background: #089981; color: #ffffff; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">TP</span>
-                                    <span style="background: #ffffff; border: 1px solid #089981; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
-                                    <span style="background: #ffffff; border: 1px solid #089981; color: #089981; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">+$${tpProfit}</span>
-                                    <button type="button" class="tv-ov-btn-del-tp" data-ticket="${pos.ticket}" title="Cancel TP" style="background: #ffffff; border: 1px solid #089981; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
-                                </div>
-                            </div>
-                        `;
+                    if (!data.tpLine && !data.creatingTp) {
+                        data.creatingTp = true;
+                        chart.createOrderLine().then(line => {
+                            data.tpLine = line;
+                            data.creatingTp = false;
+                            this.applyTpOrderProperties(line, pos, data);
+                        }).catch(err => {
+                            console.error("[TradeUI] Error creating TP line:", err);
+                            data.creatingTp = false;
+                        });
+                    } else if (data.tpLine) {
+                        this.applyTpOrderProperties(data.tpLine, pos, data);
                     }
+                } else if (data.tpLine) {
+                    try { data.tpLine.remove(); } catch (_) {}
+                    data.tpLine = null;
+                    data.tpConfigured = false;
+                    data.lastTp = null;
                 }
 
-                // 3. Stop Loss Line (Red Dashed & Draggable)
+                // Stop Loss Line
                 if (pos.sl && pos.sl > 0) {
-                    const slY = this.priceToY(pos.sl);
-                    if (slY !== null && slY >= 0 && slY <= chartPane.offsetHeight) {
-                        const slDiff = isBuy ? (pos.open_price - pos.sl) : (pos.sl - pos.open_price);
-                        const slLoss = (slDiff * pos.lots * 100).toFixed(2);
-                        html += `
-                            <div style="position: absolute; top: ${slY}px; left: 0; right: 0; border-top: 1.5px dashed #f23645; pointer-events: none; z-index: 20;">
-                                <div class="tv-ov-drag-sl" data-ticket="${pos.ticket}" style="
-                                    position: absolute;
-                                    right: 80px;
-                                    transform: translateY(-50%);
-                                    display: inline-flex;
-                                    align-items: center;
-                                    gap: 3px;
-                                    pointer-events: auto;
-                                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
-                                    font-size: 11px;
-                                    white-space: nowrap;
-                                    cursor: ns-resize;
-                                ">
-                                    <span style="background: #f23645; color: #ffffff; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">SL</span>
-                                    <span style="background: #ffffff; border: 1px solid #f23645; color: #131722; font-weight: 700; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">${pos.lots}</span>
-                                    <span style="background: #ffffff; border: 1px solid #f23645; color: #f23645; font-weight: 700; padding: 2px 7px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">-$${slLoss}</span>
-                                    <button type="button" class="tv-ov-btn-del-sl" data-ticket="${pos.ticket}" title="Cancel SL" style="background: #ffffff; border: 1px solid #f23645; color: #787b86; font-weight: 700; padding: 2px 6px; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.08);">✕</button>
-                                </div>
-                            </div>
-                        `;
+                    if (!data.slLine && !data.creatingSl) {
+                        data.creatingSl = true;
+                        chart.createOrderLine().then(line => {
+                            data.slLine = line;
+                            data.creatingSl = false;
+                            this.applySlOrderProperties(line, pos, data);
+                        }).catch(err => {
+                            console.error("[TradeUI] Error creating SL line:", err);
+                            data.creatingSl = false;
+                        });
+                    } else if (data.slLine) {
+                        this.applySlOrderProperties(data.slLine, pos, data);
                     }
+                } else if (data.slLine) {
+                    try { data.slLine.remove(); } catch (_) {}
+                    data.slLine = null;
+                    data.slConfigured = false;
+                    data.lastSl = null;
                 }
-            });
-
-            overlay.innerHTML = html;
-            this.bindOverlayEvents(overlay, iframeDoc, chartPane);
+            }
         }
 
-        bindOverlayEvents(overlay, iframeDoc, chartPane) {
-            // Close position button
-            overlay.querySelectorAll('.tv-ov-btn-close').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const ticket = parseInt(btn.getAttribute('data-ticket'), 10);
-                    if (window.TradingEngine) {
-                        window.TradingEngine.closePosition({ ticket });
-                    }
-                };
-            });
+        applyPositionLineProperties(posLine, pos, data) {
+            if (!posLine) return;
+            const isBuy = pos.type === 'BUY';
+            const pnl = pos.profit || 0.0;
+            const pnlFormatted = `${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}`;
+            const bodyText = `${pos.type} ${pnlFormatted}`;
 
-            // Delete TP button
-            overlay.querySelectorAll('.tv-ov-btn-del-tp').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const ticket = parseInt(btn.getAttribute('data-ticket'), 10);
-                    if (window.TradingEngine) {
-                        window.TradingEngine.modifyPosition({ ticket, tp: 0 });
-                    }
-                };
-            });
+            if (!data.posConfigured) {
+                data.posConfigured = true;
+                posLine
+                    .setDirection(isBuy ? 'buy' : 'sell')
+                    .setLineColor(isBuy ? '#2962ff' : '#f23645')
+                    .setLineStyle(2) // Dotted
+                    .setLineWidth(1)
+                    .setExtendLeft(true)
+                    .setCloseTooltip("Close Position")
+                    .setProtectTooltip("Protect / Modify Position")
+                    .onClose(() => {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.closePosition({ ticket: pos.ticket });
+                        }
+                    })
+                    .onModify(() => {
+                        this.openProtectionModal(pos);
+                    });
+            }
 
-            // Delete SL button
-            overlay.querySelectorAll('.tv-ov-btn-del-sl').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const ticket = parseInt(btn.getAttribute('data-ticket'), 10);
-                    if (window.TradingEngine) {
-                        window.TradingEngine.modifyPosition({ ticket, sl: 0 });
-                    }
-                };
-            });
-
-            // Click TP on main position line to start set-mode
-            overlay.querySelectorAll('.tv-ov-btn-tp').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const ticket = parseInt(btn.getAttribute('data-ticket'), 10);
-                    this.startGhostPlacement('tp', ticket, chartPane, iframeDoc);
-                };
-            });
-
-            // Click SL on main position line to start set-mode
-            overlay.querySelectorAll('.tv-ov-btn-sl').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const ticket = parseInt(btn.getAttribute('data-ticket'), 10);
-                    this.startGhostPlacement('sl', ticket, chartPane, iframeDoc);
-                };
-            });
-
-            // Draggable TP badge
-            overlay.querySelectorAll('.tv-ov-drag-tp').forEach(badge => {
-                badge.onmousedown = (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    const ticket = parseInt(badge.getAttribute('data-ticket'), 10);
-                    this.startDragLine('tp', ticket, chartPane, iframeDoc);
-                };
-            });
-
-            // Draggable SL badge
-            overlay.querySelectorAll('.tv-ov-drag-sl').forEach(badge => {
-                badge.onmousedown = (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    const ticket = parseInt(badge.getAttribute('data-ticket'), 10);
-                    this.startDragLine('sl', ticket, chartPane, iframeDoc);
-                };
-            });
+            if (data.lastPrice !== pos.open_price) {
+                data.lastPrice = pos.open_price;
+                posLine.setPrice(Number(pos.open_price));
+            }
+            if (data.lastLots !== pos.lots) {
+                data.lastLots = pos.lots;
+                posLine.setQuantity(String(pos.lots));
+            }
+            if (data.lastPnl !== bodyText) {
+                data.lastPnl = bodyText;
+                posLine.setText(bodyText);
+                posLine.setProfitState(pnl >= 0 ? 'positive' : 'negative');
+            }
         }
 
-        startDragLine(type, ticket, chartPane, iframeDoc) {
-            const onMouseMove = (e) => {
-                const rect = chartPane.getBoundingClientRect();
-                const relY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-                const newPrice = this.yToPrice(relY);
-                if (newPrice) {
-                    if (window.TradingEngine) {
-                        if (type === 'tp') window.TradingEngine.modifyPosition({ ticket, tp: newPrice });
-                        else window.TradingEngine.modifyPosition({ ticket, sl: newPrice });
-                    }
-                }
-            };
+        applyTpOrderProperties(tpLine, pos, data) {
+            if (!tpLine) return;
+            const isBuy = pos.type === 'BUY';
+            const tpPrice = Number(pos.tp);
+            const tpDiff = isBuy ? (tpPrice - pos.open_price) : (pos.open_price - tpPrice);
+            const tpProfit = (tpDiff * pos.lots * 100).toFixed(2);
+            const tpText = `TP +$${tpProfit}`;
 
-            const onMouseUp = () => {
-                iframeDoc.removeEventListener('mousemove', onMouseMove);
-                iframeDoc.removeEventListener('mouseup', onMouseUp);
-            };
+            if (!data.tpConfigured) {
+                data.tpConfigured = true;
+                tpLine
+                    .setDirection(isBuy ? 'sell' : 'buy')
+                    .setLineColor("#089981")
+                    .setLineStyle(1) // Dashed
+                    .setLineWidth(1)
+                    .setExtendLeft(true)
+                    .setCancelTooltip("Cancel Take Profit")
+                    .setModifyTooltip("Drag to adjust Take Profit")
+                    .setCancellable(true)
+                    .setEditable(true)
+                    .onMove(function() {
+                        const newPrice = tpLine.getPrice();
+                        if (newPrice && newPrice > 0 && window.TradingEngine) {
+                            window.TradingEngine.modifyPosition({ ticket: pos.ticket, tp: Number(newPrice.toFixed(2)) });
+                        }
+                    })
+                    .onCancel(function() {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.modifyPosition({ ticket: pos.ticket, tp: 0 });
+                        }
+                    });
+            }
 
-            iframeDoc.addEventListener('mousemove', onMouseMove);
-            iframeDoc.addEventListener('mouseup', onMouseUp);
+            if (data.lastTp !== tpPrice) {
+                data.lastTp = tpPrice;
+                tpLine.setPrice(tpPrice);
+                tpLine.setText(tpText);
+            }
+            if (data.lastTpLots !== pos.lots) {
+                data.lastTpLots = pos.lots;
+                tpLine.setQuantity(String(pos.lots));
+            }
         }
 
-        startGhostPlacement(type, ticket, chartPane, iframeDoc) {
-            const onMouseMove = (e) => {
-                const rect = chartPane.getBoundingClientRect();
-                const relY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-                const price = this.yToPrice(relY);
-                if (price) {
-                    let ghost = iframeDoc.getElementById('tv-chart-ghost-line');
-                    if (!ghost) {
-                        ghost = iframeDoc.createElement('div');
-                        ghost.id = 'tv-chart-ghost-line';
-                        ghost.style.cssText = `position: absolute; left: 0; right: 0; z-index: 25; pointer-events: none;`;
-                        chartPane.appendChild(ghost);
-                    }
-                    const isTp = type === 'tp';
-                    ghost.style.top = relY + 'px';
-                    ghost.style.borderTop = `1.5px dashed ${isTp ? '#089981' : '#f23645'}`;
-                    ghost.innerHTML = `
-                        <div style="position: absolute; right: 120px; transform: translateY(-50%); background: ${isTp ? '#089981' : '#f23645'}; color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
-                            Click to set ${isTp ? 'Take Profit' : 'Stop Loss'}: ${this.formatPrice(price)}
+        applySlOrderProperties(slLine, pos, data) {
+            if (!slLine) return;
+            const isBuy = pos.type === 'BUY';
+            const slPrice = Number(pos.sl);
+            const slDiff = isBuy ? (pos.open_price - slPrice) : (slPrice - pos.open_price);
+            const slLoss = (slDiff * pos.lots * 100).toFixed(2);
+            const slText = `SL -$${slLoss}`;
+
+            if (!data.slConfigured) {
+                data.slConfigured = true;
+                slLine
+                    .setDirection(isBuy ? 'sell' : 'buy')
+                    .setLineColor("#f23645")
+                    .setLineStyle(1) // Dashed
+                    .setLineWidth(1)
+                    .setExtendLeft(true)
+                    .setCancelTooltip("Cancel Stop Loss")
+                    .setModifyTooltip("Drag to adjust Stop Loss")
+                    .setCancellable(true)
+                    .setEditable(true)
+                    .onMove(function() {
+                        const newPrice = slLine.getPrice();
+                        if (newPrice && newPrice > 0 && window.TradingEngine) {
+                            window.TradingEngine.modifyPosition({ ticket: pos.ticket, sl: Number(newPrice.toFixed(2)) });
+                        }
+                    })
+                    .onCancel(function() {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.modifyPosition({ ticket: pos.ticket, sl: 0 });
+                        }
+                    });
+            }
+
+            if (data.lastSl !== slPrice) {
+                data.lastSl = slPrice;
+                slLine.setPrice(slPrice);
+                slLine.setText(slText);
+            }
+            if (data.lastSlLots !== pos.lots) {
+                data.lastSlLots = pos.lots;
+                slLine.setQuantity(String(pos.lots));
+            }
+        }
+
+        clearAllNativeChartLines() {
+            for (const [ticket, data] of this.nativeLines.entries()) {
+                try { if (data.posLine) data.posLine.remove(); } catch (_) {}
+                try { if (data.tpLine) data.tpLine.remove(); } catch (_) {}
+                try { if (data.slLine) data.slLine.remove(); } catch (_) {}
+            }
+            this.nativeLines.clear();
+        }
+
+        openProtectionModal(pos) {
+            let existing = document.getElementById('tv-protection-modal');
+            if (existing) existing.remove();
+
+            const isBuy = pos.type === 'BUY';
+            const modal = document.createElement('div');
+            modal.id = 'tv-protection-modal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.45);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+            `;
+
+            modal.innerHTML = `
+                <div style="
+                    background: #ffffff;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 8px;
+                    width: 340px;
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+                    overflow: hidden;
+                ">
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #f0f3fa;">
+                        <span style="font-weight: 700; font-size: 14px; color: #131722;">Protect Position #${pos.ticket}</span>
+                        <button type="button" class="tv-prot-close" style="background: transparent; border: none; font-size: 16px; color: #787b86; cursor: pointer;">✕</button>
+                    </div>
+                    <div style="padding: 16px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 14px; color: #787b86;">
+                            <span>Symbol: <strong style="color: #131722;">${pos.symbol}</strong></span>
+                            <span>Type: <strong style="color: ${isBuy ? '#2962ff' : '#f23645'};">${pos.type}</strong> (${pos.lots} lots)</span>
+                            <span>Entry: <strong style="color: #131722;">${Number(pos.open_price).toFixed(2)}</strong></span>
                         </div>
-                    `;
+                        <div style="margin-bottom: 12px;">
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #089981; margin-bottom: 4px;">Take Profit (TP)</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="number" step="any" id="tv-prot-tp" value="${pos.tp || ''}" placeholder="Price (0 to clear)" style="flex: 1; border: 1px solid #d1d4dc; border-radius: 4px; padding: 6px 8px; font-size: 13px; font-weight: 600; outline: none;">
+                                <button type="button" id="tv-prot-clear-tp" style="border: 1px solid #d1d4dc; background: #f0f3fa; color: #787b86; border-radius: 4px; padding: 0 10px; font-size: 11px; cursor: pointer;">Clear</button>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #f23645; margin-bottom: 4px;">Stop Loss (SL)</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="number" step="any" id="tv-prot-sl" value="${pos.sl || ''}" placeholder="Price (0 to clear)" style="flex: 1; border: 1px solid #d1d4dc; border-radius: 4px; padding: 6px 8px; font-size: 13px; font-weight: 600; outline: none;">
+                                <button type="button" id="tv-prot-clear-sl" style="border: 1px solid #d1d4dc; background: #f0f3fa; color: #787b86; border-radius: 4px; padding: 0 10px; font-size: 11px; cursor: pointer;">Clear</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" id="tv-prot-apply" style="flex: 1; background: #2962ff; color: #ffffff; border: none; border-radius: 4px; padding: 8px; font-size: 13px; font-weight: 700; cursor: pointer;">Apply Protection</button>
+                            <button type="button" id="tv-prot-cancel" style="background: #f0f3fa; color: #131722; border: 1px solid #d1d4dc; border-radius: 4px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const close = () => modal.remove();
+            modal.querySelector('.tv-prot-close').onclick = close;
+            modal.querySelector('#tv-prot-cancel').onclick = close;
+            modal.onclick = (e) => { if (e.target === modal) close(); };
+
+            modal.querySelector('#tv-prot-clear-tp').onclick = () => {
+                modal.querySelector('#tv-prot-tp').value = '';
+            };
+            modal.querySelector('#tv-prot-clear-sl').onclick = () => {
+                modal.querySelector('#tv-prot-sl').value = '';
+            };
+
+            modal.querySelector('#tv-prot-apply').onclick = () => {
+                const tpVal = parseFloat(modal.querySelector('#tv-prot-tp').value) || 0;
+                const slVal = parseFloat(modal.querySelector('#tv-prot-sl').value) || 0;
+                if (window.TradingEngine) {
+                    window.TradingEngine.modifyPosition({ ticket: pos.ticket, tp: tpVal, sl: slVal });
                 }
+                close();
+                this.syncNativeChartLines();
             };
-
-            const onClick = (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                cleanup();
-                const rect = chartPane.getBoundingClientRect();
-                const relY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-                const price = this.yToPrice(relY);
-                if (price && window.TradingEngine) {
-                    if (type === 'tp') window.TradingEngine.modifyPosition({ ticket, tp: price });
-                    else window.TradingEngine.modifyPosition({ ticket, sl: price });
-                }
-            };
-
-            const onKeyDown = (e) => {
-                if (e.key === 'Escape') cleanup();
-            };
-
-            const cleanup = () => {
-                const ghost = iframeDoc.getElementById('tv-chart-ghost-line');
-                if (ghost) ghost.remove();
-                iframeDoc.removeEventListener('mousemove', onMouseMove);
-                iframeDoc.removeEventListener('click', onClick, true);
-                iframeDoc.removeEventListener('keydown', onKeyDown);
-            };
-
-            iframeDoc.addEventListener('mousemove', onMouseMove);
-            iframeDoc.addEventListener('click', onClick, true);
-            iframeDoc.addEventListener('keydown', onKeyDown);
-        }
-
-        priceToY(price) {
-            if (!window.tvWidget) return null;
-            try {
-                const chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
-                if (!chart) return null;
-                const panes = chart.getPanes();
-                if (!panes || !panes[0]) return null;
-                const mainPane = panes[0];
-                const priceScale = mainPane.getMainSourcePriceScale();
-                if (!priceScale) return null;
-                const range = priceScale.getVisiblePriceRange();
-                if (!range || isNaN(range.from) || isNaN(range.to) || range.from === range.to) return null;
-                const height = mainPane.getHeight();
-                if (!height || height <= 0) return null;
-
-                const isInverted = typeof priceScale.isInverted === 'function' ? priceScale.isInverted() : false;
-                const ratio = (price - range.from) / (range.to - range.from);
-                const y = isInverted ? (ratio * height) : ((1 - ratio) * height);
-                return Math.round(y * 10) / 10;
-            } catch (_) {
-                return null;
-            }
-        }
-
-        yToPrice(y) {
-            if (!window.tvWidget) return null;
-            try {
-                const chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
-                if (!chart) return null;
-                const panes = chart.getPanes();
-                if (!panes || !panes[0]) return null;
-                const mainPane = panes[0];
-                const priceScale = mainPane.getMainSourcePriceScale();
-                if (!priceScale) return null;
-                const range = priceScale.getVisiblePriceRange();
-                if (!range || isNaN(range.from) || isNaN(range.to) || range.from === range.to) return null;
-                const height = mainPane.getHeight();
-                if (!height || height <= 0) return null;
-
-                const isInverted = typeof priceScale.isInverted === 'function' ? priceScale.isInverted() : false;
-                const ratio = isInverted ? (y / height) : (1 - (y / height));
-                const price = range.from + ratio * (range.to - range.from);
-                return Math.round(price * 100) / 100;
-            } catch (_) {
-                return null;
-            }
         }
 
         // ==========================================
