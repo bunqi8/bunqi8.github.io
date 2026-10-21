@@ -434,7 +434,7 @@ class FyersUI {
                 }
 
                 const apiExpStr = window.FyersAPI.formatExpiry(acc.apiExpiresAt);
-                const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : (acc.webuiRefreshToken ? 'Configured' : null);
+                const refExpStr = acc.refreshExpiresAt ? window.FyersAPI.formatExpiry(acc.refreshExpiresAt) : null;
 
                 return `
                 <div style="
@@ -540,55 +540,114 @@ class FyersUI {
                         </div>
                     </div>
 
-                    <!-- Tokens Info Table (Strictly Masked & Write-Only) -->
+                    <!-- Token Credentials Panel (Clean, Structured, No Long Dots) -->
                     <div style="
                         background: ${theme.bg}; 
                         border: 1px solid ${theme.border}; 
-                        border-radius: 6px; 
-                        padding: 10px 12px; 
+                        border-radius: 8px; 
+                        overflow: hidden;
                         font-size: 12px;
                     ">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="color: ${theme.textMuted}; font-weight: 500;">API Access Token:</span>
+                        <!-- API Access Token Row -->
+                        <div style="
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center; 
+                            padding: 9px 12px; 
+                            border-bottom: 1px solid ${theme.border};
+                        ">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-family: monospace; letter-spacing: 2px; color: ${theme.textMuted}; font-size: 11px;">••••••••••••••••••••••••</span>
-                                <span style="
-                                    font-size: 11px; 
-                                    padding: 1px 6px; 
-                                    border-radius: 3px; 
-                                    background: ${isApiExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
-                                    color: ${isApiExp ? theme.error : theme.success}; 
-                                    font-weight: 600;
-                                ">${apiExpStr}</span>
+                                <span style="font-size: 14px;">🔑</span>
+                                <span style="font-weight: 600; color: ${theme.text};">API Access Token</span>
                             </div>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="color: ${theme.textMuted}; font-weight: 500;">WebUI Refresh Token:</span>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                ${refExpStr ? `
-                                    <span style="font-family: monospace; letter-spacing: 2px; color: ${theme.textMuted}; font-size: 11px;">••••••••••••••••••••••••</span>
+                            <div>
+                                ${acc.apiAccessToken ? `
                                     <span style="
+                                        display: inline-flex; 
+                                        align-items: center; 
+                                        gap: 5px; 
                                         font-size: 11px; 
-                                        padding: 1px 6px; 
-                                        border-radius: 3px; 
-                                        background: ${isRefExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
-                                        color: ${isRefExp ? theme.error : theme.success}; 
+                                        padding: 3px 8px; 
+                                        border-radius: 12px; 
+                                        background: ${isApiExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
+                                        color: ${isApiExp ? theme.error : theme.success}; 
                                         font-weight: 600;
-                                    ">${refExpStr}</span>
+                                        border: 1px solid ${isApiExp ? 'rgba(242,54,69,0.25)' : 'rgba(8,153,129,0.25)'};
+                                    ">
+                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isApiExp ? theme.error : theme.success};"></span>
+                                        ${apiExpStr}
+                                    </span>
                                 ` : `
-                                    <span style="font-size: 11px; color: ${theme.textMuted}; font-style: italic;">Not provided (Manual renewal)</span>
+                                    <span style="font-size: 11px; color: ${theme.textMuted};">— Not configured</span>
                                 `}
                             </div>
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: ${theme.textMuted}; font-weight: 500;">WebUI Access Token:</span>
+                        <!-- WebUI Refresh Token Row -->
+                        <div style="
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center; 
+                            padding: 9px 12px; 
+                            border-bottom: 1px solid ${theme.border};
+                        ">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-family: monospace; letter-spacing: 2px; color: ${theme.textMuted}; font-size: 11px;">••••••••••••••••••••••••</span>
-                                <span style="font-size: 11px; color: ${theme.textMuted};">
-                                    ${acc.webuiAccessToken ? 'Stored' : 'Not provided'}
-                                </span>
+                                <span style="font-size: 14px;">🔄</span>
+                                <span style="font-weight: 600; color: ${theme.text};">WebUI Refresh Token</span>
+                            </div>
+                            <div>
+                                ${acc.webuiRefreshToken ? `
+                                    <span style="
+                                        display: inline-flex; 
+                                        align-items: center; 
+                                        gap: 5px; 
+                                        font-size: 11px; 
+                                        padding: 3px 8px; 
+                                        border-radius: 12px; 
+                                        background: ${isRefExp ? 'rgba(242,54,69,0.1)' : 'rgba(8,153,129,0.1)'}; 
+                                        color: ${isRefExp ? theme.error : theme.success}; 
+                                        font-weight: 600;
+                                        border: 1px solid ${isRefExp ? 'rgba(242,54,69,0.25)' : 'rgba(8,153,129,0.25)'};
+                                    ">
+                                        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${isRefExp ? theme.error : theme.success};"></span>
+                                        ${refExpStr || 'Configured'}
+                                    </span>
+                                ` : `
+                                    <span style="font-size: 11px; color: ${theme.textMuted};">— Not provided (Manual renewal)</span>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- WebUI Access Token Row -->
+                        <div style="
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center; 
+                            padding: 9px 12px;
+                        ">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 14px;">🌐</span>
+                                <span style="font-weight: 600; color: ${theme.text};">WebUI Access Token</span>
+                            </div>
+                            <div>
+                                ${acc.webuiAccessToken ? `
+                                    <span style="
+                                        display: inline-flex; 
+                                        align-items: center; 
+                                        gap: 5px; 
+                                        font-size: 11px; 
+                                        padding: 3px 8px; 
+                                        border-radius: 12px; 
+                                        background: rgba(41,98,255,0.1); 
+                                        color: ${theme.primary}; 
+                                        font-weight: 600;
+                                        border: 1px solid rgba(41,98,255,0.25);
+                                    ">
+                                        🔒 Stored (Standby)
+                                    </span>
+                                ` : `
+                                    <span style="font-size: 11px; color: ${theme.textMuted};">— Not provided</span>
+                                `}
                             </div>
                         </div>
                     </div>
@@ -640,7 +699,7 @@ class FyersUI {
             ">
                 <span style="font-size: 14px;">🔒</span>
                 <div>
-                    <strong>Write-Only Security:</strong> For your protection, once tokens are saved they are strictly masked and cannot be viewed in plaintext. To update tokens, use the "Replace Tokens" option.
+                    <strong>Write-Only Security:</strong> Raw token strings are strictly write-only and never exposed in plaintext. When replacing tokens, blank fields safely preserve their existing saved tokens.
                 </div>
             </div>
         `;
@@ -685,7 +744,7 @@ class FyersUI {
                 <h4 style="margin: 0 0 6px 0; font-size: 16px; font-weight: 700;">${title}</h4>
                 <div style="font-size: 12px; color: ${theme.textMuted}; margin-bottom: 16px;">
                     ${isReplace 
-                        ? 'Enter new token strings to replace. Any field left blank preserves the currently saved token.' 
+                        ? 'Enter new token strings to replace. Any field left blank is 100% preserved without deletion.' 
                         : 'Enter your App ID and API Access Token. WebUI Refresh Token is optional but recommended for automatic token renewal.'}
                 </div>
 
@@ -713,9 +772,16 @@ class FyersUI {
 
                     <!-- API Access Token -->
                     <div>
-                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
-                            API Access Token ${!isReplace ? `<span style="color: ${theme.error};">*</span>` : '<span style="font-weight: 400; color:' + theme.textMuted + ';">(optional replacement)</span>'}
-                        </label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="font-size: 12px; font-weight: 600;">
+                                API Access Token ${!isReplace ? `<span style="color: ${theme.error};">*</span>` : '<span style="font-weight: 400; color:' + theme.textMuted + ';">(leave blank to keep current)</span>'}
+                            </label>
+                            ${isReplace && existing && existing.apiAccessToken ? `
+                                <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isAccountExpired(existing) ? theme.error : theme.success};">
+                                    ${window.FyersAPI.isAccountExpired(existing) ? '🔴 Expired' : '🟢 Currently Active'} (${window.FyersAPI.formatExpiry(existing.apiExpiresAt)})
+                                </span>
+                            ` : ''}
+                        </div>
                         <textarea id="bm-input-api" rows="2" placeholder="${placeholderApi}" style="
                             width: 100%; 
                             padding: 8px 12px; 
@@ -735,9 +801,16 @@ class FyersUI {
 
                     <!-- WebUI Refresh Token -->
                     <div>
-                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
-                            WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">(Highly recommended, optional)</span>
-                        </label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="font-size: 12px; font-weight: 600;">
+                                WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(Highly recommended, optional)'}</span>
+                            </label>
+                            ${isReplace && existing && existing.webuiRefreshToken ? `
+                                <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isRefreshExpired(existing) ? theme.error : theme.success};">
+                                    ${window.FyersAPI.isRefreshExpired(existing) ? '🔴 Expired' : '🟢 Currently Active'} (${window.FyersAPI.formatExpiry(existing.refreshExpiresAt)})
+                                </span>
+                            ` : (isReplace ? `<span style="font-size: 11px; color: ${theme.textMuted};">Not configured</span>` : '')}
+                        </div>
                         <textarea id="bm-input-refresh" rows="2" placeholder="${placeholderRefresh}" style="
                             width: 100%; 
                             padding: 8px 12px; 
@@ -757,9 +830,14 @@ class FyersUI {
 
                     <!-- WebUI Access Token -->
                     <div>
-                        <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">
-                            WebUI Access Token <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
-                        </label>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label style="font-size: 12px; font-weight: 600;">
+                                WebUI Access Token <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
+                            </label>
+                            ${isReplace && existing && existing.webuiAccessToken ? `
+                                <span style="font-size: 11px; color: ${theme.primary}; font-weight: 600;">🔒 Currently Stored</span>
+                            ` : (isReplace ? `<span style="font-size: 11px; color: ${theme.textMuted};">Not configured</span>` : '')}
+                        </div>
                         <textarea id="bm-input-webui" rows="2" placeholder="${placeholderWebui}" style="
                             width: 100%; 
                             padding: 8px 12px; 
@@ -904,6 +982,29 @@ class FyersUI {
                 const webuiAccessToken = inputWebui ? inputWebui.value.trim() : '';
                 const errorBox = modal.querySelector('#bm-form-error');
 
+                // Warning check for replacing non-expired active tokens
+                if (this.viewMode === 'replace' && this.replaceAccountId && window.FyersAPI) {
+                    const existingAcc = window.FyersAPI.getAccounts().find(a => a.id === this.replaceAccountId);
+                    if (existingAcc) {
+                        const activeOverwrites = [];
+                        if (apiAccessToken && existingAcc.apiAccessToken && !window.FyersAPI.isAccountExpired(existingAcc)) {
+                            activeOverwrites.push(`• API Access Token (Valid until ${window.FyersAPI.formatExpiry(existingAcc.apiExpiresAt)})`);
+                        }
+                        if (webuiRefreshToken && existingAcc.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(existingAcc)) {
+                            activeOverwrites.push(`• WebUI Refresh Token (Valid until ${window.FyersAPI.formatExpiry(existingAcc.refreshExpiresAt)})`);
+                        }
+
+                        if (activeOverwrites.length > 0) {
+                            const confirmed = confirm(
+                                `⚠️ Caution: Replacing Active Token(s)\n\nThe following token(s) have NOT expired yet:\n\n${activeOverwrites.join('\n')}\n\nAre you sure you want to replace them? (Fields left blank will safely keep their existing tokens.)`
+                            );
+                            if (!confirmed) {
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 btnSave.innerText = 'Verifying & Saving...';
                 btnSave.disabled = true;
 
@@ -982,17 +1083,34 @@ class FyersUI {
             return;
         }
 
+        // Check if replacing active non-expired tokens
+        const activeWarnings = [];
+        if (isReplace && existing) {
+            if (apiToken && existing.apiAccessToken && !window.FyersAPI.isAccountExpired(existing)) {
+                activeWarnings.push(`Your current API Access Token is STILL VALID until ${window.FyersAPI.formatExpiry(existing.apiExpiresAt)}.`);
+            }
+            if (refreshToken && existing.webuiRefreshToken && !window.FyersAPI.isRefreshExpired(existing)) {
+                activeWarnings.push(`Your current WebUI Refresh Token is STILL VALID until ${window.FyersAPI.formatExpiry(existing.refreshExpiresAt)}.`);
+            }
+        }
+
         // Valid tokens found
         const displayName = check.displayName || 'Fyers User';
         const fyId = check.fyId || 'N/A';
         const initials = check.initials || 'FY';
-        const apiExpStr = check.apiExpiresAt ? window.FyersAPI.formatExpiry(check.apiExpiresAt) : (isReplace && existing ? window.FyersAPI.formatExpiry(existing.apiExpiresAt) : 'Kept current');
+        
+        let apiExpStr = 'Kept current';
+        if (check.apiExpiresAt) {
+            apiExpStr = window.FyersAPI.formatExpiry(check.apiExpiresAt);
+        } else if (isReplace && existing && existing.apiExpiresAt) {
+            apiExpStr = window.FyersAPI.formatExpiry(existing.apiExpiresAt) + ' (Kept current)';
+        }
         
         let refExpStr = null;
         if (check.refreshExpiresAt) {
             refExpStr = window.FyersAPI.formatExpiry(check.refreshExpiresAt);
         } else if (isReplace && existing && existing.refreshExpiresAt) {
-            refExpStr = window.FyersAPI.formatExpiry(existing.refreshExpiresAt);
+            refExpStr = window.FyersAPI.formatExpiry(existing.refreshExpiresAt) + ' (Kept current)';
         }
 
         const isCrossVerified = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
@@ -1042,8 +1160,28 @@ class FyersUI {
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
                     • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (No auto-renew)'}<br>
                     • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
+                    ${isReplace && !refreshToken && existing && existing.webuiRefreshToken ? '<br>• <em>Existing WebUI Refresh Token will be preserved without changes.</em>' : ''}
                 </div>
             </div>
+
+            ${activeWarnings.length > 0 ? `
+                <div style="
+                    margin-top: 10px; 
+                    padding: 10px 12px; 
+                    background: rgba(255,152,0,0.1); 
+                    border: 1px solid rgba(255,152,0,0.4); 
+                    border-radius: 6px; 
+                    font-size: 12px; 
+                    color: ${theme.warning};
+                ">
+                    <div style="font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <span>⚠️</span> <span>Caution: Replacing Active Token(s)</span>
+                    </div>
+                    <div style="color: ${theme.text}; font-size: 11.5px; line-height: 1.5;">
+                        ${activeWarnings.map(w => `• ${w}`).join('<br>')}
+                    </div>
+                </div>
+            ` : ''}
         `;
     }
 }
