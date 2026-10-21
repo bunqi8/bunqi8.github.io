@@ -1,11 +1,13 @@
 /**
  * Authentic Native TradingView On-Chart Trading Suite & Side Order Panel (100% Visual Fidelity)
  * Features:
- *  1. Native on-chart Buy/Sell widget (Red Sell, Spread, Blue Buy, Lot dropdown beneath) with clean white background & dragging.
- *  2. Dual Modes: DOCKED (Right or Left, dynamically resizes chart canvas so price axis is fully visible) and UNDOCKED / FLOATING (movable draggable card with rounded corners and drop shadow).
+ *  1. Native on-chart Buy/Sell widget anchored directly inside <div class="legendMainSourceWrapper-YTFIJ62h">
+ *     under the series title, naturally pushing indicators down without any overlap!
+ *  2. Dual Modes: DOCKED (Right or Left, dynamically resizes chart canvas so price axis is fully visible)
+ *     and UNDOCKED / FLOATING (movable draggable card with rounded corners and drop shadow).
  *  3. Header Toolbar [ ⇋ Trade ⌵ ] toggle button matching native TradingView.
- *  4. Split Bid/Ask card with live highlighting, Order/DOM subtabs, Units with blue focus border, and Exits toggles.
- *  5. Automatic Light/Dark theme detection based on chart background (no OS dark-mode mismatch).
+ *  4. Real-time chart close price auto-detection (for NIFTY, Gold, Forex, etc.) so prices match the active chart.
+ *  5. 100% Light Theme styling matching TradingView screenshots (pure white #ffffff, #e0e3eb borders).
  *  6. One-Click Trading toggle and full Trading Settings modal.
  */
 
@@ -50,7 +52,6 @@
 
             // Floating drag coordinates
             this.floatingPos = this.loadFloatingPos();
-            this.onChartPos = this.loadOnChartPos();
 
             this.init();
         }
@@ -64,7 +65,7 @@
                 defaultLots: 1.0,
             };
             try {
-                const saved = localStorage.getItem('tv_trading_settings_v4');
+                const saved = localStorage.getItem('tv_trading_settings_v5');
                 return saved ? Object.assign(defaults, JSON.parse(saved)) : defaults;
             } catch (_) {
                 return defaults;
@@ -76,7 +77,7 @@
                 this.settings.dockMode = this.dockMode;
                 this.settings.dockSide = this.dockSide;
                 this.settings.defaultLots = this.lots;
-                localStorage.setItem('tv_trading_settings_v4', JSON.stringify(this.settings));
+                localStorage.setItem('tv_trading_settings_v5', JSON.stringify(this.settings));
             } catch (_) {}
         }
 
@@ -96,24 +97,7 @@
             } catch (_) {}
         }
 
-        loadOnChartPos() {
-            try {
-                const p = localStorage.getItem('tv_trade_onchart_pos');
-                return p ? JSON.parse(p) : { top: '75px', left: '16px' };
-            } catch (_) {
-                return { top: '75px', left: '16px' };
-            }
-        }
-
-        saveOnChartPos(top, left) {
-            this.onChartPos = { top, left };
-            try {
-                localStorage.setItem('tv_trade_onchart_pos', JSON.stringify(this.onChartPos));
-            } catch (_) {}
-        }
-
         isDarkTheme() {
-            // Pure TV theme detection — never fall back to OS prefers-color-scheme
             if (document.body.classList.contains('theme-dark')) return true;
             const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
             if (iframe) {
@@ -161,11 +145,10 @@
             if (window.TradingEngine) {
                 window.TradingEngine.onPositionUpdate((pos) => {
                     this.positions = pos || [];
-                    this.renderPositions();
                 });
             }
 
-            // Bind to live ticks
+            // Bind to live ticks from broker
             if (window.MT5API) {
                 window.MT5API.subscribeQuotes(this.currentSymbol, (tick) => {
                     if (tick && tick.bid && tick.ask) {
@@ -176,17 +159,33 @@
                 });
             }
 
-            // Sync with chart symbol changes
-            setInterval(() => this.detectSymbolChange(), 1500);
-
-            // Periodically ensure toolbar button is mounted
-            setInterval(() => this.injectToolbarButton(), 2000);
+            // Sync with chart symbol and price changes
+            setInterval(() => {
+                this.detectSymbolChange();
+                this.renderOnChartWidget();
+                this.injectToolbarButton();
+            }, 800);
         }
 
         mount() {
             this.renderOnChartWidget();
             this.renderSidePanel();
             this.injectToolbarButton();
+        }
+
+        getChartPrice() {
+            try {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                if (iframe && iframe.contentDocument) {
+                    const closeEl = iframe.contentDocument.querySelector('[data-test-id-value-title="C"] [class*="valueValue"]') ||
+                                    iframe.contentDocument.querySelector('[data-test-id-value-title="C"] .valueValue-YTFIJ62h');
+                    if (closeEl && closeEl.innerText) {
+                        const p = parseFloat(closeEl.innerText.replace(/,/g, ''));
+                        if (!isNaN(p) && p > 0) return p;
+                    }
+                }
+            } catch (_) {}
+            return null;
         }
 
         detectSymbolChange() {
@@ -219,7 +218,7 @@
         // ==========================================
         injectToolbarButton(targetEl = null, iframeDoc = null) {
             if (!iframeDoc) {
-                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
                 if (iframe) {
                     try {
                         iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
@@ -312,14 +311,36 @@
         }
 
         // ==========================================
-        // 2. NATIVE ON-CHART BUY/SELL BUTTON BAR (Image 1)
+        // 2. NATIVE ON-CHART BUY/SELL WIDGET (Image 1)
+        // Fitted directly inside .legendMainSourceWrapper-YTFIJ62h
         // ==========================================
         renderOnChartWidget() {
-            let widget = document.getElementById(this.onChartWidgetId);
-            if (!widget) {
-                widget = document.createElement('div');
+            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
+            if (!iframe) return;
+            let iframeDoc;
+            try {
+                iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            } catch (_) { return; }
+            if (!iframeDoc) return;
+
+            // Remove any stale widget from outer body
+            const staleOuter = document.getElementById(this.onChartWidgetId);
+            if (staleOuter && staleOuter.parentNode === document.body) {
+                staleOuter.remove();
+            }
+
+            // Find TradingView's native legend main source wrapper
+            const legendWrapper = iframeDoc.querySelector('.legendMainSourceWrapper-YTFIJ62h') ||
+                                  iframeDoc.querySelector('[class*="legendMainSourceWrapper"]') ||
+                                  iframeDoc.querySelector('[data-qa-id="legend-series-item"]')?.parentElement;
+
+            if (!legendWrapper) return;
+
+            let widget = iframeDoc.getElementById(this.onChartWidgetId);
+            const isNew = !widget;
+            if (isNew) {
+                widget = iframeDoc.createElement('div');
                 widget.id = this.onChartWidgetId;
-                document.body.appendChild(widget);
             }
 
             if (!this.settings.showBuySellButtons) {
@@ -327,96 +348,124 @@
                 return;
             }
 
-            const theme = this.getTheme();
-            const pos = this.onChartPos;
-
             widget.style.cssText = `
-                position: fixed;
-                top: ${pos.top || '75px'};
-                left: ${pos.left || '16px'};
-                pointer-events: auto;
-                user-select: none;
-                z-index: 55;
                 display: flex;
                 flex-direction: column;
                 gap: 2px;
+                margin-top: 4px;
+                margin-bottom: 4px;
+                padding: 0;
+                pointer-events: auto;
+                user-select: none;
                 font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+                position: relative;
+                z-index: 20;
             `;
+
+            // Place directly inside legendMainSourceWrapper right after the main series row
+            const seriesItem = legendWrapper.querySelector('[data-qa-id="legend-series-item"]') || 
+                               legendWrapper.querySelector('[class*="series-"]') || 
+                               legendWrapper.firstElementChild;
+
+            if (seriesItem && seriesItem.parentNode === legendWrapper) {
+                if (seriesItem.nextSibling !== widget) {
+                    seriesItem.parentNode.insertBefore(widget, seriesItem.nextSibling);
+                }
+            } else if (!legendWrapper.contains(widget)) {
+                legendWrapper.appendChild(widget);
+            }
+
+            this.syncPricesWithChart();
 
             const spreadPoints = this.getSpreadFormatted();
             const bidFormatted = this.formatPrice(this.currentBid);
             const askFormatted = this.formatPrice(this.currentAsk);
 
+            // If widget exists and rendered, quickly update live price nodes
+            const bidDisp = widget.querySelector('#tv-native-bid-disp');
+            const askDisp = widget.querySelector('#tv-native-ask-disp');
+            const spreadDisp = widget.querySelector('#tv-native-spread-disp');
+            const lotDisp = widget.querySelector('#tv-native-lot-disp');
+
+            if (bidDisp && askDisp && spreadDisp && lotDisp) {
+                bidDisp.innerText = bidFormatted;
+                askDisp.innerText = askFormatted;
+                spreadDisp.innerText = spreadPoints;
+                lotDisp.innerText = this.lots;
+                return;
+            }
+
             widget.innerHTML = `
-                <!-- Main Buy / Sell Buttons Row with drag handle -->
-                <div id="tv-onchart-drag-row" style="display: flex; align-items: center; gap: 8px; cursor: move;">
+                <!-- Main Buy / Sell Buttons Row -->
+                <div style="display: flex; align-items: center; gap: 8px;">
                     <!-- SELL BUTTON -->
                     <button id="tv-native-btn-sell" type="button" title="Sell ${this.currentSymbol}" style="
-                        background: ${theme.panelBg};
+                        background: #ffffff;
                         border: 1px solid #f23645;
                         border-radius: 4px;
-                        padding: 3px 12px;
-                        min-width: 82px;
-                        height: 34px;
+                        padding: 2px 10px;
+                        min-width: 80px;
+                        height: 32px;
                         cursor: pointer;
                         display: flex;
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
                         transition: transform 0.1s;
                     ">
-                        <span id="tv-native-bid-disp" style="color: #f23645; font-size: 12.5px; font-weight: 700; line-height: 1.15;">${bidFormatted}</span>
+                        <span id="tv-native-bid-disp" style="color: #f23645; font-size: 12px; font-weight: 700; line-height: 1.15;">${bidFormatted}</span>
                         <span style="color: #f23645; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">SELL</span>
                     </button>
 
                     <!-- SPREAD -->
                     <div id="tv-native-spread-disp" style="
-                        color: ${theme.text};
+                        color: #131722;
                         font-size: 11px;
                         font-weight: 600;
-                        min-width: 26px;
+                        min-width: 24px;
                         text-align: center;
                         letter-spacing: 0.2px;
                     ">${spreadPoints}</div>
 
                     <!-- BUY BUTTON -->
                     <button id="tv-native-btn-buy" type="button" title="Buy ${this.currentSymbol}" style="
-                        background: ${theme.panelBg};
+                        background: #ffffff;
                         border: 1px solid #2962ff;
                         border-radius: 4px;
-                        padding: 3px 12px;
-                        min-width: 82px;
-                        height: 34px;
+                        padding: 2px 10px;
+                        min-width: 80px;
+                        height: 32px;
                         cursor: pointer;
                         display: flex;
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
                         transition: transform 0.1s;
                     ">
-                        <span id="tv-native-ask-disp" style="color: #2962ff; font-size: 12.5px; font-weight: 700; line-height: 1.15;">${askFormatted}</span>
+                        <span id="tv-native-ask-disp" style="color: #2962ff; font-size: 12px; font-weight: 700; line-height: 1.15;">${askFormatted}</span>
                         <span style="color: #2962ff; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">BUY</span>
                     </button>
                 </div>
 
                 <!-- LOT SELECTOR PILL (Placed directly underneath Sell button) -->
-                <div style="position: relative; align-self: flex-start;">
+                <div style="position: relative; align-self: flex-start; margin-top: 1px;">
                     <button id="tv-native-lot-toggle-btn" type="button" title="Select Lot Size" style="
-                        background: ${theme.panelBg};
+                        background: #ffffff;
                         border: 1px solid #d1d4dc;
                         border-radius: 3px;
-                        padding: 1px 6px;
+                        padding: 1px 5px;
+                        height: 18px;
                         font-size: 11px;
                         font-weight: 600;
-                        color: ${theme.text};
+                        color: #131722;
                         cursor: pointer;
                         display: flex;
                         align-items: center;
-                        gap: 4px;
+                        gap: 3px;
                         outline: none;
                         box-shadow: 0 1px 2px rgba(0,0,0,0.04);
                     ">
@@ -430,58 +479,56 @@
                     <div id="tv-native-lot-dropdown" style="
                         display: none;
                         position: absolute;
-                        top: 24px;
+                        top: 22px;
                         left: 0;
-                        background: ${theme.panelBg};
-                        border: 1px solid ${theme.border};
+                        background: #ffffff;
+                        border: 1px solid #e0e3eb;
                         border-radius: 6px;
-                        box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+                        box-shadow: 0 6px 18px rgba(0,0,0,0.15);
                         padding: 6px;
-                        z-index: 100;
+                        z-index: 9999;
                         min-width: 110px;
                         flex-direction: column;
                         gap: 4px;
                     ">
-                        <div style="font-size: 9.5px; color: ${theme.textMuted}; font-weight: 700; padding: 2px 4px;">QUICK LOTS</div>
+                        <div style="font-size: 9px; color: #787b86; font-weight: 700; padding: 2px 4px;">QUICK LOTS</div>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
                             ${[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0].map(v => `
                                 <button class="tv-lot-preset-btn" data-lot="${v}" style="
                                     background: ${this.lots === v ? '#2962ff' : '#f0f3fa'};
-                                    color: ${this.lots === v ? '#ffffff' : theme.text};
+                                    color: ${this.lots === v ? '#ffffff' : '#131722'};
                                     border: none;
                                     border-radius: 3px;
                                     padding: 3px 0;
-                                    font-size: 10.5px;
+                                    font-size: 10px;
                                     font-weight: 600;
                                     cursor: pointer;
                                 ">${v}</button>
                             `).join('')}
                         </div>
-                        <div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid ${theme.border}; display: flex; align-items: center; gap: 4px;">
+                        <div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #e0e3eb; display: flex; align-items: center; gap: 4px;">
                             <input type="number" id="tv-lot-custom-in" step="0.01" min="0.01" value="${this.lots}" style="
                                 width: 100%;
                                 padding: 3px 5px;
-                                background: ${theme.inputBg};
-                                color: ${theme.text};
-                                border: 1px solid ${theme.inputBorder};
+                                background: #ffffff;
+                                color: #131722;
+                                border: 1px solid #d1d4dc;
                                 border-radius: 3px;
                                 font-size: 11px;
                                 font-weight: 600;
                                 text-align: center;
                                 outline: none;
+                                box-sizing: border-box;
                             ">
                         </div>
                     </div>
                 </div>
             `;
 
-            this.bindOnChartEvents(widget);
-            this.makeDraggable(widget, widget.querySelector('#tv-onchart-drag-row'), (top, left) => {
-                this.saveOnChartPos(top, left);
-            });
+            this.bindOnChartEvents(widget, iframeDoc);
         }
 
-        bindOnChartEvents(widget) {
+        bindOnChartEvents(widget, iframeDoc) {
             const btnSell = widget.querySelector('#tv-native-btn-sell');
             const btnBuy = widget.querySelector('#tv-native-btn-buy');
             const lotToggleBtn = widget.querySelector('#tv-native-lot-toggle-btn');
@@ -494,7 +541,7 @@
                     lotDropdown.style.display = isOpen ? 'none' : 'flex';
                 };
 
-                document.addEventListener('click', () => {
+                iframeDoc.addEventListener('click', () => {
                     if (lotDropdown) lotDropdown.style.display = 'none';
                 });
 
@@ -536,6 +583,15 @@
                         this.openOrderTicket('BUY');
                     }
                 };
+            }
+        }
+
+        syncPricesWithChart() {
+            const chartP = this.getChartPrice();
+            if (chartP && (!window.MT5API || !window.MT5API.isConnected || !this.currentSymbol.includes('USD'))) {
+                const spreadStep = chartP > 500 ? 0.50 : (chartP > 10 ? 0.05 : 0.0002);
+                this.currentBid = chartP;
+                this.currentAsk = chartP + spreadStep;
             }
         }
 
@@ -637,6 +693,7 @@
 
             this.updateChartContainerLayout();
             this.updateToolbarBtnState();
+            this.syncPricesWithChart();
 
             const isBuy = this.selectedSide === 'BUY';
             const spreadPoints = this.getSpreadFormatted();
@@ -1090,7 +1147,6 @@
         }
 
         bindSidePanelEvents(panel) {
-            // Header buttons
             const btnClose = panel.querySelector('#tv-panel-btn-close');
             const btnDockToggle = panel.querySelector('#tv-panel-btn-dock-toggle');
             const btnDomToggle = panel.querySelector('#tv-panel-btn-dom-toggle');
@@ -1309,7 +1365,6 @@
             const isDockRight = this.dockSide === 'right';
 
             if (this.isPanelOpen && isDocked) {
-                // Dynamically shrink chart container width so its price scale shifts cleanly beside the dock
                 chartCont.style.width = 'calc(100% - 320px)';
                 if (isDockRight) {
                     chartCont.style.marginLeft = '0';
@@ -1321,14 +1376,12 @@
                     chartCont.style.right = 'auto';
                 }
             } else {
-                // Full chart width in floating mode or when closed
                 chartCont.style.width = '100%';
                 chartCont.style.marginLeft = '0';
                 chartCont.style.left = '0';
                 chartCont.style.right = '0';
             }
 
-            // Guarantee smooth chart canvas recalculation
             window.dispatchEvent(new Event('resize'));
             setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
             setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
@@ -1481,7 +1534,6 @@
                 </div>
             `;
 
-            // Bind modal buttons
             const btnClose = modal.querySelector('#tv-settings-close-btn');
             const btnCancel = modal.querySelector('#tv-set-btn-cancel');
             const btnSave = modal.querySelector('#tv-set-btn-save');
@@ -1521,7 +1573,7 @@
         }
 
         // ==========================================
-        // 6. DRAG HELPER (For floating panel & on-chart widget)
+        // 6. DRAG HELPER (For floating panel)
         // ==========================================
         makeDraggable(element, handle, onSave) {
             if (!handle) return;
@@ -1568,13 +1620,7 @@
         // 7. PRICE & CALCULATIONS HELPERS
         // ==========================================
         updatePrices() {
-            // Update on-chart widget
-            const bidEl = document.getElementById('tv-native-bid-disp');
-            const askEl = document.getElementById('tv-native-ask-disp');
-            const spreadEl = document.getElementById('tv-native-spread-disp');
-            if (bidEl) bidEl.innerText = this.formatPrice(this.currentBid);
-            if (askEl) askEl.innerText = this.formatPrice(this.currentAsk);
-            if (spreadEl) spreadEl.innerText = this.getSpreadFormatted();
+            this.syncPricesWithChart();
 
             // Update side panel
             const ticketBid = document.getElementById('tv-ticket-bid-val');
@@ -1643,11 +1689,9 @@
 
         getSpreadFormatted() {
             const diff = Math.abs(this.currentAsk - this.currentBid);
-            if (this.currentSymbol.includes('JPY')) {
+            if (this.currentSymbol.includes('JPY') || this.currentSymbol.includes('XAU')) {
                 return (diff * 100).toFixed(1);
-            } else if (this.currentSymbol.includes('XAU')) {
-                return (diff * 100).toFixed(1);
-            } else if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) {
+            } else if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY') || this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) {
                 return diff.toFixed(1);
             } else if (diff < 1) {
                 return (diff * 10000).toFixed(1);
@@ -1656,16 +1700,15 @@
         }
 
         formatPrice(price) {
-            if (!price) return '0.00';
-            if (this.currentSymbol.includes('JPY')) return price.toFixed(3);
-            if (this.currentSymbol.includes('XAU')) return price.toFixed(3);
-            if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) return price.toFixed(2);
-            if (price < 10) return price.toFixed(5);
-            return price.toFixed(2);
-        }
-
-        renderPositions() {
-            // Keep positions listener active for execution engine
+            if (!price || isNaN(price)) return '0.00';
+            if (this.currentSymbol.includes('JPY')) return Number(price).toFixed(3);
+            if (this.currentSymbol.includes('XAU')) return Number(price).toFixed(2);
+            if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) return Number(price).toFixed(2);
+            if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY') || price > 500) {
+                return Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            if (price < 10) return Number(price).toFixed(5);
+            return Number(price).toFixed(2);
         }
     }
 
