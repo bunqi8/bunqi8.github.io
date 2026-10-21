@@ -1180,8 +1180,8 @@ class FyersEngine {
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
         }
-        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.2')) {
-            console.log("[FyersAPI] Updating private engine to latest v1.4.2...");
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.3')) {
+            console.log("[FyersAPI] Updating private engine to latest v1.4.3...");
             const reloadRes = await this.loadPrivateEngine(true);
             if (reloadRes.success) {
                 engineRes = reloadRes;

@@ -1815,7 +1815,7 @@ class FyersUI {
                     let minScript = '';
                     if (receiver && typeof receiver.generateExtractorScript === 'function') {
                         const raw = receiver.generateExtractorScript();
-                        const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+                        const lines = raw.split("\n").map(l => l.trim()).filter(l => Boolean(l) && !l.startsWith("//"));
                         minScript = lines.join(" ");
                     } else if (receiver && typeof receiver.generateBookmarklet === 'function') {
                         const bm = receiver.generateBookmarklet();
