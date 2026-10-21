@@ -287,17 +287,24 @@
             return [];
         }
 
-        async placeOrder({ symbol, type, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
+        async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
             try {
                 const targetAcc = accountId || this.activeAccountId;
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
+                let effectiveType = type.toUpperCase();
+                if (orderType === 'limit') {
+                    effectiveType = effectiveType === 'BUY' ? 'BUY_LIMIT' : 'SELL_LIMIT';
+                } else if (orderType === 'stop') {
+                    effectiveType = effectiveType === 'BUY' ? 'BUY_STOP' : 'SELL_STOP';
+                }
                 const res = await fetch(`${this.endpoint}/api/orders/place`, {
                     method: 'POST',
                     headers: this.getHeaders(),
                     body: JSON.stringify({
                         account_id: targetAcc,
                         symbol: cleanSym,
-                        type: type.toUpperCase(),
+                        type: effectiveType,
+                        price: Number(price) || 0.0,
                         lots: Number(lots),
                         sl: Number(sl) || 0.0,
                         tp: Number(tp) || 0.0,
