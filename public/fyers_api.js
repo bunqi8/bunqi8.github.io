@@ -263,7 +263,17 @@ class FyersEngine {
         }
     }
 
-    validateTokens({ appId, apiAccessToken, webuiRefreshToken, webuiAccessToken, isReplace = false, existingAccount = null }) {
+    validateTokens({ 
+        appId, 
+        apiAccessToken, 
+        webuiRefreshToken, 
+        webuiAccessToken, 
+        pin = '', 
+        secretKey = '', 
+        redirectUri = '', 
+        isReplace = false, 
+        existingAccount = null 
+    }) {
         if (!appId || !appId.trim()) {
             return { valid: false, error: "App ID is required." };
         }
@@ -271,12 +281,16 @@ class FyersEngine {
         const hasApi = Boolean(apiAccessToken && apiAccessToken.trim());
         const hasRefresh = Boolean(webuiRefreshToken && webuiRefreshToken.trim());
         const hasWebui = Boolean(webuiAccessToken && webuiAccessToken.trim());
+        const hasPin = Boolean(pin && pin.trim());
+        const hasSecret = Boolean(secretKey && secretKey.trim());
+        const hasRedirect = Boolean(redirectUri && redirectUri.trim() && (!existingAccount || existingAccount.redirectUri !== redirectUri.trim()));
         
         if (!isReplace) {
             if (!hasApi) return { valid: false, error: "API Access Token is required." };
             // WebUI Refresh Token is optional but highly recommended
         } else {
-            if (!hasApi && !hasRefresh && !hasWebui && existingAccount && existingAccount.appId === appId.trim()) {
+            const hasAnyChange = hasApi || hasRefresh || hasWebui || hasPin || hasSecret || hasRedirect || (existingAccount && existingAccount.appId !== appId.trim());
+            if (!hasAnyChange) {
                 return { valid: false, error: "No changes entered to replace." };
             }
         }
@@ -341,6 +355,9 @@ class FyersEngine {
             apiAccessToken,
             webuiRefreshToken,
             webuiAccessToken,
+            pin: pin || '',
+            secretKey: secretKey || '',
+            redirectUri: redirectUri || '',
             isReplace,
             existingAccount: existing
         });

@@ -1296,6 +1296,14 @@ class FyersUI {
         const refreshToken = inputRefresh ? inputRefresh.value.trim() : '';
         const webuiToken = inputWebui ? inputWebui.value.trim() : '';
 
+        const inputPin = modal.querySelector('#bm-input-pin');
+        const inputSecret = modal.querySelector('#bm-input-secret');
+        const inputRedirect = modal.querySelector('#bm-input-redirect');
+
+        const pin = inputPin ? inputPin.value.trim() : '';
+        const secretKey = inputSecret ? inputSecret.value.trim() : '';
+        const redirectUri = inputRedirect ? inputRedirect.value.trim() : '';
+
         const isReplace = this.viewMode === 'replace' && Boolean(this.replaceAccountId);
         const existing = isReplace && window.FyersAPI ? window.FyersAPI.getAccounts().find(a => a.id === this.replaceAccountId) : null;
 
@@ -1305,6 +1313,9 @@ class FyersUI {
             apiAccessToken: apiToken,
             webuiRefreshToken: refreshToken,
             webuiAccessToken: webuiToken,
+            pin,
+            secretKey,
+            redirectUri,
             isReplace,
             existingAccount: existing
         });
@@ -1358,8 +1369,6 @@ class FyersUI {
 
         const isCrossVerified = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
 
-        const inputPin = modal.querySelector('#bm-input-pin');
-        const inputSecret = modal.querySelector('#bm-input-secret');
         const hasPin = Boolean((inputPin && inputPin.value.trim()) || (isReplace && existing && existing.pin));
         const hasSecret = Boolean((inputSecret && inputSecret.value.trim()) || (isReplace && existing && existing.secretKey));
         const autoRenewReady = Boolean(isCrossVerified && hasPin && hasSecret);
