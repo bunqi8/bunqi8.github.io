@@ -134,9 +134,12 @@ class FyersUI {
         const webuiExpFormatted = active.webuiExpiresAt ? window.FyersAPI.formatExpiry(active.webuiExpiresAt) : (active.webuiAccessToken ? 'Configured' : 'Not provided');
 
         const engineCfg = window.FyersAPI.getEngineConfig ? window.FyersAPI.getEngineConfig() : null;
+        const cachedMeta = window.FyersAPI && window.FyersAPI.getCachedEngineMeta ? window.FyersAPI.getCachedEngineMeta() : null;
         let engineStatus = 'Not configured';
         if (window.FyersPrivateEngine) {
             engineStatus = `Ready (v${window.FyersPrivateEngine.version || '1.0.0'})`;
+        } else if (cachedMeta && cachedMeta.version) {
+            engineStatus = `Cached (v${cachedMeta.version})`;
         } else if (engineCfg && engineCfg.githubPat) {
             engineStatus = 'PAT Configured (Ready to load)';
         }
@@ -326,8 +329,11 @@ class FyersUI {
         const activeAccount = window.FyersAPI ? window.FyersAPI.getActiveAccount() : null;
 
         const engineCfg = window.FyersAPI ? window.FyersAPI.getEngineConfig() : null;
+        const hasCached = window.FyersAPI && window.FyersAPI.hasCachedPrivateEngine && window.FyersAPI.hasCachedPrivateEngine();
         let engineDotColor = '#787b86';
         if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+            engineDotColor = '#089981';
+        } else if (hasCached) {
             engineDotColor = '#089981';
         } else if (engineCfg && engineCfg.githubPat) {
             engineDotColor = '#ff9800';
@@ -1050,6 +1056,59 @@ class FyersUI {
                                     </div>
                                 </div>
 
+                                <!-- Webhook Test Channel Bar -->
+                                <div id="bm-webhook-card" style="display: none; background: rgba(41,98,255,0.06); border: 1px solid rgba(41,98,255,0.22); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 11.5px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                                            <span style="font-size: 14px;">📡</span>
+                                            <div style="min-width: 0;">
+                                                <div style="font-weight: 700; color: ${theme.primary}; display: flex; align-items: center; gap: 6px;">
+                                                    <span>Live Webhook Channel</span>
+                                                    <span style="font-size: 9.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.15); color: ${theme.success};">Testing Enabled</span>
+                                                </div>
+                                                <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests on Webhook.site" style="color: ${theme.text}; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; display: inline-block; margin-top: 2px;">
+                                                    Loading channel...
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+                                            <button id="bm-btn-copy-webhook" type="button" title="Copy Webhook Endpoint URL" style="
+                                                background: ${theme.cardBg}; 
+                                                color: ${theme.text}; 
+                                                border: 1px solid ${theme.border}; 
+                                                padding: 4px 9px; 
+                                                border-radius: 5px; 
+                                                font-size: 11px; 
+                                                font-weight: 600; 
+                                                cursor: pointer;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>📋</span> Copy URL
+                                            </button>
+                                            <a id="bm-btn-open-inspector" href="#" target="_blank" rel="noopener noreferrer" title="View live incoming requests on Webhook.site" style="
+                                                background: ${theme.primary}; 
+                                                color: #fff; 
+                                                border: none; 
+                                                padding: 4px 10px; 
+                                                border-radius: 5px; 
+                                                font-size: 11px; 
+                                                font-weight: 600; 
+                                                text-decoration: none;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>↗</span> Open Inspector
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div style="font-size: 10.5px; color: ${theme.textMuted}; margin-top: 5px; line-height: 1.35;">
+                                        💡 <strong>Inspection Enabled for Testing:</strong> Ephemeral channel is preserved during testing so you can view incoming encrypted payloads directly on Webhook.site in real time.
+                                    </div>
+                                </div>
+
                                 <button id="bm-btn-copy-addressbar" type="button" style="
                                     background: ${theme.primary};
                                     color: #fff;
@@ -1068,7 +1127,7 @@ class FyersUI {
                                 </button>
 
                                 <div style="font-size: 11px; color: ${theme.textMuted}; line-height: 1.4; margin-top: 12px; border-top: 1px dashed ${theme.border}; padding-top: 8px;">
-                                    ⚡ <strong>Zero-Touch Privacy:</strong> Session cookies are encrypted in memory on Fyers Web using temporary RSA-2048 + AES-256 and sent straight to this tab. Once received, the ephemeral bridge is <strong>instantly self-destructed and purged</strong>.
+                                    ⚡ <strong>Zero-Touch Privacy:</strong> Session cookies are encrypted in memory on Fyers Web using temporary RSA-2048 + AES-256 and sent straight to this tab. Channel inspector is kept open during testing for complete visibility.
                                 </div>
                             </div>
 
@@ -1392,9 +1451,11 @@ class FyersUI {
                 if (!id || !window.FyersAPI) return;
 
                 const cfg = window.FyersAPI.getEngineConfig ? window.FyersAPI.getEngineConfig() : null;
-                if (!cfg || !cfg.githubPat) {
+                const hasEngine = (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') || 
+                                  (window.FyersAPI.hasCachedPrivateEngine && window.FyersAPI.hasCachedPrivateEngine());
+                if (!hasEngine && (!cfg || !cfg.githubPat)) {
                     if (window.FyersAPI.showToast) {
-                        window.FyersAPI.showToast('Please configure your GitHub PAT in the Auto-Refresh & Engine tab first.', 'warning');
+                        window.FyersAPI.showToast('Please configure your GitHub PAT in the Auto-Refresh & Engine tab first to download the private engine.', 'warning');
                     }
                     this.activeTab = 'engine';
                     this.renderModal();
@@ -1595,24 +1656,53 @@ class FyersUI {
             if (!this._e2eeReceiver) {
                 const statusText = modal.querySelector('#bm-listener-status-text');
                 if (statusText) statusText.innerText = 'Creating ephemeral RAM keypair & channel...';
-                this._e2eeReceiver = await window.FyersAPI.createE2EESession({ enableWebhook: true });
+                this._e2eeReceiver = await window.FyersAPI.createE2EESession({ enableWebhook: true, autoDeleteWebhook: false });
                 
                 const bookmarkletLink = modal.querySelector('#bm-link-bookmarklet');
                 if (bookmarkletLink && typeof this._e2eeReceiver.generateBookmarklet === 'function') {
                     bookmarkletLink.href = this._e2eeReceiver.generateBookmarklet();
                 }
 
+                // Populate Webhook Channel Card for live testing & inspection
+                const whUrl = typeof this._e2eeReceiver.getWebhookUrl === 'function' ? this._e2eeReceiver.getWebhookUrl() : this._e2eeReceiver.webhookUrl;
+                const whInspector = typeof this._e2eeReceiver.getWebhookInspectorUrl === 'function' 
+                    ? this._e2eeReceiver.getWebhookInspectorUrl() 
+                    : (this._e2eeReceiver.webhookUuid ? `https://webhook.site/#!/${this._e2eeReceiver.webhookUuid}` : whUrl);
+
+                const whCard = modal.querySelector('#bm-webhook-card');
+                const whLink = modal.querySelector('#bm-webhook-link');
+                const btnOpenWh = modal.querySelector('#bm-btn-open-inspector');
+                const btnCopyWh = modal.querySelector('#bm-btn-copy-webhook');
+
+                if (whUrl && whCard && whLink) {
+                    whCard.style.display = 'block';
+                    whLink.href = whInspector || whUrl;
+                    whLink.innerText = whUrl;
+                    if (btnOpenWh) btnOpenWh.href = whInspector || whUrl;
+                    if (btnCopyWh) {
+                        btnCopyWh.onclick = async (e) => {
+                            if (e) e.preventDefault();
+                            await navigator.clipboard.writeText(whUrl);
+                            btnCopyWh.innerText = '✓ Copied!';
+                            setTimeout(() => { btnCopyWh.innerHTML = '<span>📋</span> Copy URL'; }, 2000);
+                            if (window.FyersAPI && window.FyersAPI.showToast) {
+                                window.FyersAPI.showToast('📋 Webhook URL copied to clipboard!', 'success');
+                            }
+                        };
+                    }
+                }
+
                 if (statusText) {
                     statusText.innerText = '🟢 Zero-Touch Bridge Active — Waiting for 1-click execution on trade.fyers.in...';
                 }
 
-                // Automatically listen
+                // Automatically listen (retaining channel for testing)
                 if (typeof this._e2eeReceiver.startListening === 'function') {
                     this._e2eeReceiver.startListening((res) => {
                         applyDecryptedResult(res);
                     }, (err) => {
                         if (statusText) statusText.innerText = 'Zero-touch bridge idle (use manual paste below).';
-                    });
+                    }, { autoDeleteWebhook: false });
                 }
             }
             return this._e2eeReceiver;
@@ -1678,6 +1768,7 @@ class FyersUI {
                 btnCopyScript.disabled = true;
                 try {
                     const receiver = await ensureReceiverSession();
+                    const whUrl = typeof receiver.getWebhookUrl === 'function' ? receiver.getWebhookUrl() : receiver.webhookUrl;
                     let minScript = '';
                     if (receiver && typeof receiver.generateExtractorScript === 'function') {
                         const raw = receiver.generateExtractorScript();
@@ -1697,7 +1788,8 @@ class FyersUI {
                     btnCopyScript.style.color = '#ffffff';
 
                     if (window.FyersAPI && window.FyersAPI.showToast) {
-                        window.FyersAPI.showToast('📋 Copied! Type "j" in address bar on trade.fyers.in & paste, or paste in Console (F12).', 'success', 5000);
+                        const whMsg = whUrl ? ` • Webhook: ${whUrl}` : '';
+                        window.FyersAPI.showToast(`📋 Copied! Type "j" in address bar on trade.fyers.in & paste, or paste in Console (F12).${whMsg}`, 'success', 6000);
                     }
 
                     setTimeout(() => {
@@ -2086,7 +2178,10 @@ class FyersUI {
         };
 
         const isEngineLoaded = Boolean(window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function');
-        const engineVer = isEngineLoaded ? (window.FyersPrivateEngine.version || '1.0.0') : null;
+        const hasCached = window.FyersAPI && window.FyersAPI.hasCachedPrivateEngine && window.FyersAPI.hasCachedPrivateEngine();
+        const cachedMeta = window.FyersAPI && window.FyersAPI.getCachedEngineMeta ? window.FyersAPI.getCachedEngineMeta() : null;
+        const engineVer = isEngineLoaded ? (window.FyersPrivateEngine.version || '1.0.0') : (cachedMeta ? cachedMeta.version : null);
+        const isEngineActive = isEngineLoaded || hasCached;
         const activeAcc = window.FyersAPI ? window.FyersAPI.getActiveAccount() : null;
 
         const isPatConfigured = Boolean(cfg.githubPat && cfg.githubPat.trim());
@@ -2096,7 +2191,7 @@ class FyersUI {
                 <!-- Engine Status Banner Card -->
                 <div style="
                     background: ${theme.cardBg}; 
-                    border: 1px solid ${isEngineLoaded ? 'rgba(8,153,129,0.3)' : (isPatConfigured ? 'rgba(255,152,0,0.3)' : theme.cardBorder)}; 
+                    border: 1px solid ${isEngineActive ? 'rgba(8,153,129,0.3)' : (isPatConfigured ? 'rgba(255,152,0,0.3)' : theme.cardBorder)}; 
                     border-radius: 10px; 
                     padding: 16px;
                 ">
@@ -2106,7 +2201,7 @@ class FyersUI {
                                 width: 32px; 
                                 height: 32px; 
                                 border-radius: 8px; 
-                                background: ${isEngineLoaded ? theme.success : (isPatConfigured ? theme.warning : '#787b86')}; 
+                                background: ${isEngineActive ? theme.success : (isPatConfigured ? theme.warning : '#787b86')}; 
                                 color: #fff; 
                                 display: flex; 
                                 align-items: center; 
@@ -2122,14 +2217,14 @@ class FyersUI {
                                         padding: 2px 8px; 
                                         border-radius: 12px; 
                                         font-weight: 700;
-                                        background: ${isEngineLoaded ? 'rgba(8,153,129,0.15)' : (isPatConfigured ? 'rgba(255,152,0,0.15)' : 'rgba(120,123,134,0.15)')};
-                                        color: ${isEngineLoaded ? theme.success : (isPatConfigured ? theme.warning : theme.textMuted)};
+                                        background: ${isEngineActive ? 'rgba(8,153,129,0.15)' : (isPatConfigured ? 'rgba(255,152,0,0.15)' : 'rgba(120,123,134,0.15)')};
+                                        color: ${isEngineActive ? theme.success : (isPatConfigured ? theme.warning : theme.textMuted)};
                                     ">
-                                        ${isEngineLoaded ? `🟢 Loaded (v${engineVer})` : (isPatConfigured ? '🟡 Ready to Load' : '⚪ Setup Required')}
+                                        ${isEngineLoaded ? `🟢 Loaded (v${engineVer})` : (hasCached ? `🟢 Cached (v${engineVer})` : (isPatConfigured ? '🟡 Ready to Load' : '⚪ Setup Required'))}
                                     </span>
                                 </div>
                                 <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 2px;">
-                                    Keeps your proprietary refresh algorithms 100% private in your own repository.
+                                    Keeps your proprietary refresh algorithms 100% private in your own repository. Script is permanently cached in this browser.
                                 </div>
                             </div>
                         </div>
@@ -2165,6 +2260,12 @@ class FyersUI {
                             </strong>
                         </div>
                         <div>
+                            <span style="color: ${theme.textMuted};">Browser Engine Cache:</span><br>
+                            <strong style="color: ${isEngineActive ? theme.success : theme.textMuted}; font-size: 12px;">
+                                ${isEngineActive ? `✓ Permanent (v${engineVer || '1.0.0'})` : '✕ Not Cached'}
+                            </strong>
+                        </div>
+                        <div>
                             <span style="color: ${theme.textMuted};">Active Account:</span><br>
                             <strong style="font-size: 12px; color: ${activeAcc ? theme.text : theme.textMuted};">
                                 ${activeAcc ? `${activeAcc.displayName} (${activeAcc.fyId})` : 'None'}
@@ -2187,8 +2288,8 @@ class FyersUI {
                             <label style="font-size: 12px; font-weight: 600;">
                                 GitHub Personal Access Token (PAT) <span style="color: ${theme.error};">*</span>
                             </label>
-                            <span style="font-size: 11px; font-weight: 600; color: ${isPatConfigured ? theme.success : theme.warning};">
-                                ${isPatConfigured ? '✓ Configured & Stored' : '⚠️ Not Configured'}
+                            <span style="font-size: 11px; font-weight: 600; color: ${isPatConfigured ? theme.success : (hasCached ? theme.success : theme.warning)};">
+                                ${isPatConfigured ? '✓ Configured & Stored' : (hasCached ? '✓ Cached (PAT Optional)' : '⚠️ Not Configured')}
                             </span>
                         </div>
                         <div style="position: relative; display: flex; align-items: center;">
@@ -2216,8 +2317,10 @@ class FyersUI {
                         </div>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 4px; line-height: 1.4;">
                             ${isPatConfigured 
-                                ? 'Leave blank to preserve current PAT. Enter a new token to replace.' 
-                                : 'Create a classic or fine-grained GitHub PAT with <code>repo</code> (read repository contents) scope.'}
+                                ? 'Leave blank to preserve current PAT. <strong>Persistent Cache Active:</strong> Even if this PAT expires, your token renewal will keep working automatically using the cached script.' 
+                                : (hasCached 
+                                    ? '⚡ <strong>Running from persistent cache:</strong> PAT is not currently needed unless you want to pull a newer version from GitHub.' 
+                                    : 'Create a classic or fine-grained GitHub PAT with <code>repo</code> (read repository contents) scope.')}
                         </div>
                     </div>
 
@@ -2476,7 +2579,11 @@ window.FyersPrivateEngine = {
                 try {
                     const res = await window.FyersAPI.loadPrivateEngine(true);
                     if (res.success) {
-                        showStatus(`Private engine connected and loaded successfully! Exposes version <strong>${res.version || '1.0.0'}</strong>.`, true);
+                        if (res.patExpired || res.warning) {
+                            showStatus(`⚠️ ${res.warning || 'PAT expired or invalid, but cached engine is active.'} Exposes version <strong>${res.version || '1.0.0'}</strong>. All features remain operational!`, true);
+                        } else {
+                            showStatus(`Private engine connected and loaded successfully! Exposes version <strong>${res.version || '1.0.0'}</strong> (permanently cached in browser).`, true);
+                        }
                         const badge = modal.querySelector('#bm-engine-version-badge');
                         if (badge) {
                             badge.innerHTML = `🟢 Loaded (v${res.version || '1.0.0'})`;
