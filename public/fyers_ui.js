@@ -1026,57 +1026,50 @@ class FyersUI {
                                 </div>
                                 
                                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 10px;">
-                                    <!-- Option A: Bookmarklet & Address Bar Runner (Merged) -->
+                                    <!-- Option A: Address Bar Runner & Bookmarklet (Zero DevTools) -->
                                     <div style="border: 1px solid rgba(41,98,255,0.25); background: rgba(41,98,255,0.04); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;">
                                         <div>
                                             <div style="font-weight: 700; color: ${theme.primary}; margin-bottom: 6px; font-size: 12.5px; display: flex; align-items: center; gap: 5px;">
-                                                <span>⭐</span> Option A: Bookmarklet & Address Bar
+                                                <span>⭐</span> Option A: Address Bar Runner
                                             </div>
                                             <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 10px; line-height: 1.45;">
-                                                <div>• <strong>Drag to Bookmarks:</strong> Drag the button to your bookmarks bar and click it anytime on Fyers.</div>
-                                                <div style="margin-top: 4px;">• <strong>Or Paste in Address Bar:</strong> Click <em>Copy for Address Bar</em>, then on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> address bar type <code style="color: #089981; font-weight: 700; background: rgba(8,153,129,0.12); padding: 1px 4px; border-radius: 3px;">j</code> then paste & hit Enter!</div>
+                                                <div>1. Click <strong>Copy Address Bar Runner</strong> below.</div>
+                                                <div style="margin-top: 3px;">2. On your <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> tab, click the address bar.</div>
+                                                <div style="margin-top: 3px;">3. Type <code style="color: #089981; font-weight: 700; background: rgba(8,153,129,0.12); padding: 1px 4px; border-radius: 3px;">j</code> then paste (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">Ctrl+V</kbd> / <kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">Cmd+V</kbd>) and hit <strong>Enter</strong>!</div>
                                             </div>
                                         </div>
                                         <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
-                                            <a id="bm-link-bookmarklet" href="#" draggable="true" title="Drag me to your Bookmarks Bar!" style="
+                                            <button id="bm-btn-copy-addressbar" type="button" style="
                                                 background: ${theme.primary};
                                                 color: #fff;
-                                                padding: 6px 10px;
+                                                border: none;
+                                                padding: 7px 13px;
                                                 border-radius: 5px;
-                                                font-size: 11px;
-                                                font-weight: 600;
-                                                text-decoration: none;
-                                                cursor: grab;
-                                                display: inline-flex;
-                                                align-items: center;
-                                                gap: 4px;
-                                            ">
-                                                <span>⭐</span> Drag: "Sync Tokens"
-                                            </a>
-                                            <button id="bm-btn-copy-addressbar" type="button" title="Copies script without leading 'j' for address bar" style="
-                                                background: ${theme.cardBg};
-                                                color: ${theme.text};
-                                                border: 1px solid rgba(8,153,129,0.45);
-                                                padding: 6px 10px;
-                                                border-radius: 5px;
-                                                font-size: 11px;
+                                                font-size: 11.5px;
                                                 font-weight: 600;
                                                 cursor: pointer;
                                                 display: inline-flex;
                                                 align-items: center;
-                                                gap: 4px;
+                                                gap: 5px;
+                                                box-shadow: 0 1px 3px rgba(41,98,255,0.25);
                                             ">
-                                                <span>🔗</span> Copy for Address Bar
+                                                <span>🔗</span> Copy Address Bar Runner
                                             </button>
-                                            <button id="bm-btn-copy-bookmarklet" type="button" title="Copy raw bookmarklet URL" style="
-                                                background: transparent;
+                                            <button id="bm-btn-copy-bookmarklet" type="button" title="Copies bookmarklet URL (Right-click bookmarks bar → Add Bookmark → paste URL)" style="
+                                                background: ${theme.cardBg};
                                                 color: ${theme.textMuted};
                                                 border: 1px solid ${theme.border};
-                                                padding: 6px 8px;
+                                                padding: 7px 10px;
                                                 border-radius: 5px;
                                                 font-size: 11px;
+                                                font-weight: 500;
                                                 cursor: pointer;
-                                            ">Copy URL</button>
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>📑</span> Copy Bookmark URL
+                                            </button>
                                         </div>
                                     </div>
 
@@ -1087,7 +1080,9 @@ class FyersUI {
                                                 <span>💻</span> Option B: Console Script
                                             </div>
                                             <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 10px; line-height: 1.45;">
-                                                Open DevTools (<kbd style="font-size: 10px; padding: 1px 4px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 3px;">F12</kbd> or right-click → Inspect → Console) on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a>, paste the script and press Enter.
+                                                <div>1. Click <strong>Copy Console Script</strong> below.</div>
+                                                <div style="margin-top: 3px;">2. On <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a>, open DevTools (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd> or right-click → Inspect → Console).</div>
+                                                <div style="margin-top: 3px;">3. Paste the script and hit <strong>Enter</strong>!</div>
                                             </div>
                                         </div>
                                         <button id="bm-btn-copy-extractor-script" type="button" style="
@@ -1723,10 +1718,10 @@ class FyersUI {
                     if (receiver && typeof receiver.generateBookmarklet === 'function') {
                         const bmUrl = receiver.generateBookmarklet();
                         await navigator.clipboard.writeText(bmUrl);
-                        btnCopyBookmarklet.innerText = '✓ Copied!';
-                        setTimeout(() => { btnCopyBookmarklet.innerText = 'Copy'; }, 2500);
+                        btnCopyBookmarklet.innerHTML = '<span>✓</span> Copied URL!';
+                        setTimeout(() => { btnCopyBookmarklet.innerHTML = '<span>📑</span> Copy Bookmark URL'; }, 2500);
                         if (window.FyersAPI && window.FyersAPI.showToast) {
-                            window.FyersAPI.showToast('⭐ Bookmarklet URL copied! Paste as a bookmark in your browser.', 'success', 3000);
+                            window.FyersAPI.showToast('📑 Bookmark URL copied! To save permanently: Right-click bookmarks bar → Add Bookmark → paste URL.', 'success', 5000);
                         }
                     }
                 } catch (err) {
@@ -1799,15 +1794,15 @@ class FyersUI {
 
                     setTimeout(() => {
                         if (btnCopyAddressBar) {
-                            btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Script';
-                            btnCopyAddressBar.style.background = theme.cardBg;
-                            btnCopyAddressBar.style.color = theme.text;
+                            btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Runner';
+                            btnCopyAddressBar.style.background = theme.primary;
+                            btnCopyAddressBar.style.color = '#ffffff';
                             btnCopyAddressBar.disabled = false;
                         }
                     }, 4000);
                 } catch (err) {
                     btnCopyAddressBar.disabled = false;
-                    btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Script';
+                    btnCopyAddressBar.innerHTML = '<span>🔗</span> Copy Address Bar Runner';
                     handleReceiverError(err);
                 }
             };
