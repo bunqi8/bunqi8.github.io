@@ -302,6 +302,10 @@ class FyersUI {
             // Close on background backdrop click
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
+                    if (this._e2eeReceiver && typeof this._e2eeReceiver.stopListening === 'function') {
+                        this._e2eeReceiver.stopListening();
+                    }
+                    this._e2eeReceiver = null;
                     modal.style.display = 'none';
                 }
             });
@@ -461,7 +465,13 @@ class FyersUI {
 
         // Wire event handlers
         const btnClose = document.getElementById('bm-btn-close');
-        if (btnClose) btnClose.onclick = () => modal.style.display = 'none';
+        if (btnClose) btnClose.onclick = () => {
+            if (this._e2eeReceiver && typeof this._e2eeReceiver.stopListening === 'function') {
+                this._e2eeReceiver.stopListening();
+            }
+            this._e2eeReceiver = null;
+            modal.style.display = 'none';
+        };
 
         const tabAccounts = modal.querySelector('#bm-tab-accounts');
         if (tabAccounts) {
@@ -958,13 +968,13 @@ class FyersUI {
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <div>
                             <div style="font-size: 13px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
-                                <span>⚡</span> 1-Click Browser Extractor
+                                <span>⚡</span> Zero-Touch Browser Token Extractor
                                 <span style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(8,153,129,0.15); color: #089981; border: 1px solid rgba(8,153,129,0.3);">
-                                    RSA-2048 + AES-256 E2EE
+                                    RSA-2048 + Ephemeral Bridge
                                 </span>
                             </div>
                             <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; line-height: 1.35;">
-                                Extract session tokens directly from an open <a href="https://trade.fyers.in" target="_blank" style="color: ${theme.primary}; text-decoration: none; font-weight: 600;">trade.fyers.in</a> tab with zero cookie searching.
+                                Extract & sync tokens from an open <a href="https://trade.fyers.in" target="_blank" style="color: ${theme.primary}; text-decoration: none; font-weight: 600;">trade.fyers.in</a> tab with 0 manual copying.
                             </div>
                         </div>
                         <button id="bm-btn-toggle-extractor" type="button" style="
@@ -980,108 +990,171 @@ class FyersUI {
                             align-items: center;
                             gap: 5px;
                         ">
-                            <span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Extractor Assistant'}</span>
+                            <span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Zero-Touch Assistant'}</span>
                         </button>
                     </div>
 
                     <!-- Collapsible Extractor Panel -->
                     <div id="bm-extractor-panel" style="display: ${this._extractorOpen ? 'block' : 'none'}; margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(41,98,255,0.25);">
                         <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-                            <!-- Steps Container -->
-                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px;">
-                                <div style="display: flex; flex-direction: column; gap: 8px;">
-                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
-                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">1</span>
-                                        <span style="color: ${theme.text}; line-height: 1.4;">
-                                            Open <a href="https://trade.fyers.in" target="_blank" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline;">trade.fyers.in</a> in a new tab where you are already logged in.
-                                        </span>
-                                    </div>
-                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
-                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">2</span>
-                                        <div style="flex: 1;">
-                                            <div style="color: ${theme.text}; line-height: 1.4; margin-bottom: 6px;">
-                                                Click below to copy the secure 1-click script (pre-baked with an ephemeral RSA key for this session):
-                                            </div>
-                                            <button id="bm-btn-copy-extractor-script" type="button" style="
+
+                            <!-- Zero-Touch Channel Active Banner -->
+                            <div id="bm-zero-touch-banner" style="
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                background: ${theme.cardBg};
+                                border: 1px solid ${theme.border};
+                                border-radius: 6px;
+                                padding: 8px 12px;
+                                gap: 8px;
+                                flex-wrap: wrap;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #089981; box-shadow: 0 0 0 3px rgba(8,153,129,0.25);"></span>
+                                    <span id="bm-listener-status-text" style="font-size: 11.5px; font-weight: 600; color: ${theme.text};">
+                                        Zero-Touch Receiver Ready (RAM Keypair & Ephemeral Channel)
+                                    </span>
+                                </div>
+                                <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: ui-monospace, monospace;">Self-Destruct on Ingestion</span>
+                            </div>
+
+                            <!-- 2 Easy Execution Methods -->
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 12px;">
+                                <div style="font-weight: 700; color: ${theme.text}; margin-bottom: 8px; font-size: 12.5px;">
+                                    Step 1: Run on <a href="https://trade.fyers.in" target="_blank" style="color:${theme.primary}; text-decoration: underline;">trade.fyers.in</a> (Choose either method):
+                                </div>
+                                
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px;">
+                                    <!-- Method A: Bookmarklet -->
+                                    <div style="border: 1px solid rgba(41,98,255,0.2); background: rgba(41,98,255,0.04); border-radius: 6px; padding: 10px;">
+                                        <div style="font-weight: 600; color: ${theme.primary}; margin-bottom: 4px; font-size: 12px;">
+                                            ⭐ Option A: Bookmarklet (0 Keystrokes)
+                                        </div>
+                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
+                                            Drag to your browser bookmarks bar. When viewing Fyers Web, click it once to automatically sync!
+                                        </div>
+                                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                            <a id="bm-link-bookmarklet" href="#" draggable="true" title="Drag me to your Bookmarks Bar!" style="
                                                 background: ${theme.primary};
                                                 color: #fff;
-                                                border: none;
-                                                padding: 6px 12px;
-                                                border-radius: 5px;
-                                                font-size: 11.5px;
+                                                padding: 5px 10px;
+                                                border-radius: 4px;
+                                                font-size: 11px;
                                                 font-weight: 600;
-                                                cursor: pointer;
+                                                text-decoration: none;
+                                                cursor: grab;
                                                 display: inline-flex;
                                                 align-items: center;
-                                                gap: 5px;
+                                                gap: 4px;
                                             ">
-                                                <span>📋</span> Copy 1-Click Extractor Script
-                                            </button>
+                                                <span>⭐</span> Drag: "Fyers Token Sync"
+                                            </a>
+                                            <button id="bm-btn-copy-bookmarklet" type="button" style="
+                                                background: ${theme.cardBg};
+                                                color: ${theme.text};
+                                                border: 1px solid ${theme.border};
+                                                padding: 5px 8px;
+                                                border-radius: 4px;
+                                                font-size: 11px;
+                                                cursor: pointer;
+                                            ">Copy URL</button>
                                         </div>
                                     </div>
-                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
-                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">3</span>
-                                        <span style="color: ${theme.text}; line-height: 1.4;">
-                                            On your <strong>trade.fyers.in</strong> tab, press <kbd style="background: ${theme.inputBg}; border: 1px solid ${theme.border}; border-radius: 3px; padding: 1px 4px; font-size: 11px;">F12</kbd> (or right-click → Inspect → Console), paste and hit Enter. The script encrypts your session tokens and copies them to your clipboard.
-                                        </span>
+
+                                    <!-- Method B: Console Snippet -->
+                                    <div style="border: 1px solid ${theme.border}; background: rgba(0,0,0,0.02); border-radius: 6px; padding: 10px;">
+                                        <div style="font-weight: 600; color: ${theme.text}; margin-bottom: 4px; font-size: 12px;">
+                                            💻 Option B: Console Script
+                                        </div>
+                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 8px; line-height: 1.35;">
+                                            Copy script, open Console (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd>) on trade.fyers.in, paste & hit Enter.
+                                        </div>
+                                        <button id="bm-btn-copy-extractor-script" type="button" style="
+                                            background: ${theme.cardBg};
+                                            color: ${theme.text};
+                                            border: 1px solid ${theme.border};
+                                            padding: 5px 10px;
+                                            border-radius: 4px;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 4px;
+                                        ">
+                                            <span>📋</span> Copy 1-Click Console Script
+                                        </button>
                                     </div>
-                                    <div style="display: flex; align-items: flex-start; gap: 8px;">
-                                        <span style="background: ${theme.primary}; color: #fff; border-radius: 50%; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0;">4</span>
-                                        <span style="color: ${theme.text}; line-height: 1.4;">
-                                            Paste the encrypted ciphertext below (or click <em>Paste from Clipboard</em>):
-                                        </span>
-                                    </div>
+                                </div>
+
+                                <div style="font-size: 11px; color: ${theme.textMuted}; line-height: 1.4;">
+                                    ⚡ <strong>How it works:</strong> The script silently encrypts your session cookies with RSA-2048 + AES-256 and dispatches them directly to this tab. Once received, the ephemeral webhook channel is <strong>instantly self-destructed and deleted</strong> from the server.
                                 </div>
                             </div>
 
-                            <!-- Payload Input Area -->
-                            <div style="display: flex; flex-direction: column; gap: 6px;">
-                                <textarea id="bm-input-extractor-payload" rows="2" placeholder="Paste encrypted ciphertext blob here..." style="
-                                    width: 100%;
-                                    padding: 7px 10px;
-                                    background: ${theme.inputBg};
-                                    color: ${theme.inputText};
-                                    border: 1px solid ${theme.inputBorder};
-                                    border-radius: 6px;
-                                    font-size: 11.5px;
-                                    font-family: ui-monospace, monospace;
-                                    box-sizing: border-box;
-                                    resize: vertical;
-                                    outline: none;
-                                "></textarea>
-                                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                                    <button id="bm-btn-decrypt-payload" type="button" style="
-                                        background: ${theme.success};
-                                        color: #fff;
-                                        border: none;
-                                        padding: 6px 12px;
-                                        border-radius: 5px;
+                            <!-- Decryption Status Box -->
+                            <div id="bm-extractor-status" style="display: none; padding: 9px 12px; border-radius: 6px; font-size: 11.5px; line-height: 1.4;"></div>
+
+                            <!-- Optional Manual Fallback -->
+                            <details style="margin-top: 2px;">
+                                <summary style="font-size: 11.5px; font-weight: 600; color: ${theme.primary}; cursor: pointer; user-select: none;">
+                                    ▶ Manual Copy/Paste Fallback (Optional)
+                                </summary>
+                                <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">
+                                        If your browser blocks the zero-touch network dispatch, paste the encrypted payload here:
+                                    </div>
+                                    <textarea id="bm-input-extractor-payload" rows="2" placeholder="Paste encrypted ciphertext blob here..." style="
+                                        width: 100%;
+                                        padding: 7px 10px;
+                                        background: ${theme.inputBg};
+                                        color: ${theme.inputText};
+                                        border: 1px solid ${theme.inputBorder};
+                                        border-radius: 6px;
                                         font-size: 11.5px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 5px;
-                                    ">
-                                        <span>📥</span> Decrypt & Auto-Fill Tokens
-                                    </button>
-                                    <button id="bm-btn-paste-clipboard" type="button" style="
-                                        background: ${theme.cardBg};
-                                        color: ${theme.text};
-                                        border: 1px solid ${theme.border};
-                                        padding: 6px 11px;
-                                        border-radius: 5px;
-                                        font-size: 11.5px;
-                                        font-weight: 500;
-                                        cursor: pointer;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 5px;
-                                    ">
-                                        <span>📋</span> Paste from Clipboard
-                                    </button>
+                                        font-family: ui-monospace, monospace;
+                                        box-sizing: border-box;
+                                        resize: vertical;
+                                        outline: none;
+                                    "></textarea>
+                                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                        <button id="bm-btn-decrypt-payload" type="button" style="
+                                            background: ${theme.success};
+                                            color: #fff;
+                                            border: none;
+                                            padding: 6px 12px;
+                                            border-radius: 5px;
+                                            font-size: 11.5px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 5px;
+                                        ">
+                                            <span>📥</span> Decrypt & Auto-Fill
+                                        </button>
+                                        <button id="bm-btn-paste-clipboard" type="button" style="
+                                            background: ${theme.cardBg};
+                                            color: ${theme.text};
+                                            border: 1px solid ${theme.border};
+                                            padding: 6px 11px;
+                                            border-radius: 5px;
+                                            font-size: 11.5px;
+                                            font-weight: 500;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 5px;
+                                        ">
+                                            <span>📋</span> Paste from Clipboard
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            </details>
+                        </div>
+                    </div>
+                </div>
 
                             <!-- Decryption Status Box -->
                             <div id="bm-extractor-status" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 11.5px; line-height: 1.4;"></div>
@@ -1434,6 +1507,9 @@ class FyersUI {
         const btnCancel = modal.querySelector('#bm-btn-cancel-form');
         const onCancel = (e) => {
             if (e) e.preventDefault();
+            if (this._e2eeReceiver && typeof this._e2eeReceiver.stopListening === 'function') {
+                this._e2eeReceiver.stopListening();
+            }
             this.viewMode = 'list';
             this.replaceAccountId = null;
             this._extractorOpen = false;
@@ -1464,6 +1540,120 @@ class FyersUI {
         // Initial run
         runValidation();
 
+        const statusBox = modal.querySelector('#bm-extractor-status');
+        const payloadInput = modal.querySelector('#bm-input-extractor-payload');
+
+        // Helper: apply decrypted credentials to form
+        const applyDecryptedResult = (res) => {
+            if (!res || !res.success) return;
+            if (inputRefresh) inputRefresh.value = res.webuiRefreshToken || '';
+            if (inputWebui) inputWebui.value = res.webuiAccessToken || '';
+            if (inputAppId && !inputAppId.value.trim() && res.fyersId) {
+                inputAppId.value = `${res.fyersId}-100`;
+            }
+            runValidation();
+
+            const userName = res.displayName ? `${res.displayName} (${res.fyersId})` : (res.fyersId || 'User');
+            const refExp = res.refreshExpiresAt ? window.FyersAPI.formatExpiry(res.refreshExpiresAt) : 'Active';
+
+            const statusText = modal.querySelector('#bm-listener-status-text');
+            if (statusText) {
+                statusText.innerHTML = `✓ <strong>Zero-Touch Sync Complete!</strong> Tokens ingested and channel destroyed.`;
+            }
+
+            if (statusBox) {
+                statusBox.style.display = 'block';
+                statusBox.style.background = 'rgba(8,153,129,0.12)';
+                statusBox.style.color = '#089981';
+                statusBox.style.border = '1px solid rgba(8,153,129,0.35)';
+                statusBox.innerHTML = `
+                    <div style="font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 5px;">
+                        <span>✓</span> Zero-Touch Sync Successful!
+                    </div>
+                    <div>Account: <strong>${userName}</strong> • WebUI Refresh Token valid ${refExp}.</div>
+                    <div style="margin-top: 6px; font-size: 11px; color: ${theme.text};">
+                        If you entered your PIN & Secret Key below, click <button id="bm-btn-generate-api-now" type="button" style="background: #2962FF; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 2px;">⚡ Generate API Token Now</button> or click <strong>Save & Connect</strong>.
+                    </div>
+                `;
+
+                const btnGenNow = statusBox.querySelector('#bm-btn-generate-api-now');
+                if (btnGenNow) {
+                    btnGenNow.onclick = async (ev) => {
+                        if (ev) ev.preventDefault();
+                        const pinVal = inputPin ? inputPin.value.trim() : '';
+                        const secretVal = inputSecret ? inputSecret.value.trim() : '';
+                        const appVal = inputAppId ? inputAppId.value.trim() : '';
+                        if (!pinVal || !secretVal) {
+                            alert("Please enter your 4-digit PIN and App Secret Key in the fields below first!");
+                            return;
+                        }
+                        btnGenNow.innerText = 'Generating...';
+                        btnGenNow.disabled = true;
+                        const genRes = await window.FyersAPI.generateTokensDirect({
+                            appId: appVal,
+                            webuiRefreshToken: res.webuiRefreshToken,
+                            webuiAccessToken: res.webuiAccessToken,
+                            pin: pinVal,
+                            secretKey: secretVal
+                        });
+                        if (genRes.success && genRes.apiAccessToken) {
+                            if (inputApi) inputApi.value = genRes.apiAccessToken;
+                            if (genRes.webuiRefreshToken && inputRefresh) inputRefresh.value = genRes.webuiRefreshToken;
+                            if (genRes.webuiAccessToken && inputWebui) inputWebui.value = genRes.webuiAccessToken;
+                            runValidation();
+                            btnGenNow.innerText = '✓ API Token Generated!';
+                            btnGenNow.style.background = '#089981';
+                        } else {
+                            btnGenNow.innerText = 'Generation Failed';
+                            btnGenNow.disabled = false;
+                            alert(`Failed to generate API token: ${genRes.error || 'Unknown error'}`);
+                        }
+                    };
+                }
+            }
+
+            if (window.FyersAPI && window.FyersAPI.showToast) {
+                window.FyersAPI.showToast(`⚡ Zero-touch tokens received for ${userName}! Form updated.`, 'success', 4000);
+            }
+        };
+
+        // Helper: ensure private receiver session & webhook listener
+        const ensureReceiverSession = async () => {
+            if (!this._e2eeReceiver) {
+                const statusText = modal.querySelector('#bm-listener-status-text');
+                if (statusText) statusText.innerText = 'Creating ephemeral RAM keypair & channel...';
+                this._e2eeReceiver = await window.FyersAPI.createE2EESession({ enableWebhook: true });
+                
+                const bookmarkletLink = modal.querySelector('#bm-link-bookmarklet');
+                if (bookmarkletLink && typeof this._e2eeReceiver.generateBookmarklet === 'function') {
+                    bookmarkletLink.href = this._e2eeReceiver.generateBookmarklet();
+                }
+
+                if (statusText) {
+                    statusText.innerText = '🟢 Zero-Touch Bridge Active — Waiting for 1-click execution on trade.fyers.in...';
+                }
+
+                // Automatically listen
+                if (typeof this._e2eeReceiver.startListening === 'function') {
+                    this._e2eeReceiver.startListening((res) => {
+                        applyDecryptedResult(res);
+                    }, (err) => {
+                        if (statusText) statusText.innerText = 'Zero-touch bridge idle (use manual paste below).';
+                    });
+                }
+            }
+            return this._e2eeReceiver;
+        };
+
+        if (this._extractorOpen) {
+            ensureReceiverSession().catch((err) => {
+                const statusText = modal.querySelector('#bm-listener-status-text');
+                if (statusText) {
+                    statusText.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err}`;
+                }
+            });
+        }
+
         // 1-Click Browser Extractor Events
         const btnToggleExtractor = modal.querySelector('#bm-btn-toggle-extractor');
         const extractorPanel = modal.querySelector('#bm-extractor-panel');
@@ -1472,10 +1662,39 @@ class FyersUI {
                 if (e) e.preventDefault();
                 this._extractorOpen = !this._extractorOpen;
                 extractorPanel.style.display = this._extractorOpen ? 'block' : 'none';
-                btnToggleExtractor.innerHTML = `<span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Extractor Assistant'}</span>`;
+                btnToggleExtractor.innerHTML = `<span>${this._extractorOpen ? '▲ Hide Assistant' : '⚡ Open Zero-Touch Assistant'}</span>`;
                 btnToggleExtractor.style.background = this._extractorOpen ? 'rgba(41, 98, 255, 0.15)' : theme.primary;
                 btnToggleExtractor.style.color = this._extractorOpen ? theme.primary : '#ffffff';
                 btnToggleExtractor.style.border = `1px solid ${this._extractorOpen ? 'rgba(41, 98, 255, 0.35)' : 'transparent'}`;
+                if (this._extractorOpen) {
+                    ensureReceiverSession().catch((err) => {
+                        const statusText = modal.querySelector('#bm-listener-status-text');
+                        if (statusText) statusText.innerHTML = `⚠️ <strong>Private Engine Required:</strong> ${err.message || err}`;
+                    });
+                } else if (this._e2eeReceiver && typeof this._e2eeReceiver.stopListening === 'function') {
+                    this._e2eeReceiver.stopListening();
+                }
+            };
+        }
+
+        const btnCopyBookmarklet = modal.querySelector('#bm-btn-copy-bookmarklet');
+        if (btnCopyBookmarklet) {
+            btnCopyBookmarklet.onclick = async (e) => {
+                if (e) e.preventDefault();
+                try {
+                    const receiver = await ensureReceiverSession();
+                    if (receiver && typeof receiver.generateBookmarklet === 'function') {
+                        const bmUrl = receiver.generateBookmarklet();
+                        await navigator.clipboard.writeText(bmUrl);
+                        btnCopyBookmarklet.innerText = '✓ Copied!';
+                        setTimeout(() => { btnCopyBookmarklet.innerText = 'Copy URL'; }, 2500);
+                        if (window.FyersAPI && window.FyersAPI.showToast) {
+                            window.FyersAPI.showToast('⭐ Bookmarklet URL copied! Paste as a bookmark in your browser.', 'success', 3000);
+                        }
+                    }
+                } catch (err) {
+                    alert(`Could not generate bookmarklet: ${err.message || err}`);
+                }
             };
         }
 
@@ -1483,29 +1702,27 @@ class FyersUI {
         if (btnCopyScript) {
             btnCopyScript.onclick = async (e) => {
                 if (e) e.preventDefault();
-                btnCopyScript.innerHTML = '<span>⏳</span> Generating Session...';
+                btnCopyScript.innerHTML = '<span>⏳</span> Initializing Bridge...';
                 btnCopyScript.disabled = true;
                 try {
-                    if (!this._e2eeReceiver) {
-                        this._e2eeReceiver = await window.FyersAPI.createE2EESession();
-                    }
-                    const script = this._e2eeReceiver.generateExtractorScript();
+                    const receiver = await ensureReceiverSession();
+                    const script = receiver.generateExtractorScript();
                     await navigator.clipboard.writeText(script);
-                    btnCopyScript.innerHTML = '<span>✓</span> Script Copied to Clipboard!';
+                    btnCopyScript.innerHTML = '<span>✓</span> Script Copied!';
                     btnCopyScript.style.background = '#089981';
                     if (window.FyersAPI && window.FyersAPI.showToast) {
-                        window.FyersAPI.showToast('📋 Extractor script copied! Paste it into the Console on trade.fyers.in', 'success', 4000);
+                        window.FyersAPI.showToast('📋 Extractor script copied! Paste it into Console on trade.fyers.in', 'success', 4000);
                     }
                     setTimeout(() => {
                         if (btnCopyScript) {
-                            btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Extractor Script';
-                            btnCopyScript.style.background = theme.primary;
+                            btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Console Script';
+                            btnCopyScript.style.background = theme.cardBg;
                             btnCopyScript.disabled = false;
                         }
                     }, 3500);
                 } catch (err) {
                     btnCopyScript.disabled = false;
-                    btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Extractor Script';
+                    btnCopyScript.innerHTML = '<span>📋</span> Copy 1-Click Console Script';
                     if (statusBox) {
                         statusBox.style.display = 'block';
                         statusBox.style.background = 'rgba(242,54,69,0.08)';
@@ -1523,9 +1740,6 @@ class FyersUI {
                 }
             };
         }
-
-        const statusBox = modal.querySelector('#bm-extractor-status');
-        const payloadInput = modal.querySelector('#bm-input-extractor-payload');
 
         const handleDecrypt = async (payloadStr) => {
             const raw = (payloadStr || (payloadInput ? payloadInput.value : '')).trim();
@@ -1546,7 +1760,7 @@ class FyersUI {
                     statusBox.style.background = 'rgba(242,54,69,0.08)';
                     statusBox.style.color = '#f23645';
                     statusBox.style.border = '1px solid rgba(242,54,69,0.25)';
-                    statusBox.innerHTML = '⚠️ Session keypair expired or not found. Please click "Copy 1-Click Extractor Script" to generate a fresh keypair and run on Fyers Web.';
+                    statusBox.innerHTML = '⚠️ Session keypair expired or not found. Please click "Copy 1-Click Console Script" to generate a fresh keypair and run on Fyers Web.';
                 }
                 return;
             }
@@ -1557,7 +1771,7 @@ class FyersUI {
                     statusBox.style.background = 'rgba(41,98,255,0.08)';
                     statusBox.style.color = '#2962FF';
                     statusBox.style.border = '1px solid rgba(41,98,255,0.25)';
-                    statusBox.innerHTML = '⏳ Decrypting session with RSA-2048 private key...';
+                    statusBox.innerHTML = '⏳ Decrypting session with RSA-2048 private key in RAM...';
                 }
 
                 const res = await this._e2eeReceiver.decrypt(raw);
@@ -1565,72 +1779,7 @@ class FyersUI {
                     throw new Error("Decryption returned invalid or unverified result.");
                 }
 
-                if (inputRefresh) inputRefresh.value = res.webuiRefreshToken || '';
-                if (inputWebui) inputWebui.value = res.webuiAccessToken || '';
-
-                if (inputAppId && !inputAppId.value.trim() && res.fyersId) {
-                    inputAppId.value = `${res.fyersId}-100`;
-                }
-
-                runValidation();
-
-                const userName = res.displayName ? `${res.displayName} (${res.fyersId})` : (res.fyersId || 'User');
-                const refExp = res.refreshExpiresAt ? window.FyersAPI.formatExpiry(res.refreshExpiresAt) : 'Active';
-
-                if (statusBox) {
-                    statusBox.style.display = 'block';
-                    statusBox.style.background = 'rgba(8,153,129,0.1)';
-                    statusBox.style.color = '#089981';
-                    statusBox.style.border = '1px solid rgba(8,153,129,0.3)';
-                    statusBox.innerHTML = `
-                        <div style="font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 5px;">
-                            <span>✓</span> Decrypted & Auto-Filled Successfully!
-                        </div>
-                        <div>Account: <strong>${userName}</strong> • WebUI Refresh Token valid ${refExp}.</div>
-                        <div style="margin-top: 6px; font-size: 11px; color: ${theme.text};">
-                            If you entered your PIN & Secret Key below, click <button id="bm-btn-generate-api-now" type="button" style="background: #2962FF; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; margin-left: 2px;">⚡ Generate API Token Now</button> or click <strong>Save & Connect</strong>.
-                        </div>
-                    `;
-
-                    const btnGenNow = statusBox.querySelector('#bm-btn-generate-api-now');
-                    if (btnGenNow) {
-                        btnGenNow.onclick = async (e) => {
-                            if (e) e.preventDefault();
-                            const pinVal = inputPin ? inputPin.value.trim() : '';
-                            const secretVal = inputSecret ? inputSecret.value.trim() : '';
-                            const appVal = inputAppId ? inputAppId.value.trim() : '';
-                            if (!pinVal || !secretVal) {
-                                alert("Please enter your 4-digit PIN and App Secret Key in the fields below first!");
-                                return;
-                            }
-                            btnGenNow.innerText = 'Generating...';
-                            btnGenNow.disabled = true;
-                            const genRes = await window.FyersAPI.generateTokensDirect({
-                                appId: appVal,
-                                webuiRefreshToken: res.webuiRefreshToken,
-                                webuiAccessToken: res.webuiAccessToken,
-                                pin: pinVal,
-                                secretKey: secretVal
-                            });
-                            if (genRes.success && genRes.apiAccessToken) {
-                                if (inputApi) inputApi.value = genRes.apiAccessToken;
-                                if (genRes.webuiRefreshToken && inputRefresh) inputRefresh.value = genRes.webuiRefreshToken;
-                                if (genRes.webuiAccessToken && inputWebui) inputWebui.value = genRes.webuiAccessToken;
-                                runValidation();
-                                btnGenNow.innerText = '✓ API Token Generated!';
-                                btnGenNow.style.background = '#089981';
-                            } else {
-                                btnGenNow.innerText = 'Generation Failed';
-                                btnGenNow.disabled = false;
-                                alert(`Failed to generate API token: ${genRes.error || 'Unknown error'}`);
-                            }
-                        };
-                    }
-                }
-
-                if (window.FyersAPI && window.FyersAPI.showToast) {
-                    window.FyersAPI.showToast(`✓ Decrypted tokens for ${userName}! Form updated.`, 'success', 3500);
-                }
+                applyDecryptedResult(res);
             } catch (err) {
                 if (statusBox) {
                     statusBox.style.display = 'block';
