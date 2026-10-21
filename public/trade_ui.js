@@ -458,50 +458,52 @@
             widget.setAttribute('data-connected', String(isBrokerConnected));
             widget.setAttribute('data-oneclick', String(isOneClick));
 
-            // Solid Filled when connected, Outlined when disconnected!
+            // Solid Filled when connected, Outlined when disconnected! (Image 3)
             const sellBg = isBrokerConnected ? '#f23645' : '#ffffff';
             const sellTextColor = isBrokerConnected ? '#ffffff' : '#f23645';
+            const sellBorder = isBrokerConnected ? 'none' : '1px solid #f23645';
             const buyBg = isBrokerConnected ? '#2962ff' : '#ffffff';
             const buyTextColor = isBrokerConnected ? '#ffffff' : '#2962ff';
+            const buyBorder = isBrokerConnected ? 'none' : '1px solid #2962ff';
 
             widget.innerHTML = `
                 <!-- Main Buy / Sell Buttons Row -->
-                <div style="display: flex; align-items: center; gap: 6px; position: relative;">
-                    <!-- SELL BUTTON -->
+                <div style="display: flex; align-items: center; position: relative;">
+                    <!-- SELL BUTTON (Image 3) -->
                     <button id="tv-native-btn-sell" type="button" style="
                         background: ${sellBg};
-                        border: 1px solid #f23645;
-                        border-radius: 4px;
-                        padding: 2px 10px;
-                        min-width: 80px;
-                        height: 32px;
+                        border: ${sellBorder};
+                        border-radius: 6px;
+                        padding: 2px 8px;
+                        width: 84px;
+                        height: 34px;
                         cursor: pointer;
                         display: flex;
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
                         transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentBid)}</span>
-                        <span style="color: ${sellTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">SELL</span>
+                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentBid)}</span>
+                        <span style="color: ${sellTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">SELL</span>
                     </button>
 
-                    <!-- SPREAD & SINGLE AUTHENTIC CENTER QUANTITY PILL (Only when One-Click is ON!) -->
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 28px;">
-                        <span id="tv-native-spread-disp" style="color: #131722; font-size: 10.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
+                    <!-- SPREAD & SINGLE AUTHENTIC CENTER QUANTITY PILL (Image 3) -->
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 24px; margin: 0 8px;">
+                        <span id="tv-native-spread-disp" style="color: #131722; font-size: 11.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
                         ${isOneClick ? `
                             <button id="tv-native-center-lot-btn" type="button" title="Set Order Quantity" style="
                                 background: #f0f3fa;
                                 border: 1px solid #d1d4dc;
                                 border-radius: 3px;
-                                padding: 1px 5px;
+                                padding: 1px 6px;
                                 font-size: 10.5px;
                                 font-weight: 700;
                                 color: #131722;
                                 cursor: pointer;
-                                margin-top: 1px;
+                                margin-top: 2px;
                                 line-height: 1.1;
                                 outline: none;
                             ">
@@ -510,25 +512,25 @@
                         ` : ''}
                     </div>
 
-                    <!-- BUY BUTTON -->
+                    <!-- BUY BUTTON (Image 3) -->
                     <button id="tv-native-btn-buy" type="button" style="
                         background: ${buyBg};
-                        border: 1px solid #2962ff;
-                        border-radius: 4px;
-                        padding: 2px 10px;
-                        min-width: 80px;
-                        height: 32px;
+                        border: ${buyBorder};
+                        border-radius: 6px;
+                        padding: 2px 8px;
+                        width: 84px;
+                        height: 34px;
                         cursor: pointer;
                         display: flex;
                         flex-direction: column;
                         align-items: center;
                         justify-content: center;
                         outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
                         transition: background 0.15s, transform 0.1s;
                     ">
-                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 12px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentAsk)}</span>
-                        <span style="color: ${buyTextColor}; font-size: 9px; font-weight: 700; letter-spacing: 0.6px; line-height: 1.1;">BUY</span>
+                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
+                        <span style="color: ${buyTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">BUY</span>
                     </button>
                 </div>
 
@@ -1283,11 +1285,11 @@
                 ${this.ticketTab === 'dom' ? this.renderDomLadder(theme) : `
                     <!-- 3. Scrollable Order Form Body -->
                     <div style="flex: 1; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px;">
-                        <!-- Split Sell / Buy Quote Box -->
+                        <!-- Split Sell / Buy Quote Box (Image 1) -->
                         <div style="
                             display: grid;
                             grid-template-columns: 1fr 1fr;
-                            border-radius: 8px;
+                            border-radius: 6px;
                             border: 1px solid ${theme.border};
                             overflow: hidden;
                             position: relative;
@@ -1295,7 +1297,7 @@
                         ">
                             <!-- SELL BOX -->
                             <div id="tv-ticket-split-sell" style="
-                                padding: 10px 12px;
+                                padding: 8px 12px;
                                 background: ${!isBuy ? theme.sellActiveBg : '#ffffff'};
                                 border-right: 1px solid ${theme.border};
                                 cursor: pointer;
@@ -1303,11 +1305,11 @@
                                 flex-direction: column;
                                 transition: background 0.15s;
                             ">
-                                <span style="color: ${!isBuy ? theme.sellColor : theme.textMuted}; font-size: 11.5px; font-weight: 600;">Sell</span>
-                                <span id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${this.formatPipPriceHtml(this.currentBid)}</span>
+                                <span style="color: ${!isBuy ? theme.sellColor : theme.textMuted}; font-size: 11px; font-weight: 600; margin-bottom: 2px;">Sell</span>
+                                <span id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 18px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentBid)}</span>
                             </div>
 
-                            <!-- CENTER SPREAD BADGE PILL -->
+                            <!-- CENTER SPREAD BADGE PILL (Image 1) -->
                             <div style="
                                 position: absolute;
                                 left: 50%;
@@ -1316,11 +1318,11 @@
                                 background: #ffffff;
                                 border: 1px solid ${theme.border};
                                 border-radius: 4px;
-                                padding: 2px 7px;
-                                font-size: 11px;
+                                padding: 2px 8px;
+                                font-size: 11.5px;
                                 font-weight: 600;
                                 color: #131722;
-                                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+                                box-shadow: 0 1px 2px rgba(0,0,0,0.06);
                                 pointer-events: none;
                             ">
                                 <span id="tv-ticket-spread-badge">${spreadPoints}</span>
@@ -1328,7 +1330,7 @@
 
                             <!-- BUY BOX -->
                             <div id="tv-ticket-split-buy" style="
-                                padding: 10px 12px;
+                                padding: 8px 12px;
                                 background: ${isBuy ? theme.buyActiveBg : '#ffffff'};
                                 text-align: right;
                                 cursor: pointer;
@@ -1336,8 +1338,8 @@
                                 flex-direction: column;
                                 transition: background 0.15s;
                             ">
-                                <span style="color: ${theme.buyColor}; font-size: 11.5px; font-weight: 600;">Buy</span>
-                                <span id="tv-ticket-ask-val" style="color: ${theme.buyColor}; font-size: 15.5px; font-weight: 700; margin-top: 3px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
+                                <span style="color: ${isBuy ? theme.buyColor : theme.textMuted}; font-size: 11px; font-weight: 600; margin-bottom: 2px;">Buy</span>
+                                <span id="tv-ticket-ask-val" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 18px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentAsk)}</span>
                             </div>
                         </div>
 
@@ -1414,17 +1416,20 @@
                             </div>
                         ` : ''}
 
-                        <!-- Units Input Box (Quantity & Currency Conversion) -->
+                        <!-- Units Input Box (Image 1) -->
                         <div>
-                            <div style="display: flex; justify-content: space-between; font-size: 12px; color: ${theme.textMuted}; margin-bottom: 5px;">
-                                <span>Units ⌵</span>
+                            <div style="font-size: 11.5px; color: ${theme.textMuted}; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                <span>Units</span>
+                                <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor"><path d="M4 4.5L0.5 1L1.2 0.3L4 3.1L6.8 0.3L7.5 1L4 4.5Z"/></svg>
                             </div>
                             <div style="
                                 display: flex;
                                 align-items: center;
-                                border: 1px solid ${theme.border};
+                                border: 1px solid #d1d4dc;
                                 border-radius: 6px;
                                 padding: 6px 12px;
+                                height: 38px;
+                                box-sizing: border-box;
                                 background: #ffffff;
                             ">
                                 <input type="number" id="tv-ticket-units-in" min="0.01" step="0.1" value="${this.lots}" style="
@@ -1436,9 +1441,12 @@
                                     font-size: 14px;
                                     font-weight: 700;
                                 ">
-                                <span style="color: ${theme.textMuted}; margin: 0 8px;">⇄</span>
-                                <span id="tv-ticket-usd-val" style="margin-left: auto; font-size: 12px; font-weight: 600; color: ${theme.textMuted}; cursor: pointer;">
-                                    ${this.calculateTradeValueUSD()} USD ⌵
+                                <span style="color: #787b86; margin: 0 8px; display: flex; align-items: center; cursor: pointer;">
+                                    <svg width="15" height="15" viewBox="0 0 18 18" fill="currentColor"><path d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"/></svg>
+                                </span>
+                                <span id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: #787b86; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    ${this.calculateTradeValueUSD()} USD
+                                    <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor"><path d="M4 4.5L0.5 1L1.2 0.3L4 3.1L6.8 0.3L7.5 1L4 4.5Z"/></svg>
                                 </span>
                             </div>
                         </div>
@@ -2323,25 +2331,26 @@
                             border-radius: 4px;
                             padding: 3px 8px;
                             background: #ffffff;
+                            cursor: pointer;
                         ">
                             <div style="
-                                width: 14px;
-                                height: 14px;
-                                border-radius: 2px;
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 3px;
                                 background: #131722;
                                 color: #ffffff;
                                 display: flex;
                                 align-items: center;
                                 justify-content: center;
-                                font-size: 8px;
+                                font-size: 8.5px;
                                 font-weight: 900;
                             ">TV</div>
                             <select id="tv-bottom-broker-select" style="
                                 border: none;
                                 outline: none;
                                 background: transparent;
-                                font-size: 11.5px;
-                                font-weight: 600;
+                                font-size: 12px;
+                                font-weight: 700;
                                 color: #131722;
                                 cursor: pointer;
                             ">
@@ -2351,17 +2360,19 @@
                             </select>
                         </div>
 
-                        <!-- Account Pill (FusionPhantom USD) -->
+                        <!-- Account Pill (FusionPhantom usd) - Image 2 -->
                         <div style="
                             padding: 3px 8px;
                             border: 1px solid ${theme.border};
                             border-radius: 4px;
-                            font-size: 11.5px;
-                            font-weight: 600;
-                            color: ${theme.text};
                             background: #ffffff;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                            cursor: pointer;
                         ">
-                            FusionPhantom usd ⌵
+                            <span style="font-size: 11.5px; font-weight: 700; color: #131722;">FusionPhantom</span>
+                            <span style="font-size: 11px; font-weight: 600; color: #787b86;">usd ⌵</span>
                         </div>
                     </div>
 
@@ -2585,7 +2596,7 @@
             return '';
         }
 
-        // --- Positions Table (Image 3) ---
+        // --- Positions Table (Image 2) ---
         renderPositionsTable(theme, curPositions) {
             if (curPositions.length === 0) {
                 return `
@@ -2596,23 +2607,19 @@
             }
 
             return `
-                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11.5px; white-space: nowrap;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; white-space: nowrap;">
                     <thead>
-                        <tr style="height: 32px; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted}; font-weight: 500; font-size: 11px;">
+                        <tr style="height: 34px; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted}; font-weight: 600; font-size: 11.5px;">
                             <th style="padding: 0 16px;">Symbol</th>
                             <th style="padding: 0 12px;">Side</th>
-                            <th style="padding: 0 12px; text-align: right;">Quantity</th>
-                            <th style="padding: 0 12px; text-align: right;">Avg fill price</th>
-                            <th style="padding: 0 12px; text-align: right;">Take profit</th>
-                            <th style="padding: 0 12px; text-align: right;">Stop loss</th>
-                            <th style="padding: 0 12px; text-align: right;">Last price</th>
-                            <th style="padding: 0 12px; text-align: right;">Unrealized PnL</th>
-                            <th style="padding: 0 12px; text-align: right;">Unrealized PnL %</th>
-                            <th style="padding: 0 12px; text-align: right;">Trade value</th>
-                            <th style="padding: 0 12px; text-align: right;">Market value</th>
-                            <th style="padding: 0 12px; text-align: right;">Leverage</th>
-                            <th style="padding: 0 12px; text-align: right;">Margin</th>
-                            <th style="padding: 0 12px;">Expiration date</th>
+                            <th style="padding: 0 12px;">Quantity</th>
+                            <th style="padding: 0 12px;">Avg fill price</th>
+                            <th style="padding: 0 12px;">Take profit</th>
+                            <th style="padding: 0 12px;">Stop loss</th>
+                            <th style="padding: 0 12px;">Last price</th>
+                            <th style="padding: 0 12px;">Unrealized PnL</th>
+                            <th style="padding: 0 12px;">Unrealized PnL %</th>
+                            <th style="padding: 0 12px;">Trade value</th>
                             <th style="padding: 0 16px; text-align: center;">Actions</th>
                         </tr>
                     </thead>
@@ -2629,32 +2636,26 @@
 
                             const lastPrice = p.current_price || (isBuy ? this.currentBid : this.currentAsk);
                             const tradeValue = (p.open_price * p.lots).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                            const marketValue = (lastPrice * p.lots).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                            const marginVal = ((p.open_price * p.lots) / 50).toFixed(2);
 
                             const symFormatted = p.symbol.includes(':') ? p.symbol : `OANDA:${p.symbol}`;
 
                             return `
-                                <tr style="height: 38px; border-bottom: 1px solid #f0f3fa; transition: background 0.1s;">
+                                <tr style="height: 40px; border-bottom: 1px solid #f0f3fa; transition: background 0.1s;">
                                     <td style="padding: 0 16px;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <div style="width: 16px; height: 16px; border-radius: 50%; background: #f59e0b; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 8.5px; font-weight: 800;">O</div>
-                                            <span style="background: #2962ff; color: #ffffff; font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.3px;">${symFormatted}</span>
+                                            <span style="background: #2962ff; color: #ffffff; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.3px;">${symFormatted}</span>
                                         </div>
                                     </td>
                                     <td style="padding: 0 12px; color: ${sideColor}; font-weight: 600;">${sideText}</td>
-                                    <td style="padding: 0 12px; text-align: right; font-weight: 600; color: ${theme.text};">${p.lots}</td>
-                                    <td style="padding: 0 12px; text-align: right; font-weight: 600; color: ${theme.text};">${p.open_price}</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.textMuted};">${p.tp ? p.tp : '—'}</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.textMuted};">${p.sl ? p.sl : '—'}</td>
-                                    <td style="padding: 0 12px; text-align: right; font-weight: 600; color: ${theme.text};">${lastPrice}</td>
-                                    <td style="padding: 0 12px; text-align: right; font-weight: 700; color: ${pnlColor};">${pnlFormatted}</td>
-                                    <td style="padding: 0 12px; text-align: right; font-weight: 700; color: ${pnlColor};">${pnlPctFormatted}</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.text};">${tradeValue} USD</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.text};">${marketValue} USD</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.textMuted};">50x</td>
-                                    <td style="padding: 0 12px; text-align: right; color: ${theme.text};">${marginVal} USD</td>
-                                    <td style="padding: 0 12px; color: ${theme.textMuted};">—</td>
+                                    <td style="padding: 0 12px; font-weight: 700; color: ${theme.text};">${p.lots}</td>
+                                    <td style="padding: 0 12px; font-weight: 700; color: ${theme.text};">${p.open_price}</td>
+                                    <td style="padding: 0 12px; color: ${theme.textMuted};">${p.tp ? p.tp : '—'}</td>
+                                    <td style="padding: 0 12px; color: ${theme.textMuted};">${p.sl ? p.sl : '—'}</td>
+                                    <td style="padding: 0 12px; font-weight: 700; color: ${theme.text};">${lastPrice}</td>
+                                    <td style="padding: 0 12px; font-weight: 700; color: ${pnlColor};">${pnlFormatted}</td>
+                                    <td style="padding: 0 12px; font-weight: 700; color: ${pnlColor};">${pnlPctFormatted}</td>
+                                    <td style="padding: 0 12px; font-weight: 600; color: ${theme.text};">${tradeValue} USD</td>
                                     <td style="padding: 0 16px; text-align: center;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                             <button type="button" class="tv-btn-pos-protect" data-ticket="${p.ticket}" title="Protect / Modify Position" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; padding: 2px;">
