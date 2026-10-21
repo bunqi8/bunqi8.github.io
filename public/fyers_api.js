@@ -8,9 +8,22 @@ class FyersEngine {
         this.profileName = null;
         this.fyId = null;
         this.isConnected = false;
+        this._isRefreshing = false;
+        this.engineLastLoaded = null;
         
         // Initialize multi-account broker management
         this.initBrokerAccounts();
+        
+        // Auto-refresh scheduler
+        this.setupAutoRefreshScheduler();
+
+        // Lazily preload private engine if PAT is present
+        setTimeout(() => {
+            const cfg = this.getEngineConfig();
+            if (cfg && cfg.githubPat) {
+                this.loadPrivateEngine(false).catch(() => {});
+            }
+        }, 3000);
         
         // WebSocket state
         
@@ -447,6 +460,375 @@ class FyersEngine {
             }
         }
     }
+
+    // ==========================================
+    // CLOSED-SOURCE PRIVATE ENGINE & AUTO-REFRESH
+    // ==========================================
+
+    getEngineConfig() {
+        try {
+            const raw = localStorage.getItem('tv_broker_engine_config');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                return {
+                    repo: parsed.repo || 'bunqi8/broker-private',
+                    filePath: parsed.filePath || 'fyers_auth.js',
+                    githubPat: parsed.githubPat || '',
+                    autoRefresh: parsed.autoRefresh !== false,
+                    leadTimeMinutes: Number(parsed.leadTimeMinutes) || 10
+                };
+            }
+        } catch (_) {}
+        return {
+            repo: 'bunqi8/broker-private',
+            filePath: 'fyers_auth.js',
+            githubPat: '',
+            autoRefresh: true,
+            leadTimeMinutes: 10
+        };
+    }
+
+    saveEngineConfig({ repo, filePath, githubPat, autoRefresh, leadTimeMinutes }) {
+        const current = this.getEngineConfig();
+        const updated = {
+            repo: (repo !== undefined && repo !== null && repo.trim()) ? repo.trim() : current.repo,
+            filePath: (filePath !== undefined && filePath !== null && filePath.trim()) ? filePath.trim() : current.filePath,
+            // Strict write-only: if user leaves PAT blank, preserve existing saved PAT
+            githubPat: (githubPat !== undefined && githubPat !== null && githubPat.trim() !== '') 
+                ? githubPat.trim() 
+                : current.githubPat,
+            autoRefresh: autoRefresh !== undefined ? Boolean(autoRefresh) : current.autoRefresh,
+            leadTimeMinutes: (leadTimeMinutes !== undefined && !isNaN(leadTimeMinutes)) 
+                ? Math.max(1, Number(leadTimeMinutes)) 
+                : current.leadTimeMinutes
+        };
+        localStorage.setItem('tv_broker_engine_config', JSON.stringify(updated));
+        return updated;
+    }
+
+    parseRepo(repoStr) {
+        if (!repoStr) return { owner: 'bunqi8', repo: 'broker-private' };
+        let clean = repoStr.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').trim();
+        clean = clean.replace(/^\/+|\/+$/g, '');
+        const parts = clean.split('/');
+        if (parts.length >= 2) {
+            return { owner: parts[0], repo: parts[1] };
+        }
+        return { owner: 'bunqi8', repo: parts[0] || 'broker-private' };
+    }
+
+    async loadPrivateEngine(forceReload = false) {
+        if (!forceReload && window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+            return { success: true, engine: window.FyersPrivateEngine, cached: true };
+        }
+
+        const cfg = this.getEngineConfig();
+        if (!cfg.githubPat) {
+            return { 
+                success: false, 
+                error: "GitHub Personal Access Token (PAT) is not configured. Please configure your PAT in Auto-Refresh Settings." 
+            };
+        }
+
+        const { owner, repo } = this.parseRepo(cfg.repo);
+        const filePath = cfg.filePath || 'fyers_auth.js';
+        const cacheKey = `tv_private_script_${owner}_${repo}_${filePath}`;
+
+        if (!forceReload) {
+            try {
+                const cachedScript = sessionStorage.getItem(cacheKey);
+                if (cachedScript) {
+                    (new Function(cachedScript))();
+                    if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.refreshToken === 'function') {
+                        return { success: true, engine: window.FyersPrivateEngine, cached: true };
+                    }
+                }
+            } catch (e) {
+                console.warn("[FyersEngine] Cached private engine execution error:", e);
+            }
+        }
+
+        // Fetch from GitHub raw API
+        const rawUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+        try {
+            const res = await fetch(rawUrl, {
+                headers: {
+                    'Authorization': `Bearer ${cfg.githubPat}`,
+                    'Accept': 'application/vnd.github.v3.raw',
+                    'X-GitHub-Api-Version': '2022-11-28'
+                }
+            });
+
+            if (!res.ok) {
+                if (res.status === 404) {
+                    return { 
+                        success: false, 
+                        error: `File "${filePath}" not found in private repo "${owner}/${repo}". Check repository name and file path.` 
+                    };
+                }
+                if (res.status === 401 || res.status === 403) {
+                    return { 
+                        success: false, 
+                        error: `GitHub Authentication Failed (HTTP ${res.status}). Ensure your PAT has "repo" (contents:read) permission.` 
+                    };
+                }
+                return { 
+                    success: false, 
+                    error: `GitHub API error: HTTP ${res.status} (${res.statusText || 'Request failed'})` 
+                };
+            }
+
+            const scriptText = await res.text();
+            if (!scriptText || !scriptText.trim()) {
+                return { success: false, error: "Private engine script fetched from repository is empty." };
+            }
+
+            // Execute in browser global context
+            (new Function(scriptText))();
+
+            if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.refreshToken !== 'function') {
+                return { 
+                    success: false, 
+                    error: "Script loaded, but window.FyersPrivateEngine.refreshToken() is not defined. Verify your script implements the required contract." 
+                };
+            }
+
+            // Cache in sessionStorage
+            try {
+                sessionStorage.setItem(cacheKey, scriptText);
+                this.engineLastLoaded = Date.now();
+            } catch (_) {}
+
+            return { 
+                success: true, 
+                engine: window.FyersPrivateEngine, 
+                version: window.FyersPrivateEngine.version || '1.0.0' 
+            };
+        } catch (err) {
+            return { success: false, error: `Network error connecting to GitHub: ${err.message}` };
+        }
+    }
+
+    async refreshAccountToken(accountId = null, isManual = false) {
+        if (this._isRefreshing) {
+            const msg = "Token refresh already in progress...";
+            if (isManual) this.showToast(msg, 'warning');
+            return { success: false, error: msg };
+        }
+        this._isRefreshing = true;
+
+        try {
+            const accounts = this.getAccounts();
+            const targetId = accountId || this.getActiveAccountId();
+            const account = accounts.find(a => a.id === targetId);
+
+            if (!account) {
+                const err = "Broker account not found.";
+                if (isManual) this.showToast(err, 'error');
+                return { success: false, error: err };
+            }
+
+            if (!account.webuiRefreshToken) {
+                const err = `Account "${account.displayName}" has no WebUI Refresh Token. Refresh token is required to generate new access tokens.`;
+                if (isManual) this.showToast(err, 'warning');
+                return { success: false, error: err };
+            }
+
+            if (this.isRefreshExpired(account)) {
+                const err = `WebUI Refresh Token for "${account.displayName}" has expired. Please replace it with a fresh refresh token.`;
+                this.showToast(err, 'error');
+                return { success: false, error: err };
+            }
+
+            // Load or fetch private engine
+            const engineRes = await this.loadPrivateEngine(false);
+            if (!engineRes.success) {
+                const err = `Cannot refresh token: ${engineRes.error}`;
+                if (isManual) this.showToast(err, 'error');
+                return { success: false, error: err };
+            }
+
+            const engine = window.FyersPrivateEngine;
+            if (!engine || typeof engine.refreshToken !== 'function') {
+                const err = "Private engine refreshToken() method is not defined.";
+                if (isManual) this.showToast(err, 'error');
+                return { success: false, error: err };
+            }
+
+            if (isManual) {
+                this.showToast(`Requesting fresh access token for ${account.displayName}...`, 'info', 2000);
+            }
+
+            // Call proprietary refreshToken logic
+            const res = await engine.refreshToken({
+                appId: account.appId,
+                webuiRefreshToken: account.webuiRefreshToken,
+                apiAccessToken: account.apiAccessToken,
+                webuiAccessToken: account.webuiAccessToken
+            });
+
+            if (!res || !res.success || !res.apiAccessToken) {
+                const err = (res && res.error) ? res.error : "Private engine failed to generate fresh token.";
+                this.showToast(`Token refresh failed: ${err}`, 'error');
+                return { success: false, error: err };
+            }
+
+            // Clean token if prefixed with app_id
+            let cleanApi = res.apiAccessToken.trim();
+            if (cleanApi.includes(':') && cleanApi.split(':').length === 2 && cleanApi.includes('.')) {
+                cleanApi = cleanApi.split(':')[1];
+            }
+
+            const info = this.extractTokenInfo(cleanApi);
+            if (info && info.fyId && account.fyId && info.fyId !== account.fyId) {
+                const err = `Refreshed token User ID ("${info.fyId}") does not match account User ID ("${account.fyId}").`;
+                this.showToast(err, 'error');
+                return { success: false, error: err };
+            }
+
+            // Update account tokens
+            account.apiAccessToken = cleanApi;
+            if (info && info.exp) {
+                account.apiExpiresAt = info.exp;
+            }
+
+            // If refresh token rotation is supported
+            if (res.webuiRefreshToken) {
+                account.webuiRefreshToken = res.webuiRefreshToken.trim();
+                const refInfo = this.extractTokenInfo(account.webuiRefreshToken);
+                if (refInfo && refInfo.exp) account.refreshExpiresAt = refInfo.exp;
+            }
+
+            if (res.webuiAccessToken) {
+                account.webuiAccessToken = res.webuiAccessToken.trim();
+                const webInfo = this.extractTokenInfo(account.webuiAccessToken);
+                if (webInfo && webInfo.exp) account.webuiExpiresAt = webInfo.exp;
+            }
+
+            account.updatedAt = Date.now();
+            this.saveAccounts(accounts);
+
+            // If active account, re-activate with updated header
+            const activeId = this.getActiveAccountId();
+            if (activeId === account.id || accounts.length === 1) {
+                this.setActiveAccount(account.id);
+            }
+
+            const expStr = this.formatExpiry(account.apiExpiresAt);
+            this.showToast(`⚡ Access token refreshed for ${account.displayName} (${account.fyId})! Valid ${expStr}.`, 'success', 5000);
+
+            window.dispatchEvent(new CustomEvent('fyers_token_refreshed', { detail: { account } }));
+            return { success: true, account };
+        } catch (e) {
+            console.error("[FyersEngine] Token refresh exception:", e);
+            const err = `Token refresh error: ${e.message || e}`;
+            this.showToast(err, 'error');
+            return { success: false, error: err };
+        } finally {
+            this._isRefreshing = false;
+        }
+    }
+
+    setupAutoRefreshScheduler() {
+        if (this._schedulerInterval) clearInterval(this._schedulerInterval);
+        
+        // Periodic check every 60 seconds
+        this._schedulerInterval = setInterval(() => {
+            this.checkAndAutoRenewTokens();
+        }, 60000);
+
+        // Initial check after 4 seconds
+        setTimeout(() => {
+            this.checkAndAutoRenewTokens();
+        }, 4000);
+    }
+
+    async checkAndAutoRenewTokens() {
+        const cfg = this.getEngineConfig();
+        if (!cfg.autoRefresh || !cfg.githubPat) return;
+
+        const active = this.getActiveAccount();
+        if (!active || !active.webuiRefreshToken) return;
+        if (this.isRefreshExpired(active)) return;
+
+        if (active.apiExpiresAt) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const remainingSec = active.apiExpiresAt - nowSec;
+            const leadSec = (cfg.leadTimeMinutes || 10) * 60;
+
+            if (remainingSec <= leadSec) {
+                console.log(`[FyersEngine] Active token expires in ${Math.round(remainingSec / 60)}m (<= ${cfg.leadTimeMinutes}m threshold). Running auto-refresh...`);
+                await this.refreshAccountToken(active.id, false);
+            }
+        }
+    }
+
+    showToast(message, type = 'info', durationMs = 4500) {
+        if (typeof document === 'undefined') return;
+        let toastContainer = document.getElementById('tv-toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'tv-toast-container';
+            toastContainer.style.cssText = `
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                z-index: 999999;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                max-width: 420px;
+                pointer-events: none;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            `;
+            document.body.appendChild(toastContainer);
+        }
+
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            pointer-events: auto;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.4;
+            color: #ffffff;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            opacity: 0;
+            transform: translateY(12px);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        `;
+
+        let bg = '#1e222d';
+        let icon = 'ℹ️';
+        if (type === 'success') {
+            bg = '#089981';
+            icon = '✓';
+        } else if (type === 'error') {
+            bg = '#f23645';
+            icon = '⚠️';
+        } else if (type === 'warning') {
+            bg = '#ff9800';
+            icon = '⚡';
+        }
+
+        toast.style.background = bg;
+        toast.innerHTML = `<span style="font-weight: bold; font-size: 15px;">${icon}</span><span style="flex:1;">${message}</span>`;
+        toastContainer.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        });
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(12px)';
+            setTimeout(() => toast.remove(), 300);
+        }, durationMs);
+    }
     
     async validateAndGetProfile() {
         if (!this.token) return { success: false };
@@ -517,10 +899,34 @@ class FyersEngine {
                 tx.objectStore('history').put({ cacheKey, data: bars, timestamp: Date.now() });
                 
                 return bars;
-            } else if (data.code === -300 || data.message.toLowerCase().includes('token')) {
+            } else if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token')) || res.status === 401) {
+                // Attempt automatic reactive refresh if account has refresh token
+                const active = this.getActiveAccount();
+                if (active && active.webuiRefreshToken && !this.isRefreshExpired(active)) {
+                    console.log("[FyersEngine] Token expired during getHistory, attempting reactive refresh...");
+                    const refreshed = await this.refreshAccountToken(active.id, false);
+                    if (refreshed.success) {
+                        try {
+                            const retryRes = await fetch(url, { headers: { 'Authorization': this.token } });
+                            const retryData = await retryRes.json();
+                            if (retryData.s === 'ok' && retryData.candles) {
+                                const bars = retryData.candles.map(c => ({
+                                    time: c[0] * 1000,
+                                    open: c[1],
+                                    high: c[2],
+                                    low: c[3],
+                                    close: c[4],
+                                    volume: c[5]
+                                }));
+                                const tx = db.transaction('history', 'readwrite');
+                                tx.objectStore('history').put({ cacheKey, data: bars, timestamp: Date.now() });
+                                return bars;
+                            }
+                        } catch (_) {}
+                    }
+                }
                 // Token expired
-                this.isConnected = false;
-                window.dispatchEvent(new CustomEvent('fyers_connection_status', { detail: { connected: false, error: 'Token Expired' }}));
+                this.markActiveAccountExpired('Token Expired');
             }
             return [];
         } catch (e) {
@@ -591,8 +997,33 @@ class FyersEngine {
                             volume: c[5]
                         }));
                     } else if (data.s === 'error' || data.s === 'no_data') {
-                        if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token'))) {
-                            this.markActiveAccountExpired('Token Expired');
+                        if (data.code === -300 || (data.message && data.message.toLowerCase().includes('token')) || res.status === 401) {
+                            const active = this.getActiveAccount();
+                            if (active && active.webuiRefreshToken && !this.isRefreshExpired(active)) {
+                                console.log("[FyersEngine] Token expired during getDeepHistory, attempting reactive refresh...");
+                                const refreshed = await this.refreshAccountToken(active.id, false);
+                                if (refreshed.success) {
+                                    try {
+                                        const retryRes = await fetch(url, { headers: { 'Authorization': this.token } });
+                                        const retryData = await retryRes.json();
+                                        if (retryData.s === 'ok' && retryData.candles) {
+                                            fetchedBars = retryData.candles.map(c => ({
+                                                id: `${symbol_res}_${c[0] * 1000}`,
+                                                symbol_res: symbol_res,
+                                                time: c[0] * 1000,
+                                                open: c[1],
+                                                high: c[2],
+                                                low: c[3],
+                                                close: c[4],
+                                                volume: c[5]
+                                            }));
+                                        }
+                                    } catch (_) {}
+                                }
+                            }
+                            if (fetchedBars.length === 0) {
+                                this.markActiveAccountExpired('Token Expired');
+                            }
                         }
                         
                         if (data.s === 'no_data' || (data.message && data.message.toLowerCase().includes('no data'))) {
@@ -744,8 +1175,16 @@ class FyersEngine {
                         });
                         const data = await res.json();
                         
-                        if (data.s === 'error' && (data.code === -15 || data.message.toLowerCase().includes('token'))) {
+                        if ((data.s === 'error' && (data.code === -15 || (data.message && data.message.toLowerCase().includes('token')))) || res.status === 401) {
                             console.error("Fyers Auth Error:", data.message);
+                            const active = this.getActiveAccount();
+                            if (active && active.webuiRefreshToken && !this.isRefreshExpired(active)) {
+                                console.log("[FyersEngine] Token expired during quotes polling, attempting reactive refresh...");
+                                const refreshed = await this.refreshAccountToken(active.id, false);
+                                if (refreshed.success) {
+                                    return; // Will continue polling next cycle with updated token
+                                }
+                            }
                             this.isPolling = false;
                             this.pollInterval = null;
                             this.markActiveAccountExpired('Token Expired');
