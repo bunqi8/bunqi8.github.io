@@ -877,14 +877,21 @@ class FyersEngine {
         if (window.FyersPrivateEngine && typeof window.FyersPrivateEngine.createE2EESession === 'function') {
             return true;
         }
-        if (this.hasCachedPrivateEngine()) {
-            return true;
-        }
         const cfg = this.getEngineConfig();
-        if (cfg && cfg.githubPat && cfg.githubPat.trim().length > 10) {
-            return true;
+        const hasPat = Boolean(cfg && cfg.githubPat && cfg.githubPat.trim().length > 10);
+
+        if (this.hasCachedPrivateEngine()) {
+            const meta = this.getCachedEngineMeta();
+            if (meta && meta.version && meta.version >= '1.4.5') {
+                return true;
+            }
+            if (hasPat) {
+                return true;
+            }
+            return false;
         }
-        return false;
+
+        return hasPat;
     }
 
     hasCachedPrivateEngine() {
