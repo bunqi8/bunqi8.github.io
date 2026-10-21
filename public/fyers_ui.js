@@ -1681,7 +1681,8 @@ class FyersUI {
                     let minScript = '';
                     if (receiver && typeof receiver.generateExtractorScript === 'function') {
                         const raw = receiver.generateExtractorScript();
-                        minScript = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/\s+/g, " ").trim();
+                        const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+                        minScript = lines.join(" ");
                     } else if (receiver && typeof receiver.generateBookmarklet === 'function') {
                         const bm = receiver.generateBookmarklet();
                         minScript = decodeURIComponent(bm.replace(/^javascript:/i, ''));
