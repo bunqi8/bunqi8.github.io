@@ -24,7 +24,20 @@
                 isReady: () => true,
                 isConnected: () => true,
                 getActiveAccount: () => window.PaperTrading ? window.PaperTrading.getAccountSummary() : null,
+                getAccountSummary: () => window.PaperTrading ? window.PaperTrading.getAccountSummary() : {
+                    connected: true,
+                    brokerName: 'Paper Trading',
+                    balance: 100000.00,
+                    equity: 100000.00,
+                    floatingPnl: 0.0,
+                    usedMargin: 0.0,
+                    freeMargin: 100000.00,
+                    currency: 'USD'
+                },
                 getPositions: async () => window.PaperTrading ? window.PaperTrading.getPositions() : [],
+                getOrders: async () => window.PaperTrading ? window.PaperTrading.getOrders() : [],
+                cancelOrder: async (ticket) => window.PaperTrading ? window.PaperTrading.cancelOrder(ticket) : { success: false },
+                getHistory: async () => window.PaperTrading ? window.PaperTrading.getHistory() : [],
                 placeOrder: async (params) => {
                     if (!window.PaperTrading) return { success: false, error: 'Paper trading engine not loaded' };
                     return window.PaperTrading.placeOrder(params);
@@ -59,7 +72,27 @@
                 isReady: () => Boolean(window.MT5API && window.MT5API.isConnected),
                 isConnected: () => Boolean(window.MT5API && window.MT5API.isConnected && window.MT5API.getActiveAccount()),
                 getActiveAccount: () => window.MT5API ? window.MT5API.getActiveAccount() : null,
+                getAccountSummary: () => {
+                    if (!window.MT5API) return null;
+                    const acc = window.MT5API.getActiveAccount();
+                    if (!acc) return null;
+                    return {
+                        connected: true,
+                        brokerName: 'MetaTrader 5',
+                        accountLogin: acc.login || acc.id,
+                        server: acc.server,
+                        balance: acc.balance || 0.0,
+                        equity: acc.equity || acc.balance || 0.0,
+                        floatingPnl: (acc.equity && acc.balance) ? (acc.equity - acc.balance) : 0.0,
+                        usedMargin: acc.margin || 0.0,
+                        freeMargin: acc.margin_free || acc.balance || 0.0,
+                        currency: acc.currency || 'USD'
+                    };
+                },
                 getPositions: async () => window.MT5API ? await window.MT5API.fetchPositions() : [],
+                getOrders: async () => [],
+                cancelOrder: async (ticket) => window.MT5API ? await window.MT5API.closePosition({ ticket }) : { success: false },
+                getHistory: async () => [],
                 placeOrder: async (params) => {
                     if (!window.MT5API) return { success: false, error: 'MT5 API not initialized' };
                     const multiAccounts = Array.from(window.MT5API.multiAccountSelection || []);
@@ -123,7 +156,27 @@
                     return Boolean(acc && !window.FyersAPI.isAccountExpired(acc));
                 },
                 getActiveAccount: () => window.FyersAPI ? window.FyersAPI.getActiveAccount() : null,
+                getAccountSummary: () => {
+                    if (!window.FyersAPI) return null;
+                    const acc = window.FyersAPI.getActiveAccount();
+                    if (!acc) return null;
+                    return {
+                        connected: true,
+                        brokerName: 'Fyers',
+                        accountLogin: acc.fy_id,
+                        appId: acc.app_id,
+                        balance: 0.0,
+                        equity: 0.0,
+                        floatingPnl: 0.0,
+                        usedMargin: 0.0,
+                        freeMargin: 0.0,
+                        currency: 'INR'
+                    };
+                },
                 getPositions: async () => [],
+                getOrders: async () => [],
+                cancelOrder: async () => ({ success: false }),
+                getHistory: async () => [],
                 placeOrder: async () => ({ success: false, error: 'Fyers order placement integration active' }),
                 modifyPosition: async () => ({ success: false }),
                 closePosition: async () => ({ success: false }),
@@ -229,6 +282,36 @@
             const adapter = this.getActiveAdapter(position ? position.symbol : null);
             if (!adapter || !adapter.closePartial) return { success: false };
             return await adapter.closePartial(position, percent);
+        }
+
+        async getPositions(brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.getPositions !== 'function') return [];
+            return await adapter.getPositions();
+        }
+
+        async getOrders(brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.getOrders !== 'function') return [];
+            return await adapter.getOrders();
+        }
+
+        async cancelOrder(ticket, brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.cancelOrder !== 'function') return { success: false };
+            return await adapter.cancelOrder(ticket);
+        }
+
+        async getHistory(brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.getHistory !== 'function') return [];
+            return await adapter.getHistory();
+        }
+
+        getAccountSummary(brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.getAccountSummary !== 'function') return null;
+            return adapter.getAccountSummary();
         }
 
         onPositionUpdate(cb) {
