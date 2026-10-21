@@ -1180,17 +1180,29 @@ class FyersEngine {
         if (!engineRes.success) {
             throw new Error(engineRes.error || "GitHub PAT required to load private broker engine.");
         }
-        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function') {
-            console.log("[FyersAPI] createE2EESession not found in cached engine. Forcing reload from GitHub...");
-            engineRes = await this.loadPrivateEngine(true);
-            if (!engineRes.success) {
-                throw new Error(engineRes.error || "Failed to reload private engine from GitHub.");
+        if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function' || (window.FyersPrivateEngine.version && window.FyersPrivateEngine.version < '1.4.1')) {
+            console.log("[FyersAPI] Updating private engine to latest v1.4.1...");
+            const reloadRes = await this.loadPrivateEngine(true);
+            if (reloadRes.success) {
+                engineRes = reloadRes;
             }
         }
         if (!window.FyersPrivateEngine || typeof window.FyersPrivateEngine.createE2EESession !== 'function') {
             throw new Error("Private broker engine does not implement createE2EESession(). Please verify your private repository.");
         }
-        return await window.FyersPrivateEngine.createE2EESession(options);
+        const receiver = await window.FyersPrivateEngine.createE2EESession(options);
+        // Safety guard: guarantee active ephemeral bridge if older cached engine didn't set webhookUrl
+        const existingUrl = (receiver && typeof receiver.getWebhookUrl === 'function') ? receiver.getWebhookUrl() : (receiver ? receiver.webhookUrl : null);
+        if (receiver && !existingUrl) {
+            const randomPart = (typeof crypto !== "undefined" && crypto.randomUUID)
+                ? crypto.randomUUID().replace(/-/g, "")
+                : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+            receiver.channelId = `tv_${randomPart}`;
+            receiver.webhookUuid = receiver.channelId;
+            receiver.webhookUrl = `https://ntfy.sh/${receiver.channelId}`;
+            receiver.inspectorUrl = `https://ntfy.sh/${receiver.channelId}`;
+        }
+        return receiver;
     }
 
     async generateTokensDirect({ appId, webuiRefreshToken, webuiAccessToken, pin, secretKey, redirectUri }) {

@@ -1039,6 +1039,69 @@ class FyersUI {
                                 <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: ui-monospace, monospace;">Self-Destruct on Ingestion</span>
                             </div>
 
+                            <!-- Live Webhook Channel & Inspector Card (Prominently Visible at Top) -->
+                            <div id="bm-webhook-card" style="
+                                background: rgba(41, 98, 255, 0.08); 
+                                border: 1px solid rgba(41, 98, 255, 0.3); 
+                                border-radius: 8px; 
+                                padding: 12px 14px; 
+                                font-size: 11.5px;
+                            ">
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 1;">
+                                        <span style="font-size: 18px; line-height: 1.2;">📡</span>
+                                        <div style="min-width: 0; flex: 1;">
+                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                <span style="font-weight: 700; color: ${theme.primary}; font-size: 12.5px;">Live Bridge & Webhook Endpoint</span>
+                                                <span style="font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(8,153,129,0.18); color: #089981; border: 1px solid rgba(8,153,129,0.35);">🟢 Active Endpoint</span>
+                                            </div>
+                                            <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                <span style="color: ${theme.textMuted}; font-size: 11px;">URL:</span>
+                                                <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests in Inspector" style="color: ${theme.primary}; font-weight: 600; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11.5px; word-break: break-all;">
+                                                    Initializing live channel...
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                                        <button id="bm-btn-copy-webhook" type="button" title="Copy Webhook Endpoint URL" style="
+                                            background: ${theme.cardBg}; 
+                                            color: ${theme.text}; 
+                                            border: 1px solid ${theme.border}; 
+                                            padding: 5px 10px; 
+                                            border-radius: 5px; 
+                                            font-size: 11.5px; 
+                                            font-weight: 600; 
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 4px;
+                                        ">
+                                            <span>📋</span> Copy URL
+                                        </button>
+                                        <a id="bm-btn-open-inspector" href="#" target="_blank" rel="noopener noreferrer" title="Open Live Real-Time Inspector in a new tab" style="
+                                            background: ${theme.primary}; 
+                                            color: #ffffff; 
+                                            border: none; 
+                                            padding: 5px 12px; 
+                                            border-radius: 5px; 
+                                            font-size: 11.5px; 
+                                            font-weight: 600; 
+                                            text-decoration: none;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 5px;
+                                            box-shadow: 0 2px 6px rgba(41,98,255,0.3);
+                                        ">
+                                            <span>↗</span> Open Live Inspector
+                                        </a>
+                                    </div>
+                                </div>
+                                <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 8px; line-height: 1.4; border-top: 1px dashed rgba(41,98,255,0.2); padding-top: 6px;">
+                                    💡 <strong>Live Channel Inspection:</strong> Click <em>Open Live Inspector</em> to view real-time incoming token payloads on ntfy.sh as they arrive. Payloads are end-to-end encrypted with your browser's private in-memory RSA key.
+                                </div>
+                            </div>
+
                             <!-- 1-Click Zero-Touch Execution Card -->
                             <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
                                 <div style="font-weight: 700; color: ${theme.text}; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
@@ -1067,59 +1130,6 @@ class FyersUI {
                                         <div style="font-size: 11px; color: ${theme.textMuted}; line-height: 1.4;">
                                             Open Console (<kbd style="font-size: 10px; padding: 1px 3px; background:${theme.inputBg}; border:1px solid ${theme.border}; border-radius: 2px;">F12</kbd>), paste snippet, remove leading <code style="color: #f23645; font-weight: 600;">avascript:</code> prefix & hit <strong>Enter</strong>.
                                         </div>
-                                    </div>
-                                </div>
-
-                                <!-- Webhook Test Channel Bar -->
-                                <div id="bm-webhook-card" style="display: none; background: rgba(41,98,255,0.06); border: 1px solid rgba(41,98,255,0.22); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 11.5px;">
-                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-                                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
-                                            <span style="font-size: 14px;">📡</span>
-                                            <div style="min-width: 0;">
-                                                <div style="font-weight: 700; color: ${theme.primary}; display: flex; align-items: center; gap: 6px;">
-                                                    <span>Live Webhook Channel</span>
-                                                    <span style="font-size: 9.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.15); color: ${theme.success};">Testing Enabled</span>
-                                                </div>
-                                                <a id="bm-webhook-link" href="#" target="_blank" rel="noopener noreferrer" title="Click to view live requests on Webhook.site" style="color: ${theme.text}; text-decoration: underline; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; display: inline-block; margin-top: 2px;">
-                                                    Loading channel...
-                                                </a>
-                                            </div>
-                                        </div>
-                                        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
-                                            <button id="bm-btn-copy-webhook" type="button" title="Copy Webhook Endpoint URL" style="
-                                                background: ${theme.cardBg}; 
-                                                color: ${theme.text}; 
-                                                border: 1px solid ${theme.border}; 
-                                                padding: 4px 9px; 
-                                                border-radius: 5px; 
-                                                font-size: 11px; 
-                                                font-weight: 600; 
-                                                cursor: pointer;
-                                                display: inline-flex;
-                                                align-items: center;
-                                                gap: 4px;
-                                            ">
-                                                <span>📋</span> Copy URL
-                                            </button>
-                                            <a id="bm-btn-open-inspector" href="#" target="_blank" rel="noopener noreferrer" title="View live incoming requests on Webhook.site" style="
-                                                background: ${theme.primary}; 
-                                                color: #fff; 
-                                                border: none; 
-                                                padding: 4px 10px; 
-                                                border-radius: 5px; 
-                                                font-size: 11px; 
-                                                font-weight: 600; 
-                                                text-decoration: none;
-                                                display: inline-flex;
-                                                align-items: center;
-                                                gap: 4px;
-                                            ">
-                                                <span>↗</span> Open Inspector
-                                            </a>
-                                        </div>
-                                    </div>
-                                    <div style="font-size: 10.5px; color: ${theme.textMuted}; margin-top: 5px; line-height: 1.35;">
-                                        💡 <strong>Inspection Enabled for Testing:</strong> Ephemeral channel is preserved during testing so you can view incoming encrypted payloads directly on Webhook.site in real time.
                                     </div>
                                 </div>
 
@@ -1669,43 +1679,53 @@ class FyersUI {
 
         // Helper: ensure private receiver session & webhook listener
         const ensureReceiverSession = async () => {
-            if (!this._e2eeReceiver) {
+            if (this._e2eeReceiver) return this._e2eeReceiver;
+            if (this._receiverPromise) return this._receiverPromise;
+
+            this._receiverPromise = (async () => {
                 const statusText = modal.querySelector('#bm-listener-status-text');
                 if (statusText) statusText.innerText = 'Creating ephemeral RAM keypair & channel...';
-                this._e2eeReceiver = await window.FyersAPI.createE2EESession({ enableWebhook: true, autoDeleteWebhook: false });
+                const receiver = await window.FyersAPI.createE2EESession({ enableWebhook: true, autoDeleteWebhook: false });
+                this._e2eeReceiver = receiver;
                 
                 const bookmarkletLink = modal.querySelector('#bm-link-bookmarklet');
-                if (bookmarkletLink && typeof this._e2eeReceiver.generateBookmarklet === 'function') {
-                    bookmarkletLink.href = this._e2eeReceiver.generateBookmarklet();
+                if (bookmarkletLink && typeof receiver.generateBookmarklet === 'function') {
+                    bookmarkletLink.href = receiver.generateBookmarklet();
                 }
 
                 // Populate Webhook Channel Card for live testing & inspection
-                const whUrl = typeof this._e2eeReceiver.getWebhookUrl === 'function' ? this._e2eeReceiver.getWebhookUrl() : this._e2eeReceiver.webhookUrl;
-                const whInspector = typeof this._e2eeReceiver.getWebhookInspectorUrl === 'function' 
-                    ? this._e2eeReceiver.getWebhookInspectorUrl() 
-                    : (this._e2eeReceiver.webhookUuid ? `https://webhook.site/#!/${this._e2eeReceiver.webhookUuid}` : whUrl);
+                const whUrl = typeof receiver.getWebhookUrl === 'function' ? receiver.getWebhookUrl() : receiver.webhookUrl;
+                const whInspector = typeof receiver.getWebhookInspectorUrl === 'function' 
+                    ? receiver.getWebhookInspectorUrl() 
+                    : (receiver.inspectorUrl || (receiver.webhookUuid ? `https://ntfy.sh/${receiver.webhookUuid}` : whUrl));
 
                 const whCard = modal.querySelector('#bm-webhook-card');
                 const whLink = modal.querySelector('#bm-webhook-link');
                 const btnOpenWh = modal.querySelector('#bm-btn-open-inspector');
                 const btnCopyWh = modal.querySelector('#bm-btn-copy-webhook');
 
-                if (whUrl && whCard && whLink) {
-                    whCard.style.display = 'block';
+                if (whCard) whCard.style.display = 'block';
+                if (whLink && whUrl) {
                     whLink.href = whInspector || whUrl;
                     whLink.innerText = whUrl;
-                    if (btnOpenWh) btnOpenWh.href = whInspector || whUrl;
-                    if (btnCopyWh) {
-                        btnCopyWh.onclick = async (e) => {
-                            if (e) e.preventDefault();
+                }
+                if (btnOpenWh && (whInspector || whUrl)) {
+                    btnOpenWh.href = whInspector || whUrl;
+                }
+                if (btnCopyWh && whUrl) {
+                    btnCopyWh.onclick = async (e) => {
+                        if (e) e.preventDefault();
+                        try {
                             await navigator.clipboard.writeText(whUrl);
                             btnCopyWh.innerText = '✓ Copied!';
                             setTimeout(() => { btnCopyWh.innerHTML = '<span>📋</span> Copy URL'; }, 2000);
                             if (window.FyersAPI && window.FyersAPI.showToast) {
                                 window.FyersAPI.showToast('📋 Webhook URL copied to clipboard!', 'success');
                             }
-                        };
-                    }
+                        } catch (_) {
+                            prompt('Webhook Endpoint URL:', whUrl);
+                        }
+                    };
                 }
 
                 if (statusText) {
@@ -1713,21 +1733,28 @@ class FyersUI {
                 }
 
                 // Automatically listen (retaining channel for testing)
-                if (typeof this._e2eeReceiver.startListening === 'function') {
-                    this._e2eeReceiver.startListening((res) => {
+                if (typeof receiver.startListening === 'function') {
+                    receiver.startListening((res) => {
                         applyDecryptedResult(res);
                     }, (err) => {
-                        if (statusText) statusText.innerText = 'Zero-touch bridge idle (use manual paste below).';
+                        console.warn("[FyersUI] Bridge listener notice:", err);
                     }, { autoDeleteWebhook: false });
                 }
+                return receiver;
+            })();
+
+            try {
+                return await this._receiverPromise;
+            } finally {
+                this._receiverPromise = null;
             }
-            return this._e2eeReceiver;
         };
 
         const handleReceiverError = (err) => {
+            console.error("[FyersUI] Receiver session error:", err);
             const statusText = modal.querySelector('#bm-listener-status-text');
             if (statusText) {
-                statusText.innerHTML = `⚠️ <strong>Private Broker Engine Required:</strong> ${err.message || err} <button id="bm-btn-force-reload-engine" type="button" style="margin-left: 8px; background: rgba(41,98,255,0.15); color: #2962FF; border: 1px solid rgba(41,98,255,0.3); padding: 2px 7px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: 600;">🔄 Reload Engine</button>`;
+                statusText.innerHTML = `⚠️ <strong>Bridge Error:</strong> ${err.message || err} <button id="bm-btn-force-reload-engine" type="button" style="margin-left: 8px; background: rgba(41,98,255,0.15); color: #2962FF; border: 1px solid rgba(41,98,255,0.3); padding: 2px 7px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: 600;">🔄 Reload Engine</button>`;
                 const btnReload = statusText.querySelector('#bm-btn-force-reload-engine');
                 if (btnReload) {
                     btnReload.onclick = async (e) => {
