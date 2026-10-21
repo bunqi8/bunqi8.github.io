@@ -657,19 +657,23 @@ class FyersUI {
                                     ` : ''}
                                 </div>
                                 <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                    <span>App ID: <strong style="font-family: ui-monospace, monospace; color: ${theme.text}; font-size: 11px; background: ${theme.isDark ? '#232733' : '#eaedf2'}; padding: 1px 5px; border-radius: 3px; font-weight: 500;">${acc.appId || 'N/A'}</strong></span>
+                                    <span>App ID: <strong style="font-family: ui-monospace, monospace; color: ${theme.text}; font-size: 11px; background: ${theme.isDark ? '#232733' : '#eaedf2'}; padding: 1px 5px; border-radius: 3px; font-weight: 500;">${acc.appId || 'None (WebUI Session)'}</strong></span>
                                     <span style="color: ${theme.border};">•</span>
-                                    ${hasRenewalCreds ? `
+                                    ${(acc.webuiRefreshToken && acc.pin && acc.appId && acc.secretKey) ? `
                                         <span style="font-size: 11px; color: #089981; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
-                                            <span>🔒</span> Auto-Renew Ready (Encrypted)
+                                            <span>🔒</span> Full Auto-Renew (API & WebUI)
                                         </span>
-                                    ` : (acc.webuiRefreshToken ? `
+                                    ` : (acc.webuiRefreshToken && acc.pin) ? `
+                                        <span style="font-size: 11px; color: #089981; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                                            <span>⚡</span> Auto-Renew (WebUI Only)
+                                        </span>
+                                    ` : (acc.webuiRefreshToken && !acc.pin) ? `
                                         <span style="font-size: 11px; color: #ff9800; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
-                                            <span>⚡</span> Needs PIN & Secret
+                                            <span>⏸️</span> Auto-Renew Paused (Manual PIN)
                                         </span>
                                     ` : `
-                                        <span style="font-size: 11px; color: ${theme.textMuted};">Direct API Token</span>
-                                    `)}
+                                        <span style="font-size: 11px; color: ${theme.textMuted};">Direct Token</span>
+                                    `}
                                 </div>
                             </div>
                         </div>
@@ -1231,7 +1235,7 @@ class FyersUI {
                     <!-- App ID -->
                     <div>
                         <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: ${theme.text};">
-                            App ID <span style="color: ${theme.error};">*</span>
+                            App ID <span style="font-weight: 400; color: ${theme.textMuted};">(optional — for API token & live trading)</span>
                         </label>
                         <input type="text" id="bm-input-appid" value="${existing ? existing.appId : ''}" placeholder="e.g. XC12345-100" style="
                             width: 100%; 
@@ -1245,7 +1249,7 @@ class FyersUI {
                             outline: none;
                         ">
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Your registered Fyers Client App ID (e.g. XC12345-100).
+                            Your registered Fyers Client App ID (e.g. XC12345-100). Leave blank if using WebUI session only.
                         </div>
                     </div>
 
@@ -1253,7 +1257,7 @@ class FyersUI {
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                             <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
-                                API Access Token ${!isReplace ? `<span style="color: ${theme.error};">*</span>` : '<span style="font-weight: 400; color:' + theme.textMuted + ';">(leave blank to keep current)</span>'}
+                                API Access Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(optional — for quotes & trading)'}</span>
                             </label>
                             ${isReplace && existing && existing.apiAccessToken ? `
                                 <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isAccountExpired(existing) ? theme.error : theme.success};">
@@ -1275,7 +1279,7 @@ class FyersUI {
                             outline: none;
                         "></textarea>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 3px;">
-                            Used for market data streaming, historical bars, and depth feeds.
+                            Used for market data streaming and historical bars. Generated automatically if App ID + Secret + PIN are provided.
                         </div>
                     </div>
 
@@ -1283,7 +1287,7 @@ class FyersUI {
                     <div>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                             <label style="font-size: 12px; font-weight: 600; color: ${theme.text};">
-                                WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(Highly recommended, optional)'}</span>
+                                WebUI Refresh Token <span style="font-weight: 400; color: ${theme.textMuted};">${isReplace ? '(leave blank to keep current)' : '(Recommended — for session renewal)'}</span>
                             </label>
                             ${isReplace && existing && existing.webuiRefreshToken ? `
                                 <span style="font-size: 11px; font-weight: 600; color: ${window.FyersAPI.isRefreshExpired(existing) ? theme.error : theme.success};">
@@ -1371,7 +1375,7 @@ class FyersUI {
                             <!-- PIN -->
                             <div>
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
-                                    Fyers 4-Digit PIN
+                                    Fyers 4-Digit PIN <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
                                 </label>
                                 <input type="password" id="bm-input-pin" maxlength="6" placeholder="${isReplace && existing && existing.pin ? '•••• (Saved - leave blank)' : '4-digit login PIN'}" style="
                                     width: 100%; 
@@ -1389,7 +1393,7 @@ class FyersUI {
                             <!-- Secret Key -->
                             <div>
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">
-                                    App Secret Key
+                                    App Secret Key <span style="font-weight: 400; color: ${theme.textMuted};">(optional)</span>
                                 </label>
                                 <input type="password" id="bm-input-secret" placeholder="${isReplace && existing && existing.secretKey ? '•••••••• (Saved - leave blank)' : 'API App Secret Key'}" style="
                                     width: 100%; 
@@ -1423,7 +1427,7 @@ class FyersUI {
                             ">
                         </div>
                         <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 6px; line-height: 1.45;">
-                            Encrypted on your machine before saving to browser storage. Used exclusively by your private engine to auto-renew API tokens on expiration.
+                            Encrypted on your machine before saving. If PIN is omitted, background auto-refresh is paused and manual refresh will prompt for PIN one-time. App Secret is only needed to generate API access tokens.
                         </div>
                     </div>
                 </div>
@@ -2124,9 +2128,11 @@ class FyersUI {
         const fyId = check.fyId || 'N/A';
         const initials = check.initials || 'FY';
         
-        let apiExpStr = 'Kept current';
+        let apiExpStr = 'None (WebUI Session Only)';
         if (check.apiExpiresAt) {
             apiExpStr = window.FyersAPI.formatExpiry(check.apiExpiresAt);
+        } else if (apiToken) {
+            apiExpStr = 'Active';
         } else if (isReplace && existing && existing.apiExpiresAt) {
             apiExpStr = window.FyersAPI.formatExpiry(existing.apiExpiresAt) + ' (Kept current)';
         }
@@ -2149,7 +2155,19 @@ class FyersUI {
 
         const hasPin = Boolean((inputPin && inputPin.value.trim()) || (isReplace && existing && existing.pin));
         const hasSecret = Boolean((inputSecret && inputSecret.value.trim()) || (isReplace && existing && existing.secretKey));
-        const autoRenewReady = Boolean(isCrossVerified && hasPin && hasSecret);
+        const hasAppId = Boolean((inputAppId && inputAppId.value.trim()) || (isReplace && existing && existing.appId));
+        const hasRefresh = Boolean(refreshToken || (isReplace && existing && existing.webuiRefreshToken));
+
+        let autoRenewStatusHtml = '';
+        if (hasRefresh && hasPin && hasAppId && hasSecret) {
+            autoRenewStatusHtml = `<span style="color: ${theme.success}; font-weight: 600;">🟢 Full Auto-Renew Ready (API & WebUI)</span>`;
+        } else if (hasRefresh && hasPin) {
+            autoRenewStatusHtml = `<span style="color: ${theme.success}; font-weight: 600;">🟢 Auto-Renew Active (WebUI Tokens)</span> <span style="color: ${theme.textMuted}; font-size: 11px;">(Add App ID + Secret for API tokens)</span>`;
+        } else if (hasRefresh && !hasPin) {
+            autoRenewStatusHtml = `<span style="color: #ff9800; font-weight: 600;">⏸️ Paused (PIN not stored)</span> <span style="color: ${theme.textMuted}; font-size: 11px;">— 1-time PIN prompt used on manual refresh</span>`;
+        } else {
+            autoRenewStatusHtml = `<span style="color: ${theme.textMuted};">⚪ Manual Only (No Refresh Token)</span>`;
+        }
 
         inspector.innerHTML = `
             <div style="
@@ -2196,7 +2214,7 @@ class FyersUI {
                     • <strong>API Token Expiry:</strong> ${apiExpStr}<br>
                     • <strong>Refresh Token:</strong> ${refExpStr || 'Not provided (Manual renewal)'}<br>
                     • <strong>WebUI Access Token:</strong> ${webuiExpStr || 'Not provided (Standby)'}<br>
-                    • <strong>Auto-Renew Engine:</strong> ${autoRenewReady ? `<span style="color: ${theme.success}; font-weight: 600;">✓ Ready (AES-256 Encrypted)</span>` : `<span style="color: ${theme.textMuted};">Enter PIN & Secret Key below for 1-click renewal</span>`}<br>
+                    • <strong>Auto-Renew Engine:</strong> ${autoRenewStatusHtml}<br>
                     • ${isCrossVerified ? 'All tokens cross-verified to belong to client ID' : 'Verified to belong to client ID'} <code>${fyId}</code>.
                     ${isReplace && !refreshToken && existing && existing.webuiRefreshToken ? '<br>• <em>Existing WebUI Refresh Token will be preserved without changes.</em>' : ''}
                 </div>
