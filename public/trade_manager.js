@@ -46,6 +46,10 @@
                     if (!window.PaperTrading) return { success: false };
                     return window.PaperTrading.modifyPosition(params);
                 },
+                modifyOrder: async (params) => {
+                    if (!window.PaperTrading) return { success: false };
+                    return window.PaperTrading.modifyOrder(params);
+                },
                 closePosition: async (params) => {
                     if (!window.PaperTrading) return { success: false };
                     return window.PaperTrading.closePosition(params.ticket, params.lots);
@@ -220,7 +224,7 @@
         }
 
         getMarketType(symbol = '') {
-            const sym = (symbol || (window.TradeUI ? window.TradeUI.currentSymbol : '')).toUpperCase();
+            const sym = String(symbol || (window.TradeUI && window.TradeUI.currentSymbol) || '').toUpperCase();
             if (sym.includes('NSE:') || sym.includes('BSE:') || sym.includes('MCX:') || 
                 sym.includes('NIFTY') || sym.includes('BANKNIFTY') || sym.includes('FINNIFTY') || 
                 sym.includes('SENSEX') || sym.includes('RELIANCE') || sym.includes('TCS') || sym.includes('INFY')) {
@@ -264,6 +268,12 @@
             const adapter = this.getActiveAdapter();
             if (!adapter) return { success: false, error: 'No active broker adapter.' };
             return await adapter.modifyPosition(params);
+        }
+
+        async modifyOrder(params, brokerKey = null) {
+            const adapter = brokerKey ? this.adapters[brokerKey] : this.getActiveAdapter();
+            if (!adapter || typeof adapter.modifyOrder !== 'function') return { success: false, error: 'Modify order not supported' };
+            return await adapter.modifyOrder(params);
         }
 
         async closePosition(params) {

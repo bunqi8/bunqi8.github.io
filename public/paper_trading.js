@@ -382,6 +382,19 @@
             return { success: true, sl: pos.sl, tp: pos.tp };
         }
 
+        modifyOrder({ ticket, price, sl, tp, lots }) {
+            const order = (this.state.orders || []).find(o => o.ticket === ticket);
+            if (!order) return { success: false, error: 'Order not found' };
+
+            if (price != null) order.price = Number(price);
+            if (sl != null) order.sl = Number(sl);
+            if (tp != null) order.tp = Number(tp);
+            if (lots != null) order.lots = Number(lots);
+
+            this.saveState();
+            return { success: true, order };
+        }
+
         // ==========================================
         // ACCOUNT MANAGEMENT (Reset, Clear, Deposit)
         // ==========================================

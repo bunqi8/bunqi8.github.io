@@ -97,6 +97,7 @@
             this.currentAsk = 22811.85;
             this.positions = [];
             this.nativeLines = new Map(); // Official TradingView line tool adapters
+            this.nativeOrderLines = new Map(); // Official TradingView pending order line tool adapters
 
             // Activity Log Tracking
             this.activityLogs = this.loadActivityLogs();
@@ -445,12 +446,14 @@
                 const askDisp = widget.querySelector('#tv-native-ask-disp');
                 const spreadDisp = widget.querySelector('#tv-native-spread-disp');
                 const centerLotDisp = widget.querySelector('#tv-native-center-lot-disp');
+                const legendQtyDisp = widget.querySelector('#tv-native-legend-qty-disp');
 
                 if (bidDisp && askDisp && spreadDisp) {
                     bidDisp.innerHTML = this.formatPipPriceHtml(this.currentBid);
                     askDisp.innerHTML = this.formatPipPriceHtml(this.currentAsk);
                     spreadDisp.innerText = spreadPoints;
                     if (centerLotDisp) centerLotDisp.innerText = this.lots;
+                    if (legendQtyDisp) legendQtyDisp.innerText = this.lots;
                     return;
                 }
             }
@@ -467,71 +470,99 @@
             const buyBorder = isBrokerConnected ? 'none' : '1px solid #2962ff';
 
             widget.innerHTML = `
-                <!-- Main Buy / Sell Buttons Row -->
-                <div style="display: flex; align-items: center; position: relative;">
-                    <!-- SELL BUTTON (Image 3) -->
-                    <button id="tv-native-btn-sell" type="button" style="
-                        background: ${sellBg};
-                        border: ${sellBorder};
-                        border-radius: 6px;
-                        padding: 2px 8px;
-                        width: 84px;
-                        height: 34px;
-                        cursor: pointer;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-                        transition: background 0.15s, transform 0.1s;
-                    ">
-                        <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentBid)}</span>
-                        <span style="color: ${sellTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">SELL</span>
-                    </button>
+                <div style="display: flex; flex-direction: column; gap: 3px;">
+                    <!-- Main Buy / Sell Buttons Row -->
+                    <div style="display: flex; align-items: center; position: relative;">
+                        <!-- SELL BUTTON (Image 3) -->
+                        <button id="tv-native-btn-sell" type="button" style="
+                            background: ${sellBg};
+                            border: ${sellBorder};
+                            border-radius: 6px;
+                            padding: 2px 8px;
+                            width: 84px;
+                            height: 34px;
+                            cursor: pointer;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            outline: none;
+                            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+                            transition: background 0.15s, transform 0.1s;
+                        ">
+                            <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentBid)}</span>
+                            <span style="color: ${sellTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">SELL</span>
+                        </button>
 
-                    <!-- SPREAD & SINGLE AUTHENTIC CENTER QUANTITY PILL (Image 3) -->
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 24px; margin: 0 8px;">
-                        <span id="tv-native-spread-disp" style="color: #131722; font-size: 11.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
-                        ${isOneClick ? `
-                            <button id="tv-native-center-lot-btn" type="button" title="Set Order Quantity" style="
-                                background: #f0f3fa;
-                                border: 1px solid #d1d4dc;
-                                border-radius: 3px;
-                                padding: 1px 6px;
-                                font-size: 10.5px;
-                                font-weight: 700;
-                                color: #131722;
-                                cursor: pointer;
-                                margin-top: 2px;
-                                line-height: 1.1;
-                                outline: none;
-                            ">
-                                <span id="tv-native-center-lot-disp">${this.lots}</span>
-                            </button>
-                        ` : ''}
+                        <!-- SPREAD & SINGLE AUTHENTIC CENTER QUANTITY PILL (Image 3) -->
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 24px; margin: 0 8px;">
+                            <span id="tv-native-spread-disp" style="color: #131722; font-size: 11.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
+                            ${isOneClick ? `
+                                <button id="tv-native-center-lot-btn" type="button" title="Set Order Quantity" style="
+                                    background: #f0f3fa;
+                                    border: 1px solid #d1d4dc;
+                                    border-radius: 3px;
+                                    padding: 1px 6px;
+                                    font-size: 10.5px;
+                                    font-weight: 700;
+                                    color: #131722;
+                                    cursor: pointer;
+                                    margin-top: 2px;
+                                    line-height: 1.1;
+                                    outline: none;
+                                ">
+                                    <span id="tv-native-center-lot-disp">${this.lots}</span>
+                                </button>
+                            ` : ''}
+                        </div>
+
+                        <!-- BUY BUTTON (Image 3) -->
+                        <button id="tv-native-btn-buy" type="button" style="
+                            background: ${buyBg};
+                            border: ${buyBorder};
+                            border-radius: 6px;
+                            padding: 2px 8px;
+                            width: 84px;
+                            height: 34px;
+                            cursor: pointer;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            outline: none;
+                            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+                            transition: background 0.15s, transform 0.1s;
+                        ">
+                            <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
+                            <span style="color: ${buyTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">BUY</span>
+                        </button>
                     </div>
 
-                    <!-- BUY BUTTON (Image 3) -->
-                    <button id="tv-native-btn-buy" type="button" style="
-                        background: ${buyBg};
-                        border: ${buyBorder};
-                        border-radius: 6px;
-                        padding: 2px 8px;
-                        width: 84px;
-                        height: 34px;
-                        cursor: pointer;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        outline: none;
-                        box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-                        transition: background 0.15s, transform 0.1s;
-                    ">
-                        <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
-                        <span style="color: ${buyTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">BUY</span>
-                    </button>
+                    <!-- Quantity Dropdown Pill directly beneath Sell button (matching TV UI) -->
+                    <div style="display: flex; align-items: center; padding-left: 1px;">
+                        <button id="tv-native-legend-qty-btn" type="button" title="Set Order Quantity" style="
+                            background: #ffffff;
+                            border: 1px solid #d1d4dc;
+                            border-radius: 4px;
+                            padding: 1px 6px;
+                            height: 20px;
+                            display: flex;
+                            align-items: center;
+                            gap: 3px;
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #131722;
+                            cursor: pointer;
+                            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                            outline: none;
+                            transition: background 0.15s, border-color 0.15s;
+                        ">
+                            <svg width="8" height="5" viewBox="0 0 8 5" fill="none" stroke="#787b86" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 1l3 3 3-3"/>
+                            </svg>
+                            <span id="tv-native-legend-qty-disp">${this.lots}</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Floating Tooltip Container -->
@@ -562,6 +593,7 @@
             const btnSell = widget.querySelector('#tv-native-btn-sell');
             const btnBuy = widget.querySelector('#tv-native-btn-buy');
             const centerLotBtn = widget.querySelector('#tv-native-center-lot-btn');
+            const legendQtyBtn = widget.querySelector('#tv-native-legend-qty-btn');
             const tooltip = widget.querySelector('#' + this.tooltipId);
 
             const showTooltip = (targetEl, text, hotkey) => {
@@ -612,6 +644,13 @@
                 centerLotBtn.onclick = (e) => {
                     e.stopPropagation();
                     this.toggleQuantityKeypad(centerLotBtn, iframeDoc);
+                };
+            }
+
+            if (legendQtyBtn) {
+                legendQtyBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.toggleQuantityKeypad(legendQtyBtn, iframeDoc);
                 };
             }
         }
@@ -924,6 +963,55 @@
                     data.lastSl = null;
                 }
             }
+
+            // Synchronize active pending order lines (Limit / Stop)
+            const activeBrokerKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
+            const allOrders = (window.PaperTrading && activeBrokerKey === 'paper') 
+                ? window.PaperTrading.getOrders() 
+                : [];
+            const symOrders = (allOrders || []).filter(o => {
+                const oSym = (o.symbol || '').split(':').pop().toUpperCase();
+                return oSym === currentSym && (o.status === 'working' || !o.status);
+            });
+            const activeOrderTickets = new Set(symOrders.map(o => o.ticket));
+
+            // Remove closed/cancelled order lines
+            for (const [ticket, data] of this.nativeOrderLines.entries()) {
+                if (!activeOrderTickets.has(ticket)) {
+                    try { if (data.line) data.line.remove(); } catch (_) {}
+                    this.nativeOrderLines.delete(ticket);
+                }
+            }
+
+            // Create/update pending order lines
+            for (const ord of symOrders) {
+                let data = this.nativeOrderLines.get(ord.ticket);
+                if (!data) {
+                    data = {
+                        line: null,
+                        creating: false,
+                        configured: false,
+                        lastPrice: null,
+                        lastLots: null,
+                        lastType: null
+                    };
+                    this.nativeOrderLines.set(ord.ticket, data);
+                }
+
+                if (!data.line && !data.creating) {
+                    data.creating = true;
+                    chart.createOrderLine().then(line => {
+                        data.line = line;
+                        data.creating = false;
+                        this.applyPendingOrderLineProperties(line, ord, data);
+                    }).catch(err => {
+                        console.error("[TradeUI] Error creating pending order line:", err);
+                        data.creating = false;
+                    });
+                } else if (data.line) {
+                    this.applyPendingOrderLineProperties(data.line, ord, data);
+                }
+            }
         }
 
         applyPositionLineProperties(posLine, pos, data) {
@@ -1056,6 +1144,61 @@
             }
         }
 
+        applyPendingOrderLineProperties(line, ord, data) {
+            if (!line) return;
+            const isBuy = (ord.type || '').toUpperCase().includes('BUY');
+            const ordPrice = Number(ord.price);
+            const ordText = (ord.type || 'LIMIT').replace('_', ' ');
+
+            if (!data.configured) {
+                data.configured = true;
+                line
+                    .setDirection(isBuy ? 'buy' : 'sell')
+                    .setLineColor(isBuy ? '#2962ff' : '#f23645')
+                    .setLineStyle(1) // Dashed
+                    .setLineWidth(1)
+                    .setExtendLeft(true)
+                    .setCancelTooltip("Cancel Order")
+                    .setModifyTooltip("Drag to adjust Order Price")
+                    .setCancellable(true)
+                    .setEditable(true)
+                    .onMove(() => {
+                        const newPrice = line.getPrice();
+                        if (newPrice && newPrice > 0) {
+                            const p = Number(newPrice.toFixed(2));
+                            if (window.TradingEngine) {
+                                window.TradingEngine.modifyOrder({ ticket: ord.ticket, price: p });
+                            } else if (window.PaperTrading) {
+                                window.PaperTrading.modifyOrder({ ticket: ord.ticket, price: p });
+                            }
+                            if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
+                        }
+                    })
+                    .onCancel(() => {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.cancelOrder(ord.ticket);
+                        } else if (window.PaperTrading) {
+                            window.PaperTrading.cancelOrder(ord.ticket);
+                        }
+                        this.syncNativeChartLines();
+                        if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
+                    });
+            }
+
+            if (data.lastPrice !== ordPrice) {
+                data.lastPrice = ordPrice;
+                line.setPrice(ordPrice);
+            }
+            if (data.lastLots !== ord.lots) {
+                data.lastLots = ord.lots;
+                line.setQuantity(String(ord.lots));
+            }
+            if (data.lastType !== ordText) {
+                data.lastType = ordText;
+                line.setText(ordText);
+            }
+        }
+
         clearAllNativeChartLines() {
             for (const [ticket, data] of this.nativeLines.entries()) {
                 try { if (data.posLine) data.posLine.remove(); } catch (_) {}
@@ -1063,6 +1206,11 @@
                 try { if (data.slLine) data.slLine.remove(); } catch (_) {}
             }
             this.nativeLines.clear();
+
+            for (const [ticket, data] of this.nativeOrderLines.entries()) {
+                try { if (data.line) data.line.remove(); } catch (_) {}
+            }
+            this.nativeOrderLines.clear();
         }
 
         openProtectionModal(pos) {
@@ -1392,17 +1540,19 @@
                         <!-- Price Input (Shown for Limit & Stop) -->
                         ${this.orderType !== 'market' ? `
                             <div>
-                                <label style="display: block; font-size: 12px; color: ${theme.textMuted}; margin-bottom: 5px;">Price</label>
+                                <label style="display: block; font-size: 11.5px; color: ${theme.textMuted}; margin-bottom: 5px; font-weight: 600;">Price</label>
                                 <div style="
                                     display: flex;
                                     align-items: center;
-                                    border: 2px solid #2962ff;
+                                    border: 1px solid #2962ff;
                                     border-radius: 6px;
                                     padding: 6px 12px;
                                     background: #ffffff;
+                                    height: 38px;
+                                    box-sizing: border-box;
                                 ">
                                     <input type="number" id="tv-ticket-price-in" step="any" value="${this.limitPrice || (isBuy ? askFormatted : bidFormatted)}" style="
-                                        width: 110px;
+                                        flex: 1;
                                         border: none;
                                         outline: none;
                                         font-size: 14px;
@@ -1410,8 +1560,23 @@
                                         color: #131722;
                                         background: transparent;
                                     ">
-                                    <span style="color: ${theme.textMuted}; margin: 0 8px; cursor: pointer;">⇄</span>
-                                    <span style="margin-left: auto; font-size: 12px; color: ${theme.textMuted};">Ask + 290</span>
+                                    <button id="tv-ticket-price-swap-btn" type="button" title="Set to current price" style="
+                                        background: transparent;
+                                        border: none;
+                                        color: #787b86;
+                                        margin: 0 8px;
+                                        cursor: pointer;
+                                        display: flex;
+                                        align-items: center;
+                                        padding: 2px;
+                                    ">
+                                        <svg width="15" height="15" viewBox="0 0 18 18" fill="currentColor">
+                                            <path d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"/>
+                                        </svg>
+                                    </button>
+                                    <span id="tv-ticket-price-ref-badge" style="font-size: 12px; font-weight: 600; color: #2962ff; cursor: pointer;">
+                                        ${isBuy ? 'Ask' : 'Bid'}
+                                    </span>
                                 </div>
                             </div>
                         ` : ''}
@@ -1622,9 +1787,13 @@
                             box-shadow: 0 2px 6px rgba(0,0,0,0.12);
                             transition: background 0.15s, opacity 0.15s;
                         ">
-                            <span style="font-size: 16px; font-weight: 700; line-height: 1.15;">${isBuy ? 'Buy' : 'Sell'}</span>
+                            <span id="tv-ticket-btn-title-text" style="font-size: 15.5px; font-weight: 700; line-height: 1.15;">
+                                ${this.orderType === 'market' 
+                                    ? (isBuy ? 'Buy' : 'Sell') 
+                                    : `${isBuy ? 'Buy' : 'Sell'} ${this.orderType.charAt(0).toUpperCase() + this.orderType.slice(1)}`}
+                            </span>
                             <span id="tv-ticket-btn-summary-text" style="font-size: 11px; opacity: 0.95; letter-spacing: 0.4px; margin-top: 2px;">
-                                ${this.lots} ${displaySymbol} @ ${this.orderType === 'market' ? (isBuy ? askFormatted : bidFormatted) : (this.limitPrice || askFormatted)} ${this.orderType.toUpperCase()}
+                                ${this.lots} ${displaySymbol} @ ${this.orderType === 'market' ? (isBuy ? askFormatted : bidFormatted) : (this.limitPrice || (isBuy ? askFormatted : bidFormatted))} ${this.orderType === 'market' ? 'MARKET' : ''}
                             </span>
                         </button>
                     </div>
@@ -2138,6 +2307,19 @@
                 };
             }
 
+            const swapBtn = panel.querySelector('#tv-ticket-price-swap-btn');
+            const refBadge = panel.querySelector('#tv-ticket-price-ref-badge');
+            if (swapBtn || refBadge) {
+                const handler = () => {
+                    const refVal = this.selectedSide === 'BUY' ? this.currentAsk : this.currentBid;
+                    this.limitPrice = Number(refVal.toFixed(2));
+                    if (priceIn) priceIn.value = this.limitPrice;
+                    this.updateTicketButtonSummary();
+                };
+                if (swapBtn) swapBtn.onclick = handler;
+                if (refBadge) refBadge.onclick = handler;
+            }
+
             // Exits accordion toggle
             const exitsToggle = panel.querySelector('#tv-ticket-exits-toggle');
             if (exitsToggle) {
@@ -2215,11 +2397,25 @@
 
         updateTicketButtonSummary() {
             const btnSummary = document.querySelector('#tv-ticket-btn-summary-text');
-            if (!btnSummary) return;
+            const btnTitle = document.querySelector('#tv-ticket-btn-title-text');
+            const isBuy = this.selectedSide === 'BUY';
+            const actionVerb = isBuy ? 'Buy' : 'Sell';
             const refPrice = this.orderType === 'market' 
-                ? (this.selectedSide === 'BUY' ? this.formatPrice(this.currentAsk) : this.formatPrice(this.currentBid))
-                : (this.limitPrice || this.formatPrice(this.currentAsk));
-            btnSummary.innerText = `${this.lots} ${this.currentSymbol} @ ${refPrice} ${this.orderType.toUpperCase()}`;
+                ? (isBuy ? this.formatPrice(this.currentAsk) : this.formatPrice(this.currentBid))
+                : (this.limitPrice || (isBuy ? this.formatPrice(this.currentAsk) : this.formatPrice(this.currentBid)));
+
+            if (btnTitle) {
+                if (this.orderType === 'market') {
+                    btnTitle.innerText = actionVerb;
+                } else if (this.orderType === 'limit') {
+                    btnTitle.innerText = `${actionVerb} Limit`;
+                } else if (this.orderType === 'stop') {
+                    btnTitle.innerText = `${actionVerb} Stop`;
+                }
+            }
+            if (btnSummary) {
+                btnSummary.innerText = `${this.lots} ${this.currentSymbol} @ ${refPrice} ${this.orderType === 'market' ? 'MARKET' : ''}`.trim();
+            }
         }
 
         openOrderTicket(side = 'BUY') {
@@ -2360,7 +2556,7 @@
                             </select>
                         </div>
 
-                        <!-- Account Pill (FusionPhantom usd) - Image 2 -->
+                        <!-- Account Pill (Fu_Ph usd ⌵) -->
                         <div style="
                             padding: 3px 8px;
                             border: 1px solid ${theme.border};
@@ -2371,7 +2567,7 @@
                             gap: 4px;
                             cursor: pointer;
                         ">
-                            <span style="font-size: 11.5px; font-weight: 700; color: #131722;">FusionPhantom</span>
+                            <span style="font-size: 11.5px; font-weight: 700; color: #131722;">Fu_Ph</span>
                             <span style="font-size: 11px; font-weight: 600; color: #787b86;">usd ⌵</span>
                         </div>
                     </div>
@@ -2600,8 +2796,21 @@
         renderPositionsTable(theme, curPositions) {
             if (curPositions.length === 0) {
                 return `
-                    <div style="padding: 40px; text-align: center; color: ${theme.textMuted}; font-size: 12px;">
-                        No open positions. Use the Buy / Sell button or Order Ticket to enter a trade.
+                    <div style="padding: 40px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; box-sizing: border-box;">
+                        <span style="color: #787b86; font-size: 13px; font-weight: 500;">There are no open positions in your trading account yet</span>
+                        <button id="tv-btn-start-order-empty" type="button" style="
+                            background: #2962ff;
+                            color: #ffffff;
+                            border: none;
+                            border-radius: 6px;
+                            padding: 7px 16px;
+                            font-size: 12px;
+                            font-weight: 700;
+                            cursor: pointer;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+                            outline: none;
+                            transition: background 0.15s;
+                        ">Start creating order</button>
                     </div>
                 `;
             }
@@ -2995,6 +3204,14 @@
                 btnExport.onclick = () => this.exportTableToCSV();
             }
 
+            // Empty state start order button
+            const btnStartOrder = panel.querySelector('#tv-btn-start-order-empty');
+            if (btnStartOrder) {
+                btnStartOrder.onclick = () => {
+                    this.openOrderTicket('BUY');
+                };
+            }
+
             // Position protect & close buttons
             panel.querySelectorAll('.tv-btn-pos-protect').forEach(btn => {
                 btn.onclick = (e) => {
@@ -3010,6 +3227,7 @@
                     if (window.TradingEngine) {
                         window.TradingEngine.closePosition({ ticket });
                         this.logActivity('Position Closed', `Ticket #${ticket} closed at market`);
+                        this.syncNativeChartLines();
                         this.renderBottomTradingPanel();
                     }
                 };
@@ -3022,6 +3240,7 @@
                     if (window.TradingEngine) {
                         window.TradingEngine.cancelOrder(ticket);
                         this.logActivity('Order Cancelled', `Order #${ticket} cancelled`);
+                        this.syncNativeChartLines();
                         this.renderBottomTradingPanel();
                     }
                 };
@@ -3330,11 +3549,14 @@
             this.syncPricesWithChart();
             const type = this.selectedSide;
             const lots = this.lots || 1.0;
-            const price = type === 'BUY' ? this.currentAsk : this.currentBid;
+            const isBuy = type === 'BUY';
+            const price = this.orderType === 'market' 
+                ? (isBuy ? this.currentAsk : this.currentBid)
+                : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
 
             let sl = 0.0;
             let tp = 0.0;
-            if (this.isTpEnabled) sl = parseFloat(this.calculateExitPrice('sl')) || 0.0;
+            if (this.isSlEnabled) sl = parseFloat(this.calculateExitPrice('sl')) || 0.0;
             if (this.isTpEnabled) tp = parseFloat(this.calculateExitPrice('tp')) || 0.0;
 
             const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
@@ -3359,6 +3581,8 @@
                 if (window.FyersAPI && window.FyersAPI.showToast) {
                     window.FyersAPI.showToast(msg, 'success');
                 }
+                this.syncNativeChartLines();
+                if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
             } else {
                 alert(`Order Execution Failed: ${res && res.error ? res.error : 'Execution rejected by broker'}`);
             }
@@ -3571,6 +3795,18 @@
             this.lots = val;
             this.settings.defaultLots = val;
             this.saveSettings();
+
+            // Update on-chart legend dropdown pill inside iframe
+            try {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                if (iframe && iframe.contentDocument) {
+                    const legendQtyDisp = iframe.contentDocument.getElementById('tv-native-legend-qty-disp');
+                    if (legendQtyDisp) legendQtyDisp.innerText = this.lots;
+                    const centerDisp = iframe.contentDocument.getElementById('tv-native-center-lot-disp');
+                    if (centerDisp) centerDisp.innerText = this.lots;
+                }
+            } catch (_) {}
+
             const centerDisp = document.getElementById('tv-native-center-lot-disp');
             if (centerDisp) centerDisp.innerText = this.lots;
             const unitsIn = document.getElementById('tv-ticket-units-in');
