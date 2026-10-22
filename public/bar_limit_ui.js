@@ -4,12 +4,13 @@
  * Enforces a strict default 40,000 (40K) historical candle limit to prevent browser tab crashes,
  * excessive RAM consumption, and WebGL buffer exhaustion.
  * 
- * In-Chart Card Rules:
- * 1. Must render strictly on the chart canvas, NEVER overlapping the left drawing controls.
- * 2. Direct 1-click expansion on recommended 40,000 bars and preset pills.
- * 3. Seamless reload preserving visible range so chart doesn't jump or flicker.
- * 4. Manual input allows typing any custom number of bars and confirming.
- * 5. ONLY EXPANSION permitted from the card (no reduction); reduction is done via top toolbar buttons.
+ * Key Features:
+ * 1. Clean, refined Light-Theme TradingView UI matching the site's official white styling.
+ * 2. In-chart card placed strictly on chart canvas to the right of the left drawing toolbar (left >= 68px).
+ * 3. Direct 1-click expansion up to 40,000 bars and quick presets that instantly load earlier candles
+ *    seamlessly without blanking the chart or jumping the camera view.
+ * 4. Manual bar input with confirmation (expansion only from card; reduction via top toolbar button).
+ * 5. Complete theme adaptability (crisp white in light theme; #1e222d in dark theme).
  */
 
 (function(window) {
@@ -187,7 +188,6 @@
                     });
                 }
 
-                // Initial check
                 if (typeof chart.getVisibleRange === 'function') {
                     this.onVisibleRangeChanged(chart.getVisibleRange());
                 }
@@ -327,14 +327,19 @@
                     presetBg: '#2a2e39',
                     presetBorder: '#363a45',
                     inputBg: '#131722',
-                    inputBorder: '#363a45'
+                    inputBorder: '#363a45',
+                    modalBg: '#1e222d',
+                    modalBorder: '#2a2e39',
+                    modalHeaderBg: '#181b22',
+                    modalFooterBg: '#181b22',
+                    modalBackdrop: 'rgba(0, 0, 0, 0.65)'
                 };
             } else {
                 return {
                     isDark: false,
                     cardBg: '#ffffff',
                     cardBorder: '#e0e3eb',
-                    cardShadow: '0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04)',
+                    cardShadow: '0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)',
                     textPrimary: '#131722',
                     textSecondary: '#50535e',
                     textMuted: '#787b86',
@@ -347,7 +352,12 @@
                     presetBg: '#f0f3f6',
                     presetBorder: '#e0e3eb',
                     inputBg: '#ffffff',
-                    inputBorder: '#d1d4dc'
+                    inputBorder: '#d1d4dc',
+                    modalBg: '#ffffff',
+                    modalBorder: '#e0e3eb',
+                    modalHeaderBg: '#ffffff',
+                    modalFooterBg: '#fafbfc',
+                    modalBackdrop: 'rgba(0, 0, 0, 0.35)'
                 };
             }
         }
@@ -372,7 +382,6 @@
                     font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
                 `;
 
-                // Add spinning animation style if not present
                 if (!document.getElementById('tv-limit-anim-styles')) {
                     const st = document.createElement('style');
                     st.id = 'tv-limit-anim-styles';
@@ -400,23 +409,17 @@
             const curLimit = this.getLimit();
             const limitStr = curLimit.toLocaleString();
 
-            // CRITICAL REQUIREMENT 1:
-            // "when the card appear it should be on chart not the left control"
-            // The left drawing toolbar in TradingView occupies ~52px to 64px from the left edge.
-            // We set leftToolbarOffset = 68px to ensure the card NEVER covers or overlaps the left controls.
+            // Clear left drawing toolbar (width ~52px to 64px)
             const leftToolbarOffset = 68;
             const cardWidth = 330;
             const availableSpace = lineX - leftToolbarOffset;
 
             let cardLeft = leftToolbarOffset;
             if (lineX >= contWidth) {
-                // User scrolled way past boundary; center in chart area to the right of left toolbar
                 cardLeft = Math.round(leftToolbarOffset + Math.max(16, (contWidth - leftToolbarOffset - cardWidth) / 2));
             } else if (availableSpace > cardWidth + 24) {
-                // Perfectly center the card in the empty whitespace between left toolbar and vertical line
                 cardLeft = Math.round(leftToolbarOffset + (availableSpace - cardWidth) / 2);
             } else {
-                // Tight space: keep pinned safely right after the left toolbar
                 cardLeft = leftToolbarOffset + 8;
             }
 
@@ -424,7 +427,7 @@
             let lineEl = document.getElementById(this.lineId);
             let badgeEl = document.getElementById(this.badgeId);
 
-            // 1. Draw HTML Vertical Dashed Line
+            // 1. Vertical Dashed Line
             if (!lineEl) {
                 lineEl = document.createElement('div');
                 lineEl.id = this.lineId;
@@ -443,7 +446,7 @@
             lineEl.style.left = `${lineX}px`;
             lineEl.style.display = (lineX > leftToolbarOffset && lineX < contWidth) ? 'block' : 'none';
 
-            // 2. Draw Time Axis Cutoff Badge
+            // 2. Cutoff Badge
             if (!badgeEl) {
                 badgeEl = document.createElement('div');
                 badgeEl.id = this.badgeId;
@@ -459,7 +462,7 @@
                     pointer-events: none;
                     z-index: 12;
                     transform: translateX(-50%);
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
                     white-space: nowrap;
                 `;
                 badgeEl.textContent = 'Data Cutoff';
@@ -468,7 +471,7 @@
             badgeEl.style.left = `${lineX}px`;
             badgeEl.style.display = (lineX > leftToolbarOffset + 20 && lineX < contWidth - 20) ? 'block' : 'none';
 
-            // 3. Render Card (Strictly to the right of left toolbar)
+            // 3. Card Container
             if (!card) {
                 card = document.createElement('div');
                 card.id = this.cardId;
@@ -505,17 +508,13 @@
                             Expanding to ${this.getLimit().toLocaleString()} bars...
                         </div>
                         <div style="font-size: 12px; color: ${th.textSecondary};">
-                            Loading extra candles seamlessly...
+                            Loading earlier candles seamlessly...
                         </div>
                     </div>
                 `;
                 return;
             }
 
-            // CRITICAL REQUIREMENT 2 & 5:
-            // "also it should have direct clikng feature with current limit and upto 40K clicking it will inistant set chart limit to it and load extra canlee seamless doesn feel like anything happen"
-            // "only allow expanding no reducation from the card to reduce he can use the buttons"
-            
             // Available expansion presets (ONLY values greater than current limit)
             const allPresets = [5000, 10000, 20000, 40000];
             const expandPresets = allPresets.filter(val => val > curLimit);
@@ -529,7 +528,7 @@
                         </div>
                         <div style="display: flex; gap: 6px;">
                             ${expandPresets.map(p => `
-                                <button type="button" class="btn-card-quick-preset" data-val="${p}" style="flex: 1; background: rgba(41, 98, 255, 0.08); border: 1px solid rgba(41, 98, 255, 0.35); color: #2962ff; padding: 7px 4px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s;">
+                                <button type="button" class="btn-card-quick-preset" data-val="${p}" style="flex: 1; background: rgba(41, 98, 255, 0.06); border: 1px solid rgba(41, 98, 255, 0.3); color: #2962ff; padding: 7px 4px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s;">
                                     +${this.formatLimitShort(p)} ⚡
                                 </button>
                             `).join('')}
@@ -589,7 +588,7 @@
 
                 ${presetsHtml}
 
-                <!-- CRITICAL REQUIREMENT 3: Manual Input and Confirm (Expansion Only) -->
+                <!-- Manual Input and Confirm (Expansion Only) -->
                 <div style="width: 100%; margin-bottom: 8px;">
                     <div style="display: flex; gap: 6px;">
                         <input id="card-custom-input" type="number" min="${curLimit + 1000}" step="1000" placeholder="Custom bars (> ${curLimit.toLocaleString()})" style="flex: 1; padding: 8px 10px; font-size: 12px; border-radius: 6px; border: 1px solid ${th.box2Border}; background: ${th.inputBg}; color: ${th.textPrimary}; outline: none; font-family: monospace;">
@@ -598,20 +597,17 @@
                         </button>
                     </div>
                     
-                    <!-- Dynamic validation warning -->
                     <div id="card-input-validation-msg" style="display: none; font-size: 10.5px; text-align: left; margin-top: 4px; line-height: 1.35;"></div>
                     
-                    <!-- High memory warning checkbox for > 40K -->
-                    <div id="card-risk-warning" style="display: none; background: rgba(242, 54, 69, 0.1); border: 1px solid #f23645; border-radius: 6px; padding: 6px 8px; margin-top: 6px; text-align: left;">
-                        <div style="font-size: 10.5px; font-weight: 700; color: #ff5252;">⚠️ High Memory Risk (&gt;40K)</div>
-                        <label style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10px; color: ${th.textPrimary}; cursor: pointer;">
+                    <div id="card-risk-warning" style="display: none; background: #fff5f5; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 8px; margin-top: 6px; text-align: left;">
+                        <div style="font-size: 10.5px; font-weight: 700; color: #dc2626;">⚠️ High Memory Risk (&gt;40K)</div>
+                        <label style="display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10px; color: #991b1b; cursor: pointer;">
                             <input type="checkbox" id="card-risk-cb" style="width: 12px; height: 12px; cursor: pointer;">
                             <span>Accept risk of browser tab crash</span>
                         </label>
                     </div>
                 </div>
 
-                <!-- Helper Note: Explaining reduction is done via top toolbar -->
                 <div style="font-size: 10px; color: ${th.textMuted}; line-height: 1.3; margin-top: 2px;">
                     💡 Card only expands. To reduce bars, use top toolbar <strong>📊 Bars</strong> button.
                 </div>
@@ -665,7 +661,7 @@
 
                 if (val <= curLimit) {
                     valMsg.style.display = 'block';
-                    valMsg.style.color = '#f23645';
+                    valMsg.style.color = '#dc2626';
                     valMsg.textContent = `⚠️ You can only expand from here (> ${curLimit.toLocaleString()}). Use top toolbar to reduce.`;
                     riskBox.style.display = 'none';
                 } else if (val > 40000) {
@@ -684,7 +680,7 @@
                 const target = parseInt(input.value, 10);
                 if (isNaN(target) || target <= curLimit) {
                     valMsg.style.display = 'block';
-                    valMsg.style.color = '#f23645';
+                    valMsg.style.color = '#dc2626';
                     valMsg.textContent = `Please enter a value higher than current limit (${curLimit.toLocaleString()} bars).`;
                     return;
                 }
@@ -704,60 +700,56 @@
             };
         }
 
-        // CRITICAL REQUIREMENT 2:
-        // "clicking it will inistant set chart limit to it and load extra canlee seamless doesn feel like anything happen"
+        // Seamless Expansion Execution (No Blank Data, No Viewport Jump)
         expandLimitSeamlessly(targetLimit) {
             const key = this.getCurrentCacheKey();
             if (!key) return;
 
-            this._isExpanding = true;
-
-            // 1. Capture current visible range so the view does not jump
-            let savedRange = null;
-            try {
-                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                    const chart = window.tvWidget.activeChart();
-                    if (typeof chart.getVisibleRange === 'function') {
-                        savedRange = chart.getVisibleRange();
-                    }
-                }
-            } catch (_) {}
-
-            // 2. Persist new limit and reset limit flag
+            // 1. Update limit in storage & memory
             localStorage.setItem(this.storageKey, String(targetLimit));
             this._limitReached[key] = false;
-
-            // 3. Update top toolbar badge
+            this._dismissed[key] = false;
             this.updateButtonLabel();
 
-            // 4. Render smooth inline loading status
-            this.checkAndUpdateInChartDisplay();
+            // 2. Hide card and reset line shape so user sees new data loading
+            this.hideInChartCard();
+            this.removeLineShape();
 
-            // 5. Trigger seamless chart data re-request
+            // 3. Reset TradingView's internal data completion flags on mainSeries
             try {
                 if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
                     const chart = window.tvWidget.activeChart();
-                    if (typeof chart.resetData === 'function') {
-                        chart.resetData();
-                    } else if (typeof window.tvWidget.resetCache === 'function') {
-                        window.tvWidget.resetCache();
+                    const cw = chart._chartWidget;
+                    if (cw && typeof cw.model === 'function') {
+                        const model = cw.model();
+                        const ms = model ? model.mainSeries() : null;
+                        const ts = model ? model.timeScale() : null;
+
+                        if (ms) {
+                            ms._requestMoreDataAvailable = true;
+                            if (ms._lastCompleteFlags) {
+                                delete ms._lastCompleteFlags.data_completed;
+                            }
+                            if (typeof ms.requestMoreData === 'function') {
+                                ms.requestMoreData(1000);
+                            }
+                        }
+
+                        if (ts) {
+                            if (typeof ts._requestMoreData === 'function') {
+                                ts._requestMoreData();
+                            }
+                            // Nudge rightOffset slightly by 2 bars to immediately trigger TradingView scroll engine
+                            if (typeof ts.rightOffset === 'function' && typeof ts.scrollToOffsetAnimated === 'function') {
+                                const currentOffset = ts.rightOffset();
+                                ts.scrollToOffsetAnimated(currentOffset + 2, 120);
+                            }
+                        }
                     }
                 }
             } catch (e) {
-                console.warn('[BarLimitManager] Reset error:', e);
+                console.warn('[BarLimitManager] Expansion trigger:', e);
             }
-
-            // 6. Restore visible range seamlessly after data returns
-            setTimeout(() => {
-                this._isExpanding = false;
-                try {
-                    const chart = window.tvWidget.activeChart();
-                    if (savedRange && chart && typeof chart.setVisibleRange === 'function') {
-                        chart.setVisibleRange(savedRange, { percentPadding: 0 });
-                    }
-                } catch (_) {}
-                this.checkAndUpdateInChartDisplay();
-            }, 600);
         }
 
         hideInChartCard() {
@@ -789,7 +781,7 @@
             }
         }
 
-        // --- Toolbar Button Injection & Full Modal (Allows Both Expand & Reduce) ---
+        // --- Toolbar Button Injection & Refined White-Theme Modal ---
         injectButton(targetEl = null, iframeDoc = null) {
             if (!iframeDoc) {
                 const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
@@ -822,29 +814,29 @@
 
             btnContainer.innerHTML = `
                 <button type="button" class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S"
-                        style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); cursor: pointer; color: #d1d4dc; font-size: 11.5px; font-weight: 600;"
+                        style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.03); cursor: pointer; color: #131722; font-size: 11.5px; font-weight: 600;"
                         title="Historical Candle Limit (Click to configure or reduce)">
                     <span style="font-size: 13px; line-height: 1;">📊</span>
                     <span id="bar-limit-badge-text" style="color: #2962ff; font-weight: 700;">${limitShort}</span>
-                    <span style="font-size: 10px; opacity: 0.65; color: #9db2c6;">Bars</span>
+                    <span style="font-size: 10px; opacity: 0.7; color: #787b86;">Bars</span>
                 </button>
             `;
 
             btnContainer.querySelector('button').onclick = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // CRITICAL REQUIREMENT 5:
-                // User can reduce or expand from the top toolbar button!
                 this.openSettingsModal();
             };
 
             refTarget.parentNode.insertBefore(btnContainer, refTarget.nextSibling);
         }
 
+        // Refined TradingView-Style Modal matching the white site theme
         openSettingsModal() {
             const existing = document.getElementById(this.modalId);
             if (existing) existing.remove();
 
+            const th = this.getThemeStyles();
             const curLimit = this.getLimit();
             const overlay = document.createElement('div');
             overlay.id = this.modalId;
@@ -854,68 +846,73 @@
                 left: 0;
                 width: 100vw;
                 height: 100vh;
-                background: rgba(0, 0, 0, 0.72);
-                backdrop-filter: blur(8px);
+                background: ${th.modalBackdrop};
+                backdrop-filter: blur(3px);
                 z-index: 99999999;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif;
             `;
 
             overlay.innerHTML = `
-                <div style="background: #1e222d; color: #d1d4dc; border: 1px solid #2a2e39; border-radius: 12px; width: 480px; max-width: calc(100vw - 32px); box-shadow: 0 20px 60px rgba(0,0,0,0.7); overflow: hidden;">
+                <div style="background: ${th.modalBg}; color: ${th.textPrimary}; border: 1px solid ${th.modalBorder}; border-radius: 12px; width: 440px; max-width: calc(100vw - 32px); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04); overflow: hidden;">
                     <!-- Header -->
-                    <div style="padding: 16px 20px; border-bottom: 1px solid #2a2e39; display: flex; align-items: center; justify-content: space-between; background: #181b22;">
+                    <div style="padding: 16px 20px; border-bottom: 1px solid ${th.box1Bg}; display: flex; align-items: center; justify-content: space-between; background: ${th.modalHeaderBg};">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span style="font-size: 20px;">📊</span>
                             <div>
-                                <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Historical Candle Buffer Limit</h3>
-                                <p style="margin: 2px 0 0; font-size: 11px; color: #787b86;">Expand or reduce chart historical depth</p>
+                                <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: ${th.textPrimary};">Historical Candle Buffer Limit</h3>
+                                <p style="margin: 2px 0 0; font-size: 11.5px; color: ${th.textMuted};">Expand or reduce chart historical depth & memory usage</p>
                             </div>
                         </div>
-                        <button id="modal-close-x" style="background: transparent; border: none; color: #787b86; font-size: 20px; cursor: pointer; padding: 0 4px;">&times;</button>
+                        <button id="modal-close-x" style="background: transparent; border: none; color: ${th.textMuted}; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
                     </div>
 
                     <!-- Body -->
                     <div style="padding: 20px;">
                         <div style="margin-bottom: 16px;">
-                            <label style="font-size: 12px; font-weight: 600; color: #9db2c6; display: block; margin-bottom: 6px;">Select Preset Limit (Expand or Reduce):</label>
+                            <label style="font-size: 11.5px; font-weight: 600; color: ${th.textMuted}; display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.3px;">Select Preset Limit:</label>
                             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                                <button type="button" class="preset-btn" data-val="5000" style="background: ${curLimit===5000?'#2962ff':'#2a2e39'}; color: #fff; border: 1px solid ${curLimit===5000?'#2962ff':'#363a45'}; padding: 8px 4px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;">5K<br><span style="font-size: 9.5px; opacity: 0.75; font-weight: 400;">Ultra Light</span></button>
-                                <button type="button" class="preset-btn" data-val="10000" style="background: ${curLimit===10000?'#2962ff':'#2a2e39'}; color: #fff; border: 1px solid ${curLimit===10000?'#2962ff':'#363a45'}; padding: 8px 4px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;">10K<br><span style="font-size: 9.5px; opacity: 0.75; font-weight: 400;">Fast</span></button>
-                                <button type="button" class="preset-btn" data-val="20000" style="background: ${curLimit===20000?'#2962ff':'#2a2e39'}; color: #fff; border: 1px solid ${curLimit===20000?'#2962ff':'#363a45'}; padding: 8px 4px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;">20K<br><span style="font-size: 9.5px; opacity: 0.75; font-weight: 400;">Balanced</span></button>
-                                <button type="button" class="preset-btn" data-val="40000" style="background: ${curLimit===40000?'#2962ff':'#2a2e39'}; color: #fff; border: 1px solid ${curLimit===40000?'#2962ff':'#363a45'}; padding: 8px 4px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;">40K<br><span style="font-size: 9.5px; opacity: 0.75; font-weight: 400;">Default</span></button>
+                                <button type="button" class="preset-btn" data-val="5000" style="background: ${curLimit===5000?'#2962ff':th.presetBg}; color: ${curLimit===5000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===5000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">5K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Ultra Light</span></button>
+                                <button type="button" class="preset-btn" data-val="10000" style="background: ${curLimit===10000?'#2962ff':th.presetBg}; color: ${curLimit===10000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===10000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">10K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Fast</span></button>
+                                <button type="button" class="preset-btn" data-val="20000" style="background: ${curLimit===20000?'#2962ff':th.presetBg}; color: ${curLimit===20000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===20000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">20K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Balanced</span></button>
+                                <button type="button" class="preset-btn" data-val="40000" style="background: ${curLimit===40000?'#2962ff':th.presetBg}; color: ${curLimit===40000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===40000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">40K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Default</span></button>
                             </div>
                         </div>
 
                         <div style="margin-bottom: 16px;">
-                            <label for="custom-limit-input" style="font-size: 12px; font-weight: 600; color: #9db2c6; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <label for="custom-limit-input" style="font-size: 11.5px; font-weight: 600; color: ${th.textMuted}; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px;">
                                 <span>Custom Limit (Bars):</span>
-                                <span style="font-size: 11px; color: #787b86;">Min: 1,000 | Default: 40,000</span>
+                                <span style="font-size: 11px; color: ${th.textMuted}; font-weight: 400; text-transform: none;">Min: 1,000 | Recommended: 40,000</span>
                             </label>
-                            <input id="custom-limit-input" type="number" min="1000" step="1000" value="${curLimit}" style="width: 100%; box-sizing: border-box; background: #131722; border: 1px solid #2a2e39; color: #fff; padding: 10px 12px; border-radius: 6px; font-size: 14px; font-family: monospace; outline: none;">
+                            <input id="custom-limit-input" type="number" min="1000" step="1000" value="${curLimit}" style="width: 100%; box-sizing: border-box; background: ${th.inputBg}; border: 1px solid ${th.inputBorder}; color: ${th.textPrimary}; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: monospace; outline: none;">
                         </div>
 
                         <!-- Dynamic Warning Box for values > 40K -->
-                        <div id="beyond-40k-warning" style="display: ${curLimit > 40000 ? 'block' : 'none'}; background: rgba(242, 54, 69, 0.12); border: 1px solid #f23645; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-                            <div style="font-size: 12px; font-weight: 700; color: #ff5252; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <div id="beyond-40k-warning" style="display: ${curLimit > 40000 ? 'block' : 'none'}; background: #fff5f5; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                            <div style="font-size: 12px; font-weight: 700; color: #dc2626; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                                 <span>🚨 CRITICAL HIGH-MEMORY WARNING</span>
                             </div>
-                            <div style="font-size: 11.5px; line-height: 1.45; color: #ffcdd2;">
-                                Values above <strong>40,000 candles</strong> place extreme strain on browser V8 heap and GPU WebGL context. It may freeze indicator calculations or trigger browser tab crashes.
+                            <div style="font-size: 11.5px; line-height: 1.45; color: #991b1b;">
+                                Values above <strong>40,000 candles</strong> place heavy strain on browser RAM and WebGL buffers. May freeze indicator rendering or trigger tab crashes.
                             </div>
-                            <label style="display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11.5px; color: #fff; cursor: pointer;">
-                                <input type="checkbox" id="accept-risk-checkbox" style="cursor: pointer; width: 15px; height: 15px;">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: #7f1d1d; cursor: pointer;">
+                                <input type="checkbox" id="accept-risk-checkbox" style="cursor: pointer; width: 14px; height: 14px;">
                                 <span>I accept potential browser crashes.</span>
                             </label>
+                        </div>
+
+                        <!-- Technical Note -->
+                        <div style="background: rgba(41, 98, 255, 0.05); border: 1px solid rgba(41, 98, 255, 0.18); border-radius: 8px; padding: 10px 12px; font-size: 11.5px; line-height: 1.45; color: #1e53e5;">
+                            💡 <strong>40,000 bars (~200,000 data points)</strong> is the optimal threshold for fluid 60 FPS panning without browser tab memory overflow.
                         </div>
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 14px 20px; border-top: 1px solid #2a2e39; display: flex; align-items: center; justify-content: flex-end; gap: 10px; background: #181b22;">
-                        <button id="modal-btn-cancel" style="background: transparent; border: 1px solid #363a45; color: #d1d4dc; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">Cancel</button>
-                        <button id="modal-btn-apply" style="background: #2962ff; border: none; color: #fff; padding: 8px 18px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">Apply & Reload</button>
+                    <div style="padding: 14px 20px; border-top: 1px solid ${th.box1Bg}; display: flex; align-items: center; justify-content: flex-end; gap: 10px; background: ${th.modalFooterBg};">
+                        <button id="modal-btn-cancel" style="background: #ffffff; border: 1px solid #d1d4dc; color: #131722; padding: 9px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;">Cancel</button>
+                        <button id="modal-btn-apply" style="background: #2962ff; border: none; color: #fff; padding: 9px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;">Apply</button>
                     </div>
                 </div>
             `;
@@ -942,11 +939,13 @@
                     const bVal = btn.getAttribute('data-val');
                     input.value = bVal;
                     presetBtns.forEach(b => {
-                        b.style.background = '#2a2e39';
-                        b.style.borderColor = '#363a45';
+                        b.style.background = th.presetBg;
+                        b.style.borderColor = th.presetBorder;
+                        b.style.color = th.textPrimary;
                     });
                     btn.style.background = '#2962ff';
                     btn.style.borderColor = '#2962ff';
+                    btn.style.color = '#fff';
                     if (parseInt(bVal, 10) > 40000) {
                         warningBox.style.display = 'block';
                     } else {
@@ -972,7 +971,13 @@
                 }
 
                 close();
-                this.setLimit(targetLimit);
+
+                // If user is expanding, do seamless expansion; if reducing, reset data cleanly
+                if (targetLimit > curLimit) {
+                    this.expandLimitSeamlessly(targetLimit);
+                } else {
+                    this.setLimit(targetLimit);
+                }
             };
 
             overlay.addEventListener('click', (e) => {
