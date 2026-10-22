@@ -344,6 +344,32 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
     return bars;
 }
 
+window.triggerTvCacheReset = (symbol) => {
+    console.log('[datafeed] triggerTvCacheReset requested for:', symbol || 'all');
+    if (window._tvLastBar) {
+        if (symbol) {
+            const sym = symbol.split(':').pop().toUpperCase().trim();
+            Object.keys(window._tvLastBar).forEach(k => {
+                if (k.includes(sym)) {
+                    delete window._tvLastBar[k];
+                    if (!window._tvResetPending) window._tvResetPending = {};
+                    window._tvResetPending[k] = true;
+                }
+            });
+        } else {
+            window._tvLastBar = {};
+            window._tvResetPending = {};
+        }
+    }
+    if (window._mt5ResetCallbacks && window._mt5ResetCallbacks.size > 0) {
+        window._mt5ResetCallbacks.forEach(cb => {
+            try { if (typeof cb === 'function') cb(); } catch (_) {}
+        });
+    } else if (typeof window._tvResetCache === 'function') {
+        try { window._tvResetCache(); } catch (_) {}
+    }
+};
+
 // -----------------------------------------------------------------------
 // THE DATAFEED
 // -----------------------------------------------------------------------
@@ -880,7 +906,19 @@ const Datafeed = {
                 if (mt5Bars && mt5Bars.length > 0) {
                     // Filter out any invalid bars or future anomalies (allowing 5 min buffer)
                     const maxAllowedTime = Date.now() + 300000;
-                    const validBars = mt5Bars.filter(b => b.time && b.time <= maxAllowedTime && !isNaN(b.close));
+                    const isDwm = String(resolution).toUpperCase().includes('D') || 
+                                  String(resolution).toUpperCase().includes('W') || 
+                                  String(resolution).toUpperCase().includes('M');
+                    const validBars = mt5Bars
+                        .filter(b => b.time && b.time <= maxAllowedTime && !isNaN(b.close))
+                        .map(b => {
+                            if (isDwm) {
+                                const d = new Date(b.time);
+                                d.setUTCHours(0, 0, 0, 0);
+                                return { ...b, time: d.getTime() };
+                            }
+                            return b;
+                        });
                     validBars.sort((a, b) => a.time - b.time);
 
                     if (validBars.length > 0) {
@@ -890,12 +928,15 @@ const Datafeed = {
                         const last = validBars[validBars.length - 1];
                         window._tvLastBar[cacheKey] = {
                             time: last.time,
-                            open: last.open,
-                            high: last.high,
-                            low: last.low,
-                            close: last.close,
-                            volume: last.volume
+                            open: Number(last.open),
+                            high: Number(last.high),
+                            low: Number(last.low),
+                            close: Number(last.close),
+                            volume: Number(last.volume)
                         };
+                        if (window._tvResetPending) {
+                            delete window._tvResetPending[cacheKey];
+                        }
 
                         onHistoryCallback(validBars, { noData: false });
                         return;
@@ -1147,6 +1188,9 @@ const Datafeed = {
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             const cacheKey = `MT5_${cleanSym}_${resolution}`;
 
+            if (!window._mt5ResetCallbacks) window._mt5ResetCallbacks = new Map();
+            window._mt5ResetCallbacks.set(subscriberUID, onResetCacheNeededCallback);
+
             const getResolutionMs = (res) => {
                 const r = String(res).toUpperCase();
                 if (r === 'D' || r === '1D') return 86400 * 1000;
@@ -1156,6 +1200,16 @@ const Datafeed = {
                 return (!isNaN(m) && m > 0) ? m * 60 * 1000 : 5 * 60 * 1000;
             };
             const tfMs = getResolutionMs(resolution);
+            const isDwm = String(resolution).toUpperCase().includes('D') || 
+                          String(resolution).toUpperCase().includes('W') || 
+                          String(resolution).toUpperCase().includes('M');
+
+            const alignTime = (t) => {
+                if (!isDwm) return t;
+                const d = new Date(t);
+                d.setUTCHours(0, 0, 0, 0);
+                return d.getTime();
+            };
 
             const mt5Cb = (tick) => {
                 if (!tick) return;
@@ -1176,82 +1230,111 @@ const Datafeed = {
                 }
 
                 if (!window._tvLastBar) window._tvLastBar = {};
-                let lastBar = window._tvLastBar[cacheKey];
 
-                // 1. AUTHORITATIVE CANDLE RECONCILIATION:
-                // If MT5 provided previous finalized candle and chart is on that bar, lock it to MT5's exact values
-                if (tick.prev_candle && lastBar && lastBar.time === Number(tick.prev_candle.time)) {
-                    lastBar.open = Number(tick.prev_candle.open);
-                    lastBar.high = Number(tick.prev_candle.high);
-                    lastBar.low = Number(tick.prev_candle.low);
-                    lastBar.close = Number(tick.prev_candle.close);
-                    lastBar.volume = Number(tick.prev_candle.volume);
-                    onRealtimeCallback({ ...lastBar });
-                }
-
-                // 2. AUTHORITATIVE CURRENT FORMING CANDLE:
-                // Directly use MT5 terminal's calculated candle containing true Open, High, Low, Close & Volume!
-                if (tick.candle) {
-                    const c = tick.candle;
-                    let barTime = Number(c.time);
-
-                    // Time Monotonicity Guard: barTime must NEVER go backwards
-                    if (lastBar && barTime < lastBar.time) {
-                        barTime = lastBar.time;
-                    }
-
-                    if (lastBar && barTime === lastBar.time) {
-                        // Update active candle with official MT5 OHLC
-                        lastBar.open = Number(c.open);
-                        lastBar.high = Math.max(lastBar.high, Number(c.high));
-                        lastBar.low = Math.min(lastBar.low, Number(c.low));
-                        lastBar.close = Number(c.close);
-                        lastBar.volume = Number(c.volume);
-                    } else {
-                        // New candle started: create using exact MT5 open/high/low/close
-                        lastBar = {
-                            time: barTime,
-                            open: Number(c.open),
-                            high: Number(c.high),
-                            low: Number(c.low),
-                            close: Number(c.close),
-                            volume: Number(c.volume)
-                        };
-                        window._tvLastBar[cacheKey] = lastBar;
-                    }
-
-                    onRealtimeCallback({ ...lastBar });
+                // If cache reset is currently pending for this series, wait for getBars to finish
+                if (window._tvResetPending && window._tvResetPending[cacheKey]) {
                     return;
                 }
 
-                // 3. Fallback tick aggregation if server did not supply candle object
+                let lastBar = window._tvLastBar[cacheKey];
+
+                // 1. AUTHORITATIVE CANDLE STREAMING:
+                // Directly use MT5 terminal's calculated candle containing true Open, High, Low, Close & Volume
+                if (tick.candle) {
+                    const c = tick.candle;
+                    const cTime = alignTime(Number(c.time));
+                    const cOpen = Number(c.open);
+                    const cHigh = Number(c.high);
+                    const cLow = Number(c.low);
+                    const cClose = Number(c.close);
+                    const cVol = Number(c.volume);
+
+                    if (!lastBar) {
+                        lastBar = {
+                            time: cTime,
+                            open: cOpen,
+                            high: cHigh,
+                            low: cLow,
+                            close: cClose,
+                            volume: cVol
+                        };
+                        window._tvLastBar[cacheKey] = lastBar;
+                        onRealtimeCallback({ ...lastBar });
+                        return;
+                    }
+
+                    // A. Update the active forming candle:
+                    // 100% authoritative assignment from MT5 terminal (no artificial Math.max/min clamping)
+                    if (cTime === lastBar.time) {
+                        lastBar.open = cOpen;
+                        lastBar.high = cHigh;
+                        lastBar.low = cLow;
+                        lastBar.close = cClose;
+                        lastBar.volume = cVol;
+                        onRealtimeCallback({ ...lastBar });
+                        return;
+                    }
+
+                    // B. Transition to new candle:
+                    if (cTime > lastBar.time) {
+                        const isImmediateNext = (cTime - lastBar.time <= tfMs * 1.5);
+
+                        if (isImmediateNext) {
+                            // Finalize previous candle with MT5's official closed values
+                            if (tick.prev_candle) {
+                                const p = tick.prev_candle;
+                                const pTime = alignTime(Number(p.time));
+                                if (pTime === lastBar.time) {
+                                    lastBar.open = Number(p.open);
+                                    lastBar.high = Number(p.high);
+                                    lastBar.low = Number(p.low);
+                                    lastBar.close = Number(p.close);
+                                    lastBar.volume = Number(p.volume);
+                                    onRealtimeCallback({ ...lastBar });
+                                }
+                            }
+
+                            // Start new forming candle
+                            lastBar = {
+                                time: cTime,
+                                open: cOpen,
+                                high: cHigh,
+                                low: cLow,
+                                close: cClose,
+                                volume: cVol
+                            };
+                            window._tvLastBar[cacheKey] = lastBar;
+                            onRealtimeCallback({ ...lastBar });
+                            return;
+                        } else {
+                            // Gap detected (> 1.5 bars missing, e.g. network disconnect or sleep)
+                            console.log(`[datafeed] MT5 candle gap detected (${lastBar.time} -> ${cTime}, tfMs=${tfMs}). Triggering authoritative cache reload...`);
+                            if (!window._tvResetPending) window._tvResetPending = {};
+                            window._tvResetPending[cacheKey] = true;
+                            if (typeof onResetCacheNeededCallback === 'function') {
+                                onResetCacheNeededCallback();
+                            }
+                            return;
+                        }
+                    }
+
+                    // C. Anomaly / time inversion (cTime < lastBar.time)
+                    if (cTime < lastBar.time) {
+                        console.warn(`[datafeed] MT5 time inversion detected (${cTime} < ${lastBar.time}). Triggering cache reset.`);
+                        if (!window._tvResetPending) window._tvResetPending = {};
+                        window._tvResetPending[cacheKey] = true;
+                        if (typeof onResetCacheNeededCallback === 'function') {
+                            onResetCacheNeededCallback();
+                        }
+                        return;
+                    }
+                }
+
+                // 2. Fallback tick aggregation ONLY if server did not supply candle object
                 const tickTime = Number(tick.time) || Date.now();
-                let barTime;
-                if (String(resolution).includes('D')) {
-                    const d = new Date(tickTime);
-                    d.setUTCHours(0, 0, 0, 0);
-                    barTime = d.getTime();
-                } else if (String(resolution).includes('W')) {
-                    const d = new Date(tickTime);
-                    const day = d.getUTCDay();
-                    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-                    d.setUTCDate(diff);
-                    d.setUTCHours(0, 0, 0, 0);
-                    barTime = d.getTime();
-                } else {
-                    barTime = Math.floor(tickTime / tfMs) * tfMs;
-                }
+                const barTime = alignTime(Math.floor(tickTime / tfMs) * tfMs);
 
-                if (lastBar && barTime < lastBar.time) {
-                    barTime = lastBar.time;
-                }
-
-                if (lastBar && barTime === lastBar.time) {
-                    lastBar.high = Math.max(lastBar.high, price);
-                    lastBar.low = Math.min(lastBar.low, price);
-                    lastBar.close = price;
-                    lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
-                } else {
+                if (!lastBar) {
                     lastBar = {
                         time: barTime,
                         open: price,
@@ -1261,9 +1344,28 @@ const Datafeed = {
                         volume: tick.volume || 1
                     };
                     window._tvLastBar[cacheKey] = lastBar;
+                    onRealtimeCallback({ ...lastBar });
+                    return;
                 }
 
-                onRealtimeCallback({ ...lastBar });
+                if (barTime === lastBar.time) {
+                    lastBar.high = Math.max(lastBar.high, price);
+                    lastBar.low = Math.min(lastBar.low, price);
+                    lastBar.close = price;
+                    lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
+                    onRealtimeCallback({ ...lastBar });
+                } else if (barTime > lastBar.time) {
+                    lastBar = {
+                        time: barTime,
+                        open: price,
+                        high: price,
+                        low: price,
+                        close: price,
+                        volume: tick.volume || 1
+                    };
+                    window._tvLastBar[cacheKey] = lastBar;
+                    onRealtimeCallback({ ...lastBar });
+                }
             };
 
             window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb);
@@ -1361,6 +1463,9 @@ const Datafeed = {
                 window.MT5API.unsubscribeQuotes(cb);
             }
             window._mt5Subscribers.delete(subscriberUID);
+            if (window._mt5ResetCallbacks) {
+                window._mt5ResetCallbacks.delete(subscriberUID);
+            }
             return;
         }
         if (window._tvSubscribers && window._tvSubscribers.has(subscriberUID)) {

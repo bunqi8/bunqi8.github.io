@@ -404,7 +404,7 @@
                         Object.keys(quotes).forEach(sym => {
                             const q = quotes[sym];
                             if (q && q.last) {
-                                this.onLivePrice(sym, q.last, q.open);
+                                this.onLivePrice(sym, q.last, q.open, q.change !== undefined ? q.change : null);
                             }
                         });
                     }
