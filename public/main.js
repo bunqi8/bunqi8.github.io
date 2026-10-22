@@ -1,41 +1,78 @@
 // Targeted suppression for high-frequency TradingView internal tick spam
 (function() {
-    if (window.__tv_tick_spam_filter_installed) return;
-    window.__tv_tick_spam_filter_installed = true;
-    const _origLog = console.log;
-    const _origInfo = console.info;
-    const _origDebug = console.debug;
-    const SPAM_PATTERNS = [
-        /Last bar update:/i,
-        /Event\s+["']?onTick["']?/i,
-        /New bar arrived:/i
-    ];
+    function patchTarget(win) {
+        if (!win || !win.console || win.__tv_tick_spam_filter_installed) return;
+        try {
+            win.__tv_tick_spam_filter_installed = true;
+            const _origLog = win.console.log;
+            const _origInfo = win.console.info;
+            const _origDebug = win.console.debug;
+            const SPAM_PATTERNS = [
+                /Last bar update:/i,
+                /Event\s+["']?onTick["']?/i,
+                /New bar arrived:/i
+            ];
 
-    function isSpam(args) {
-        if (!args || !args.length) return false;
-        for (let i = 0; i < args.length; i++) {
-            const item = args[i];
-            if (typeof item === 'string') {
-                for (let j = 0; j < SPAM_PATTERNS.length; j++) {
-                    if (SPAM_PATTERNS[j].test(item)) return true;
+            function isSpam(args) {
+                if (!args || !args.length) return false;
+                for (let i = 0; i < args.length; i++) {
+                    const item = args[i];
+                    if (typeof item === 'string') {
+                        for (let j = 0; j < SPAM_PATTERNS.length; j++) {
+                            if (SPAM_PATTERNS[j].test(item)) return true;
+                        }
+                    }
                 }
+                return false;
             }
-        }
-        return false;
+
+            win.console.log = function(...args) {
+                if (isSpam(args)) return;
+                return _origLog.apply(win.console, args);
+            };
+            win.console.info = function(...args) {
+                if (isSpam(args)) return;
+                return _origInfo.apply(win.console, args);
+            };
+            win.console.debug = function(...args) {
+                if (isSpam(args)) return;
+                return _origDebug.apply(win.console, args);
+            };
+        } catch (_) {}
     }
 
-    console.log = function(...args) {
-        if (isSpam(args)) return;
-        return _origLog.apply(console, args);
-    };
-    console.info = function(...args) {
-        if (isSpam(args)) return;
-        return _origInfo.apply(console, args);
-    };
-    console.debug = function(...args) {
-        if (isSpam(args)) return;
-        return _origDebug.apply(console, args);
-    };
+    patchTarget(window);
+
+    // Also observe and patch any iframe created by TradingView
+    try {
+        const obs = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node && node.tagName === 'IFRAME') {
+                        try {
+                            if (node.contentWindow) patchTarget(node.contentWindow);
+                            node.addEventListener('load', () => {
+                                try { if (node.contentWindow) patchTarget(node.contentWindow); } catch (_) {}
+                            });
+                        } catch (_) {}
+                    }
+                }
+            }
+        });
+        if (document.documentElement) {
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+        }
+    } catch (_) {}
+
+    // Check periodically for iframe
+    setInterval(() => {
+        try {
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                if (iframe.contentWindow) patchTarget(iframe.contentWindow);
+            });
+        } catch (_) {}
+    }, 1000);
 })();
 
 // -----------------------------------------------------------------------
@@ -277,7 +314,7 @@ function bootWidget() {
         locale: 'en',
         theme: 'Light',
         autosize: true,
-        debug: true,
+        debug: false,
         
         custom_indicators_getter: function (PineJS) {
             return window.getCustomIndicators(PineJS);
@@ -339,7 +376,9 @@ function bootWidget() {
             "show_symbol_logo_in_legend",
             "header_symbol_search"
         ],
-        disabled_features: []
+        disabled_features: [
+            "charting_library_debug_mode"
+        ]
     };
 
     const widget = new TradingView.widget(widgetOptions);
