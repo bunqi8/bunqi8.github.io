@@ -81,6 +81,13 @@
                 localStorage.setItem(this.storageKey, String(num));
             } catch (_) {}
 
+            const key = this.getCurrentCacheKey();
+            if (key && window._barsCache && window._barsCache[key]) {
+                if (window._barsCache[key].length > num) {
+                    window._barsCache[key] = window._barsCache[key].slice(window._barsCache[key].length - num);
+                }
+            }
+
             this.resetCounts();
             this.updateButtonLabel();
             this.hideInChartCard();
@@ -124,6 +131,14 @@
             const current = this.getBarCount(cacheKey);
             if (current >= limit) {
                 this.setBarCount(cacheKey, limit);
+                // When new candle forms and chart is at capacity, oldest candle vanishes
+                if (window._barsCache && window._barsCache[cacheKey] && window._barsCache[cacheKey].length >= limit) {
+                    window._barsCache[cacheKey].shift();
+                    const newOldest = window._barsCache[cacheKey][0];
+                    if (newOldest) {
+                        this.setOldestBar(cacheKey, Math.floor(newOldest.time / 1000));
+                    }
+                }
             } else {
                 this.setBarCount(cacheKey, current + 1);
             }
@@ -147,9 +162,10 @@
             try {
                 if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
                     const chart = window.tvWidget.activeChart();
-                    const sym = (chart.symbol() || '').replace(/[^A-Za-z0-9_]/g, '');
-                    const res = chart.resolution() || '';
-                    return `${sym}_${res}`;
+                    const raw = chart.symbol() || '';
+                    const clean = raw.split(':').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    const res = chart.resolution() || '5';
+                    return `${clean}_${res}`;
                 }
             } catch (_) {}
             return null;
@@ -701,9 +717,28 @@
         }
 
         // Seamless Expansion Execution (No Blank Data, No Viewport Jump)
-        expandLimitSeamlessly(targetLimit) {
+        async expandLimitSeamlessly(targetLimit) {
             const key = this.getCurrentCacheKey();
             if (!key) return;
+
+            this._isExpanding = true;
+
+            // Show immediate spinner feedback on in-chart card
+            const card = document.getElementById(this.cardId);
+            const th = this.getThemeStyles();
+            if (card) {
+                card.innerHTML = `
+                    <div style="padding: 24px 10px; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                        <div style="font-size: 32px; animation: tvSpin 1s linear infinite;">⏳</div>
+                        <div style="font-size: 15px; font-weight: 700; color: #2962ff;">
+                            Expanding to ${targetLimit.toLocaleString()} bars...
+                        </div>
+                        <div style="font-size: 12px; color: ${th.textSecondary};">
+                            Loading earlier candles seamlessly...
+                        </div>
+                    </div>
+                `;
+            }
 
             // 1. Update limit in storage & memory
             localStorage.setItem(this.storageKey, String(targetLimit));
@@ -711,45 +746,122 @@
             this._dismissed[key] = false;
             this.updateButtonLabel();
 
-            // 2. Hide card and reset line shape so user sees new data loading
-            this.hideInChartCard();
-            this.removeLineShape();
-
-            // 3. Reset TradingView's internal data completion flags on mainSeries
+            // 2. Fetch earlier candles proactively from MT5 if connected
             try {
                 if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
                     const chart = window.tvWidget.activeChart();
-                    const cw = chart._chartWidget;
-                    if (cw && typeof cw.model === 'function') {
-                        const model = cw.model();
-                        const ms = model ? model.mainSeries() : null;
-                        const ts = model ? model.timeScale() : null;
+                    const sym = chart.symbol();
+                    const cleanSym = (sym || 'EURUSD').split(':').pop().toUpperCase().trim();
+                    const res = chart.resolution() || '5';
 
-                        if (ms) {
-                            ms._requestMoreDataAvailable = true;
-                            if (ms._lastCompleteFlags) {
-                                delete ms._lastCompleteFlags.data_completed;
-                            }
-                            if (typeof ms.requestMoreData === 'function') {
-                                ms.requestMoreData(1000);
-                            }
-                        }
+                    const isMt5 = (window.MT5API && typeof window.MT5API.isMt5Symbol === 'function' && window.MT5API.isMt5Symbol(sym)) ||
+                                  (sym && sym.startsWith('MT5:')) ||
+                                  (window.MT5API && window.MT5API.quotes && window.MT5API.quotes[cleanSym]);
 
-                        if (ts) {
-                            if (typeof ts._requestMoreData === 'function') {
-                                ts._requestMoreData();
-                            }
-                            // Nudge rightOffset slightly by 2 bars to immediately trigger TradingView scroll engine
-                            if (typeof ts.rightOffset === 'function' && typeof ts.scrollToOffsetAnimated === 'function') {
-                                const currentOffset = ts.rightOffset();
-                                ts.scrollToOffsetAnimated(currentOffset + 2, 120);
+                    if (isMt5 && window.MT5API) {
+                        const currentBars = (window._barsCache && window._barsCache[key]) ? window._barsCache[key] : [];
+                        const oldestSec = currentBars.length > 0 
+                            ? Math.floor(currentBars[0].time / 1000) 
+                            : (this._oldestBarTimeSec[key] || Math.floor(Date.now() / 1000));
+
+                        const currentCount = currentBars.length;
+                        const batchSize = Math.max(500, Math.min(2500, targetLimit - currentCount));
+
+                        console.log(`[BarLimitManager] Proactively fetching ${batchSize} earlier bars prior to ${new Date(oldestSec * 1000).toISOString()}`);
+                        
+                        const newBars = await window.MT5API.fetchBars(cleanSym, res, null, oldestSec, batchSize);
+                        
+                        if (newBars && newBars.length > 0) {
+                            const maxAllowedTime = Date.now() + 300000;
+                            const isDwm = String(res).toUpperCase().includes('D') || 
+                                          String(res).toUpperCase().includes('W') || 
+                                          String(res).toUpperCase().includes('M');
+                            const validNew = newBars
+                                .filter(b => b.time && b.time < (oldestSec * 1000) && b.time <= maxAllowedTime && !isNaN(b.close))
+                                .map(b => {
+                                    if (isDwm) {
+                                        const d = new Date(b.time);
+                                        d.setUTCHours(0, 0, 0, 0);
+                                        return { ...b, time: d.getTime() };
+                                    }
+                                    return b;
+                                });
+                            
+                            if (validNew.length > 0) {
+                                const map = new Map();
+                                for (const b of validNew) map.set(b.time, b);
+                                for (const b of currentBars) map.set(b.time, b);
+                                const combined = Array.from(map.values()).sort((a, b) => a.time - b.time);
+                                
+                                if (!window._barsCache) window._barsCache = {};
+                                window._barsCache[key] = combined;
+                                this.setBarCount(key, combined.length);
+                                this.setOldestBar(key, Math.floor(combined[0].time / 1000));
+                                console.log(`[BarLimitManager] Cache expanded with ${validNew.length} earlier bars. Total now: ${combined.length}`);
                             }
                         }
                     }
                 }
-            } catch (e) {
-                console.warn('[BarLimitManager] Expansion trigger:', e);
+            } catch (err) {
+                console.warn('[BarLimitManager] Pre-fetch earlier bars warning:', err);
             }
+
+            // 3. Save visible range
+            let savedRange = null;
+            let chartRef = null;
+            try {
+                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                    chartRef = window.tvWidget.activeChart();
+                    if (chartRef && typeof chartRef.getVisibleRange === 'function') {
+                        savedRange = chartRef.getVisibleRange();
+                    }
+                }
+            } catch (_) {}
+
+            // 4. Hook onDataLoaded to seamlessly restore visible range
+            if (chartRef && typeof chartRef.onDataLoaded === 'function' && savedRange) {
+                chartRef.onDataLoaded().subscribe(null, () => {
+                    setTimeout(() => {
+                        try {
+                            if (savedRange && chartRef.setVisibleRange) {
+                                chartRef.setVisibleRange(savedRange, { percentRightMargin: 0 }).catch(() => {});
+                            }
+                        } catch (_) {}
+                    }, 25);
+                }, true);
+            }
+
+            // 5. Trigger resetCache and chart.resetData()
+            try {
+                if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                    window.tvWidget.resetCache();
+                } else if (typeof window._tvResetCache === 'function') {
+                    window._tvResetCache();
+                }
+
+                if (chartRef && typeof chartRef.resetData === 'function') {
+                    chartRef.resetData();
+                }
+
+                const cw = chartRef ? chartRef._chartWidget : null;
+                if (cw && typeof cw.model === 'function') {
+                    const model = cw.model();
+                    const ms = model ? model.mainSeries() : null;
+                    if (ms) {
+                        ms._requestMoreDataAvailable = true;
+                        if (ms._lastCompleteFlags) {
+                            delete ms._lastCompleteFlags.data_completed;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[BarLimitManager] Reset execution error:', e);
+            }
+
+            // 6. Complete expansion & hide card
+            this._isExpanding = false;
+            this.hideInChartCard();
+            this.removeLineShape();
         }
 
         hideInChartCard() {
