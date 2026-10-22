@@ -1158,6 +1158,10 @@ const Datafeed = {
                     window.TradeUIInstance.onLivePriceUpdate(price, symbolInfo.name, tick.bid, tick.ask);
                 }
 
+                if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                    window.WatchlistUI.onLivePrice(cleanSym, price, tick.candle ? tick.candle.open : (lastBar ? lastBar.open : null));
+                }
+
                 if (!window._tvLastBar) window._tvLastBar = {};
                 let lastBar = window._tvLastBar[cacheKey];
 
@@ -1322,6 +1326,11 @@ const Datafeed = {
             
             if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
                 window.TradeUIInstance.onLivePriceUpdate(alignedTick.close || (lastBar && lastBar.close), fyersSymbol, alignedTick.bid, alignedTick.ask);
+            }
+
+            if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                const fPrice = alignedTick.close || (lastBar && lastBar.close);
+                window.WatchlistUI.onLivePrice(fyersSymbol, fPrice, lastBar ? lastBar.open : null);
             }
             
             onRealtimeCallback({ ...lastBar });
