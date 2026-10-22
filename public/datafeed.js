@@ -37,6 +37,218 @@ const configurationData = {
 };
 
 // -----------------------------------------------------------------------
+// Universal Market Schedule & Live Open/Close Status Engine
+// Determines authoritative TradingView session specs and real-time open/closed state
+// -----------------------------------------------------------------------
+window.getMarketStatus = function(symbol) {
+    const raw = (symbol || '').split(':').pop().toUpperCase().trim();
+    const clean = raw.replace(/[^A-Z0-9_-]/g, '');
+
+    // 1. Crypto CFD / Spot: 24/7 continuous trading
+    if (clean.startsWith('BTC') || clean.startsWith('ETH') || clean.startsWith('SOL') || clean.includes('CRYPTO')) {
+        return {
+            isOpen: true,
+            session: '24x7',
+            timezone: 'Etc/UTC',
+            market: 'CRYPTO',
+            reason: '24/7 Crypto Market'
+        };
+    }
+
+    // 2. Indian Equities & Indices (NSE / BSE: NIFTY, BANKNIFTY, SENSEX, etc.)
+    const isIndianStock = clean.includes('NIFTY') || clean.includes('SENSEX') || 
+                          clean.includes('BANKEX') || clean.includes('MIDCP') || 
+                          clean.includes('FINNIFTY');
+    if (isIndianStock) {
+        const now = new Date();
+        const istParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Kolkata',
+            hour12: false,
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+        }).formatToParts(now);
+
+        let weekday = '', hour = 0, minute = 0;
+        istParts.forEach(p => {
+            if (p.type === 'weekday') weekday = p.value;
+            if (p.type === 'hour') hour = parseInt(p.value, 10);
+            if (p.type === 'minute') minute = parseInt(p.value, 10);
+        });
+
+        // Weekend check
+        if (weekday === 'Sat' || weekday === 'Sun') {
+            return {
+                isOpen: false,
+                session: '0915-1530:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'NSE/BSE',
+                reason: 'Weekend Closed (Opens Monday 09:15 IST)'
+            };
+        }
+
+        const curMins = hour * 60 + minute;
+        const openMins = 9 * 60 + 15;   // 09:15 IST = 555
+        const closeMins = 15 * 60 + 30; // 15:30 IST = 930
+
+        if (curMins >= openMins && curMins < closeMins) {
+            return {
+                isOpen: true,
+                session: '0915-1530:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'NSE/BSE',
+                reason: 'Trading Session Active (09:15 - 15:30 IST)'
+            };
+        } else if (curMins < openMins) {
+            return {
+                isOpen: false,
+                session: '0915-1530:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'NSE/BSE',
+                reason: `Pre-Market (Opens at 09:15 IST)`
+            };
+        } else {
+            return {
+                isOpen: false,
+                session: '0915-1530:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'NSE/BSE',
+                reason: 'Market Closed for Today (Closed at 15:30 IST)'
+            };
+        }
+    }
+
+    // 3. Indian Commodities (MCX: CRUDEOIL, GOLDM, SILVERM, NATURALGAS)
+    const isMcx = clean.includes('MCX') || clean.includes('CRUDE') || 
+                  clean.includes('GOLDM') || clean.includes('SILVERM') || 
+                  clean.includes('NATURALGAS');
+    if (isMcx) {
+        const now = new Date();
+        const istParts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Kolkata',
+            hour12: false,
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+        }).formatToParts(now);
+
+        let weekday = '', hour = 0, minute = 0;
+        istParts.forEach(p => {
+            if (p.type === 'weekday') weekday = p.value;
+            if (p.type === 'hour') hour = parseInt(p.value, 10);
+            if (p.type === 'minute') minute = parseInt(p.value, 10);
+        });
+
+        if (weekday === 'Sat' || weekday === 'Sun') {
+            return {
+                isOpen: false,
+                session: '0900-2330:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'MCX',
+                reason: 'MCX Weekend Closed'
+            };
+        }
+
+        const curMins = hour * 60 + minute;
+        const openMins = 9 * 60;        // 09:00 IST = 540
+        const closeMins = 23 * 60 + 30; // 23:30 IST = 1410
+
+        if (curMins >= openMins && curMins < closeMins) {
+            return {
+                isOpen: true,
+                session: '0900-2330:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'MCX',
+                reason: 'MCX Live Session Active (09:00 - 23:30 IST)'
+            };
+        } else {
+            return {
+                isOpen: false,
+                session: '0900-2330:23456',
+                timezone: 'Asia/Kolkata',
+                market: 'MCX',
+                reason: 'MCX Market Closed'
+            };
+        }
+    }
+
+    // 4. Global Forex, Metals, and Indices (MT5 / International)
+    // Evaluated in UTC
+    const nowUtc = new Date();
+    const dayUtc = nowUtc.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+    const curMinsUtc = nowUtc.getUTCHours() * 60 + nowUtc.getUTCMinutes();
+
+    const isMetal = clean.includes('XAU') || clean.includes('XAG') || clean.includes('OIL');
+    const isIndex = clean.includes('30') || clean.includes('100') || clean.includes('500') || clean.includes('DE40') || clean.includes('UK100');
+    const defaultSession = (isMetal || isIndex) ? '2300-2200:12345' : '2200-2200:12345';
+
+    // Weekend Closure:
+    // Closes Friday 22:00 UTC
+    // Reopens Sunday (Forex: 22:00 UTC, Metals/Indices: 23:00 UTC)
+    if (dayUtc === 6) { // Saturday
+        return {
+            isOpen: false,
+            session: defaultSession,
+            timezone: 'Etc/UTC',
+            market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
+            reason: 'Weekend Closed (Opens Sunday Evening UTC)'
+        };
+    }
+    if (dayUtc === 5 && curMinsUtc >= 22 * 60) { // Friday after 22:00 UTC
+        return {
+            isOpen: false,
+            session: defaultSession,
+            timezone: 'Etc/UTC',
+            market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
+            reason: 'Weekend Closed (Closes Friday 22:00 UTC)'
+        };
+    }
+    if (dayUtc === 0) { // Sunday
+        const openSunMins = (isMetal || isIndex) ? (23 * 60) : (22 * 60);
+        if (curMinsUtc < openSunMins) {
+            return {
+                isOpen: false,
+                session: defaultSession,
+                timezone: 'Etc/UTC',
+                market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
+                reason: `Weekend Closed (Opens Sunday ${Math.floor(openSunMins / 60)}:00 UTC)`
+            };
+        }
+    }
+
+    // Daily Rollover Maintenance Breaks (Mon - Thu):
+    // Metals (Gold/Silver): Daily rollover break 22:00 - 23:00 UTC
+    if (isMetal && (curMinsUtc >= 22 * 60 && curMinsUtc < 23 * 60)) {
+        return {
+            isOpen: false,
+            session: defaultSession,
+            timezone: 'Etc/UTC',
+            market: 'METALS',
+            reason: 'Daily Rollover Break (22:00 - 23:00 UTC)'
+        };
+    }
+
+    // Indices (US30, USTEC): Daily maintenance break 21:00 - 22:00 UTC
+    if (isIndex && (curMinsUtc >= 21 * 60 && curMinsUtc < 22 * 60)) {
+        return {
+            isOpen: false,
+            session: defaultSession,
+            timezone: 'Etc/UTC',
+            market: 'INDICES',
+            reason: 'Daily Maintenance Break (21:00 - 22:00 UTC)'
+        };
+    }
+
+    return {
+        isOpen: true,
+        session: defaultSession,
+        timezone: 'Etc/UTC',
+        market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
+        reason: 'Market Open - Live Ticking'
+    };
+};
+
+// -----------------------------------------------------------------------
 // Structured Logger with color-coded output
 // -----------------------------------------------------------------------
 const DFLog = {
@@ -524,6 +736,7 @@ const Datafeed = {
             const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
             const brokerName = acc ? (acc.server || acc.nickname || 'MT5') : 'MT5';
             const symInfo = window.MT5API ? window.MT5API.getSymbolInfo(cleanSym) : null;
+            const mkt = window.getMarketStatus ? window.getMarketStatus(cleanSym) : null;
 
             let priceScale = 100000;
             if (symInfo && symInfo.pricescale) {
@@ -539,9 +752,13 @@ const Datafeed = {
                 assetType = 'commodity';
             } else if (cleanSym.includes('30') || cleanSym.includes('100') || cleanSym.includes('500') || cleanSym.includes('DE40')) {
                 assetType = 'index';
+            } else if (cleanSym.includes('BTC') || cleanSym.includes('ETH')) {
+                assetType = 'crypto';
             }
 
             const desc = symInfo && symInfo.description ? `${symInfo.description} (${brokerName})` : `${cleanSym} (${brokerName})`;
+            const sessionStr = (symInfo && symInfo.session) ? symInfo.session : (mkt ? mkt.session : (assetType === 'crypto' ? '24x7' : '2200-2200:12345'));
+            const tzStr = (symInfo && symInfo.timezone) ? symInfo.timezone : (mkt ? mkt.timezone : 'Etc/UTC');
 
             const symbolInfo = {
                 name: cleanSym,
@@ -553,8 +770,8 @@ const Datafeed = {
                 exchange: `MT5 (${brokerName})`,
                 listed_exchange: `MT5 (${brokerName})`,
                 format: 'price',
-                session: '24x7',
-                timezone: 'UTC',
+                session: sessionStr,
+                timezone: tzStr,
                 minmov: 1,
                 pricescale: priceScale,
                 has_intraday: true,
@@ -576,7 +793,9 @@ const Datafeed = {
             exchange = 'BSE';
         } else if (actualName.includes('CRUDE') || actualName.includes('GOLD') || actualName.includes('SILVER') || actualName.includes('NATURALGAS') || actualName.includes('NATGASMINI')) {
             exchange = 'MCX';
-            session = '0900-2330'; // Standard MCX trading hours
+            session = '0900-2330:23456'; // Standard MCX trading hours Mon-Fri
+        } else {
+            session = '0915-1530:23456'; // Standard NSE/BSE trading hours Mon-Fri
         }
 
         const isMcx = exchange === 'MCX';
@@ -587,6 +806,10 @@ const Datafeed = {
             symType = 'futures';
         }
 
+        const mktIndian = window.getMarketStatus ? window.getMarketStatus(actualName) : null;
+        const sessionIndian = mktIndian ? mktIndian.session : session;
+        const tzIndian = mktIndian ? mktIndian.timezone : 'Asia/Kolkata';
+
         const symbolInfo = {
             name: actualName,
             full_name: actualName,
@@ -594,8 +817,8 @@ const Datafeed = {
             description: actualName,
             type: symType,
             exchange: exchange,
-            session: session,
-            timezone: 'Asia/Kolkata',
+            session: sessionIndian,
+            timezone: tzIndian,
             minmov: 1,
             pricescale: 100,
             has_intraday: true,

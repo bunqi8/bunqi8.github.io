@@ -328,6 +328,9 @@
                 }
             } catch (_) {}
 
+            // Determine authoritative market open/closed status
+            const mkt = window.getMarketStatus ? window.getMarketStatus(cleanSym) : { isOpen: true, reason: 'Live Ticking' };
+
             // 1. MetaTrader 5 Check
             const isMt5Connected = window.MT5API && window.MT5API.isConnected;
             const acc = isMt5Connected ? window.MT5API.getActiveAccount() : null;
@@ -350,13 +353,16 @@
 
                 if (isKnownMt5) {
                     const isTradeable = symObj ? (symObj.tradeable !== false && symObj.trade_mode !== 0) : true;
+                    const isOpen = mkt.isOpen && isTradeable;
                     return {
-                        status: 'available',
+                        status: isOpen ? 'open' : 'closed',
                         broker: 'MT5',
-                        badgeText: 'MT5',
-                        color: '#089981',
-                        dotClass: 'dot-available',
-                        tooltip: `✓ MetaTrader 5: Available & ${isTradeable ? 'Tradable' : 'Viewable'} on ${brokerName}`
+                        badgeText: isOpen ? 'MT5' : 'MT5 (CLOSED)',
+                        color: isOpen ? '#089981' : '#ff9800',
+                        dotClass: isOpen ? 'dot-open' : 'dot-closed',
+                        tooltip: isOpen 
+                            ? `✓ MetaTrader 5: Market Open (Live Ticking on ${brokerName})`
+                            : `⏸ MetaTrader 5: Market Closed (${mkt.reason})`
                     };
                 }
             }
@@ -371,13 +377,17 @@
 
             if (isIndian) {
                 if (isFyersConnected || isChartActive) {
+                    const isOpen = mkt.isOpen;
+                    const brokerLabel = isFyersConnected ? 'Fyers' : 'Live Chart';
                     return {
-                        status: 'available',
+                        status: isOpen ? 'open' : 'closed',
                         broker: 'FYERS',
-                        badgeText: isFyersConnected ? 'FYERS' : 'LIVE',
-                        color: '#089981',
-                        dotClass: 'dot-available',
-                        tooltip: `✓ ${isFyersConnected ? 'Fyers Broker' : 'Active Chart'}: Live Market Feed Active`
+                        badgeText: isOpen ? (isFyersConnected ? 'FYERS' : 'LIVE') : (isFyersConnected ? 'FYERS (CLOSED)' : 'CLOSED'),
+                        color: isOpen ? '#089981' : '#ff9800',
+                        dotClass: isOpen ? 'dot-open' : 'dot-closed',
+                        tooltip: isOpen
+                            ? `✓ ${brokerLabel}: Market Open (Live Ticking)`
+                            : `⏸ ${brokerLabel}: Market Closed (${mkt.reason})`
                     };
                 } else if (window.db) {
                     return {
@@ -598,6 +608,14 @@
             this._pollerTimer = setInterval(() => {
                 if (this.isOpen) {
                     this.pollActiveListQuotes();
+                    // Keep market open/closed status dots and badges in sync
+                    const container = document.getElementById('wl-items-container');
+                    if (container) {
+                        container.querySelectorAll('.wl-item').forEach(row => {
+                            const sym = row.dataset.symbol;
+                            if (sym) this.updateRowAvailability(sym);
+                        });
+                    }
                 }
             }, 3000);
             this.pollActiveListQuotes();
@@ -2714,10 +2732,15 @@
                     height: 7px;
                     border-radius: 50%;
                     flex-shrink: 0;
+                    transition: background-color 0.2s ease, box-shadow 0.2s ease;
                 }
-                .wl-status-dot.dot-available {
+                .wl-status-dot.dot-available, .wl-status-dot.dot-open {
                     background: #089981;
-                    box-shadow: 0 0 6px rgba(8, 153, 129, 0.6);
+                    box-shadow: 0 0 6px rgba(8, 153, 129, 0.65);
+                }
+                .wl-status-dot.dot-closed {
+                    background: #ff9800;
+                    box-shadow: 0 0 5px rgba(255, 152, 0, 0.55);
                 }
                 .wl-status-dot.dot-local {
                     background: #2962ff;
