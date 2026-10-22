@@ -557,16 +557,20 @@ const Datafeed = {
 
             const symbolInfo = {
                 name: cleanSym,
+                ticker: cleanSym,
                 full_name: `MT5:${cleanSym}`,
                 isLive: true,
                 description: desc,
                 type: assetType,
                 exchange: `MT5 (${brokerName})`,
+                listed_exchange: `MT5 (${brokerName})`,
+                format: 'price',
                 session: '24x7',
                 timezone: 'UTC',
                 minmov: 1,
                 pricescale: priceScale,
                 has_intraday: true,
+                has_no_volume: false,
                 has_empty_bars: false,
                 has_daily: true,
                 has_weekly_and_monthly: true,
@@ -889,14 +893,7 @@ const Datafeed = {
         const rawTo = to;
         countBack = countBack || 300;
         
-        // 1. Live Options (No Parquet)
-        if (symbolInfo.isLive && window.FyersAPI && symbolInfo.exchange !== 'MT5') {
-            let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
-            fyersBars = alignFyersDwmTime(fyersBars, resolution);
-            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution, symbolInfo);
-        }
-
-        // 1b. MT5 Live Feed
+        // 1. MT5 Live Feed - ALWAYS CHECK FIRST FOR ALL MT5 INSTRUMENTS
         const isMt5Exchange = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
                               symbolInfo.name.startsWith('MT5:') ||
                               (window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name));
@@ -932,6 +929,13 @@ const Datafeed = {
                 onHistoryCallback([], { noData: true });
                 return;
             }
+        }
+
+        // 2. Live Options (No Parquet) for Indian Fyers
+        if (symbolInfo.isLive && window.FyersAPI && !symbolInfo.exchange.includes('MT5')) {
+            let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
+            fyersBars = alignFyersDwmTime(fyersBars, resolution);
+            return safeHistoryCallback(fyersBars, onHistoryCallback, resolution, symbolInfo);
         }
 
         let conn = null;
