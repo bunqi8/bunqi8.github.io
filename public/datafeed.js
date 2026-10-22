@@ -180,7 +180,7 @@ window.getMarketStatus = function(symbol) {
 
     const isMetal = clean.includes('XAU') || clean.includes('XAG') || clean.includes('OIL');
     const isIndex = clean.includes('30') || clean.includes('100') || clean.includes('500') || clean.includes('DE40') || clean.includes('UK100');
-    const defaultSession = (isMetal || isIndex) ? '2300-2200:12345' : '2200-2200:12345';
+    const defaultSession = isMetal ? '2200-1955:12345' : ((isMetal || isIndex) ? '2300-2200:12345' : '2200-2200:12345');
 
     // Weekend Closure:
     // Closes Friday 22:00 UTC
@@ -217,14 +217,14 @@ window.getMarketStatus = function(symbol) {
     }
 
     // Daily Rollover Maintenance Breaks (Mon - Thu):
-    // Metals (Gold/Silver): Daily rollover break 22:00 - 23:00 UTC
-    if (isMetal && (curMinsUtc >= 22 * 60 && curMinsUtc < 23 * 60)) {
+    // Metals (Gold/Silver): Daily broker rollover break 19:55 - 22:00 UTC (01:25 - 03:30 IST)
+    if (isMetal && (curMinsUtc >= (19 * 60 + 55) && curMinsUtc < (22 * 60))) {
         return {
             isOpen: false,
             session: defaultSession,
             timezone: 'Etc/UTC',
             market: 'METALS',
-            reason: 'Daily Rollover Break (22:00 - 23:00 UTC)'
+            reason: 'Daily Rollover Break (01:25 - 03:30 IST / Opens at 03:30 IST)'
         };
     }
 
