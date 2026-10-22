@@ -1142,25 +1142,33 @@ const Datafeed = {
                     validBars.sort((a, b) => a.time - b.time);
 
                     if (validBars.length > 0) {
-                        // Attach latest bar for real-time live ticking aggregation
+                        // Only update _tvLastBar if this is the initial load or a newer bar.
+                        // NEVER overwrite active forming candle with older historical chunks when scrolling back!
                         if (!window._tvLastBar) window._tvLastBar = {};
                         const last = validBars[validBars.length - 1];
-                        window._tvLastBar[cacheKey] = {
-                            time: last.time,
-                            open: Number(last.open),
-                            high: Number(last.high),
-                            low: Number(last.low),
-                            close: Number(last.close),
-                            volume: Number(last.volume)
-                        };
+                        const currLast = window._tvLastBar[cacheKey];
+                        if (firstDataRequest || !currLast || last.time >= currLast.time) {
+                            window._tvLastBar[cacheKey] = {
+                                time: last.time,
+                                open: Number(last.open),
+                                high: Number(last.high),
+                                low: Number(last.low),
+                                close: Number(last.close),
+                                volume: Number(last.volume)
+                            };
+                        }
 
                         onHistoryCallback(validBars, { noData: false });
                         return;
                     }
                 }
 
-                // If no bars returned for requested range, signal noData: true so TradingView stops paging backwards
-                onHistoryCallback([], { noData: true });
+                // If no bars returned for requested range, tell TradingView to look one day earlier or signal noData
+                if (rawFrom) {
+                    onHistoryCallback([], { noData: true, nextTime: (rawFrom - 86400) * 1000 });
+                } else {
+                    onHistoryCallback([], { noData: true });
+                }
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
