@@ -419,19 +419,24 @@
 
             if (indianSymbols.length > 0) {
                 // A. Check if FyersAPI is available and authenticated
-                if (window.FyersAPI && typeof window.FyersAPI.fetchQuotes === 'function') {
-                    try {
-                        const fQuotes = await window.FyersAPI.fetchQuotes(indianSymbols);
-                        if (fQuotes && Object.keys(fQuotes).length > 0) {
-                            Object.keys(fQuotes).forEach(sym => {
-                                const q = fQuotes[sym];
-                                if (q && (q.last !== undefined || q.price !== undefined)) {
-                                    const p = q.last !== undefined ? q.last : q.price;
-                                    this.onLivePrice(sym, p, q.open, q.change);
-                                }
-                            });
-                        }
-                    } catch (_) {}
+                if (window.FyersAPI) {
+                    if (typeof window.FyersAPI.subscribeWatchlist === 'function') {
+                        window.FyersAPI.subscribeWatchlist(indianSymbols);
+                    }
+                    if (typeof window.FyersAPI.fetchQuotes === 'function') {
+                        try {
+                            const fQuotes = await window.FyersAPI.fetchQuotes(indianSymbols);
+                            if (fQuotes && Object.keys(fQuotes).length > 0) {
+                                Object.keys(fQuotes).forEach(sym => {
+                                    const q = fQuotes[sym];
+                                    if (q && (q.last !== undefined || q.price !== undefined)) {
+                                        const p = q.last !== undefined ? q.last : q.price;
+                                        this.onLivePrice(sym, p, q.open, q.change);
+                                    }
+                                });
+                            }
+                        } catch (_) {}
+                    }
                 }
 
                 // B. Fallback to DuckDB / latest market prices if Fyers quotes didn't populate
