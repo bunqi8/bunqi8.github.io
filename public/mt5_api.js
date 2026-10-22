@@ -30,12 +30,9 @@
             // Listen for system network recovery and tab visibility change
             if (typeof window !== 'undefined') {
                 window.addEventListener('online', () => {
-                    console.log('[MT5API] Network back online! Reconnecting socket and resyncing chart cache...');
+                    console.log('[MT5API] Network back online! Reconnecting socket...');
                     this.wasDisconnected = true;
                     this.reconnectWebSocket();
-                    if (typeof window.triggerTvCacheReset === 'function') {
-                        window.triggerTvCacheReset();
-                    }
                 });
 
                 document.addEventListener('visibilitychange', () => {
@@ -667,33 +664,5 @@
 
     // Export singleton
     window.MT5API = new MT5Client();
-
-    // Auto-reconnect & re-sync chart history when internet or browser tab is restored
-    if (typeof window !== 'undefined') {
-        window.addEventListener('online', () => {
-            console.log('[MT5API] Network restored online. Reconnecting WebSocket...');
-            if (window.MT5API) {
-                window.MT5API.reconnectWebSocket();
-                if (typeof window.triggerTvCacheReset === 'function') {
-                    window.triggerTvCacheReset();
-                } else if (typeof window._tvResetCache === 'function') {
-                    try { window._tvResetCache(); } catch (_) {}
-                }
-            }
-        });
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && window.MT5API) {
-                if (!window.MT5API.ws || window.MT5API.ws.readyState !== WebSocket.OPEN) {
-                    window.MT5API.reconnectWebSocket();
-                }
-                if (typeof window.triggerTvCacheReset === 'function') {
-                    window.triggerTvCacheReset();
-                } else if (typeof window._tvResetCache === 'function') {
-                    try { window._tvResetCache(); } catch (_) {}
-                }
-            }
-        });
-    }
 
 })(window);
