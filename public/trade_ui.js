@@ -375,6 +375,117 @@
         // ==========================================
         // 2. NATIVE ON-CHART BUY/SELL WIDGET
         // ==========================================
+        ensureIframeStyles(iframeDoc) {
+            if (!iframeDoc || iframeDoc.getElementById('tv-native-trade-legend-styles')) return;
+            const style = iframeDoc.createElement('style');
+            style.id = 'tv-native-trade-legend-styles';
+            style.innerHTML = `
+                .tv-legend-btn {
+                    border-radius: 6px;
+                    width: 84px;
+                    height: 34px;
+                    cursor: pointer;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    outline: none;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+                    transition: background 0.12s cubic-bezier(0.2, 0, 0, 1), transform 0.08s ease, box-shadow 0.12s ease;
+                    user-select: none;
+                    position: relative;
+                }
+                .tv-legend-btn:active {
+                    transform: scale(0.97) !important;
+                }
+                /* SELL BUTTON (CONNECTED) */
+                .tv-legend-btn-sell-connected {
+                    background: #f23645;
+                    border: none;
+                    color: #ffffff;
+                }
+                .tv-legend-btn-sell-connected:hover {
+                    background: #d62736 !important;
+                    box-shadow: 0 2px 5px rgba(242,54,69,0.3) !important;
+                }
+                .tv-legend-btn-sell-connected:active {
+                    background: #c8202e !important;
+                }
+                /* SELL BUTTON (DISCONNECTED) */
+                .tv-legend-btn-sell-disconnected {
+                    background: #ffffff;
+                    border: 1px solid #f23645;
+                    color: #f23645;
+                }
+                .tv-legend-btn-sell-disconnected:hover {
+                    background: rgba(242, 54, 69, 0.08) !important;
+                }
+                /* BUY BUTTON (CONNECTED) */
+                .tv-legend-btn-buy-connected {
+                    background: #2962ff;
+                    border: none;
+                    color: #ffffff;
+                }
+                .tv-legend-btn-buy-connected:hover {
+                    background: #1e53e5 !important;
+                    box-shadow: 0 2px 5px rgba(41,98,255,0.3) !important;
+                }
+                .tv-legend-btn-buy-connected:active {
+                    background: #1847c7 !important;
+                }
+                /* BUY BUTTON (DISCONNECTED) */
+                .tv-legend-btn-buy-disconnected {
+                    background: #ffffff;
+                    border: 1px solid #2962ff;
+                    color: #2962ff;
+                }
+                .tv-legend-btn-buy-disconnected:hover {
+                    background: rgba(41, 98, 255, 0.08) !important;
+                }
+                /* QUANTITY DROPDOWN PILL */
+                .tv-legend-qty-pill {
+                    background: #ffffff;
+                    border: 1px solid #d1d4dc;
+                    border-radius: 4px;
+                    padding: 1px 6px;
+                    height: 20px;
+                    display: flex;
+                    align-items: center;
+                    gap: 3px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: #131722;
+                    cursor: pointer;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                    outline: none;
+                    transition: background 0.12s ease, border-color 0.12s ease;
+                }
+                .tv-legend-qty-pill:hover {
+                    background: #f0f3fa !important;
+                    border-color: #a3a6af !important;
+                }
+                .tv-legend-qty-pill:active {
+                    background: #e0e3eb !important;
+                }
+            `;
+            if (iframeDoc.head) iframeDoc.head.appendChild(style);
+            else iframeDoc.body.appendChild(style);
+
+            // Forward keyboard shortcuts from iframe to window
+            iframeDoc.addEventListener('keydown', (e) => {
+                if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+                if (e.shiftKey && e.key.toUpperCase() === 'B') {
+                    e.preventDefault();
+                    if (this.settings.oneClickTrading) this.executeInstantOrder('BUY');
+                    else this.openOrderTicket('BUY');
+                } else if (e.shiftKey && e.key.toUpperCase() === 'S') {
+                    e.preventDefault();
+                    if (this.settings.oneClickTrading) this.executeInstantOrder('SELL');
+                    else this.openOrderTicket('SELL');
+                }
+            });
+        }
+
         renderOnChartWidget() {
             const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
             if (!iframe) return;
@@ -383,6 +494,8 @@
                 iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
             } catch (_) { return; }
             if (!iframeDoc) return;
+
+            this.ensureIframeStyles(iframeDoc);
 
             const legendWrapper = iframeDoc.querySelector('.legendMainSourceWrapper-YTFIJ62h') ||
                                   iframeDoc.querySelector('[class*="legendMainSourceWrapper"]') ||
@@ -474,22 +587,7 @@
                     <!-- Main Buy / Sell Buttons Row -->
                     <div style="display: flex; align-items: center; position: relative;">
                         <!-- SELL BUTTON (Image 3) -->
-                        <button id="tv-native-btn-sell" type="button" style="
-                            background: ${sellBg};
-                            border: ${sellBorder};
-                            border-radius: 6px;
-                            padding: 2px 8px;
-                            width: 84px;
-                            height: 34px;
-                            cursor: pointer;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            outline: none;
-                            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-                            transition: background 0.15s, transform 0.1s;
-                        ">
+                        <button id="tv-native-btn-sell" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-sell-connected' : 'tv-legend-btn-sell-disconnected'}">
                             <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentBid)}</span>
                             <span style="color: ${sellTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">SELL</span>
                         </button>
@@ -517,22 +615,7 @@
                         </div>
 
                         <!-- BUY BUTTON (Image 3) -->
-                        <button id="tv-native-btn-buy" type="button" style="
-                            background: ${buyBg};
-                            border: ${buyBorder};
-                            border-radius: 6px;
-                            padding: 2px 8px;
-                            width: 84px;
-                            height: 34px;
-                            cursor: pointer;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            outline: none;
-                            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-                            transition: background 0.15s, transform 0.1s;
-                        ">
+                        <button id="tv-native-btn-buy" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-buy-connected' : 'tv-legend-btn-buy-disconnected'}">
                             <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
                             <span style="color: ${buyTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">BUY</span>
                         </button>
@@ -540,23 +623,7 @@
 
                     <!-- Quantity Dropdown Pill directly beneath Sell button (matching TV UI) -->
                     <div style="display: flex; align-items: center; padding-left: 1px;">
-                        <button id="tv-native-legend-qty-btn" type="button" title="Set Order Quantity" style="
-                            background: #ffffff;
-                            border: 1px solid #d1d4dc;
-                            border-radius: 4px;
-                            padding: 1px 6px;
-                            height: 20px;
-                            display: flex;
-                            align-items: center;
-                            gap: 3px;
-                            font-size: 11px;
-                            font-weight: 700;
-                            color: #131722;
-                            cursor: pointer;
-                            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                            outline: none;
-                            transition: background 0.15s, border-color 0.15s;
-                        ">
+                        <button id="tv-native-legend-qty-btn" type="button" class="tv-legend-qty-pill" title="Set Order Quantity">
                             <svg width="8" height="5" viewBox="0 0 8 5" fill="none" stroke="#787b86" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M1 1l3 3 3-3"/>
                             </svg>
@@ -624,6 +691,13 @@
                 btnSell.onclick = (e) => {
                     e.stopPropagation();
                     hideTooltip();
+                    if (!isBrokerConnected) {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.setBrokerMode('paper');
+                            this.renderOnChartWidget();
+                            if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
+                        }
+                    }
                     if (this.settings.oneClickTrading) this.executeInstantOrder('SELL');
                     else this.openOrderTicket('SELL');
                 };
@@ -635,6 +709,13 @@
                 btnBuy.onclick = (e) => {
                     e.stopPropagation();
                     hideTooltip();
+                    if (!isBrokerConnected) {
+                        if (window.TradingEngine) {
+                            window.TradingEngine.setBrokerMode('paper');
+                            this.renderOnChartWidget();
+                            if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
+                        }
+                    }
                     if (this.settings.oneClickTrading) this.executeInstantOrder('BUY');
                     else this.openOrderTicket('BUY');
                 };
@@ -3519,6 +3600,12 @@
             const price = side === 'BUY' ? this.currentAsk : this.currentBid;
             const lots = this.lots || 1.0;
 
+            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+            let iframeDoc = null;
+            try { iframeDoc = iframe.contentDocument || iframe.contentWindow.document; } catch (_) {}
+            const targetBtn = iframeDoc ? iframeDoc.getElementById(side === 'BUY' ? 'tv-native-btn-buy' : 'tv-native-btn-sell') : null;
+            if (targetBtn) targetBtn.style.opacity = '0.7';
+
             if (window.TradingEngine) {
                 window.TradingEngine.placeOrder({
                     symbol: this.currentSymbol,
@@ -3529,12 +3616,15 @@
                     sl: 0.0,
                     tp: 0.0
                 }).then(res => {
+                    if (targetBtn) targetBtn.style.opacity = '1';
                     if (res && res.success) {
                         const brokerName = window.TradingEngine.getActiveAdapter(this.currentSymbol).name;
                         this.logActivity('1-Click Fill', `${side} ${lots} ${this.currentSymbol} @ ${price}`, brokerName);
                         if (window.FyersAPI && window.FyersAPI.showToast) {
                             window.FyersAPI.showToast(`✓ [${brokerName}] 1-Click ${side} ${lots} ${this.currentSymbol} filled @ ${price}!`, 'success');
                         }
+                        this.syncNativeChartLines();
+                        if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
                     } else {
                         alert(`Order Failed: ${res && res.error ? res.error : 'Connection or Margin Error'}`);
                     }
