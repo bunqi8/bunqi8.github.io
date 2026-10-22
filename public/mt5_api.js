@@ -468,14 +468,16 @@
                     };
                     this.ws.send(JSON.stringify(handshake));
 
-                    // If reconnected after network drop, trigger chart cache reload to reconcile historical bars
+                    // If reconnected after network drop or server restart, trigger chart cache reload to reconcile historical bars
                     if (this.wasDisconnected) {
                         console.log('[MT5API] WebSocket reconnected after drop! Re-syncing chart cache...');
-                        if (typeof window.triggerTvCacheReset === 'function') {
-                            window.triggerTvCacheReset(this.activeSymbol);
-                        } else if (typeof window._tvResetCache === 'function') {
-                            try { window._tvResetCache(); } catch (_) {}
-                        }
+                        setTimeout(() => {
+                            if (typeof window.triggerTvCacheReset === 'function') {
+                                window.triggerTvCacheReset(this.activeSymbol);
+                            } else if (typeof window._tvResetCache === 'function') {
+                                try { window._tvResetCache(); } catch (_) {}
+                            }
+                        }, 350);
                     }
                     this.wasDisconnected = false;
                 };
@@ -672,7 +674,9 @@
             console.log('[MT5API] Network restored online. Reconnecting WebSocket...');
             if (window.MT5API) {
                 window.MT5API.reconnectWebSocket();
-                if (typeof window._tvResetCache === 'function') {
+                if (typeof window.triggerTvCacheReset === 'function') {
+                    window.triggerTvCacheReset();
+                } else if (typeof window._tvResetCache === 'function') {
                     try { window._tvResetCache(); } catch (_) {}
                 }
             }
@@ -683,7 +687,9 @@
                 if (!window.MT5API.ws || window.MT5API.ws.readyState !== WebSocket.OPEN) {
                     window.MT5API.reconnectWebSocket();
                 }
-                if (typeof window._tvResetCache === 'function') {
+                if (typeof window.triggerTvCacheReset === 'function') {
+                    window.triggerTvCacheReset();
+                } else if (typeof window._tvResetCache === 'function') {
                     try { window._tvResetCache(); } catch (_) {}
                 }
             }
