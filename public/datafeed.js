@@ -579,14 +579,17 @@ const Datafeed = {
 
         try {
             // Check exchange filter from TradingView dropdown
-            const isMt5Allowed = !exchange || exchange === 'MT5' || exchange.includes('MT5');
+            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+            const brokerExchange = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function')
+                ? window.MT5API.getCleanBrokerExchange(acc)
+                : (acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5');
+
+            const isMt5Allowed = !exchange || exchange === 'MT5' || exchange === brokerExchange || exchange.includes('MT5');
             const isIndianAllowed = !exchange || exchange === 'NSE' || exchange === 'BSE' || exchange === 'MCX';
 
             // 1. Instant MT5 In-Memory Search (< 1ms)
             if (isMt5Allowed && window.MT5API && window.MT5API.isConnected) {
                 try {
-                    const acc = window.MT5API.getActiveAccount();
-                    const brokerName = acc ? (acc.server || acc.nickname || 'MT5') : 'MT5';
                     const mt5Symbols = await window.MT5API.fetchSymbols(query, symbolType || '');
                     if (mt5Symbols && mt5Symbols.length > 0) {
                         const limit = query ? 50 : 25;
@@ -594,9 +597,9 @@ const Datafeed = {
                             results.push({
                                 symbol: s.name,
                                 ticker: s.name,
-                                full_name: `MT5:${s.name}`,
-                                description: `${s.description || s.name} (${brokerName})`,
-                                exchange: `MT5`,
+                                full_name: `${brokerExchange}:${s.name}`,
+                                description: s.description || s.name,
+                                exchange: brokerExchange,
                                 type: s.type || 'forex'
                             });
                         });
@@ -729,7 +732,9 @@ const Datafeed = {
         if (isMt5) {
             const cleanSym = actualName.split(':').pop().toUpperCase().trim();
             const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
-            const brokerName = acc ? (acc.server || acc.nickname || 'MT5') : 'MT5';
+            const brokerExchange = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function')
+                ? window.MT5API.getCleanBrokerExchange(acc)
+                : (acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5');
             const symInfo = window.MT5API ? window.MT5API.getSymbolInfo(cleanSym) : null;
             const mkt = window.getMarketStatus ? window.getMarketStatus(cleanSym) : null;
 
@@ -751,19 +756,19 @@ const Datafeed = {
                 assetType = 'crypto';
             }
 
-            const desc = symInfo && symInfo.description ? `${symInfo.description} (${brokerName})` : `${cleanSym} (${brokerName})`;
+            const desc = symInfo && symInfo.description ? symInfo.description : cleanSym;
             const sessionStr = (symInfo && symInfo.session) ? symInfo.session : (mkt ? mkt.session : (assetType === 'crypto' ? '24x7' : '2200-2200:12345'));
             const tzStr = (symInfo && symInfo.timezone) ? symInfo.timezone : (mkt ? mkt.timezone : 'Etc/UTC');
 
             const symbolInfo = {
                 name: cleanSym,
                 ticker: cleanSym,
-                full_name: `MT5:${cleanSym}`,
+                full_name: `${brokerExchange}:${cleanSym}`,
                 isLive: true,
                 description: desc,
                 type: assetType,
-                exchange: `MT5 (${brokerName})`,
-                listed_exchange: `MT5 (${brokerName})`,
+                exchange: brokerExchange,
+                listed_exchange: brokerExchange,
                 format: 'price',
                 session: sessionStr,
                 timezone: tzStr,
@@ -807,11 +812,13 @@ const Datafeed = {
 
         const symbolInfo = {
             name: actualName,
-            full_name: actualName,
+            ticker: actualName,
+            full_name: `${exchange}:${actualName}`,
             isLive: isLive,
             description: actualName,
             type: symType,
             exchange: exchange,
+            listed_exchange: exchange,
             session: sessionIndian,
             timezone: tzIndian,
             minmov: 1,

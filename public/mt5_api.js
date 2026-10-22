@@ -169,6 +169,33 @@
             return this.accounts.find(a => a.id === this.activeAccountId) || null;
         }
 
+        getCleanBrokerExchange(acc = null) {
+            const target = acc || this.getActiveAccount();
+            if (!target) return 'MT5';
+            const raw = (target.server || target.broker_name || target.nickname || 'MT5').toUpperCase();
+            if (raw.includes('EXNESS')) return 'EXNESS';
+            if (raw.includes('FTMO')) return 'FTMO';
+            if (raw.includes('METAQUOTES')) return 'METAQUOTES';
+            if (raw.includes('ICMARKET') || raw.includes('IC MARKET')) return 'IC MARKETS';
+            if (raw.includes('PEPPERSTONE')) return 'PEPPERSTONE';
+            if (raw.includes('VANTAGE')) return 'VANTAGE';
+            if (raw.includes('FUNDEDNEXT')) return 'FUNDEDNEXT';
+            if (raw.includes('THE5ERS') || raw.includes('5ERS')) return 'THE 5%ERS';
+            if (raw.includes('OCTAFX') || raw.includes('OCTA')) return 'OCTAFX';
+            if (raw.includes('XM')) return 'XM';
+            if (raw.includes('FBS')) return 'FBS';
+            if (raw.includes('HOTFOREX') || raw.includes('HFM')) return 'HFM';
+            if (raw.includes('AVATRADE')) return 'AVATRADE';
+            if (raw.includes('ROBOFOREX')) return 'ROBOFOREX';
+            if (raw.includes('TICKMILL')) return 'TICKMILL';
+            if (raw.includes('FXPRO')) return 'FXPRO';
+            if (raw.includes('IG')) return 'IG';
+
+            // Clean fallback: take first word before dash or space (e.g. "MetaQuotes-Demo" -> "METAQUOTES")
+            const firstWord = (target.server || target.nickname || 'MT5').split(/[-_\s]/)[0].toUpperCase();
+            return firstWord || 'MT5';
+        }
+
         async setActiveAccount(id) {
             try {
                 const res = await fetch(`${this.endpoint}/api/accounts/active`, {
