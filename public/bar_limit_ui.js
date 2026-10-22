@@ -781,7 +781,7 @@
             }
         }
 
-        // --- Toolbar Button Injection & Refined White-Theme Modal ---
+        // --- Toolbar Button Injection (Exact TradingView Icon & Style) ---
         injectButton(targetEl = null, iframeDoc = null) {
             if (!iframeDoc) {
                 const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
@@ -798,35 +798,61 @@
                 return;
             }
 
-            const refTarget = targetEl || 
-                              targetDoc.getElementById('header-toolbar-option-chain') ||
-                              targetDoc.getElementById('header-toolbar-symbol-search') ||
-                              targetDoc.querySelector('.group-wWM3zP_M') ||
-                              targetDoc.querySelector('.group-MBOVGQRI');
+            const watchlistWrap = targetDoc.getElementById('tv-watchlist-toolbar-wrapper');
+            const optionChainWrapper = targetDoc.getElementById('header-toolbar-option-chain');
+            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+
+            let refTarget = watchlistWrap || optionChainWrapper || symbolSearch;
+            if (!refTarget) {
+                refTarget = targetDoc.querySelector('.group-wWM3zP_M') || targetDoc.querySelector('.group-MBOVGQRI');
+            }
 
             if (!refTarget || !refTarget.parentNode) return;
 
             const limitShort = this.formatLimitShort(this.getLimit());
             const btnContainer = targetDoc.createElement('div');
-            btnContainer.id = this.btnId;
+            btnContainer.id = 'header-toolbar-bar-limit-wrap';
             btnContainer.className = 'group-MBOVGQRI';
             btnContainer.style.cssText = 'margin: 0 4px; display: inline-flex; align-items: center; vertical-align: middle;';
 
             btnContainer.innerHTML = `
-                <button type="button" class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S"
-                        style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.03); cursor: pointer; color: #131722; font-size: 11.5px; font-weight: 600;"
-                        title="Historical Candle Limit (Click to configure or reduce)">
-                    <span style="font-size: 13px; line-height: 1;">📊</span>
-                    <span id="bar-limit-badge-text" style="color: #2962ff; font-weight: 700;">${limitShort}</span>
-                    <span style="font-size: 10px; opacity: 0.7; color: #787b86;">Bars</span>
+                <button aria-label="Candle Limit (${limitShort})" data-role="button" data-tooltip="Historical Candle Limit (${limitShort})" tabindex="-1" type="button" 
+                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
+                    id="${this.btnId}" 
+                    style="padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 28px; border: none; background: transparent; border-radius: 4px; transition: background 0.15s; color: inherit;">
+                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; color: currentColor;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="24" height="24" fill="none">
+                            <!-- Crisp TradingView candlestick bars -->
+                            <path stroke="currentColor" stroke-width="1.2" stroke-linecap="round" d="M7 6v16M13 5v18M19 8v14"/>
+                            <rect x="5.5" y="9.5" width="3" height="8" rx="0.5" fill="currentColor"/>
+                            <rect x="11.5" y="8" width="3" height="11" rx="0.5" fill="currentColor"/>
+                            <rect x="17.5" y="11" width="3" height="7" rx="0.5" fill="currentColor"/>
+                            <!-- Limit cutoff line on right -->
+                            <path stroke="#2962ff" stroke-width="1.4" stroke-dasharray="2 2" stroke-linecap="round" d="M24 4v20"/>
+                        </svg>
+                    </span>
+                    <span id="bar-limit-badge-text" style="font-size: 13px; font-weight: 700; color: #2962ff; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: -0.2px; margin-left: 1px;">${limitShort}</span>
                 </button>
             `;
 
-            btnContainer.querySelector('button').onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.openSettingsModal();
-            };
+            const btn = btnContainer.querySelector('button');
+            if (btn) {
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.openSettingsModal();
+                };
+
+                btn.addEventListener('mouseenter', () => {
+                    const isDark = this.isDarkTheme();
+                    btn.style.backgroundColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                    btn.setAttribute('title', `Historical Candle Limit (${this.formatLimitShort(this.getLimit())})`);
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.style.backgroundColor = 'transparent';
+                    btn.removeAttribute('title');
+                });
+            }
 
             refTarget.parentNode.insertBefore(btnContainer, refTarget.nextSibling);
         }
