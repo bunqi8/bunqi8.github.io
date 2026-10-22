@@ -102,7 +102,7 @@
                 }
             }
 
-            // 2. Start Poller for Watchlist Batch Quotes
+            // 2. Start Poller for Watchlist Batch Quotes (MT5 & Fyers)
             this.startQuotesPoller();
 
             // 3. Scan existing chart bars
@@ -292,25 +292,40 @@
         }
 
         // --- Live Price Streaming Integration (Universal Hook) ---
-        onLivePrice(rawSymbol, price, openPrice = null) {
-            if (!rawSymbol || !price || isNaN(price)) return;
+        onLivePrice(rawSymbol, price, openPrice = null, customChange = null) {
+            if (!rawSymbol || price === null || price === undefined || isNaN(price)) return;
             const sym = rawSymbol.split(':').pop().toUpperCase().trim();
 
-            const existing = this.liveQuotes[sym] || {};
-            const prevPrice = existing.price || Number(price);
-            const open = openPrice !== null && !isNaN(openPrice) ? Number(openPrice) : (existing.open || prevPrice);
-            const change = open > 0 ? ((Number(price) - open) / open) * 100 : (existing.change || 0);
+            const updateSymbolKey = (targetSym) => {
+                const existing = this.liveQuotes[targetSym] || {};
+                const prevPrice = existing.price || Number(price);
+                const open = openPrice !== null && !isNaN(openPrice) ? Number(openPrice) : (existing.open || prevPrice);
+                
+                let change = existing.change || 0;
+                if (customChange !== null && customChange !== undefined && !isNaN(customChange)) {
+                    change = Number(customChange);
+                } else if (open > 0) {
+                    change = ((Number(price) - open) / open) * 100;
+                }
 
-            this.liveQuotes[sym] = {
-                price: Number(price),
-                prevPrice: Number(prevPrice),
-                open: Number(open),
-                change: Number(change),
-                direction: Number(price) > prevPrice ? 'up' : (Number(price) < prevPrice ? 'down' : (existing.direction || 'none'))
+                this.liveQuotes[targetSym] = {
+                    price: Number(price),
+                    prevPrice: Number(prevPrice),
+                    open: Number(open),
+                    change: Number(change),
+                    direction: Number(price) > prevPrice ? 'up' : (Number(price) < prevPrice ? 'down' : (existing.direction || 'none'))
+                };
+
+                this.updateRowPrice(targetSym);
+                this.updateRowAvailability(targetSym);
             };
 
-            this.updateRowPrice(sym);
-            this.updateRowAvailability(sym);
+            updateSymbolKey(sym);
+            if (sym === 'NIFTY50' || sym === 'BANKNIFTY' || sym === 'SENSEX' || sym === 'FINNIFTY') {
+                updateSymbolKey(`${sym}-INDEX`);
+            } else if (sym.endsWith('-INDEX')) {
+                updateSymbolKey(sym.replace('-INDEX', ''));
+            }
         }
 
         onTick(tick) {
@@ -322,17 +337,46 @@
         }
 
         scanActiveChartBar() {
+            // Scan _tvLastBar
             if (window._tvLastBar) {
                 Object.keys(window._tvLastBar).forEach(k => {
                     const bar = window._tvLastBar[k];
-                    if (bar && bar.close) {
-                        const sym = k.split('_')[0].split(':').pop().toUpperCase();
+                    if (bar && (bar.close || bar.close === 0)) {
+                        let sym = k;
+                        if (sym.startsWith('MT5_')) sym = sym.substring(4);
+                        const lastUnderscore = sym.lastIndexOf('_');
+                        if (lastUnderscore !== -1) sym = sym.substring(0, lastUnderscore);
+                        sym = sym.split(':').pop().toUpperCase().trim();
                         if (!this.liveQuotes[sym] || !this.liveQuotes[sym].price) {
                             this.onLivePrice(sym, bar.close, bar.open);
                         }
                     }
                 });
             }
+
+            // Scan _tvLatestMarketPrice
+            if (window._tvLatestMarketPrice) {
+                Object.keys(window._tvLatestMarketPrice).forEach(k => {
+                    const p = window._tvLatestMarketPrice[k];
+                    const sym = k.split(':').pop().toUpperCase().trim();
+                    if (p && (!this.liveQuotes[sym] || !this.liveQuotes[sym].price)) {
+                        this.onLivePrice(sym, p);
+                    }
+                });
+            }
+
+            // If active chart symbol is loaded
+            try {
+                if (window.tvWidget && window.tvWidget.activeChart) {
+                    const chartSym = window.tvWidget.activeChart().symbol();
+                    if (chartSym) {
+                        const currSym = chartSym.split(':').pop().toUpperCase().trim();
+                        if (window._tvCurrentLastPrice && (!this.liveQuotes[currSym] || !this.liveQuotes[currSym].price)) {
+                            this.onLivePrice(currSym, window._tvCurrentLastPrice);
+                        }
+                    }
+                }
+            } catch (_) {}
         }
 
         async pollActiveListQuotes() {
@@ -340,10 +384,10 @@
             const active = this.getActiveList();
             if (!active || !active.symbols || active.symbols.length === 0) return;
 
-            // Pick symbols not currently streaming on chart to fetch batch quotes from bridge
+            // 1. Fetch MT5 Symbols
             const mt5Symbols = active.symbols.filter(s => {
                 const clean = s.toUpperCase();
-                return !clean.includes('NIFTY') && !clean.includes('SENSEX') && !clean.includes('BANKEX');
+                return !clean.includes('NIFTY') && !clean.includes('SENSEX') && !clean.includes('BANKEX') && !clean.includes('MIDCP');
             });
 
             if (mt5Symbols.length > 0 && window.MT5API && window.MT5API.isConnected && typeof window.MT5API.fetchQuotes === 'function') {
@@ -359,6 +403,39 @@
                     }
                 } catch (_) {}
             }
+
+            // 2. Fetch Indian / Fyers Symbols
+            const indianSymbols = active.symbols.filter(s => {
+                const clean = s.toUpperCase();
+                return clean.includes('NIFTY') || clean.includes('SENSEX') || clean.includes('BANKEX') || clean.includes('MIDCP');
+            });
+
+            if (indianSymbols.length > 0) {
+                // A. Check if FyersAPI is available and authenticated
+                if (window.FyersAPI && typeof window.FyersAPI.fetchQuotes === 'function') {
+                    try {
+                        const fQuotes = await window.FyersAPI.fetchQuotes(indianSymbols);
+                        if (fQuotes && Object.keys(fQuotes).length > 0) {
+                            Object.keys(fQuotes).forEach(sym => {
+                                const q = fQuotes[sym];
+                                if (q && (q.last !== undefined || q.price !== undefined)) {
+                                    const p = q.last !== undefined ? q.last : q.price;
+                                    this.onLivePrice(sym, p, q.open, q.change);
+                                }
+                            });
+                        }
+                    } catch (_) {}
+                }
+
+                // B. Fallback to DuckDB / latest market prices if Fyers quotes didn't populate
+                indianSymbols.forEach(sym => {
+                    if (!this.liveQuotes[sym] || !this.liveQuotes[sym].price) {
+                        if (window._tvLatestMarketPrice && window._tvLatestMarketPrice[sym]) {
+                            this.onLivePrice(sym, window._tvLatestMarketPrice[sym]);
+                        }
+                    }
+                });
+            }
         }
 
         startQuotesPoller() {
@@ -367,7 +444,7 @@
                 if (this.isOpen) {
                     this.pollActiveListQuotes();
                 }
-            }, 3000);
+            }, 2500);
             this.pollActiveListQuotes();
         }
 
@@ -404,6 +481,7 @@
             const avail = this.getSymbolAvailability(sym);
             const dot = row.querySelector('.wl-status-dot');
             const badge = row.querySelector('.wl-broker-badge');
+            const desc = row.querySelector('.wl-sym-desc');
 
             if (dot) {
                 dot.className = `wl-status-dot ${avail.dotClass}`;
@@ -413,6 +491,10 @@
                 badge.textContent = avail.badgeText;
                 badge.style.color = avail.color;
                 badge.style.background = `${avail.color}1a`;
+            }
+            if (desc) {
+                desc.textContent = avail.tooltip.split(':')[0];
+                desc.title = avail.tooltip;
             }
         }
 
@@ -1114,7 +1196,7 @@
 
                 html += `
                     <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}">
-                        <!-- Left Info (Fixed Grid) -->
+                        <!-- Left Info (Fixed Widths & 2-Line Subtitle to Prevent Overlap) -->
                         <div class="wl-item-left">
                             <button class="wl-flag-btn" data-sym="${sUpper}" title="Flag symbol (Red/Green/Blue)">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="13" height="13" fill="${flagFill}" stroke="${flagColor}" stroke-width="1.3">
@@ -1127,11 +1209,13 @@
                             <div class="wl-sym-box">
                                 <div class="wl-sym-row">
                                     <span class="wl-sym-name">${sUpper}</span>
+                                </div>
+                                <div class="wl-sym-sub">
                                     <span class="wl-broker-badge" style="color: ${avail.color}; background: ${avail.color}1a;">
                                         ${avail.badgeText}
                                     </span>
+                                    <span class="wl-sym-desc" title="${avail.tooltip}">${avail.tooltip.split(':')[0]}</span>
                                 </div>
-                                <span class="wl-sym-desc" title="${avail.tooltip}">${avail.tooltip.split(':')[0]}</span>
                             </div>
                         </div>
 
@@ -1196,7 +1280,6 @@
                 const rowSym = r.dataset.symbol;
                 const isMatch = this.activeChartSymbol === rowSym || this.activeChartSymbol.includes(rowSym) || rowSym.includes(this.activeChartSymbol);
                 r.classList.toggle('chart-active', isMatch);
-                // Also update availability badge if active
                 if (isMatch) {
                     this.updateRowAvailability(rowSym);
                 }
@@ -1649,7 +1732,7 @@
                 .wl-item {
                     display: flex;
                     align-items: center;
-                    height: 44px;
+                    height: 48px;
                     padding: 0 12px;
                     border-bottom: 1px solid #f0f3fa;
                     cursor: pointer;
@@ -1665,11 +1748,11 @@
                     border-left: 3px solid #2962ff;
                 }
 
-                /* Left Info (Fixed Widths, Zero Wrapping) */
+                /* Left Info (Full Width Ticker on Top, Badge on Subtitle) */
                 .wl-item-left {
                     display: flex;
                     align-items: center;
-                    gap: 6px;
+                    gap: 8px;
                     flex: 1;
                     min-width: 0;
                     overflow: hidden;
@@ -1718,7 +1801,6 @@
                 .wl-sym-row {
                     display: flex;
                     align-items: center;
-                    gap: 6px;
                     white-space: nowrap;
                     overflow: hidden;
                 }
@@ -1730,12 +1812,19 @@
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
-                    flex-shrink: 0;
+                }
+                .wl-sym-sub {
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    margin-top: 2px;
                 }
                 .wl-broker-badge {
                     font-size: 9px;
                     font-weight: 700;
-                    padding: 1.5px 5px;
+                    padding: 1px 4.5px;
                     border-radius: 3px;
                     line-height: 1.2;
                     white-space: nowrap;

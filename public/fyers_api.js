@@ -1839,6 +1839,11 @@ class FyersEngine {
                                         };
                                         subs.forEach(sub => sub.cb(tick));
                                     }
+                                    if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                                        const lp = item.v.lp;
+                                        const op = item.v.open_price || item.v.o || lp;
+                                        window.WatchlistUI.onLivePrice(item.n, lp, op, item.v.chp);
+                                    }
                                 }
                             });
                         }
@@ -1931,6 +1936,95 @@ class FyersEngine {
         }
     }
     
+    async fetchQuotes(symbols) {
+        if (!this.token) return {};
+        const symList = Array.isArray(symbols) ? symbols : [symbols];
+        if (symList.length === 0) return {};
+
+        const formatted = symList.map(s => {
+            let clean = s.trim().toUpperCase();
+            if (!clean.includes(':')) {
+                if (clean.includes('SENSEX') || clean.includes('BANKEX')) {
+                    clean = `BSE:${clean}`;
+                } else if (clean.includes('MCX') || clean.includes('GOLD') || clean.includes('SILVER')) {
+                    clean = `MCX:${clean}`;
+                } else {
+                    clean = `NSE:${clean}`;
+                }
+            }
+            return clean;
+        });
+
+        const fetchWithToken = async (token) => {
+            const qUrl = `https://api-t1.fyers.in/data/quotes?symbols=${formatted.join(',')}`;
+            const res = await fetch(qUrl, {
+                headers: { 'Authorization': token }
+            });
+            let data = null;
+            try { data = await res.json(); } catch (_) {}
+            return { res, data };
+        };
+
+        try {
+            let { res, data } = await fetchWithToken(this.token);
+
+            // Handle reactive token refresh if token expired
+            if ((data && data.s === 'error' && (data.code === -15 || (data.message && data.message.toLowerCase().includes('token')))) || (res && res.status === 401)) {
+                const active = this.getActiveAccount();
+                if (active && active.webuiRefreshToken && !this.isRefreshExpired(active)) {
+                    console.log("[FyersEngine] Token expired during fetchQuotes, attempting reactive refresh...");
+                    const refreshed = await this.refreshAccountToken(active.id, false);
+                    if (refreshed.success && this.token) {
+                        const retry = await fetchWithToken(this.token);
+                        data = retry.data;
+                    }
+                }
+            }
+
+            const resMap = {};
+            if (data && data.s === 'ok' && data.d) {
+                data.d.forEach(item => {
+                    if (item.s === 'ok' && item.v) {
+                        const rawSym = item.n;
+                        const cleanSym = rawSym.split(':').pop().toUpperCase();
+                        const lp = Number(item.v.lp);
+                        const prevClose = Number(item.v.prev_close_price || item.v.open_price || item.v.o || lp);
+                        const open = Number(item.v.open_price || item.v.o || prevClose);
+                        
+                        let chp = 0;
+                        if (item.v.chp !== undefined && !isNaN(Number(item.v.chp))) {
+                            chp = Number(item.v.chp);
+                        } else if (prevClose > 0) {
+                            chp = ((lp - prevClose) / prevClose) * 100;
+                        }
+
+                        const quoteObj = {
+                            symbol: cleanSym,
+                            fullSymbol: rawSym,
+                            last: lp,
+                            price: lp,
+                            open: open,
+                            prevClose: prevClose,
+                            change: Math.round(chp * 100) / 100,
+                            high: Number(item.v.high_price || item.v.h || lp),
+                            low: Number(item.v.low_price || item.v.l || lp)
+                        };
+
+                        resMap[cleanSym] = quoteObj;
+                        resMap[rawSym] = quoteObj;
+                        if (cleanSym.endsWith('-INDEX')) {
+                            resMap[cleanSym.replace('-INDEX', '')] = quoteObj;
+                        }
+                    }
+                });
+            }
+            return resMap;
+        } catch (e) {
+            console.warn('[FyersAPI] fetchQuotes notice:', e.message);
+            return {};
+        }
+    }
+
     async clearCache() {
         const db = await this.dbPromise;
         return new Promise((resolve) => {

@@ -914,6 +914,12 @@ const Datafeed = {
         if (symbolInfo.isLive && window.FyersAPI && !symbolInfo.exchange.includes('MT5')) {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
             fyersBars = alignFyersDwmTime(fyersBars, resolution);
+            if (fyersBars && fyersBars.length > 0) {
+                const last = fyersBars[fyersBars.length - 1];
+                if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                    window.WatchlistUI.onLivePrice(symbolInfo.name, last.close, last.open);
+                }
+            }
             return safeHistoryCallback(fyersBars, onHistoryCallback, resolution, symbolInfo);
         }
 
@@ -1088,6 +1094,13 @@ const Datafeed = {
                         }
                         if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
                             window.TradeUIInstance.onLivePriceUpdate(p, symbolInfo ? symbolInfo.name : null);
+                        }
+                        if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                            const symName = symbolInfo ? symbolInfo.name : null;
+                            window.WatchlistUI.onLivePrice(symName, p, batchLastBar.open);
+                            if (symName && symName.includes(':')) {
+                                window.WatchlistUI.onLivePrice(symName.split(':').pop(), p, batchLastBar.open);
+                            }
                         }
                     }
                     
