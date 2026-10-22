@@ -675,13 +675,13 @@
                     height: 16px !important;
                 }
                 /* FRACTIONAL DIGIT (Grounded on exact same text baseline as other digits, slightly smaller font) */
-                .tv-legend-subpip {
-                    font-size: 0.82em !important;
-                    font-weight: inherit !important;
-                    line-height: inherit !important;
-                    vertical-align: baseline !important;
-                    margin-left: 0.5px !important;
-                    display: inline !important;
+                .tv-legend-subpip,
+                .lastCharSup-OH8c8Nc3 {
+                    font-size: 10px !important;
+                    font-weight: 590 !important;
+                    line-height: 14px !important;
+                    vertical-align: top !important;
+                    display: inline-block !important;
                 }
                 /* ACTION TITLE */
                 .tv-legend-title-text {
@@ -1687,6 +1687,15 @@
         // ==========================================
         // 5. PURE RIGHT-SIDE ORDER TICKET (100% Authentic TradingView Match)
         // ==========================================
+        getBrokerLogoUrl() {
+            const brokerKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
+            if (brokerKey === 'fyers') return 'broker_icons/fyers.3815636937428eb291a0.svg';
+            if (brokerKey === 'dhan') return 'broker_icons/dhan.374b9a0553b601666032.svg';
+            if (brokerKey === 'upstox') return 'broker_icons/upstox.7d511b604e90ca171f9d.svg';
+            if (brokerKey === 'angelone') return 'broker_icons/angelone.c54e61fe644856369186.svg';
+            return 'broker_icons/paper.22325298770f1a027936.svg';
+        }
+
         renderSideOrderTicket() {
             let panel = document.getElementById(this.sideTicketId);
             if (!panel) {
@@ -1766,7 +1775,7 @@
                 ">
                     <div class="wrapper-eXazYeWn" style="display: flex; align-items: center; gap: 8px;">
                         <div class="logoWrapper-eXazYeWn" style="width: 22px; height: 22px; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #131722; flex-shrink: 0;">
-                            <img class="logo-eXazYeWn" src="https://static.tradingview.com/static/bundles/paper.22325298770f1a027936.svg" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.outerHTML='<span style=\\'color:#ffffff;font-size:11px;font-weight:900;\\'>TV</span>'">
+                            <img class="logo-eXazYeWn" src="${this.getBrokerLogoUrl()}" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.src='broker_icons/paper.22325298770f1a027936.svg'">
                         </div>
                         <span class="title-eXazYeWn apply-overflow-tooltip" id="tv-ticket-symbol-disp" style="font-size: 15px; font-weight: 700; color: ${theme.text}; letter-spacing: -0.2px;">${displaySymbol}</span>
                     </div>
@@ -4773,7 +4782,7 @@
             if (dotIdx !== -1 && dotIdx < str.length - 1) {
                 const base = str.slice(0, -1);
                 const last = str.slice(-1);
-                return `${base}<span class="tv-legend-subpip" style="font-size: 0.82em; vertical-align: baseline; line-height: inherit; font-weight: inherit; margin-left: 0.5px; display: inline;">${last}</span>`;
+                return `${base}<span class="lastCharSup-OH8c8Nc3 tv-legend-subpip" style="font-size: 10px; font-weight: 590; line-height: 14px; vertical-align: top; display: inline-block;">${last}</span>`;
             }
             return str;
         }
@@ -4819,6 +4828,30 @@
         injectCSS() {
             const style = document.createElement('style');
             style.innerHTML = `
+                .lastCharSup-OH8c8Nc3 {
+                    font-size: 10px !important;
+                    font-weight: 590 !important;
+                    line-height: 14px !important;
+                    vertical-align: top !important;
+                    display: inline-block !important;
+                }
+                .orderTicket-u3DtG1BP *,
+                .trading-panel-content-wspftEtf * {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+                }
+                .scrollWrapper-u3DtG1BP::-webkit-scrollbar,
+                #tv-dom-ladder-scroll::-webkit-scrollbar {
+                    width: 5px;
+                }
+                .scrollWrapper-u3DtG1BP::-webkit-scrollbar-thumb,
+                #tv-dom-ladder-scroll::-webkit-scrollbar-thumb {
+                    background: rgba(120, 123, 134, 0.25);
+                    border-radius: 4px;
+                }
+                .scrollWrapper-u3DtG1BP::-webkit-scrollbar-thumb:hover,
+                #tv-dom-ladder-scroll::-webkit-scrollbar-thumb:hover {
+                    background: rgba(120, 123, 134, 0.45);
+                }
                 .tv-toggle-switch {
                     position: relative;
                     display: inline-block;
