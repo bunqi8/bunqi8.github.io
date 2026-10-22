@@ -180,7 +180,16 @@ window.getMarketStatus = function(symbol) {
 
     const isMetal = clean.includes('XAU') || clean.includes('XAG') || clean.includes('OIL');
     const isIndex = clean.includes('30') || clean.includes('100') || clean.includes('500') || clean.includes('DE40') || clean.includes('UK100');
-    const defaultSession = isMetal ? '2200-1955:12345' : ((isMetal || isIndex) ? '2300-2200:12345' : '2200-2200:12345');
+
+    // Differentiate MetaQuotes-Demo vs Real Live Brokers (FTMO, The5%ers, Funding Pips, IC Markets, Exness, etc.)
+    const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+    const serverStr = (acc && acc.server) ? acc.server : '';
+    const brokerStr = (acc && acc.broker_name) ? acc.broker_name : '';
+    const isMetaQuotesDemo = !acc || serverStr.toLowerCase().includes('metaquotes') || serverStr.toLowerCase().includes('demo') || brokerStr.toLowerCase().includes('metaquotes');
+
+    const defaultSession = isMetal 
+        ? (isMetaQuotesDemo ? '2300-1955:12345' : '2200-2100:12345') 
+        : (isIndex ? '2300-2200:12345' : '2200-2200:12345');
 
     // Weekend Closure:
     // Closes Friday 22:00 UTC
@@ -217,15 +226,31 @@ window.getMarketStatus = function(symbol) {
     }
 
     // Daily Rollover Maintenance Breaks (Mon - Thu):
-    // Metals (Gold/Silver): Daily broker rollover break 19:55 - 22:00 UTC (01:25 - 03:30 IST)
-    if (isMetal && (curMinsUtc >= (19 * 60 + 55) && curMinsUtc < (22 * 60))) {
-        return {
-            isOpen: false,
-            session: defaultSession,
-            timezone: 'Etc/UTC',
-            market: 'METALS',
-            reason: 'Daily Rollover Break (01:25 - 03:30 IST / Opens at 03:30 IST)'
-        };
+    // Metals (Gold/Silver):
+    if (isMetal) {
+        if (isMetaQuotesDemo) {
+            // MetaQuotes-Demo extended break: 1:25 AM to 4:30 AM IST (19:55 to 23:00 UTC)
+            if (curMinsUtc >= (19 * 60 + 55) && curMinsUtc < (23 * 60)) {
+                return {
+                    isOpen: false,
+                    session: defaultSession,
+                    timezone: 'Etc/UTC',
+                    market: 'METALS',
+                    reason: 'MetaQuotes-Demo Rollover Break (01:25 - 04:30 IST / Opens at 04:30 IST)'
+                };
+            }
+        } else {
+            // Real Brokers (FTMO, The5%ers, Funding Pips, Exness, IC Markets): Standard CME rollover 2:30 AM to 3:30 AM IST (21:00 to 22:00 UTC)
+            if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
+                return {
+                    isOpen: false,
+                    session: defaultSession,
+                    timezone: 'Etc/UTC',
+                    market: 'METALS',
+                    reason: 'Daily Rollover Break (02:30 - 03:30 IST / Opens at 03:30 IST)'
+                };
+            }
+        }
     }
 
     // Indices (US30, USTEC): Daily maintenance break 21:00 - 22:00 UTC
