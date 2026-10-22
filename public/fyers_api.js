@@ -2442,6 +2442,17 @@ class FyersEngine {
                         // Stop REST polling: WebSocket is active!
                         this._stopRestPollingFallback();
 
+                        // If reconnected after network drop or server restart, re-sync chart cache
+                        if (this._wasDisconnected) {
+                            console.log('[FyersWS] WebSocket reconnected after drop! Re-syncing chart cache...');
+                            setTimeout(() => {
+                                if (typeof window.triggerTvCacheReset === 'function') {
+                                    window.triggerTvCacheReset();
+                                }
+                            }, 350);
+                            this._wasDisconnected = false;
+                        }
+
                         // Flush pending subscriptions
                         const toSub = new Set([...this.subscribers.keys(), ...this.pendingHsmSubQueue]);
                         this.pendingHsmSubQueue.clear();
@@ -2474,6 +2485,7 @@ class FyersEngine {
                 console.warn('[FyersWS] Connection closed. Code:', event.code, 'Reason:', event.reason);
                 this.isWsConnected = false;
                 this.isWsStreaming = false;
+                this._wasDisconnected = true;
                 if (this._wsPingTimer) {
                     clearInterval(this._wsPingTimer);
                     this._wsPingTimer = null;
