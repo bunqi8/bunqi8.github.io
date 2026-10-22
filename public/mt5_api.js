@@ -304,8 +304,13 @@
         }
 
         // --- Real-Time WebSocket Quote Stream ---
-        subscribeQuotes(symbol, callback) {
+        subscribeQuotes(symbol, resolution, callback) {
+            if (typeof resolution === 'function') {
+                callback = resolution;
+                resolution = '1';
+            }
             this.activeSymbol = (symbol || 'EURUSD').split(':').pop();
+            this.activeResolution = resolution || '1';
             this.tickListeners.add(callback);
             this.ensureWebSocket();
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -313,6 +318,7 @@
                 this.ws.send(JSON.stringify({
                     action: 'subscribe',
                     symbol: this.activeSymbol,
+                    resolution: this.activeResolution,
                     account_id: acc ? acc.id : null
                 }));
             }
@@ -339,10 +345,18 @@
                     const handshake = {
                         action: 'subscribe',
                         symbol: this.activeSymbol,
+                        resolution: this.activeResolution || '1',
                         token: this.apiKey,
                         account_id: acc ? acc.id : null
                     };
                     this.ws.send(JSON.stringify(handshake));
+
+                    // If reconnected after network drop, trigger chart cache reload to reconcile historical bars
+                    if (this.wasDisconnected && typeof window._tvResetCache === 'function') {
+                        console.log('[MT5API] WebSocket reconnected after drop! Re-syncing chart cache...');
+                        try { window._tvResetCache(); } catch (_) {}
+                    }
+                    this.wasDisconnected = false;
                 };
 
                 this.ws.onmessage = (evt) => {
@@ -358,9 +372,10 @@
 
                 this.ws.onclose = () => {
                     this.ws = null;
+                    this.wasDisconnected = true;
                     setTimeout(() => {
                         if (this.tickListeners.size > 0) this.ensureWebSocket();
-                    }, 2500);
+                    }, 1500);
                 };
 
                 this.ws.onerror = () => {
@@ -529,5 +544,29 @@
 
     // Export singleton
     window.MT5API = new MT5Client();
+
+    // Auto-reconnect & re-sync chart history when internet or browser tab is restored
+    if (typeof window !== 'undefined') {
+        window.addEventListener('online', () => {
+            console.log('[MT5API] Network restored online. Reconnecting WebSocket...');
+            if (window.MT5API) {
+                window.MT5API.reconnectWebSocket();
+                if (typeof window._tvResetCache === 'function') {
+                    try { window._tvResetCache(); } catch (_) {}
+                }
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && window.MT5API) {
+                if (!window.MT5API.ws || window.MT5API.ws.readyState !== WebSocket.OPEN) {
+                    window.MT5API.reconnectWebSocket();
+                }
+                if (typeof window._tvResetCache === 'function') {
+                    try { window._tvResetCache(); } catch (_) {}
+                }
+            }
+        });
+    }
 
 })(window);
