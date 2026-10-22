@@ -536,7 +536,8 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
             const remaining = maxBarsLimit - currentLoaded;
 
             if (remaining <= 0) {
-                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                const oldestSec = returnBars.length > 0 ? Math.floor(returnBars[0].time / 1000) : null;
+                window.BarLimitManager.onLimitBoundaryReached(genKey, oldestSec);
                 cb([], { noData: true });
                 return;
             }
@@ -549,8 +550,14 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
                 window.BarLimitManager.incrementBarCount(genKey, returnBars.length);
             }
 
+            if (returnBars.length > 0) {
+                const oldestSec = Math.floor(returnBars[0].time / 1000);
+                window.BarLimitManager.setOldestBar(genKey, oldestSec);
+            }
+
             if (hitLimit) {
-                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                const oldestSec = returnBars.length > 0 ? Math.floor(returnBars[0].time / 1000) : null;
+                window.BarLimitManager.onLimitBoundaryReached(genKey, oldestSec);
                 cb(returnBars, { noData: true });
                 return;
             }
@@ -1196,7 +1203,7 @@ const Datafeed = {
             const currentLoaded = window.BarLimitManager.getBarCount(generalCacheKey);
             if (currentLoaded >= maxBarsLimit) {
                 console.warn(`[datafeed] Hardcore bar limit reached for ${generalCacheKey} (${currentLoaded}/${maxBarsLimit} bars). Halting historical load.`);
-                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                window.BarLimitManager.onLimitBoundaryReached(generalCacheKey);
                 onHistoryCallback([], { noData: true });
                 return;
             }
@@ -1276,7 +1283,8 @@ const Datafeed = {
                                 const currentLoaded = window.BarLimitManager.getBarCount(generalCacheKey);
                                 const remaining = maxBarsLimit - currentLoaded;
                                 if (remaining <= 0) {
-                                    window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                                    const oldestSec = returnBars.length > 0 ? Math.floor(returnBars[0].time / 1000) : null;
+                                    window.BarLimitManager.onLimitBoundaryReached(generalCacheKey, oldestSec);
                                     onHistoryCallback([], { noData: true });
                                     return;
                                 }
@@ -1287,6 +1295,11 @@ const Datafeed = {
                                 } else {
                                     window.BarLimitManager.incrementBarCount(generalCacheKey, returnBars.length);
                                 }
+                            }
+
+                            if (returnBars.length > 0) {
+                                const oldestSec = Math.floor(returnBars[0].time / 1000);
+                                window.BarLimitManager.setOldestBar(generalCacheKey, oldestSec);
                             }
                         }
 
@@ -1307,7 +1320,8 @@ const Datafeed = {
                         }
 
                         if (hitLimit && window.BarLimitManager) {
-                            window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                            const oldestSec = returnBars.length > 0 ? Math.floor(returnBars[0].time / 1000) : null;
+                            window.BarLimitManager.onLimitBoundaryReached(generalCacheKey, oldestSec);
                             onHistoryCallback(returnBars, { noData: true });
                             return;
                         }
