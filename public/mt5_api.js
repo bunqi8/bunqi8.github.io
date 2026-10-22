@@ -421,10 +421,12 @@
         subscribeQuotes(symbol, resolution, callback) {
             if (typeof resolution === 'function') {
                 callback = resolution;
-                resolution = '1';
+                resolution = this.activeResolution || '1';
             }
             this.activeSymbol = (symbol || 'EURUSD').split(':').pop();
-            this.activeResolution = resolution || '1';
+            if (resolution) {
+                this.activeResolution = resolution;
+            }
             this.tickListeners.add(callback);
             this.ensureWebSocket();
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
