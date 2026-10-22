@@ -4855,14 +4855,23 @@
                     if (res && res.success) {
                         this.playExecutionSound();
                         const brokerName = window.TradingEngine.getActiveAdapter(this.currentSymbol).name;
-                        this.logActivity('1-Click Fill', `${side} ${lots} ${this.currentSymbol} @ ${price}`, brokerName);
+                        let msg = `✓ [${brokerName}] 1-Click ${side} ${lots} ${this.currentSymbol} filled @ ${price}!`;
+                        if (res.total_accounts && res.total_accounts > 1) {
+                            msg = `✓ [Fleet Multi-Copy] Filled on ${res.successful_orders}/${res.total_accounts} accounts`;
+                            if (res.skipped_orders > 0) {
+                                const skipReasons = (res.details || []).filter(d => d.skipped).map(d => `${d.nickname || d.account_id}: ${d.error || 'Skipped'}`).join('; ');
+                                msg += ` (${res.skipped_orders} skipped: ${skipReasons})`;
+                            }
+                        }
+                        this.logActivity('1-Click Fill', msg, brokerName);
                         if (window.FyersAPI && window.FyersAPI.showToast) {
-                            window.FyersAPI.showToast(`✓ [${brokerName}] 1-Click ${side} ${lots} ${this.currentSymbol} filled @ ${price}!`, 'success');
+                            window.FyersAPI.showToast(msg, 'success');
                         }
                         this.syncNativeChartLines();
                         if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
                     } else {
-                        alert(`Order Failed: ${res && res.error ? res.error : 'Connection or Margin Error'}`);
+                        const errMsg = res && res.error ? res.error : (res && res.details ? res.details.map(d => d.error).filter(Boolean).join('; ') : 'Connection or Margin Error');
+                        alert(`Order Notice: ${errMsg}`);
                     }
                 });
             }
@@ -4903,15 +4912,23 @@
 
             if (res && res.success) {
                 this.playExecutionSound();
-                this.logActivity('Order Submitted', `${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} @ ${price}`, brokerName);
-                const msg = `✓ [${brokerName}] ${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} submitted!`;
+                let msg = `✓ [${brokerName}] ${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} submitted!`;
+                if (res.total_accounts && res.total_accounts > 1) {
+                    msg = `✓ [Fleet Multi-Copy] Filled on ${res.successful_orders}/${res.total_accounts} accounts`;
+                    if (res.skipped_orders > 0) {
+                        const skipReasons = (res.details || []).filter(d => d.skipped).map(d => `${d.nickname || d.account_id}: ${d.error || 'Skipped'}`).join('; ');
+                        msg += ` (${res.skipped_orders} skipped: ${skipReasons})`;
+                    }
+                }
+                this.logActivity('Order Submitted', msg, brokerName);
                 if (window.FyersAPI && window.FyersAPI.showToast) {
                     window.FyersAPI.showToast(msg, 'success');
                 }
                 this.syncNativeChartLines();
                 if (this.isBottomPanelOpen) this.renderBottomTradingPanel();
             } else {
-                alert(`Order Execution Failed: ${res && res.error ? res.error : 'Execution rejected by broker'}`);
+                const errMsg = res && res.error ? res.error : (res && res.details ? res.details.map(d => d.error).filter(Boolean).join('; ') : 'Execution rejected by broker');
+                alert(`Order Execution Notice: ${errMsg}`);
             }
         }
 
