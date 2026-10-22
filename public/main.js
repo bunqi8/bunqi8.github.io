@@ -90,11 +90,14 @@ const localSaveLoadAdapter = {
             safeSet('charts', charts);
             
             // Seamless Multi-Tab Sync: Update URL with layout ID
-            const currentUrl = new URL(window.location.href);
-            if (currentUrl.searchParams.get('layout') !== String(chartData.id)) {
-                currentUrl.searchParams.set('layout', chartData.id);
-                window.history.replaceState({}, '', currentUrl);
-            }
+            const currentUrl = new URL(window.location.origin + window.location.pathname);
+            const existing = new URLSearchParams(window.location.search);
+            const sym = existing.get('symbol') || (window.tvWidget ? window.tvWidget.activeChart().symbol() : null);
+            const intv = existing.get('interval') || (window.tvWidget ? window.tvWidget.activeChart().resolution() : null);
+            if (sym) currentUrl.searchParams.set('symbol', sym);
+            if (intv) currentUrl.searchParams.set('interval', intv);
+            currentUrl.searchParams.set('layout', chartData.id);
+            window.history.replaceState({}, '', currentUrl.toString());
             
             resolve(chartData.id);
         });
@@ -196,11 +199,24 @@ const localSaveLoadAdapter = {
 // Widget Initialization
 // -----------------------------------------------------------------------
 function bootWidget() {
-    // 1. Read Multi-Tab URL Parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSymbol = urlParams.get('symbol') || 'NIFTY50-INDEX';
-    const urlInterval = urlParams.get('interval') || '1D';
+    // 1. Read Multi-Tab URL Parameters (Clean & Robust Parsing)
+    const search = window.location.search;
+    const urlParams = new URLSearchParams(search);
+    let urlSymbol = urlParams.get('symbol');
+    let urlInterval = urlParams.get('interval');
     const urlLayoutId = urlParams.get('layout');
+
+    // Handle any malformed legacy URL artifacts (e.g. "?v=5,symbol=...")
+    if (!urlSymbol && search.includes('symbol=')) {
+        const match = search.match(/symbol=([^&#,]+)/);
+        if (match) urlSymbol = decodeURIComponent(match[1]);
+    }
+    if (!urlInterval && search.includes('interval=')) {
+        const match = search.match(/interval=([^&#,]+)/);
+        if (match) urlInterval = decodeURIComponent(match[1]);
+    }
+    urlSymbol = urlSymbol || 'NIFTY50-INDEX';
+    urlInterval = urlInterval || '1D';
 
     // 2. Safely clean up any completely corrupted caches from previous crashes
     try {
@@ -211,10 +227,9 @@ function bootWidget() {
     } catch (e) {}
 
     const widgetOptions = {
-        // Only set default symbol/interval if we are NOT loading an explicit layout
-        // Otherwise, native load_last_chart will fail to restore the saved ticker!
-        symbol: urlLayoutId ? undefined : urlSymbol,
-        interval: urlLayoutId ? undefined : urlInterval,
+        // Prioritize explicit URL symbol/interval over stale layout memory if provided
+        symbol: (urlLayoutId && !urlParams.has('symbol') && !search.includes('symbol=')) ? undefined : urlSymbol,
+        interval: (urlLayoutId && !urlParams.has('interval') && !search.includes('interval=')) ? undefined : urlInterval,
         container: 'tv_chart_container',
         library_path: 'chart_engine/',
         datafeed: Datafeed,
@@ -391,22 +406,26 @@ function bootWidget() {
         const currentSymbol = activeChart.symbol();
         const currentInterval = activeChart.resolution();
         
-        if (urlParams.has('symbol') && currentSymbol !== urlSymbol) {
+        if (urlSymbol && currentSymbol !== urlSymbol) {
             activeChart.setSymbol(urlSymbol, () => {});
-        } else if (currentSymbol === 'BTC/USD' || currentSymbol === 'XAUUSD') {
-            // Force break out of old crypto memory if url has no symbol
-            activeChart.setSymbol('NIFTY50-INDEX', () => {});
         }
-        if (urlParams.has('interval') && currentInterval !== urlInterval) {
+        if (urlInterval && currentInterval !== urlInterval) {
             activeChart.setResolution(urlInterval, () => {});
         }
 
-        // 4. Bind URL synchronization
+        // 4. Bind URL synchronization (Always clean URL parameters)
         const updateUrl = () => {
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('symbol', activeChart.symbol());
-            currentUrl.searchParams.set('interval', activeChart.resolution());
-            window.history.replaceState({}, '', currentUrl);
+            const currentUrl = new URL(window.location.origin + window.location.pathname);
+            const sym = activeChart.symbol();
+            const res = activeChart.resolution();
+            const existingParams = new URLSearchParams(window.location.search);
+            const layout = existingParams.get('layout');
+
+            if (sym) currentUrl.searchParams.set('symbol', sym);
+            if (res) currentUrl.searchParams.set('interval', res);
+            if (layout) currentUrl.searchParams.set('layout', layout);
+
+            window.history.replaceState({}, '', currentUrl.toString());
         };
 
         activeChart.onSymbolChanged().subscribe(null, updateUrl);
