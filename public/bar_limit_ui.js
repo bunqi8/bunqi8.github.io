@@ -21,6 +21,7 @@
             this.storageKey = 'tv_chart_max_bars_limit';
             this.defaultLimit = 40000;
             this.btnId = 'header-toolbar-bar-limit';
+            this.wrapperId = 'header-toolbar-bar-limit-wrap';
             this.overlayId = 'tv-bar-limit-overlay';
             this.cardId = 'tv-bar-limit-card';
             this.lineId = 'tv-bar-limit-vertical-line';
@@ -32,6 +33,7 @@
             this._limitReached = {};       // cacheKey -> boolean
             this._dismissed = {};          // cacheKey -> boolean
             this._isExpanding = false;
+            this._isModalOpen = false;
 
             this._hookedWidget = false;
             this._lastVisibleRange = null;
@@ -893,7 +895,22 @@
             }
         }
 
-        // --- Toolbar Button Injection (Exact TradingView Icon & Style) ---
+        ensureButtonPosition(targetDoc) {
+            if (!targetDoc) return;
+            const wrap = targetDoc.getElementById(this.wrapperId);
+            if (!wrap) return;
+
+            const chartStyles = targetDoc.getElementById('header-toolbar-chart-styles');
+            const intervals = targetDoc.getElementById('header-toolbar-intervals');
+            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search');
+
+            const anchor = chartStyles || intervals || symbolSearch;
+            if (anchor && anchor.parentNode && anchor.nextSibling !== wrap) {
+                anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+            }
+        }
+
+        // --- Toolbar Button Injection (Next to Bars/Candles Style Button, Text-Only 40K, Watchlist Styling) ---
         injectButton(targetEl = null, iframeDoc = null) {
             if (!iframeDoc) {
                 const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
@@ -906,15 +923,19 @@
             const targetDoc = iframeDoc || document;
 
             if (targetDoc.getElementById(this.btnId)) {
+                this.ensureButtonPosition(targetDoc);
                 this.updateButtonLabel();
                 return;
             }
 
-            const watchlistWrap = targetDoc.getElementById('tv-watchlist-toolbar-wrapper');
-            const optionChainWrapper = targetDoc.getElementById('header-toolbar-option-chain');
+            // Target placement: right next to Bars / Candles button (header-toolbar-chart-styles)
+            const chartStyles = targetDoc.getElementById('header-toolbar-chart-styles');
+            const intervals = targetDoc.getElementById('header-toolbar-intervals');
             const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+            const optionChainWrapper = targetDoc.getElementById('header-toolbar-option-chain');
+            const watchlistWrap = targetDoc.getElementById('header-toolbar-watchlist') || targetDoc.getElementById('tv-watchlist-toolbar-wrapper');
 
-            let refTarget = watchlistWrap || optionChainWrapper || symbolSearch;
+            let refTarget = chartStyles || intervals || symbolSearch || optionChainWrapper || watchlistWrap;
             if (!refTarget) {
                 refTarget = targetDoc.querySelector('.group-wWM3zP_M') || targetDoc.querySelector('.group-MBOVGQRI');
             }
@@ -923,27 +944,16 @@
 
             const limitShort = this.formatLimitShort(this.getLimit());
             const btnContainer = targetDoc.createElement('div');
-            btnContainer.id = 'header-toolbar-bar-limit-wrap';
+            btnContainer.id = this.wrapperId;
             btnContainer.className = 'group-MBOVGQRI';
-            btnContainer.style.cssText = 'margin: 0 4px; display: inline-flex; align-items: center; vertical-align: middle;';
+            btnContainer.style.cssText = 'margin: 0 4px; display: inline-flex; align-items: center; vertical-align: middle; height: 100%;';
 
             btnContainer.innerHTML = `
-                <button aria-label="Candle Limit (${limitShort})" data-role="button" data-tooltip="Historical Candle Limit (${limitShort})" tabindex="-1" type="button" 
-                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
+                <button aria-label="Historical Candle Limit (${limitShort})" data-role="button" data-tooltip="Historical Candle Limit (${limitShort})" tabindex="-1" type="button" 
+                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-bar-limit-toolbar-btn" 
                     id="${this.btnId}" 
-                    style="padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 28px; border: none; background: transparent; border-radius: 4px; transition: background 0.15s; color: inherit;">
-                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; color: currentColor;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="24" height="24" fill="none">
-                            <!-- Crisp TradingView candlestick bars -->
-                            <path stroke="currentColor" stroke-width="1.2" stroke-linecap="round" d="M7 6v16M13 5v18M19 8v14"/>
-                            <rect x="5.5" y="9.5" width="3" height="8" rx="0.5" fill="currentColor"/>
-                            <rect x="11.5" y="8" width="3" height="11" rx="0.5" fill="currentColor"/>
-                            <rect x="17.5" y="11" width="3" height="7" rx="0.5" fill="currentColor"/>
-                            <!-- Limit cutoff line on right -->
-                            <path stroke="#2962ff" stroke-width="1.4" stroke-dasharray="2 2" stroke-linecap="round" d="M24 4v20"/>
-                        </svg>
-                    </span>
-                    <span id="bar-limit-badge-text" style="font-size: 13px; font-weight: 700; color: #2962ff; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: -0.2px; margin-left: 1px;">${limitShort}</span>
+                    style="padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 28px; border: none; background: transparent; border-radius: 4px; transition: background-color 0.15s ease, transform 0.08s ease, color 0.15s ease; color: #2962ff; position: relative; user-select: none;">
+                    <span id="bar-limit-badge-text" style="font-size: 13px; font-weight: 700; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif; letter-spacing: -0.2px; line-height: 28px; color: inherit;">${limitShort}</span>
                 </button>
             `;
 
@@ -957,22 +967,45 @@
 
                 btn.addEventListener('mouseenter', () => {
                     const isDark = this.isDarkTheme();
-                    btn.style.backgroundColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+                    btn.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(41, 98, 255, 0.08)';
                     btn.setAttribute('title', `Historical Candle Limit (${this.formatLimitShort(this.getLimit())})`);
                 });
+
                 btn.addEventListener('mouseleave', () => {
-                    btn.style.backgroundColor = 'transparent';
+                    if (!this._isModalOpen) {
+                        btn.style.backgroundColor = 'transparent';
+                        btn.style.transform = 'scale(1)';
+                    }
                     btn.removeAttribute('title');
+                });
+
+                btn.addEventListener('mousedown', () => {
+                    btn.style.transform = 'scale(0.94)';
+                    btn.style.backgroundColor = 'rgba(41, 98, 255, 0.16)';
+                });
+
+                btn.addEventListener('mouseup', () => {
+                    btn.style.transform = 'scale(1)';
+                    btn.style.backgroundColor = 'rgba(41, 98, 255, 0.08)';
                 });
             }
 
-            refTarget.parentNode.insertBefore(btnContainer, refTarget.nextSibling);
+            if (refTarget.nextSibling) {
+                refTarget.parentNode.insertBefore(btnContainer, refTarget.nextSibling);
+            } else {
+                refTarget.parentNode.appendChild(btnContainer);
+            }
+
+            this.updateButtonActiveState();
         }
 
         // Refined TradingView-Style Modal matching the white site theme
         openSettingsModal() {
             const existing = document.getElementById(this.modalId);
             if (existing) existing.remove();
+
+            this._isModalOpen = true;
+            this.updateButtonActiveState();
 
             const th = this.getThemeStyles();
             const curLimit = this.getLimit();
@@ -1092,7 +1125,11 @@
                 });
             });
 
-            const close = () => overlay.remove();
+            const close = () => {
+                overlay.remove();
+                this._isModalOpen = false;
+                this.updateButtonActiveState();
+            };
             overlay.querySelector('#modal-close-x').onclick = close;
             overlay.querySelector('#modal-btn-cancel').onclick = close;
 
@@ -1121,19 +1158,56 @@
             overlay.addEventListener('click', (e) => {
                 if (e.target === overlay) close();
             });
+
+            const onKey = (e) => {
+                if (e.key === 'Escape') {
+                    close();
+                    document.removeEventListener('keydown', onKey);
+                }
+            };
+            document.addEventListener('keydown', onKey);
         }
 
-        updateButtonLabel() {
+        updateButtonActiveState() {
+            const updateBtn = (btn) => {
+                if (!btn) return;
+                if (this._isModalOpen) {
+                    btn.style.backgroundColor = this.isDarkTheme() ? 'rgba(255, 255, 255, 0.12)' : '#eef3fe';
+                    btn.style.color = '#2962ff';
+                } else {
+                    btn.style.backgroundColor = 'transparent';
+                    btn.style.color = '#2962ff';
+                }
+            };
             const iframes = document.querySelectorAll('iframe');
             iframes.forEach(ifr => {
                 try {
                     const doc = ifr.contentDocument || ifr.contentWindow.document;
-                    const badge = doc.getElementById('bar-limit-badge-text');
-                    if (badge) badge.textContent = this.formatLimitShort(this.getLimit());
+                    updateBtn(doc.getElementById(this.btnId));
                 } catch (_) {}
             });
-            const badge = document.getElementById('bar-limit-badge-text');
-            if (badge) badge.textContent = this.formatLimitShort(this.getLimit());
+            updateBtn(document.getElementById(this.btnId));
+        }
+
+        updateButtonLabel() {
+            const text = this.formatLimitShort(this.getLimit());
+            const updateDoc = (doc) => {
+                if (!doc) return;
+                const badge = doc.getElementById('bar-limit-badge-text');
+                if (badge) badge.textContent = text;
+                const btn = doc.getElementById(this.btnId);
+                if (btn) {
+                    btn.setAttribute('aria-label', `Historical Candle Limit (${text})`);
+                    btn.setAttribute('data-tooltip', `Historical Candle Limit (${text})`);
+                }
+            };
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(ifr => {
+                try {
+                    updateDoc(ifr.contentDocument || ifr.contentWindow.document);
+                } catch (_) {}
+            });
+            updateDoc(document);
         }
     }
 
