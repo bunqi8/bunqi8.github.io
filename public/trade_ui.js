@@ -380,92 +380,152 @@
             const style = iframeDoc.createElement('style');
             style.id = 'tv-native-trade-legend-styles';
             style.innerHTML = `
+                /* ON-CHART LEGEND BUTTONS */
                 .tv-legend-btn {
-                    border-radius: 6px;
-                    width: 84px;
-                    height: 34px;
-                    cursor: pointer;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    outline: none;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-                    transition: background 0.12s cubic-bezier(0.2, 0, 0, 1), transform 0.08s ease, box-shadow 0.12s ease;
-                    user-select: none;
-                    position: relative;
+                    border-radius: 6px !important;
+                    width: 84px !important;
+                    height: 34px !important;
+                    padding: 0 10px 2px !important;
+                    box-sizing: border-box !important;
+                    cursor: pointer !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                    user-select: none !important;
+                    -webkit-user-select: none !important;
+                    position: relative !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif !important;
+                    transition: background 0.12s cubic-bezier(0.2, 0, 0, 1), transform 0.08s ease !important;
                 }
                 .tv-legend-btn:active {
                     transform: scale(0.97) !important;
                 }
                 /* SELL BUTTON (CONNECTED) */
                 .tv-legend-btn-sell-connected {
-                    background: #f23645;
-                    border: none;
-                    color: #ffffff;
+                    background: #f23645 !important;
+                    border: none !important;
+                    color: #ffffff !important;
                 }
                 .tv-legend-btn-sell-connected:hover {
                     background: #d62736 !important;
-                    box-shadow: 0 2px 5px rgba(242,54,69,0.3) !important;
                 }
                 .tv-legend-btn-sell-connected:active {
                     background: #c8202e !important;
                 }
                 /* SELL BUTTON (DISCONNECTED) */
                 .tv-legend-btn-sell-disconnected {
-                    background: #ffffff;
-                    border: 1px solid #f23645;
-                    color: #f23645;
+                    background: #ffffff !important;
+                    border: 1px solid #f23645 !important;
+                    color: #f23645 !important;
                 }
                 .tv-legend-btn-sell-disconnected:hover {
                     background: rgba(242, 54, 69, 0.08) !important;
                 }
                 /* BUY BUTTON (CONNECTED) */
                 .tv-legend-btn-buy-connected {
-                    background: #2962ff;
-                    border: none;
-                    color: #ffffff;
+                    background: #2962ff !important;
+                    border: none !important;
+                    color: #ffffff !important;
                 }
                 .tv-legend-btn-buy-connected:hover {
                     background: #1e53e5 !important;
-                    box-shadow: 0 2px 5px rgba(41,98,255,0.3) !important;
                 }
                 .tv-legend-btn-buy-connected:active {
                     background: #1847c7 !important;
                 }
                 /* BUY BUTTON (DISCONNECTED) */
                 .tv-legend-btn-buy-disconnected {
-                    background: #ffffff;
-                    border: 1px solid #2962ff;
-                    color: #2962ff;
+                    background: #ffffff !important;
+                    border: 1px solid #2962ff !important;
+                    color: #2962ff !important;
                 }
                 .tv-legend-btn-buy-disconnected:hover {
                     background: rgba(41, 98, 255, 0.08) !important;
                 }
-                /* QUANTITY DROPDOWN PILL */
-                .tv-legend-qty-pill {
-                    background: #ffffff;
-                    border: 1px solid #d1d4dc;
-                    border-radius: 4px;
-                    padding: 1px 6px;
-                    height: 20px;
-                    display: flex;
+                /* BUTTON CONTENT */
+                .tv-legend-btn-content {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    width: 100% !important;
+                    pointer-events: none !important;
+                }
+                /* PRICE TEXT */
+                .tv-legend-price-text {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif !important;
+                    font-size: 12px !important;
+                    font-weight: 600 !important;
+                    line-height: 16px !important;
+                    letter-spacing: normal !important;
+                    text-align: center !important;
+                    white-space: nowrap !important;
+                    display: block !important;
+                    height: 16px !important;
+                }
+                /* SUB-PIP SUPERSCRIPT */
+                .tv-legend-subpip {
+                    font-size: 10px !important;
+                    font-weight: 600 !important;
+                    line-height: 14px !important;
+                    vertical-align: 0.35em !important;
+                    margin-left: 0.5px !important;
+                    display: inline !important;
+                }
+                /* ACTION TITLE */
+                .tv-legend-title-text {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif !important;
+                    font-size: 11px !important;
+                    font-weight: 700 !important;
+                    line-height: 12px !important;
+                    letter-spacing: 0.4px !important;
+                    text-align: center !important;
+                    text-transform: uppercase !important;
+                    margin-top: 1.5px !important;
+                    white-space: nowrap !important;
+                    display: block !important;
+                    height: 12px !important;
+                }
+                /* SPREAD CONTAINER */
+                .tv-legend-spread-wrap {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    min-width: 38px !important;
+                    margin: 0 8px !important;
+                    height: 34px !important;
+                    pointer-events: none !important;
+                }
+                .tv-legend-spread-text {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif !important;
+                    font-size: 10.5px !important;
+                    font-weight: 500 !important;
+                    line-height: 10px !important;
+                    text-align: center !important;
+                    white-space: nowrap !important;
+                }
+                /* TOOLTIP */
+                .tv-legend-tooltip {
+                    display: none;
+                    position: absolute;
+                    top: 38px;
+                    left: 0;
+                    background: #2a2e39;
+                    color: #ffffff;
+                    border-radius: 6px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+                    padding: 5px 9px;
+                    font-size: 12px;
+                    font-weight: 500;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
                     align-items: center;
-                    gap: 3px;
-                    font-size: 11px;
-                    font-weight: 700;
-                    color: #131722;
-                    cursor: pointer;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                    outline: none;
-                    transition: background 0.12s ease, border-color 0.12s ease;
-                }
-                .tv-legend-qty-pill:hover {
-                    background: #f0f3fa !important;
-                    border-color: #a3a6af !important;
-                }
-                .tv-legend-qty-pill:active {
-                    background: #e0e3eb !important;
+                    gap: 8px;
+                    z-index: 9999;
+                    pointer-events: none;
+                    white-space: nowrap;
                 }
             `;
             if (iframeDoc.head) iframeDoc.head.appendChild(style);
@@ -516,17 +576,18 @@
             }
 
             widget.style.cssText = `
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                margin-top: 4px;
-                margin-bottom: 4px;
-                padding: 0;
-                pointer-events: auto;
-                user-select: none;
-                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
-                position: relative;
-                z-index: 20;
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                position: relative !important;
+                user-select: none !important;
+                -webkit-user-select: none !important;
+                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif !important;
+                margin-top: 4px !important;
+                margin-bottom: 4px !important;
+                padding: 0 !important;
+                pointer-events: auto !important;
+                z-index: 20 !important;
             `;
 
             const seriesItem = legendWrapper.querySelector('[data-qa-id="legend-series-item"]') || 
@@ -558,15 +619,11 @@
                 const bidDisp = widget.querySelector('#tv-native-bid-disp');
                 const askDisp = widget.querySelector('#tv-native-ask-disp');
                 const spreadDisp = widget.querySelector('#tv-native-spread-disp');
-                const centerLotDisp = widget.querySelector('#tv-native-center-lot-disp');
-                const legendQtyDisp = widget.querySelector('#tv-native-legend-qty-disp');
 
                 if (bidDisp && askDisp && spreadDisp) {
                     bidDisp.innerHTML = this.formatPipPriceHtml(this.currentBid);
                     askDisp.innerHTML = this.formatPipPriceHtml(this.currentAsk);
                     spreadDisp.innerText = spreadPoints;
-                    if (centerLotDisp) centerLotDisp.innerText = this.lots;
-                    if (legendQtyDisp) legendQtyDisp.innerText = this.lots;
                     return;
                 }
             }
@@ -574,83 +631,36 @@
             widget.setAttribute('data-connected', String(isBrokerConnected));
             widget.setAttribute('data-oneclick', String(isOneClick));
 
-            // Solid Filled when connected, Outlined when disconnected! (Image 3)
-            const sellBg = isBrokerConnected ? '#f23645' : '#ffffff';
+            // Solid Filled when connected, Outlined when disconnected
             const sellTextColor = isBrokerConnected ? '#ffffff' : '#f23645';
-            const sellBorder = isBrokerConnected ? 'none' : '1px solid #f23645';
-            const buyBg = isBrokerConnected ? '#2962ff' : '#ffffff';
             const buyTextColor = isBrokerConnected ? '#ffffff' : '#2962ff';
-            const buyBorder = isBrokerConnected ? 'none' : '1px solid #2962ff';
+            const theme = this.getTheme();
+            const spreadColor = theme.isDark ? '#d1d4dc' : '#131722';
 
             widget.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 3px;">
-                    <!-- Main Buy / Sell Buttons Row -->
-                    <div style="display: flex; align-items: center; position: relative;">
-                        <!-- SELL BUTTON (Image 3) -->
-                        <button id="tv-native-btn-sell" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-sell-connected' : 'tv-legend-btn-sell-disconnected'}">
-                            <span id="tv-native-bid-disp" style="color: ${sellTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentBid)}</span>
-                            <span style="color: ${sellTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">SELL</span>
-                        </button>
+                <!-- SELL BUTTON -->
+                <button id="tv-native-btn-sell" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-sell-connected' : 'tv-legend-btn-sell-disconnected'}" title="Sell Market">
+                    <span class="tv-legend-btn-content">
+                        <span id="tv-native-bid-disp" class="tv-legend-price-text" style="color: ${sellTextColor};">${this.formatPipPriceHtml(this.currentBid)}</span>
+                        <span class="tv-legend-title-text" style="color: ${sellTextColor};">SELL</span>
+                    </span>
+                </button>
 
-                        <!-- SPREAD & SINGLE AUTHENTIC CENTER QUANTITY PILL (Image 3) -->
-                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 24px; margin: 0 8px;">
-                            <span id="tv-native-spread-disp" style="color: #131722; font-size: 11.5px; font-weight: 600; line-height: 1.1;">${spreadPoints}</span>
-                            ${isOneClick ? `
-                                <button id="tv-native-center-lot-btn" type="button" title="Set Order Quantity" style="
-                                    background: #f0f3fa;
-                                    border: 1px solid #d1d4dc;
-                                    border-radius: 3px;
-                                    padding: 1px 6px;
-                                    font-size: 10.5px;
-                                    font-weight: 700;
-                                    color: #131722;
-                                    cursor: pointer;
-                                    margin-top: 2px;
-                                    line-height: 1.1;
-                                    outline: none;
-                                ">
-                                    <span id="tv-native-center-lot-disp">${this.lots}</span>
-                                </button>
-                            ` : ''}
-                        </div>
-
-                        <!-- BUY BUTTON (Image 3) -->
-                        <button id="tv-native-btn-buy" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-buy-connected' : 'tv-legend-btn-buy-disconnected'}">
-                            <span id="tv-native-ask-disp" style="color: ${buyTextColor}; font-size: 13.5px; font-weight: 700; line-height: 1.15; letter-spacing: -0.2px;">${this.formatPipPriceHtml(this.currentAsk)}</span>
-                            <span style="color: ${buyTextColor}; font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; line-height: 1; margin-top: 1px;">BUY</span>
-                        </button>
-                    </div>
-
-                    <!-- Quantity Dropdown Pill directly beneath Sell button (matching TV UI) -->
-                    <div style="display: flex; align-items: center; padding-left: 1px;">
-                        <button id="tv-native-legend-qty-btn" type="button" class="tv-legend-qty-pill" title="Set Order Quantity">
-                            <svg width="8" height="5" viewBox="0 0 8 5" fill="none" stroke="#787b86" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M1 1l3 3 3-3"/>
-                            </svg>
-                            <span id="tv-native-legend-qty-disp">${this.lots}</span>
-                        </button>
-                    </div>
+                <!-- SPREAD (Clean Centered Row Matching TradingView) -->
+                <div class="tv-legend-spread-wrap">
+                    <span id="tv-native-spread-disp" class="tv-legend-spread-text" style="color: ${spreadColor};">${spreadPoints}</span>
                 </div>
 
+                <!-- BUY BUTTON -->
+                <button id="tv-native-btn-buy" type="button" class="tv-legend-btn ${isBrokerConnected ? 'tv-legend-btn-buy-connected' : 'tv-legend-btn-buy-disconnected'}" title="Buy Market">
+                    <span class="tv-legend-btn-content">
+                        <span id="tv-native-ask-disp" class="tv-legend-price-text" style="color: ${buyTextColor};">${this.formatPipPriceHtml(this.currentAsk)}</span>
+                        <span class="tv-legend-title-text" style="color: ${buyTextColor};">BUY</span>
+                    </span>
+                </button>
+
                 <!-- Floating Tooltip Container -->
-                <div id="${this.tooltipId}" style="
-                    display: none;
-                    position: absolute;
-                    top: 36px;
-                    left: 0;
-                    background: #2a2e39;
-                    color: #ffffff;
-                    border-radius: 6px;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-                    padding: 5px 10px;
-                    font-size: 12px;
-                    font-weight: 500;
-                    align-items: center;
-                    gap: 8px;
-                    z-index: 9999;
-                    pointer-events: none;
-                    white-space: nowrap;
-                "></div>
+                <div id="${this.tooltipId}" class="tv-legend-tooltip"></div>
             `;
 
             this.bindOnChartEvents(widget, iframeDoc, isBrokerConnected);
@@ -659,8 +669,6 @@
         bindOnChartEvents(widget, iframeDoc, isBrokerConnected) {
             const btnSell = widget.querySelector('#tv-native-btn-sell');
             const btnBuy = widget.querySelector('#tv-native-btn-buy');
-            const centerLotBtn = widget.querySelector('#tv-native-center-lot-btn');
-            const legendQtyBtn = widget.querySelector('#tv-native-legend-qty-btn');
             const tooltip = widget.querySelector('#' + this.tooltipId);
 
             const showTooltip = (targetEl, text, hotkey) => {
@@ -718,20 +726,6 @@
                     }
                     if (this.settings.oneClickTrading) this.executeInstantOrder('BUY');
                     else this.openOrderTicket('BUY');
-                };
-            }
-
-            if (centerLotBtn) {
-                centerLotBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.toggleQuantityKeypad(centerLotBtn, iframeDoc);
-                };
-            }
-
-            if (legendQtyBtn) {
-                legendQtyBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.toggleQuantityKeypad(legendQtyBtn, iframeDoc);
                 };
             }
         }
@@ -3850,14 +3844,19 @@
 
         formatPrice(price) {
             if (!price || isNaN(price)) return '0.00';
-            if (this.currentSymbol.includes('JPY')) return Number(price).toFixed(3);
-            if (this.currentSymbol.includes('XAU')) return Number(price).toFixed(2);
-            if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) return Number(price).toFixed(2);
-            if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY') || price > 500) {
-                return Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const num = Number(price);
+            if (this.currentSymbol.includes('JPY')) return num.toFixed(3);
+            if (this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD')) {
+                return num.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
             }
-            if (price < 10) return Number(price).toFixed(5);
-            return Number(price).toFixed(2);
+            if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) {
+                return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY') || price > 500) {
+                return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            if (price < 10) return num.toFixed(5);
+            return num.toFixed(2);
         }
 
         formatPipPriceHtml(price) {
@@ -3867,7 +3866,7 @@
             if (dotIdx !== -1 && dotIdx < str.length - 1) {
                 const base = str.slice(0, -1);
                 const last = str.slice(-1);
-                return `${base}<span style="font-size: 0.72em; vertical-align: 0.35em; line-height: 0; font-weight: 700; margin-left: 0.5px;">${last}</span>`;
+                return `${base}<span class="tv-legend-subpip" style="font-size: 0.78em; vertical-align: 0.35em; line-height: 1; font-weight: 600; margin-left: 0.5px; display: inline;">${last}</span>`;
             }
             return str;
         }
@@ -3886,19 +3885,6 @@
             this.settings.defaultLots = val;
             this.saveSettings();
 
-            // Update on-chart legend dropdown pill inside iframe
-            try {
-                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
-                if (iframe && iframe.contentDocument) {
-                    const legendQtyDisp = iframe.contentDocument.getElementById('tv-native-legend-qty-disp');
-                    if (legendQtyDisp) legendQtyDisp.innerText = this.lots;
-                    const centerDisp = iframe.contentDocument.getElementById('tv-native-center-lot-disp');
-                    if (centerDisp) centerDisp.innerText = this.lots;
-                }
-            } catch (_) {}
-
-            const centerDisp = document.getElementById('tv-native-center-lot-disp');
-            if (centerDisp) centerDisp.innerText = this.lots;
             const unitsIn = document.getElementById('tv-ticket-units-in');
             if (unitsIn) unitsIn.value = this.lots;
             this.updateFinancialSummary();
