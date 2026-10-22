@@ -11,6 +11,45 @@
         #tv_chart_container { width: 100%; height: 100%; position: fixed; top: 0; left: 0; bottom: 0; right: 0; transition: bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1), height 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
         body.st-resizing #tv_chart_container { transition: none !important; }
     </style>
+    <script>
+        // Targeted suppression for high-frequency TradingView internal tick spam
+        (function() {
+            const _origLog = console.log;
+            const _origInfo = console.info;
+            const _origDebug = console.debug;
+            const SPAM_PATTERNS = [
+                /Last bar update:/i,
+                /Event\s+["']?onTick["']?/i,
+                /New bar arrived:/i
+            ];
+
+            function isSpam(args) {
+                if (!args || !args.length) return false;
+                for (let i = 0; i < args.length; i++) {
+                    const item = args[i];
+                    if (typeof item === 'string') {
+                        for (let j = 0; j < SPAM_PATTERNS.length; j++) {
+                            if (SPAM_PATTERNS[j].test(item)) return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            console.log = function(...args) {
+                if (isSpam(args)) return;
+                return _origLog.apply(console, args);
+            };
+            console.info = function(...args) {
+                if (isSpam(args)) return;
+                return _origInfo.apply(console, args);
+            };
+            console.debug = function(...args) {
+                if (isSpam(args)) return;
+                return _origDebug.apply(console, args);
+            };
+        })();
+    </script>
     <!-- Load the lightly obfuscated core engine -->
     <script src="chart_engine/core.standalone.js"></script>
     <script type="module" src="duckdb-init.js?v=20261007a"></script>
@@ -45,7 +84,7 @@
     <!-- TradingView-Style Multi-Watchlist Suite -->
     <script src="watchlist_ui.js?v=20261022wl8"></script>
 
-    <script src="main.js?v=20261022k"></script>
+    <script src="main.js?v=20261022log1"></script>
 </head>
 <body>
     <div id="tv_chart_container"></div>

@@ -1,3 +1,43 @@
+// Targeted suppression for high-frequency TradingView internal tick spam
+(function() {
+    if (window.__tv_tick_spam_filter_installed) return;
+    window.__tv_tick_spam_filter_installed = true;
+    const _origLog = console.log;
+    const _origInfo = console.info;
+    const _origDebug = console.debug;
+    const SPAM_PATTERNS = [
+        /Last bar update:/i,
+        /Event\s+["']?onTick["']?/i,
+        /New bar arrived:/i
+    ];
+
+    function isSpam(args) {
+        if (!args || !args.length) return false;
+        for (let i = 0; i < args.length; i++) {
+            const item = args[i];
+            if (typeof item === 'string') {
+                for (let j = 0; j < SPAM_PATTERNS.length; j++) {
+                    if (SPAM_PATTERNS[j].test(item)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    console.log = function(...args) {
+        if (isSpam(args)) return;
+        return _origLog.apply(console, args);
+    };
+    console.info = function(...args) {
+        if (isSpam(args)) return;
+        return _origInfo.apply(console, args);
+    };
+    console.debug = function(...args) {
+        if (isSpam(args)) return;
+        return _origDebug.apply(console, args);
+    };
+})();
+
 // -----------------------------------------------------------------------
 // LocalStorage Save/Load Adapter
 // This ensures all user drawings and layouts are saved directly in their browser.
