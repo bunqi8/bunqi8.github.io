@@ -118,7 +118,8 @@
                 dockMode: 'docked',
                 dockSide: 'right',
                 defaultLots: 1.0,
-                bottomPanelHeight: 270
+                bottomPanelHeight: 270,
+                soundEnabled: true
             };
             try {
                 const saved = localStorage.getItem('tv_trading_settings_v8');
@@ -126,6 +127,41 @@
             } catch (_) {
                 return defaults;
             }
+        }
+
+        playExecutionSound() {
+            if (this.settings.soundEnabled === false) return;
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const ctx = new AudioCtx();
+                if (ctx.state === 'suspended') {
+                    ctx.resume();
+                }
+                const now = ctx.currentTime;
+                
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(1318.5, now); // E6
+                gain1.gain.setValueAtTime(0.12, now);
+                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start(now);
+                osc1.stop(now + 0.14);
+
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(1975.5, now + 0.07); // B6
+                gain2.gain.setValueAtTime(0.15, now + 0.07);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(now + 0.07);
+                osc2.stop(now + 0.32);
+            } catch (_) {}
         }
 
         saveSettings() {
@@ -699,6 +735,61 @@
                     pointer-events: none;
                     white-space: nowrap;
                 }
+                /* MINIMAL ACTIONS NEXT TO BUY BUTTON */
+                .tv-legend-actions-wrap {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    gap: 3px !important;
+                    margin-left: 5px !important;
+                    height: 34px !important;
+                }
+                .tv-legend-icon-btn {
+                    border-radius: 6px !important;
+                    width: 28px !important;
+                    height: 34px !important;
+                    box-sizing: border-box !important;
+                    cursor: pointer !important;
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    outline: none !important;
+                    border: 1px solid rgba(0,0,0,0.14) !important;
+                    background: #ffffff !important;
+                    color: #787b86 !important;
+                    padding: 0 !important;
+                    transition: all 0.12s ease !important;
+                }
+                .tv-legend-icon-btn:hover {
+                    background: #f0f3fa !important;
+                    color: #131722 !important;
+                    border-color: #2962ff !important;
+                }
+                .tv-legend-icon-btn:active {
+                    transform: scale(0.95) !important;
+                }
+                .tv-legend-icon-btn-active {
+                    background: #eaf2ff !important;
+                    border-color: #2962ff !important;
+                    color: #2962ff !important;
+                }
+                body.theme-dark .tv-legend-icon-btn,
+                [data-theme="dark"] .tv-legend-icon-btn {
+                    background: #1e222d !important;
+                    border-color: #2a2e39 !important;
+                    color: #787b86 !important;
+                }
+                body.theme-dark .tv-legend-icon-btn:hover,
+                [data-theme="dark"] .tv-legend-icon-btn:hover {
+                    background: #2a2e39 !important;
+                    color: #d1d4dc !important;
+                    border-color: #2962ff !important;
+                }
+                body.theme-dark .tv-legend-icon-btn-active,
+                [data-theme="dark"] .tv-legend-icon-btn-active {
+                    background: #182a4d !important;
+                    border-color: #2962ff !important;
+                    color: #2962ff !important;
+                }
             `;
             if (iframeDoc.head) iframeDoc.head.appendChild(style);
             else iframeDoc.body.appendChild(style);
@@ -804,6 +895,16 @@
                     bidDisp.innerHTML = this.formatPipPriceHtml(this.currentBid);
                     askDisp.innerHTML = this.formatPipPriceHtml(this.currentAsk);
                     spreadDisp.innerText = spreadPoints;
+                    const btnInstant = widget.querySelector('#tv-native-btn-instant');
+                    const btnTicket = widget.querySelector('#tv-native-btn-ticket');
+                    if (btnInstant) {
+                        btnInstant.classList.toggle('tv-legend-icon-btn-active', isOneClick);
+                        const svg = btnInstant.querySelector('svg');
+                        if (svg) svg.setAttribute('fill', isOneClick ? 'currentColor' : 'none');
+                    }
+                    if (btnTicket) {
+                        btnTicket.classList.toggle('tv-legend-icon-btn-active', this.isOrderTicketOpen);
+                    }
                     return;
                 }
             }
@@ -839,6 +940,24 @@
                     </span>
                 </button>
 
+                <!-- MINIMAL QUICK ACTIONS (Instant Toggle & Order Ticket Toggle) -->
+                <div class="tv-legend-actions-wrap">
+                    <!-- Instant Orders (1-Click) Toggle Button -->
+                    <button id="tv-native-btn-instant" type="button" class="tv-legend-icon-btn ${isOneClick ? 'tv-legend-icon-btn-active' : ''}" title="${isOneClick ? 'Instant Orders: ON (1-Click Trading)' : 'Instant Orders: OFF (Ticket Mode)'}">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="${isOneClick ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.2">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                        </svg>
+                    </button>
+
+                    <!-- Order Ticket Panel Open Button -->
+                    <button id="tv-native-btn-ticket" type="button" class="tv-legend-icon-btn ${this.isOrderTicketOpen ? 'tv-legend-icon-btn-active' : ''}" title="Order Panel">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="3" ry="3"/>
+                            <line x1="15" y1="3" x2="15" y2="21"/>
+                        </svg>
+                    </button>
+                </div>
+
                 <!-- Floating Tooltip Container -->
                 <div id="${this.tooltipId}" class="tv-legend-tooltip"></div>
             `;
@@ -849,22 +968,22 @@
         bindOnChartEvents(widget, iframeDoc, isBrokerConnected) {
             const btnSell = widget.querySelector('#tv-native-btn-sell');
             const btnBuy = widget.querySelector('#tv-native-btn-buy');
+            const btnInstant = widget.querySelector('#tv-native-btn-instant');
+            const btnTicket = widget.querySelector('#tv-native-btn-ticket');
             const tooltip = widget.querySelector('#' + this.tooltipId);
 
             const showTooltip = (targetEl, text, hotkey) => {
                 if (!tooltip) return;
                 const offsetLeft = targetEl.offsetLeft;
                 tooltip.style.left = offsetLeft + 'px';
-                if (isBrokerConnected) {
+                if (hotkey) {
                     tooltip.innerHTML = `
                         <span>${text}</span>
                         <span style="color: rgba(255,255,255,0.3);">|</span>
-                        <span style="background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; padding: 1px 5px; font-size: 10.5px; font-weight: 600;">Shift</span>
                         <span style="background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; padding: 1px 5px; font-size: 10.5px; font-weight: 600;">${hotkey}</span>
                     `;
                 } else {
-                    const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
-                    tooltip.innerHTML = `<span>Connect ${brokerName} to Trade</span>`;
+                    tooltip.innerHTML = `<span>${text}</span>`;
                 }
                 tooltip.style.display = 'flex';
             };
@@ -874,7 +993,7 @@
             };
 
             if (btnSell) {
-                btnSell.onmouseenter = () => showTooltip(btnSell, this.settings.oneClickTrading ? 'Sell Market (Instant Order)' : 'Sell (Open Ticket)', 'S');
+                btnSell.onmouseenter = () => showTooltip(btnSell, this.settings.oneClickTrading ? 'Sell Market (Instant Order)' : 'Sell (Open Ticket)', 'Shift S');
                 btnSell.onmouseleave = hideTooltip;
                 btnSell.onclick = (e) => {
                     e.stopPropagation();
@@ -892,7 +1011,7 @@
             }
 
             if (btnBuy) {
-                btnBuy.onmouseenter = () => showTooltip(btnBuy, this.settings.oneClickTrading ? 'Buy Market (Instant Order)' : 'Buy (Open Ticket)', 'B');
+                btnBuy.onmouseenter = () => showTooltip(btnBuy, this.settings.oneClickTrading ? 'Buy Market (Instant Order)' : 'Buy (Open Ticket)', 'Shift B');
                 btnBuy.onmouseleave = hideTooltip;
                 btnBuy.onclick = (e) => {
                     e.stopPropagation();
@@ -906,6 +1025,35 @@
                     }
                     if (this.settings.oneClickTrading) this.executeInstantOrder('BUY');
                     else this.openOrderTicket('BUY');
+                };
+            }
+
+            if (btnInstant) {
+                btnInstant.onmouseenter = () => showTooltip(btnInstant, this.settings.oneClickTrading ? 'Instant Orders: ON' : 'Instant Orders: OFF', 'Shift I');
+                btnInstant.onmouseleave = hideTooltip;
+                btnInstant.onclick = (e) => {
+                    e.stopPropagation();
+                    hideTooltip();
+                    this.settings.oneClickTrading = !this.settings.oneClickTrading;
+                    this.saveSettings();
+                    this.renderOnChartWidget();
+                    this.updateToolbarBtnState();
+                    const checkQuick = document.getElementById('tv-check-quick-trading');
+                    if (checkQuick) checkQuick.checked = this.settings.oneClickTrading;
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast(`⚡ Instant Orders: ${this.settings.oneClickTrading ? 'Enabled (1-Click)' : 'Disabled (Ticket Mode)'}`, 'info');
+                    }
+                };
+            }
+
+            if (btnTicket) {
+                btnTicket.onmouseenter = () => showTooltip(btnTicket, this.isOrderTicketOpen ? 'Close Order Ticket' : 'Open Order Ticket', 'T');
+                btnTicket.onmouseleave = hideTooltip;
+                btnTicket.onclick = (e) => {
+                    e.stopPropagation();
+                    hideTooltip();
+                    this.toggleOrderTicket();
+                    this.renderOnChartWidget();
                 };
             }
         }
@@ -1728,6 +1876,16 @@
                                     <span class="tv-toggle-slider"></span>
                                 </label>
                             </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer; transition: background 0.1s;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'" id="tv-opt-toggle-sound">
+                                <div>
+                                    <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">Play sound on execution</div>
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">Audio chime when order fills</div>
+                                </div>
+                                <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
+                                    <input type="checkbox" id="tv-check-sound-trading" ${this.settings.soundEnabled !== false ? 'checked' : ''}>
+                                    <span class="tv-toggle-slider"></span>
+                                </label>
+                            </div>
                             <div style="height: 1px; background: ${theme.border}; margin: 6px 0;"></div>
                             <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'" id="tv-opt-toggle-dock">
                                 <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">${isDocked ? 'Undock to Floating' : 'Dock to Right'}</div>
@@ -1741,16 +1899,16 @@
                             position: absolute;
                             top: 34px;
                             right: 24px;
-                            width: 220px;
+                            width: 250px;
                             background: ${theme.panelBg};
                             border: 1px solid ${theme.border};
                             border-radius: 8px;
                             box-shadow: 0 4px 18px rgba(0,0,0,0.18);
                             z-index: 100000;
-                            padding: 10px;
+                            padding: 12px;
                         ">
-                            <div style="font-size: 12px; font-weight: 700; color: ${theme.text}; margin-bottom: 8px;">Order Quantity Presets</div>
-                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                            <div style="font-size: 11px; font-weight: 700; color: ${theme.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Quantity Presets</div>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 12px;">
                                 ${['0.01', '0.1', '0.5', '1', '2', '5', '10', '50'].map(q => `
                                     <button type="button" class="tv-ticket-preset-chip" data-qty="${q}" style="
                                         padding: 6px 0;
@@ -1762,8 +1920,29 @@
                                         font-weight: 600;
                                         cursor: pointer;
                                         text-align: center;
+                                        transition: background 0.1s;
                                     ">${q}</button>
                                 `).join('')}
+                            </div>
+
+                            <div style="font-size: 11px; font-weight: 700; color: ${theme.textMuted}; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Strategy Presets</div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <div class="tv-ticket-strat-preset" data-strat="default" style="padding: 7px 10px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: ${theme.subtabBg}; font-size: 12px; font-weight: 600; color: ${theme.text};" onmouseenter="this.style.background='${theme.isDark ? '#363c4e' : '#e0e3eb'}'" onmouseleave="this.style.background='${theme.subtabBg}'">
+                                    <span>Default</span>
+                                    <span style="font-size: 11px; color: ${theme.textMuted};">No Exits</span>
+                                </div>
+                                <div class="tv-ticket-strat-preset" data-strat="scalp" style="padding: 7px 10px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: ${theme.subtabBg}; font-size: 12px; font-weight: 600; color: ${theme.text};" onmouseenter="this.style.background='${theme.isDark ? '#363c4e' : '#e0e3eb'}'" onmouseleave="this.style.background='${theme.subtabBg}'">
+                                    <span>Scalp</span>
+                                    <span style="font-size: 11px; color: #089981; font-weight: 700;">10 TP / 10 SL</span>
+                                </div>
+                                <div class="tv-ticket-strat-preset" data-strat="day" style="padding: 7px 10px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: ${theme.subtabBg}; font-size: 12px; font-weight: 600; color: ${theme.text};" onmouseenter="this.style.background='${theme.isDark ? '#363c4e' : '#e0e3eb'}'" onmouseleave="this.style.background='${theme.subtabBg}'">
+                                    <span>Day Trade</span>
+                                    <span style="font-size: 11px; color: #089981; font-weight: 700;">30 TP / 15 SL</span>
+                                </div>
+                                <div class="tv-ticket-strat-preset" data-strat="swing" style="padding: 7px 10px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: ${theme.subtabBg}; font-size: 12px; font-weight: 600; color: ${theme.text};" onmouseenter="this.style.background='${theme.isDark ? '#363c4e' : '#e0e3eb'}'" onmouseleave="this.style.background='${theme.subtabBg}'">
+                                    <span>Swing</span>
+                                    <span style="font-size: 11px; color: #089981; font-weight: 700;">100 TP / 50 SL</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2005,17 +2184,23 @@
                                 background: ${theme.inputBg};
                                 box-sizing: border-box;
                             ">
-                                <input type="number" id="tv-ticket-units-in" min="0.01" step="0.1" value="${this.lots}" style="
-                                    width: 75px;
-                                    border: none;
-                                    outline: none;
-                                    background: transparent;
-                                    color: ${theme.text};
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    font-feature-settings: 'tnum';
-                                ">
-                                <button id="tv-ticket-units-swap-btn" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                <div style="display: flex; align-items: center;">
+                                    <input type="number" id="tv-ticket-units-in" min="0.01" step="0.1" value="${this.lots}" style="
+                                        width: 65px;
+                                        border: none;
+                                        outline: none;
+                                        background: transparent;
+                                        color: ${theme.text};
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        font-feature-settings: 'tnum';
+                                    ">
+                                    <div style="display: flex; flex-direction: column; margin-right: 4px; user-select: none;">
+                                        <button id="tv-ticket-units-up" type="button" style="border: none; background: transparent; padding: 0 3px; cursor: pointer; color: ${theme.textMuted}; font-size: 9px; line-height: 1;" title="Increase">▲</button>
+                                        <button id="tv-ticket-units-down" type="button" style="border: none; background: transparent; padding: 0 3px; cursor: pointer; color: ${theme.textMuted}; font-size: 9px; line-height: 1;" title="Decrease">▼</button>
+                                    </div>
+                                </div>
+                                <button id="tv-ticket-units-swap-btn" type="button" title="Order quantity presets" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                 </button>
                                 <div id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: ${theme.textMuted}; display: flex; align-items: center; gap: 4px; cursor: pointer;">
@@ -2078,7 +2263,7 @@
                                                 <span class="tv-toggle-slider"></span>
                                             </label>
                                         </div>
-                                        <div style="
+                                        <div id="tv-ticket-tp-row" style="
                                             display: flex;
                                             align-items: center;
                                             border: 1px solid ${this.isTpEnabled ? '#2962ff' : theme.border};
@@ -2087,6 +2272,9 @@
                                             height: 38px;
                                             background: ${this.isTpEnabled ? theme.inputBg : theme.subtabBg};
                                             box-sizing: border-box;
+                                            opacity: ${this.isTpEnabled ? '1' : '0.45'};
+                                            pointer-events: ${this.isTpEnabled ? 'auto' : 'none'};
+                                            transition: all 0.15s;
                                         ">
                                             <input type="text" id="tv-ticket-tp-price-disp" value="${this.calculateExitPrice('tp')}" ${!this.isTpEnabled ? 'readonly' : ''} style="
                                                 flex: 1;
@@ -2098,12 +2286,12 @@
                                                 color: ${this.isTpEnabled ? theme.text : theme.textMuted};
                                                 font-feature-settings: 'tnum';
                                             ">
-                                            <button type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                            <button id="tv-ticket-tp-swap-btn" type="button" title="Swap input focus" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                             </button>
                                             <div style="display: flex; align-items: center; gap: 4px;">
                                                 <input type="number" id="tv-ticket-tp-ticks-in" value="${this.tpTicks}" ${!this.isTpEnabled ? 'readonly' : ''} style="
-                                                    width: 38px;
+                                                    width: 44px;
                                                     border: none;
                                                     text-align: right;
                                                     outline: none;
@@ -2133,7 +2321,7 @@
                                                 <span class="tv-toggle-slider"></span>
                                             </label>
                                         </div>
-                                        <div style="
+                                        <div id="tv-ticket-sl-row" style="
                                             display: flex;
                                             align-items: center;
                                             border: 1px solid ${this.isSlEnabled ? '#2962ff' : theme.border};
@@ -2142,6 +2330,9 @@
                                             height: 38px;
                                             background: ${this.isSlEnabled ? theme.inputBg : theme.subtabBg};
                                             box-sizing: border-box;
+                                            opacity: ${this.isSlEnabled ? '1' : '0.45'};
+                                            pointer-events: ${this.isSlEnabled ? 'auto' : 'none'};
+                                            transition: all 0.15s;
                                         ">
                                             <input type="number" id="tv-ticket-sl-ticks-in" value="${this.slTicks}" ${!this.isSlEnabled ? 'readonly' : ''} style="
                                                 width: 50px;
@@ -2153,13 +2344,21 @@
                                                 color: ${this.isSlEnabled ? theme.text : theme.textMuted};
                                                 font-feature-settings: 'tnum';
                                             ">
-                                            <button type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                            <button id="tv-ticket-sl-swap-btn" type="button" title="Swap input focus" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                             </button>
                                             <div style="margin-left: auto; display: flex; align-items: center; gap: 4px;">
-                                                <span id="tv-ticket-sl-price-disp" style="font-size: 13px; font-weight: 600; color: ${this.isSlEnabled ? theme.text : theme.textMuted}; font-feature-settings: 'tnum';">
-                                                    ${this.calculateExitPrice('sl')}
-                                                </span>
+                                                <input type="text" id="tv-ticket-sl-price-disp" value="${this.calculateExitPrice('sl')}" ${!this.isSlEnabled ? 'readonly' : ''} style="
+                                                    width: 80px;
+                                                    border: none;
+                                                    text-align: right;
+                                                    outline: none;
+                                                    background: transparent;
+                                                    font-size: 13px;
+                                                    font-weight: 600;
+                                                    color: ${this.isSlEnabled ? theme.text : theme.textMuted};
+                                                    font-feature-settings: 'tnum';
+                                                ">
                                                 <span style="font-size: 12px; color: ${theme.textMuted}; display: flex; align-items: center; gap: 2px;">
                                                     price
                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="12" height="12"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
@@ -2736,6 +2935,18 @@
                 };
             }
 
+            // Sound Execution Toggle inside Settings
+            const checkSound = panel.querySelector('#tv-check-sound-trading');
+            if (checkSound) {
+                checkSound.onchange = (e) => {
+                    this.settings.soundEnabled = e.target.checked;
+                    this.saveSettings();
+                    if (this.settings.soundEnabled) {
+                        this.playExecutionSound();
+                    }
+                };
+            }
+
             // Dock / Undock Option
             const optDock = panel.querySelector('#tv-opt-toggle-dock');
             if (optDock) {
@@ -2759,6 +2970,35 @@
                     this.updateFinancialSummary();
                     this.updateTicketButtonSummary();
                     if (presetsPop) presetsPop.style.display = 'none';
+                };
+            });
+
+            // Strategy presets
+            panel.querySelectorAll('.tv-ticket-strat-preset').forEach(item => {
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    const strat = e.currentTarget.getAttribute('data-strat');
+                    if (strat === 'default') {
+                        this.isTpEnabled = false;
+                        this.isSlEnabled = false;
+                    } else if (strat === 'scalp') {
+                        this.isTpEnabled = true;
+                        this.tpTicks = 10;
+                        this.isSlEnabled = true;
+                        this.slTicks = 10;
+                    } else if (strat === 'day') {
+                        this.isTpEnabled = true;
+                        this.tpTicks = 30;
+                        this.isSlEnabled = true;
+                        this.slTicks = 15;
+                    } else if (strat === 'swing') {
+                        this.isTpEnabled = true;
+                        this.tpTicks = 100;
+                        this.isSlEnabled = true;
+                        this.slTicks = 50;
+                    }
+                    if (presetsPop) presetsPop.style.display = 'none';
+                    this.renderSideOrderTicket();
                 };
             });
 
@@ -2824,13 +3064,38 @@
                 };
             });
 
-            // Units input
+            // Units input & steppers
             const unitsIn = panel.querySelector('#tv-ticket-units-in');
             if (unitsIn) {
                 unitsIn.oninput = (e) => {
                     const val = Math.max(0.01, parseFloat(e.target.value) || 1.0);
                     this.lots = val;
                     this.settings.defaultLots = val;
+                    this.updateFinancialSummary();
+                    this.updateTicketButtonSummary();
+                };
+            }
+
+            const btnUnitsUp = panel.querySelector('#tv-ticket-units-up');
+            const btnUnitsDown = panel.querySelector('#tv-ticket-units-down');
+            if (btnUnitsUp) {
+                btnUnitsUp.onclick = () => {
+                    const step = this.lots < 1 ? 0.1 : 1.0;
+                    this.lots = Math.round((this.lots + step) * 100) / 100;
+                    this.settings.defaultLots = this.lots;
+                    this.saveSettings();
+                    if (unitsIn) unitsIn.value = this.lots;
+                    this.updateFinancialSummary();
+                    this.updateTicketButtonSummary();
+                };
+            }
+            if (btnUnitsDown) {
+                btnUnitsDown.onclick = () => {
+                    const step = this.lots <= 1 ? 0.1 : 1.0;
+                    this.lots = Math.max(0.01, Math.round((this.lots - step) * 100) / 100);
+                    this.settings.defaultLots = this.lots;
+                    this.saveSettings();
+                    if (unitsIn) unitsIn.value = this.lots;
                     this.updateFinancialSummary();
                     this.updateTicketButtonSummary();
                 };
@@ -2919,21 +3184,81 @@
                 };
             }
 
-            // TP & SL ticks
+            // TP Price & Ticks two-way sync
             const tpTicksIn = panel.querySelector('#tv-ticket-tp-ticks-in');
-            const slTicksIn = panel.querySelector('#tv-ticket-sl-ticks-in');
+            const tpPriceIn = panel.querySelector('#tv-ticket-tp-price-disp');
+            const tpSwapBtn = panel.querySelector('#tv-ticket-tp-swap-btn');
+
             if (tpTicksIn) {
                 tpTicksIn.oninput = (e) => {
-                    this.tpTicks = parseFloat(e.target.value) || 75;
-                    const disp = panel.querySelector('#tv-ticket-tp-price-disp');
-                    if (disp) disp.value = this.calculateExitPrice('tp');
+                    this.tpTicks = Math.max(1, parseFloat(e.target.value) || 1);
+                    if (tpPriceIn) tpPriceIn.value = this.calculateExitPrice('tp');
                 };
             }
+            if (tpPriceIn) {
+                tpPriceIn.oninput = (e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val > 0) {
+                        const isBuy = this.selectedSide === 'BUY';
+                        const basePrice = this.orderType === 'market' 
+                            ? (isBuy ? this.currentAsk : this.currentBid)
+                            : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+                        const tickSize = this.getTickSize();
+                        const diff = isBuy ? (val - basePrice) : (basePrice - val);
+                        const ticks = Math.max(1, Math.round(diff / tickSize));
+                        this.tpTicks = ticks;
+                        if (tpTicksIn) tpTicksIn.value = ticks;
+                    }
+                };
+            }
+            if (tpSwapBtn) {
+                tpSwapBtn.onclick = () => {
+                    if (document.activeElement === tpPriceIn && tpTicksIn) {
+                        tpTicksIn.focus();
+                        tpTicksIn.select();
+                    } else if (tpPriceIn) {
+                        tpPriceIn.focus();
+                        tpPriceIn.select();
+                    }
+                };
+            }
+
+            // SL Price & Ticks two-way sync
+            const slTicksIn = panel.querySelector('#tv-ticket-sl-ticks-in');
+            const slPriceIn = panel.querySelector('#tv-ticket-sl-price-disp');
+            const slSwapBtn = panel.querySelector('#tv-ticket-sl-swap-btn');
+
             if (slTicksIn) {
                 slTicksIn.oninput = (e) => {
-                    this.slTicks = parseFloat(e.target.value) || 25;
-                    const disp = panel.querySelector('#tv-ticket-sl-price-disp');
-                    if (disp) disp.value = this.calculateExitPrice('sl');
+                    this.slTicks = Math.max(1, parseFloat(e.target.value) || 1);
+                    if (slPriceIn) slPriceIn.value = this.calculateExitPrice('sl');
+                };
+            }
+            if (slPriceIn) {
+                slPriceIn.oninput = (e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val > 0) {
+                        const isBuy = this.selectedSide === 'BUY';
+                        const basePrice = this.orderType === 'market' 
+                            ? (isBuy ? this.currentAsk : this.currentBid)
+                            : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+                        const tickSize = this.getTickSize();
+                        const diff = isBuy ? (basePrice - val) : (val - basePrice);
+                        const ticks = Math.max(1, Math.round(diff / tickSize));
+                        this.slTicks = ticks;
+                        if (slTicksIn) slTicksIn.value = ticks;
+                    }
+                };
+            }
+            if (slSwapBtn) {
+                slSwapBtn.onclick = () => {
+                    if (document.activeElement === slPriceIn && slTicksIn) {
+                        slTicksIn.focus();
+                        slTicksIn.select();
+                    } else if (slPriceIn) {
+                        slPriceIn.focus();
+                        slPriceIn.select();
+                    }
                 };
             }
 
@@ -4127,6 +4452,7 @@
                 }).then(res => {
                     if (targetBtn) targetBtn.style.opacity = '1';
                     if (res && res.success) {
+                        this.playExecutionSound();
                         const brokerName = window.TradingEngine.getActiveAdapter(this.currentSymbol).name;
                         this.logActivity('1-Click Fill', `${side} ${lots} ${this.currentSymbol} @ ${price}`, brokerName);
                         if (window.FyersAPI && window.FyersAPI.showToast) {
@@ -4175,6 +4501,7 @@
             }
 
             if (res && res.success) {
+                this.playExecutionSound();
                 this.logActivity('Order Submitted', `${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} @ ${price}`, brokerName);
                 const msg = `✓ [${brokerName}] ${type} ${lots} ${this.currentSymbol} ${this.orderType.toUpperCase()} submitted!`;
                 if (window.FyersAPI && window.FyersAPI.showToast) {
