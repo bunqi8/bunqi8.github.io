@@ -351,6 +351,14 @@
                     if (data.symbol_info) {
                         if (!this._symbolMap) this._symbolMap = new Map();
                         this._symbolMap.set(clean, data.symbol_info);
+                        if (data.symbol_info.earliest_time_ms) {
+                            if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
+                            window._symbolEarliestTime[clean] = data.symbol_info.earliest_time_ms;
+                        }
+                        if (data.symbol_info.earliest_date) {
+                            if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
+                            window._symbolEarliestDate[clean] = data.symbol_info.earliest_date;
+                        }
                         return data.symbol_info;
                     }
                 }
@@ -437,6 +445,14 @@
                 const res = await fetch(url, { headers: this.getHeaders() });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
+                if (data.earliest_time_ms) {
+                    if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
+                    window._symbolEarliestTime[cleanSym] = data.earliest_time_ms;
+                }
+                if (data.earliest_date) {
+                    if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
+                    window._symbolEarliestDate[cleanSym] = data.earliest_date;
+                }
                 return data.bars || [];
             } catch (e) {
                 console.warn('[MT5API] fetchBars failed, using fallback:', e);
