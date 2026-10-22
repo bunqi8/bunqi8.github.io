@@ -1268,68 +1268,36 @@ const Datafeed = {
 
                     // B. Transition to new candle:
                     if (cTime > lastBar.time) {
-                        const isImmediateNext = (cTime - lastBar.time <= tfMs * 1.5);
-
-                        if (isImmediateNext) {
-                            // Finalize previous candle with MT5's official closed values
-                            if (tick.prev_candle) {
-                                const p = tick.prev_candle;
-                                const pTime = alignTime(Number(p.time));
-                                if (pTime === lastBar.time) {
-                                    lastBar.open = Number(p.open);
-                                    lastBar.high = Number(p.high);
-                                    lastBar.low = Number(p.low);
-                                    lastBar.close = Number(p.close);
-                                    lastBar.volume = Number(p.volume);
-                                    onRealtimeCallback({ ...lastBar });
-                                }
+                        // Finalize previous candle with MT5's official closed values
+                        if (tick.prev_candle) {
+                            const p = tick.prev_candle;
+                            const pTime = alignTime(Number(p.time));
+                            if (pTime === lastBar.time) {
+                                lastBar.open = Number(p.open);
+                                lastBar.high = Number(p.high);
+                                lastBar.low = Number(p.low);
+                                lastBar.close = Number(p.close);
+                                lastBar.volume = Number(p.volume);
+                                onRealtimeCallback({ ...lastBar });
                             }
-
-                            // Start new forming candle
-                            lastBar = {
-                                time: cTime,
-                                open: cOpen,
-                                high: cHigh,
-                                low: cLow,
-                                close: cClose,
-                                volume: cVol
-                            };
-                            window._tvLastBar[cacheKey] = lastBar;
-                            onRealtimeCallback({ ...lastBar });
-                            return;
-                        } else {
-                            // Gap detected (> 1.5 bars missing, e.g. server restart, network reconnect or sleep)
-                            console.log(`[datafeed] MT5 candle gap detected (${lastBar.time} -> ${cTime}, tfMs=${tfMs}). Streaming new bar and scheduling history re-sync...`);
-                            
-                            // Immediately advance forming candle so chart ticks live right away
-                            lastBar = {
-                                time: cTime,
-                                open: cOpen,
-                                high: cHigh,
-                                low: cLow,
-                                close: cClose,
-                                volume: cVol
-                            };
-                            window._tvLastBar[cacheKey] = lastBar;
-                            onRealtimeCallback({ ...lastBar });
-
-                            // Debounce background cache re-sync to backfill missing bars seamlessly
-                            if (!window._tvResetDebounce) window._tvResetDebounce = {};
-                            if (!window._tvResetDebounce[cacheKey]) {
-                                window._tvResetDebounce[cacheKey] = setTimeout(() => {
-                                    delete window._tvResetDebounce[cacheKey];
-                                    if (typeof onResetCacheNeededCallback === 'function') {
-                                        onResetCacheNeededCallback();
-                                    }
-                                }, 1500);
-                            }
-                            return;
                         }
+
+                        // Advance to the new forming candle seamlessly
+                        lastBar = {
+                            time: cTime,
+                            open: cOpen,
+                            high: cHigh,
+                            low: cLow,
+                            close: cClose,
+                            volume: cVol
+                        };
+                        window._tvLastBar[cacheKey] = lastBar;
+                        onRealtimeCallback({ ...lastBar });
+                        return;
                     }
 
                     // C. Anomaly / time inversion (cTime < lastBar.time)
                     if (cTime < lastBar.time) {
-                        console.warn(`[datafeed] MT5 time inversion notice (${cTime} < ${lastBar.time}).`);
                         return;
                     }
                 }
