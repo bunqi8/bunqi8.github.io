@@ -32,11 +32,22 @@
             try {
                 const raw = localStorage.getItem(this.configKey);
                 const cfg = raw ? JSON.parse(raw) : {};
-                this.endpoint = (cfg.endpoint || 'http://localhost:8000').replace(/\/+$/, '');
+                let ep = (cfg.endpoint || '').trim().replace(/\/+$/, '');
+                if (!ep) {
+                    ep = (typeof window !== 'undefined' && window.location.protocol === 'https:') 
+                        ? 'https://172.16.120.135:8000' 
+                        : 'http://localhost:8000';
+                } else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && ep.startsWith('http://')) {
+                    // Prevent Mixed Content blocking by upgrading http to https for the bridge
+                    ep = ep.replace('http://', 'https://');
+                }
+                this.endpoint = ep;
                 this.apiKey = cfg.apiKey || 'mt5_secret_key_2026';
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
             } catch (_) {
-                this.endpoint = 'http://localhost:8000';
+                this.endpoint = (typeof window !== 'undefined' && window.location.protocol === 'https:') 
+                    ? 'https://172.16.120.135:8000' 
+                    : 'http://localhost:8000';
                 this.apiKey = 'mt5_secret_key_2026';
                 this.multiAccountSelection = new Set();
             }

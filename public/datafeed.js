@@ -903,27 +903,31 @@ const Datafeed = {
                 const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
                 const mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
                 if (mt5Bars && mt5Bars.length > 0) {
-                    mt5Bars.sort((a, b) => a.time - b.time);
+                    // Filter out any invalid bars or future anomalies (allowing 5 min buffer)
+                    const maxAllowedTime = Date.now() + 300000;
+                    const validBars = mt5Bars.filter(b => b.time && b.time <= maxAllowedTime && !isNaN(b.close));
+                    validBars.sort((a, b) => a.time - b.time);
 
-                    // Attach latest bar for real-time live ticking aggregation
-                    const cacheKey = `MT5_${cleanSym}_${resolution}`;
-                    if (!window._tvLastBar) window._tvLastBar = {};
-                    const last = mt5Bars[mt5Bars.length - 1];
-                    window._tvLastBar[cacheKey] = {
-                        time: last.time,
-                        open: last.open,
-                        high: last.high,
-                        low: last.low,
-                        close: last.close,
-                        volume: last.volume
-                    };
+                    if (validBars.length > 0) {
+                        // Attach latest bar for real-time live ticking aggregation
+                        const cacheKey = `MT5_${cleanSym}_${resolution}`;
+                        if (!window._tvLastBar) window._tvLastBar = {};
+                        const last = validBars[validBars.length - 1];
+                        window._tvLastBar[cacheKey] = {
+                            time: last.time,
+                            open: last.open,
+                            high: last.high,
+                            low: last.low,
+                            close: last.close,
+                            volume: last.volume
+                        };
 
-                    onHistoryCallback(mt5Bars, { noData: false });
-                    return;
-                } else {
-                    onHistoryCallback([], { noData: true });
-                    return;
+                        onHistoryCallback(validBars, { noData: false });
+                        return;
+                    }
                 }
+                onHistoryCallback([], { noData: true });
+                return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
                 onHistoryCallback([], { noData: true });
@@ -1167,11 +1171,15 @@ const Datafeed = {
 
             const mt5Cb = (tick) => {
                 if (!tick) return;
+                // Only process ticks for this exact symbol
+                const tickSym = (tick.symbol || '').split(':').pop().toUpperCase().trim();
+                if (tickSym && tickSym !== cleanSym) return;
+
                 const price = Number(tick.last && tick.last > 0 ? tick.last : tick.bid);
                 if (!price || isNaN(price)) return;
                 const tickTime = Number(tick.time) || Date.now();
 
-                // Align to candle interval floor
+                // Align to candle interval floor in UTC
                 let barTime;
                 if (String(resolution).includes('D')) {
                     const d = new Date(tickTime);
@@ -1191,6 +1199,12 @@ const Datafeed = {
                 if (!window._tvLastBar) window._tvLastBar = {};
                 let lastBar = window._tvLastBar[cacheKey];
 
+                // Time Monotonicity Guard: barTime must NEVER be less than existing lastBar.time
+                // This prevents "putToCacheNewBar: time violation" errors when candle rolls over
+                if (lastBar && barTime < lastBar.time) {
+                    barTime = lastBar.time;
+                }
+
                 if (lastBar && barTime === lastBar.time) {
                     // Update current active candle with new live tick
                     lastBar.high = Math.max(lastBar.high, price);
@@ -1198,7 +1212,7 @@ const Datafeed = {
                     lastBar.close = price;
                     lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
                 } else {
-                    // Start new candle when time rolls over
+                    // Start new candle when time rolls forward (barTime > lastBar.time)
                     lastBar = {
                         time: barTime,
                         open: price,
