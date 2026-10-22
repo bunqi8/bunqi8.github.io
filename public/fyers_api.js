@@ -2212,26 +2212,48 @@ class FyersEngine {
             }
         }
 
-        // 2. Dispatch to active chart subscribers
-        const subs = this.subscribers.get(symbol);
-        if (subs) {
-            const barTick = {
-                time: tick.time,
-                open: tick.open,
-                high: tick.high,
-                low: tick.low,
-                close: tick.close,
-                volume: tick.volume,
-                bid: tick.bid,
-                ask: tick.ask,
-                daily_open: tick.open,
-                daily_change: tick.chp,
-                change: tick.chp
-            };
-            subs.forEach(sub => {
-                if (typeof sub.cb === 'function') sub.cb(barTick);
+        // 2. Dispatch to active chart subscribers (matching symbol, clean name, and index aliases)
+        const subscriberSets = [];
+        if (this.subscribers.has(symbol)) subscriberSets.push(this.subscribers.get(symbol));
+        if (this.subscribers.has(cleanSym)) subscriberSets.push(this.subscribers.get(cleanSym));
+        const bareSym = symbol.split(':').pop().toUpperCase();
+        if (this.subscribers.has(bareSym)) subscriberSets.push(this.subscribers.get(bareSym));
+
+        if (bareSym === 'NIFTYBANK-INDEX' || bareSym === 'BANKNIFTY-INDEX' || bareSym === 'NIFTYBANK') {
+            ['BANKNIFTY-INDEX', 'NIFTYBANK-INDEX', 'NSE:BANKNIFTY-INDEX', 'NSE:NIFTYBANK-INDEX'].forEach(alias => {
+                if (this.subscribers.has(alias)) subscriberSets.push(this.subscribers.get(alias));
+            });
+        } else if (bareSym === 'NIFTY50-INDEX' || bareSym === 'NIFTY-INDEX' || bareSym === 'NIFTY') {
+            ['NIFTY50-INDEX', 'NSE:NIFTY50-INDEX', 'NIFTY-INDEX', 'NSE:NIFTY-INDEX'].forEach(alias => {
+                if (this.subscribers.has(alias)) subscriberSets.push(this.subscribers.get(alias));
             });
         }
+
+        const barTick = {
+            time: tick.time,
+            open: tick.open,
+            high: tick.high,
+            low: tick.low,
+            close: tick.close,
+            volume: tick.volume,
+            bid: tick.bid,
+            ask: tick.ask,
+            daily_open: tick.open,
+            daily_change: tick.chp,
+            change: tick.chp
+        };
+
+        const deliveredCbs = new Set();
+        subscriberSets.forEach(subs => {
+            if (subs) {
+                subs.forEach(sub => {
+                    if (sub && typeof sub.cb === 'function' && !deliveredCbs.has(sub.cb)) {
+                        deliveredCbs.add(sub.cb);
+                        try { sub.cb(barTick); } catch (_) {}
+                    }
+                });
+            }
+        });
 
         // 3. Dispatch to WatchlistUI
         if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {

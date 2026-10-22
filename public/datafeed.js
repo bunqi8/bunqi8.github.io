@@ -1229,115 +1229,74 @@ const Datafeed = {
                 if (!window._tvLastBar) window._tvLastBar = {};
                 let lastBar = window._tvLastBar[cacheKey];
 
-                // 1. AUTHORITATIVE CANDLE STREAMING:
-                // Directly use MT5 terminal's calculated candle containing true Open, High, Low, Close & Volume
-                if (tick.candle) {
-                    const c = tick.candle;
-                    const cTime = alignTime(Number(c.time));
-                    const cOpen = Number(c.open);
-                    const cHigh = Number(c.high);
-                    const cLow = Number(c.low);
-                    const cClose = Number(c.close);
-                    const cVol = Number(c.volume);
-
-                    if (!lastBar) {
-                        lastBar = {
-                            time: cTime,
-                            open: cOpen,
-                            high: cHigh,
-                            low: cLow,
-                            close: cClose,
-                            volume: cVol
-                        };
-                        window._tvLastBar[cacheKey] = lastBar;
-                        onRealtimeCallback({ ...lastBar });
-                        return;
-                    }
-
-                    // A. Update the active forming candle:
-                    // 100% authoritative assignment from MT5 terminal (no artificial Math.max/min clamping)
-                    if (cTime === lastBar.time) {
-                        lastBar.open = cOpen;
-                        lastBar.high = cHigh;
-                        lastBar.low = cLow;
-                        lastBar.close = cClose;
-                        lastBar.volume = cVol;
-                        onRealtimeCallback({ ...lastBar });
-                        return;
-                    }
-
-                    // B. Transition to new candle:
-                    if (cTime > lastBar.time) {
-                        // Finalize previous candle with MT5's official closed values
-                        if (tick.prev_candle) {
-                            const p = tick.prev_candle;
-                            const pTime = alignTime(Number(p.time));
-                            if (pTime === lastBar.time) {
-                                lastBar.open = Number(p.open);
-                                lastBar.high = Number(p.high);
-                                lastBar.low = Number(p.low);
-                                lastBar.close = Number(p.close);
-                                lastBar.volume = Number(p.volume);
-                                onRealtimeCallback({ ...lastBar });
-                            }
-                        }
-
-                        // Advance to the new forming candle seamlessly
-                        lastBar = {
-                            time: cTime,
-                            open: cOpen,
-                            high: cHigh,
-                            low: cLow,
-                            close: cClose,
-                            volume: cVol
-                        };
-                        window._tvLastBar[cacheKey] = lastBar;
-                        onRealtimeCallback({ ...lastBar });
-                        return;
-                    }
-
-                    // C. Anomaly / time inversion (cTime < lastBar.time)
-                    if (cTime < lastBar.time) {
-                        return;
-                    }
-                }
-
-                // 2. Fallback tick aggregation ONLY if server did not supply candle object
                 const tickTime = Number(tick.time) || Date.now();
-                const barTime = alignTime(Math.floor(tickTime / tfMs) * tfMs);
+                const nominalBarTime = alignTime(Math.floor(tickTime / tfMs) * tfMs);
+
+                // Determine candle attributes (prefer MT5 terminal candle if present, else fallback)
+                let cTime = tick.candle ? alignTime(Number(tick.candle.time)) : nominalBarTime;
+                let cOpen = tick.candle ? Number(tick.candle.open) : price;
+                let cHigh = tick.candle ? Number(tick.candle.high) : price;
+                let cLow = tick.candle ? Number(tick.candle.low) : price;
+                let cClose = tick.candle ? Number(tick.candle.close) : price;
+                let cVol = tick.candle ? Number(tick.candle.volume) : (tick.volume || 1);
 
                 if (!lastBar) {
                     lastBar = {
-                        time: barTime,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                        volume: tick.volume || 1
+                        time: cTime,
+                        open: cOpen,
+                        high: cHigh,
+                        low: cLow,
+                        close: cClose,
+                        volume: cVol
                     };
                     window._tvLastBar[cacheKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
 
-                if (barTime === lastBar.time) {
+                // Transition to new candle if server candle time has advanced
+                if (cTime > lastBar.time) {
+                    if (tick.prev_candle) {
+                        const p = tick.prev_candle;
+                        const pTime = alignTime(Number(p.time));
+                        if (pTime === lastBar.time) {
+                            lastBar.open = Number(p.open);
+                            lastBar.high = Number(p.high);
+                            lastBar.low = Number(p.low);
+                            lastBar.close = Number(p.close);
+                            lastBar.volume = Number(p.volume);
+                            onRealtimeCallback({ ...lastBar });
+                        }
+                    }
+
+                    lastBar = {
+                        time: cTime,
+                        open: cOpen,
+                        high: cHigh,
+                        low: cLow,
+                        close: cClose,
+                        volume: cVol
+                    };
+                    window._tvLastBar[cacheKey] = lastBar;
+                    onRealtimeCallback({ ...lastBar });
+                    return;
+                }
+
+                // Update active forming candle (NEVER DROP TICKS!)
+                if (tick.candle && cTime === lastBar.time) {
+                    lastBar.open = cOpen;
+                    lastBar.high = Math.max(lastBar.high, cHigh, price);
+                    lastBar.low = Math.min(lastBar.low, cLow, price);
+                    lastBar.close = cClose;
+                    lastBar.volume = cVol;
+                } else {
                     lastBar.high = Math.max(lastBar.high, price);
                     lastBar.low = Math.min(lastBar.low, price);
                     lastBar.close = price;
                     lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
-                    onRealtimeCallback({ ...lastBar });
-                } else if (barTime > lastBar.time) {
-                    lastBar = {
-                        time: barTime,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                        volume: tick.volume || 1
-                    };
-                    window._tvLastBar[cacheKey] = lastBar;
-                    onRealtimeCallback({ ...lastBar });
                 }
+
+                onRealtimeCallback({ ...lastBar });
             };
 
             window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb);
@@ -1358,6 +1317,15 @@ const Datafeed = {
         const resString = resolution ? resolution.toString() : '';
         const sfx = resolution ? resolutionToSuffix(resolution) : '';
         const isDWM = resString.includes('D') || resString.includes('W') || resString.includes('M') || sfx === 'D';
+        const getFyersResolutionMs = (res) => {
+            const r = String(res).toUpperCase();
+            if (r === 'D' || r === '1D') return 86400 * 1000;
+            if (r === 'W' || r === '1W') return 7 * 86400 * 1000;
+            if (r === 'M' || r === '1M') return 30 * 86400 * 1000;
+            const m = parseInt(r, 10);
+            return (!isNaN(m) && m > 0) ? m * 60 * 1000 : 5 * 60 * 1000;
+        };
+        const tfMs = getFyersResolutionMs(resolution);
         
         const cb = (tick) => {
             let alignedTick = { ...tick };
@@ -1370,38 +1338,22 @@ const Datafeed = {
                 }
             }
             
+            const rawTickTime = Number(alignedTick.time) || Date.now();
+            let barTime;
             if (isDWM) {
-                const d = new Date(alignedTick.time);
+                const d = new Date(rawTickTime);
                 d.setUTCHours(0, 0, 0, 0);
-                alignedTick.time = d.getTime();
+                barTime = d.getTime();
+            } else {
+                barTime = Math.floor(rawTickTime / tfMs) * tfMs;
             }
             
             if (!window._tvLastBar) window._tvLastBar = {};
             let lastBar = window._tvLastBar[cacheKey];
             
-            // 1. Prevent time violations (snap stale weekend quotes to chronological floor)
-            if (lastBar && alignedTick.time < lastBar.time) {
-                alignedTick.time = lastBar.time;
-            }
-            
-            // 2. Safely merge the live tick into the candle without crushing historical OHL
-            if (lastBar && alignedTick.time === lastBar.time) {
-                if (isDWM) {
-                    // Daily charts: safely inherit Fyers daily exchange limits
-                    lastBar.open = alignedTick.open || lastBar.open;
-                    lastBar.high = Math.max(lastBar.high, alignedTick.high);
-                    lastBar.low = Math.min(lastBar.low, alignedTick.low);
-                } else {
-                    // Intraday charts: mathematically expand the wicks using only Last Traded Price (close)
-                    lastBar.high = Math.max(lastBar.high, alignedTick.close);
-                    lastBar.low = Math.min(lastBar.low, alignedTick.close);
-                }
-                lastBar.close = alignedTick.close;
-                lastBar.volume = alignedTick.volume || lastBar.volume;
-            } else {
-                // Time moved forward, start a completely new candle
+            if (!lastBar) {
                 lastBar = {
-                    time: alignedTick.time,
+                    time: barTime,
                     open: alignedTick.close,
                     high: alignedTick.close,
                     low: alignedTick.close,
@@ -1409,6 +1361,33 @@ const Datafeed = {
                     volume: alignedTick.volume || 0
                 };
                 window._tvLastBar[cacheKey] = lastBar;
+                onRealtimeCallback({ ...lastBar });
+                return;
+            }
+            
+            // Advance to new candle if interval has moved forward
+            if (barTime > lastBar.time) {
+                lastBar = {
+                    time: barTime,
+                    open: alignedTick.close,
+                    high: alignedTick.close,
+                    low: alignedTick.close,
+                    close: alignedTick.close,
+                    volume: alignedTick.volume || 0
+                };
+                window._tvLastBar[cacheKey] = lastBar;
+            } else {
+                // Update forming candle (never drop)
+                if (isDWM) {
+                    lastBar.open = alignedTick.open || lastBar.open;
+                    lastBar.high = Math.max(lastBar.high, alignedTick.high || alignedTick.close);
+                    lastBar.low = Math.min(lastBar.low, alignedTick.low || alignedTick.close);
+                } else {
+                    lastBar.high = Math.max(lastBar.high, alignedTick.close);
+                    lastBar.low = Math.min(lastBar.low, alignedTick.close);
+                }
+                lastBar.close = alignedTick.close;
+                lastBar.volume = alignedTick.volume || lastBar.volume;
             }
             
             if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
