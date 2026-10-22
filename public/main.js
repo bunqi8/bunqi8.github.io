@@ -246,6 +246,7 @@ function bootWidget() {
         // Let the engine natively pull the chart from the adapter without manual JSON parsing!
         load_last_chart: true,
         auto_save_delay: 5,
+        symbol_search_request_delay: 100,
         
         overrides: {
             "paneProperties.background": "#ffffff",
