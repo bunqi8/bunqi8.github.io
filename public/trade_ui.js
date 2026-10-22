@@ -417,7 +417,7 @@
         }
 
         // ==========================================
-        // 1. TOP TOOLBAR BUTTON
+        // 1. TOP TOOLBAR BUTTON (REMOVED - CLEANUP)
         // ==========================================
         static injectToolbarButton(targetEl = null, iframeDoc = null) {
             if (window.TradeUIInstance) {
@@ -426,154 +426,31 @@
         }
 
         injectToolbarButton(targetEl = null, iframeDoc = null) {
-            if (!iframeDoc) {
+            // Remove the toolbar buttons if present in DOM as they are redundant
+            const removeButtons = (doc) => {
+                if (!doc) return;
+                const el = doc.getElementById(this.toolbarGroupId);
+                if (el) el.remove();
+                const btn1 = doc.getElementById(this.toolbarBtnId);
+                if (btn1) btn1.remove();
+                const btn2 = doc.getElementById('header-toolbar-quick-trade-btn');
+                if (btn2) btn2.remove();
+            };
+            removeButtons(document);
+            if (iframeDoc) removeButtons(iframeDoc);
+            if (this.cachedIframeDoc) removeButtons(this.cachedIframeDoc);
+            try {
                 const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
                 if (iframe) {
-                    try {
-                        iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    } catch (_) {}
+                    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (doc) removeButtons(doc);
                 }
-            }
-            const targetDoc = iframeDoc || document;
-            this.cachedIframeDoc = targetDoc;
-            if (targetDoc.getElementById(this.toolbarGroupId)) return;
-
-            const mt5Wrapper = targetDoc.getElementById('header-toolbar-mt5-manager');
-            const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
-            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
-
-            const isOneClick = !!this.settings.oneClickTrading;
-
-            const btnHtml = `
-            <div class="group-MBOVGQRI" id="${this.toolbarGroupId}" style="margin: 0 4px; display: inline-flex; align-items: center; gap: 4px;">
-                <!-- Trade Ticket Button -->
-                <button aria-label="Trade Ticket" data-role="button" tabindex="-1" type="button" 
-                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-trade-toggle-btn" 
-                    id="${this.toolbarBtnId}" style="
-                        padding: 0 9px;
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 5px;
-                        cursor: pointer;
-                        height: 28px;
-                        border-radius: 4px;
-                        border: 1px solid #e0e3eb;
-                        background: ${this.isOrderTicketOpen ? '#f0f3fa' : '#ffffff'};
-                        color: ${this.isOrderTicketOpen ? '#2962ff' : '#131722'};
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        font-size: 12px;
-                        font-weight: 600;
-                        outline: none;
-                        transition: all 0.15s;
-                    ">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color: inherit;">
-                        <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-                    </svg>
-                    <span>Trade</span>
-                    <svg width="7" height="4" viewBox="0 0 10 6" fill="currentColor" style="opacity: 0.7; color: inherit;">
-                        <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                    </svg>
-                </button>
-
-                <!-- Quick Trading Toggle Button on Top -->
-                <button aria-label="Toggle Quick Trading" data-role="button" tabindex="-1" type="button" 
-                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
-                    id="header-toolbar-quick-trade-btn" style="
-                        padding: 0 8px;
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 4px;
-                        cursor: pointer;
-                        height: 28px;
-                        border-radius: 4px;
-                        border: 1px solid ${isOneClick ? '#2962ff' : '#e0e3eb'};
-                        background: ${isOneClick ? '#eaf2ff' : '#ffffff'};
-                        color: ${isOneClick ? '#2962ff' : '#787b86'};
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        font-size: 11.5px;
-                        font-weight: 600;
-                        outline: none;
-                        transition: all 0.15s;
-                    " title="Quick Trading (Instant 1-Click Orders without Ticket): ${isOneClick ? 'Enabled' : 'Disabled'}">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="${isOneClick ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                    </svg>
-                    <span id="tv-toolbar-quick-trade-label">${isOneClick ? 'Instant ON' : 'Instant OFF'}</span>
-                </button>
-            </div>
-            `;
-
-            if (mt5Wrapper && mt5Wrapper.parentNode) {
-                mt5Wrapper.insertAdjacentHTML('afterend', btnHtml);
-            } else if (fyersWrapper && fyersWrapper.parentNode) {
-                fyersWrapper.insertAdjacentHTML('afterend', btnHtml);
-            } else if (symbolSearch && symbolSearch.parentNode) {
-                symbolSearch.insertAdjacentHTML('beforebegin', btnHtml);
-            }
-
-            const btn = targetDoc.getElementById(this.toolbarBtnId);
-            if (btn) {
-                btn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.toggleOrderTicket();
-                };
-            }
-
-            const qBtn = targetDoc.getElementById('header-toolbar-quick-trade-btn');
-            if (qBtn) {
-                qBtn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.settings.oneClickTrading = !this.settings.oneClickTrading;
-                    this.saveSettings();
-                    this.updateToolbarBtnState();
-                    this.renderOnChartWidget();
-                    const checkQuick = document.getElementById('tv-check-quick-trading');
-                    if (checkQuick) checkQuick.checked = this.settings.oneClickTrading;
-                    if (window.FyersAPI && window.FyersAPI.showToast) {
-                        window.FyersAPI.showToast(`⚡ Quick Trading: ${this.settings.oneClickTrading ? 'Enabled (Instant Orders)' : 'Disabled (Ticket Mode)'}`, 'info');
-                    }
-                };
-            }
+            } catch (_) {}
         }
 
         updateToolbarBtnState() {
-            let targetDoc = document;
-            if (this.cachedIframeDoc) {
-                targetDoc = this.cachedIframeDoc;
-            } else {
-                try {
-                    const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
-                    if (iframe && iframe.contentDocument) targetDoc = iframe.contentDocument;
-                } catch (_) {}
-            }
-
-            const btn = targetDoc.getElementById(this.toolbarBtnId) || document.getElementById(this.toolbarBtnId);
-            if (btn) {
-                if (this.isOrderTicketOpen) {
-                    btn.style.background = '#f0f3fa';
-                    btn.style.color = '#2962ff';
-                } else {
-                    btn.style.background = '#ffffff';
-                    btn.style.color = '#131722';
-                }
-            }
-
-            const qBtn = targetDoc.getElementById('header-toolbar-quick-trade-btn') || document.getElementById('header-toolbar-quick-trade-btn');
-            const qLabel = targetDoc.getElementById('tv-toolbar-quick-trade-label') || document.getElementById('tv-toolbar-quick-trade-label');
-            const isOneClick = !!this.settings.oneClickTrading;
-            if (qBtn) {
-                qBtn.style.border = isOneClick ? '1px solid #2962ff' : '1px solid #e0e3eb';
-                qBtn.style.background = isOneClick ? '#eaf2ff' : '#ffffff';
-                qBtn.style.color = isOneClick ? '#2962ff' : '#787b86';
-                const svg = qBtn.querySelector('svg');
-                if (svg) svg.setAttribute('fill', isOneClick ? 'currentColor' : 'none');
-                qBtn.title = `Quick Trading (Instant 1-Click Orders without Ticket): ${isOneClick ? 'Enabled' : 'Disabled'}`;
-            }
-            if (qLabel) {
-                qLabel.innerText = isOneClick ? 'Instant ON' : 'Instant OFF';
-            }
+            // Clean up any remaining toolbar buttons
+            this.injectToolbarButton();
         }
 
         toggleOrderTicket() {
