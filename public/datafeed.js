@@ -346,10 +346,7 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
 
 window.triggerTvCacheReset = (symbol) => {
     console.log('[datafeed] triggerTvCacheReset requested for:', symbol || 'all');
-    // NOTE: We do not wipe window._tvLastBar or block incoming ticks with _tvResetPending.
-    // Retaining the forming bar ensures the real-time tick stream never freezes.
-
-    // 1. Notify TradingView datafeed reset callbacks
+    // Notify TradingView's official datafeed cache reset callbacks to quietly re-sync history
     if (window._mt5ResetCallbacks && window._mt5ResetCallbacks.size > 0) {
         window._mt5ResetCallbacks.forEach(cb => {
             try { if (typeof cb === 'function') cb(); } catch (_) {}
@@ -357,23 +354,6 @@ window.triggerTvCacheReset = (symbol) => {
     }
     if (typeof window._tvResetCache === 'function') {
         try { window._tvResetCache(); } catch (_) {}
-    }
-
-    // 2. Authoritatively reset TradingView chart widget cache and reload historical bars
-    if (window.tvWidget) {
-        try {
-            if (typeof window.tvWidget.resetCache === 'function') {
-                window.tvWidget.resetCache();
-            }
-            if (typeof window.tvWidget.activeChart === 'function') {
-                const chart = window.tvWidget.activeChart();
-                if (chart && typeof chart.resetData === 'function') {
-                    chart.resetData();
-                }
-            }
-        } catch (e) {
-            console.warn('[datafeed] tvWidget resetData notice:', e);
-        }
     }
 };
 
@@ -954,21 +934,12 @@ const Datafeed = {
                     }
                 }
 
-                // If bridge server is temporarily reconnecting, fallback to cached last bar if available
-                if (window._tvLastBar && window._tvLastBar[cacheKey]) {
-                    onHistoryCallback([window._tvLastBar[cacheKey]], { noData: false });
-                    return;
-                }
-
+                // If no bars returned for requested range, signal noData: true so TradingView stops paging backwards
                 onHistoryCallback([], { noData: true });
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
-                if (window._tvLastBar && window._tvLastBar[cacheKey]) {
-                    onHistoryCallback([window._tvLastBar[cacheKey]], { noData: false });
-                    return;
-                }
-                if (typeof onErrorCallback === 'function') {
+                if (firstDataRequest && typeof onErrorCallback === 'function') {
                     onErrorCallback(err.message || 'MT5 server reconnecting');
                 } else {
                     onHistoryCallback([], { noData: true });
@@ -1347,10 +1318,10 @@ const Datafeed = {
                             if (!window._tvResetDebounce[cacheKey]) {
                                 window._tvResetDebounce[cacheKey] = setTimeout(() => {
                                     delete window._tvResetDebounce[cacheKey];
-                                    if (typeof window.triggerTvCacheReset === 'function') {
-                                        window.triggerTvCacheReset(cleanSym);
+                                    if (typeof onResetCacheNeededCallback === 'function') {
+                                        onResetCacheNeededCallback();
                                     }
-                                }, 600);
+                                }, 1500);
                             }
                             return;
                         }
