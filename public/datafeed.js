@@ -1177,9 +1177,63 @@ const Datafeed = {
 
                 const price = Number(tick.last && tick.last > 0 ? tick.last : tick.bid);
                 if (!price || isNaN(price)) return;
-                const tickTime = Number(tick.time) || Date.now();
 
-                // Align to candle interval floor in UTC
+                // Stream real-time bid/ask to trade ticket and floating badges
+                if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                    window.TradeUIInstance.onLivePriceUpdate(price, symbolInfo.name, tick.bid, tick.ask);
+                }
+
+                if (!window._tvLastBar) window._tvLastBar = {};
+                let lastBar = window._tvLastBar[cacheKey];
+
+                // 1. AUTHORITATIVE CANDLE RECONCILIATION:
+                // If MT5 provided previous finalized candle and chart is on that bar, lock it to MT5's exact values
+                if (tick.prev_candle && lastBar && lastBar.time === Number(tick.prev_candle.time)) {
+                    lastBar.open = Number(tick.prev_candle.open);
+                    lastBar.high = Number(tick.prev_candle.high);
+                    lastBar.low = Number(tick.prev_candle.low);
+                    lastBar.close = Number(tick.prev_candle.close);
+                    lastBar.volume = Number(tick.prev_candle.volume);
+                    onRealtimeCallback({ ...lastBar });
+                }
+
+                // 2. AUTHORITATIVE CURRENT FORMING CANDLE:
+                // Directly use MT5 terminal's calculated candle containing true Open, High, Low, Close & Volume!
+                if (tick.candle) {
+                    const c = tick.candle;
+                    let barTime = Number(c.time);
+
+                    // Time Monotonicity Guard: barTime must NEVER go backwards
+                    if (lastBar && barTime < lastBar.time) {
+                        barTime = lastBar.time;
+                    }
+
+                    if (lastBar && barTime === lastBar.time) {
+                        // Update active candle with official MT5 OHLC
+                        lastBar.open = Number(c.open);
+                        lastBar.high = Math.max(lastBar.high, Number(c.high));
+                        lastBar.low = Math.min(lastBar.low, Number(c.low));
+                        lastBar.close = Number(c.close);
+                        lastBar.volume = Number(c.volume);
+                    } else {
+                        // New candle started: create using exact MT5 open/high/low/close
+                        lastBar = {
+                            time: barTime,
+                            open: Number(c.open),
+                            high: Number(c.high),
+                            low: Number(c.low),
+                            close: Number(c.close),
+                            volume: Number(c.volume)
+                        };
+                        window._tvLastBar[cacheKey] = lastBar;
+                    }
+
+                    onRealtimeCallback({ ...lastBar });
+                    return;
+                }
+
+                // 3. Fallback tick aggregation if server did not supply candle object
+                const tickTime = Number(tick.time) || Date.now();
                 let barTime;
                 if (String(resolution).includes('D')) {
                     const d = new Date(tickTime);
@@ -1196,23 +1250,16 @@ const Datafeed = {
                     barTime = Math.floor(tickTime / tfMs) * tfMs;
                 }
 
-                if (!window._tvLastBar) window._tvLastBar = {};
-                let lastBar = window._tvLastBar[cacheKey];
-
-                // Time Monotonicity Guard: barTime must NEVER be less than existing lastBar.time
-                // This prevents "putToCacheNewBar: time violation" errors when candle rolls over
                 if (lastBar && barTime < lastBar.time) {
                     barTime = lastBar.time;
                 }
 
                 if (lastBar && barTime === lastBar.time) {
-                    // Update current active candle with new live tick
                     lastBar.high = Math.max(lastBar.high, price);
                     lastBar.low = Math.min(lastBar.low, price);
                     lastBar.close = price;
                     lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
                 } else {
-                    // Start new candle when time rolls forward (barTime > lastBar.time)
                     lastBar = {
                         time: barTime,
                         open: price,
@@ -1224,16 +1271,10 @@ const Datafeed = {
                     window._tvLastBar[cacheKey] = lastBar;
                 }
 
-                // Send live tick bar to chart
                 onRealtimeCallback({ ...lastBar });
-
-                // Stream real-time bid/ask to trade ticket and floating badges
-                if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
-                    window.TradeUIInstance.onLivePriceUpdate(price, symbolInfo.name, tick.bid, tick.ask);
-                }
             };
 
-            window.MT5API.subscribeQuotes(cleanSym, mt5Cb);
+            window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb);
             if (!window._mt5Subscribers) window._mt5Subscribers = new Map();
             window._mt5Subscribers.set(subscriberUID, { symbol: cleanSym, cb: mt5Cb });
             return;
