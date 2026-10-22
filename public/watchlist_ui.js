@@ -12,6 +12,7 @@
     const STORAGE_KEY_ACTIVE_ID = 'tv_active_watchlist_id';
     const STORAGE_KEY_FLAGS = 'tv_symbol_flags_v1';
     const STORAGE_KEY_IS_OPEN = 'tv_watchlist_is_open';
+    const STORAGE_KEY_IS_PINNED = 'tv_watchlist_is_pinned';
 
     // Default Pre-seeded Lists
     const DEFAULT_LISTS = [
@@ -47,6 +48,22 @@
             symbols: ['USTEC', 'BANKNIFTY-INDEX']
         },
         {
+            id: 'amber',
+            name: 'Amber List',
+            color: '#ff9800',
+            isFlagList: true,
+            flagColor: 'amber',
+            symbols: []
+        },
+        {
+            id: 'black',
+            name: 'Black List',
+            color: '#1e222d',
+            isFlagList: true,
+            flagColor: 'black',
+            symbols: []
+        },
+        {
             id: 'forex_metals',
             name: 'Forex & Metals',
             color: '#e0a800',
@@ -66,13 +83,17 @@
             this.wrapperId = 'header-toolbar-watchlist';
             this.drawerId = 'tv-watchlist-drawer';
             this.isOpen = false;
+            this.isPinned = false;
             this.cachedIframeDoc = null;
             this.lists = [];
             this.activeListId = 'main';
-            this.symbolFlags = {}; // symbol -> 'red' | 'green' | 'blue' | 'orange' | 'purple'
+            this.symbolFlags = {}; // symbol -> 'red' | 'green' | 'blue' | 'amber' | 'black'
             this.liveQuotes = {}; // symbol -> { price, prevPrice, open, change, direction }
             this.activeChartSymbol = '';
             this._pollerTimer = null;
+            this.sortField = null; // null (custom order), 'sym', 'last', 'chg'
+            this.sortOrder = 'none'; // 'none', 'asc', 'desc'
+            this.draggedSymbol = null;
 
             this.init();
         }
@@ -143,6 +164,40 @@
                 }
             } catch (e) {
                 this.lists = JSON.parse(JSON.stringify(DEFAULT_LISTS));
+            }
+
+            // Ensure amber and black flag lists exist in this.lists
+            let updatedLists = false;
+            if (!this.lists.some(l => l.id === 'amber' || l.flagColor === 'amber')) {
+                this.lists.push({
+                    id: 'amber',
+                    name: 'Amber List',
+                    color: '#ff9800',
+                    isFlagList: true,
+                    flagColor: 'amber',
+                    symbols: []
+                });
+                updatedLists = true;
+            }
+            if (!this.lists.some(l => l.id === 'black' || l.flagColor === 'black')) {
+                this.lists.push({
+                    id: 'black',
+                    name: 'Black List',
+                    color: '#1e222d',
+                    isFlagList: true,
+                    flagColor: 'black',
+                    symbols: []
+                });
+                updatedLists = true;
+            }
+            if (updatedLists) {
+                this.saveLists();
+            }
+
+            try {
+                this.isPinned = localStorage.getItem(STORAGE_KEY_IS_PINNED) === 'true';
+            } catch (_) {
+                this.isPinned = false;
             }
 
             try {
@@ -658,6 +713,8 @@
                 drawer.classList.add('open');
             }
             this.updateButtonActiveState();
+            this.updatePinButtonUI();
+            this.updateSortHeaderIndicators();
             this.updateChartLayout(true);
             this.render();
             this.pollActiveListQuotes();
@@ -686,8 +743,8 @@
             if (!chartCont) return;
 
             if (isOpen && window.innerWidth >= 1024) {
-                chartCont.style.width = 'calc(100% - 340px)';
-                chartCont.style.right = '340px';
+                chartCont.style.width = 'calc(100% - 365px)';
+                chartCont.style.right = '365px';
             } else {
                 chartCont.style.width = '100%';
                 chartCont.style.right = '0px';
@@ -752,6 +809,11 @@
                     </div>
 
                     <div class="wl-header-actions">
+                        <button class="wl-icon-btn ${this.isPinned ? 'active pinned' : ''}" id="wl-btn-pin" title="${this.isPinned ? 'Unpin Watchlist (Auto-close on click)' : 'Pin Watchlist (Keep open on click)'}">
+                            <svg class="wl-pin-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" fill="${this.isPinned ? '#2962ff' : 'none'}" stroke="currentColor" stroke-width="1.3">
+                                <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.219.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+                            </svg>
+                        </button>
                         <button class="wl-icon-btn" id="wl-btn-close" title="Close Watchlist (Esc)">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
                                 <path d="M3 3l10 10M13 3L3 13"/>
@@ -766,6 +828,8 @@
                     <button class="wl-pill" data-filter="red"><span class="pill-dot red"></span>Red</button>
                     <button class="wl-pill" data-filter="green"><span class="pill-dot green"></span>Green</button>
                     <button class="wl-pill" data-filter="blue"><span class="pill-dot blue"></span>Blue</button>
+                    <button class="wl-pill" data-filter="amber"><span class="pill-dot amber"></span>Amber</button>
+                    <button class="wl-pill" data-filter="black"><span class="pill-dot black"></span>Black</button>
                 </div>
 
                 <!-- Quick Add Search Bar -->
@@ -782,11 +846,20 @@
                     <div class="wl-autocomplete-list" id="wl-autocomplete-list" style="display: none;"></div>
                 </div>
 
-                <!-- Symbol Column Headers (Matches row layout to exact pixel) -->
-                <div class="wl-col-headers">
-                    <div class="wl-col-sym">Symbol / Market</div>
-                    <div class="wl-col-last">Last</div>
-                    <div class="wl-col-chg">Chg %</div>
+                <!-- Symbol Column Headers (Matches row layout to exact pixel with 3-way sort) -->
+                <div class="wl-col-headers" id="wl-col-headers">
+                    <div class="wl-col-header wl-col-sym" data-sort="sym" title="Sort by Symbol (A-Z / Z-A / Custom)">
+                        <span>Symbol / Market</span>
+                        <span class="wl-sort-indicator" data-sort-ind="sym"></span>
+                    </div>
+                    <div class="wl-col-header wl-col-last" data-sort="last" title="Sort by Price (Low-High / High-Low / Custom)">
+                        <span>Last</span>
+                        <span class="wl-sort-indicator" data-sort-ind="last"></span>
+                    </div>
+                    <div class="wl-col-header wl-col-chg" data-sort="chg" title="Sort by % Change (-% to +% / +% to -% / Custom)">
+                        <span>Chg %</span>
+                        <span class="wl-sort-indicator" data-sort-ind="chg"></span>
+                    </div>
                     <div class="wl-col-spacer"></div>
                 </div>
 
@@ -807,12 +880,14 @@
         bindDrawerEvents() {
             const trigger = document.getElementById('wl-dropdown-trigger');
             const menu = document.getElementById('wl-dropdown-menu');
+            const pinBtn = document.getElementById('wl-btn-pin');
             const closeBtn = document.getElementById('wl-btn-close');
             const createBtn = document.getElementById('wl-btn-create-list');
             const clearBtn = document.getElementById('wl-btn-clear-list');
             const searchInput = document.getElementById('wl-add-symbol-input');
             const searchClear = document.getElementById('wl-search-clear');
             const flagPills = document.getElementById('wl-flag-pills');
+            const colHeaders = document.getElementById('wl-col-headers');
 
             if (trigger && menu) {
                 trigger.addEventListener('click', (e) => {
@@ -833,8 +908,25 @@
                 });
             }
 
+            if (pinBtn) {
+                pinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.togglePin();
+                });
+            }
+
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => this.close());
+            }
+
+            if (colHeaders) {
+                colHeaders.querySelectorAll('.wl-col-header').forEach(h => {
+                    h.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const field = h.dataset.sort;
+                        this.toggleSort(field);
+                    });
+                });
             }
 
             if (createBtn) {
@@ -868,12 +960,8 @@
                         const filter = btn.dataset.filter;
                         if (filter === 'all') {
                             this.switchList('main');
-                        } else if (filter === 'red') {
-                            this.switchList('red');
-                        } else if (filter === 'green') {
-                            this.switchList('green');
-                        } else if (filter === 'blue') {
-                            this.switchList('blue');
+                        } else {
+                            this.switchList(filter);
                         }
                     });
                 });
@@ -1000,6 +1088,66 @@
             });
         }
 
+        togglePin() {
+            this.isPinned = !this.isPinned;
+            try {
+                localStorage.setItem(STORAGE_KEY_IS_PINNED, this.isPinned ? 'true' : 'false');
+            } catch (_) {}
+            this.updatePinButtonUI();
+        }
+
+        updatePinButtonUI() {
+            const pinBtn = document.getElementById('wl-btn-pin');
+            if (!pinBtn) return;
+            pinBtn.classList.toggle('active', this.isPinned);
+            pinBtn.classList.toggle('pinned', this.isPinned);
+            pinBtn.title = this.isPinned ? 'Unpin Watchlist (Auto-close on click)' : 'Pin Watchlist (Keep open on click)';
+            const icon = pinBtn.querySelector('.wl-pin-icon');
+            if (icon) {
+                icon.setAttribute('fill', this.isPinned ? '#2962ff' : 'none');
+                icon.style.color = this.isPinned ? '#2962ff' : '#787b86';
+            }
+        }
+
+        toggleSort(field) {
+            if (this.sortField !== field) {
+                this.sortField = field;
+                this.sortOrder = 'asc';
+            } else {
+                if (this.sortOrder === 'asc') {
+                    this.sortOrder = 'desc';
+                } else if (this.sortOrder === 'desc') {
+                    this.sortField = null;
+                    this.sortOrder = 'none'; // Reverts back to custom drag-and-drop order!
+                } else {
+                    this.sortOrder = 'asc';
+                }
+            }
+            this.updateSortHeaderIndicators();
+            this.renderSymbolRows();
+        }
+
+        updateSortHeaderIndicators() {
+            const colHeaders = document.getElementById('wl-col-headers');
+            if (!colHeaders) return;
+            colHeaders.querySelectorAll('.wl-col-header').forEach(h => {
+                const f = h.dataset.sort;
+                const ind = h.querySelector('.wl-sort-indicator');
+                if (!ind) return;
+                if (this.sortField === f && this.sortOrder !== 'none') {
+                    h.classList.add('sorted');
+                    ind.classList.add('active');
+                    ind.innerHTML = this.sortOrder === 'asc' ? '▲' : '▼';
+                    ind.title = this.sortOrder === 'asc' ? 'Ascending (click for descending)' : 'Descending (click to reset to custom order)';
+                } else {
+                    h.classList.remove('sorted');
+                    ind.classList.remove('active');
+                    ind.innerHTML = '';
+                    ind.title = '';
+                }
+            });
+        }
+
         getActiveList() {
             return this.lists.find(l => l.id === this.activeListId) || this.lists[0];
         }
@@ -1019,7 +1167,7 @@
 
             const cleanName = name.trim();
             const id = 'custom_' + Date.now();
-            const colors = ['#2962ff', '#089981', '#f23645', '#ff9800', '#9c27b0', '#00bcd4'];
+            const colors = ['#2962ff', '#089981', '#f23645', '#ff9800', '#9c27b0', '#00bcd4', '#1e222d'];
             const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
             this.lists.push({
@@ -1207,8 +1355,36 @@
 
             this.scanActiveChartBar();
 
+            // Compute display symbols based on active column sort or custom order
+            let displaySymbols = [...active.symbols];
+            if (this.sortField && this.sortOrder !== 'none') {
+                const isAsc = this.sortOrder === 'asc';
+                displaySymbols.sort((a, b) => {
+                    const symA = a.toUpperCase();
+                    const symB = b.toUpperCase();
+                    if (this.sortField === 'sym') {
+                        return isAsc ? symA.localeCompare(symB) : symB.localeCompare(symA);
+                    }
+                    if (this.sortField === 'last') {
+                        const qA = this.liveQuotes[symA];
+                        const qB = this.liveQuotes[symB];
+                        const pA = (qA && qA.price !== null && qA.price !== undefined) ? qA.price : (isAsc ? Infinity : -Infinity);
+                        const pB = (qB && qB.price !== null && qB.price !== undefined) ? qB.price : (isAsc ? Infinity : -Infinity);
+                        return isAsc ? pA - pB : pB - pA;
+                    }
+                    if (this.sortField === 'chg') {
+                        const qA = this.liveQuotes[symA];
+                        const qB = this.liveQuotes[symB];
+                        const cA = (qA && qA.change !== null && qA.change !== undefined) ? qA.change : (isAsc ? Infinity : -Infinity);
+                        const cB = (qB && qB.change !== null && qB.change !== undefined) ? qB.change : (isAsc ? Infinity : -Infinity);
+                        return isAsc ? cA - cB : cB - cA;
+                    }
+                    return 0;
+                });
+            }
+
             let html = '';
-            active.symbols.forEach(sym => {
+            displaySymbols.forEach(sym => {
                 const sUpper = sym.toUpperCase();
                 const avail = this.getSymbolAvailability(sUpper);
                 const flag = this.symbolFlags[sUpper] || null;
@@ -1217,7 +1393,9 @@
 
                 const flagColor = flag === 'red' ? '#f23645' : 
                                  (flag === 'green' ? '#089981' : 
-                                 (flag === 'blue' ? '#2962ff' : '#b2b5be'));
+                                 (flag === 'blue' ? '#2962ff' : 
+                                 (flag === 'amber' ? '#ff9800' :
+                                 (flag === 'black' ? '#1e222d' : '#b2b5be'))));
 
                 const flagFill = flag ? flagColor : 'none';
 
@@ -1227,10 +1405,22 @@
                 const chgClass = quote.change >= 0 ? 'pos' : 'neg';
 
                 html += `
-                    <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}">
+                    <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}" draggable="true">
+                        <!-- Drag Handle -->
+                        <div class="wl-drag-handle" title="Drag to reposition">
+                            <svg viewBox="0 0 6 12" width="6" height="12" fill="currentColor">
+                                <circle cx="1.5" cy="2" r="1.1"/>
+                                <circle cx="4.5" cy="2" r="1.1"/>
+                                <circle cx="1.5" cy="6" r="1.1"/>
+                                <circle cx="4.5" cy="6" r="1.1"/>
+                                <circle cx="1.5" cy="10" r="1.1"/>
+                                <circle cx="4.5" cy="10" r="1.1"/>
+                            </svg>
+                        </div>
+
                         <!-- Left Info (Fixed Widths & 2-Line Subtitle to Prevent Overlap) -->
                         <div class="wl-item-left">
-                            <button class="wl-flag-btn" data-sym="${sUpper}" title="Flag symbol (Red/Green/Blue)">
+                            <button class="wl-flag-btn" data-sym="${sUpper}" title="Flag symbol (Red/Green/Blue/Amber/Black)">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="13" height="13" fill="${flagFill}" stroke="${flagColor}" stroke-width="1.3">
                                     <path d="M3 2v12M3 3h9l-2 4 2 4H3"/>
                                 </svg>
@@ -1264,12 +1454,94 @@
             container.innerHTML = html;
 
             container.querySelectorAll('.wl-item').forEach(row => {
+                // Click: Open chart and auto-close if not pinned
                 row.addEventListener('click', (e) => {
-                    if (e.target.closest('.wl-flag-btn') || e.target.closest('.wl-del-btn')) {
+                    if (e.target.closest('.wl-flag-btn') || e.target.closest('.wl-del-btn') || e.target.closest('.wl-drag-handle')) {
                         return;
                     }
                     const sym = row.dataset.symbol;
                     this.loadSymbolOnChart(sym);
+                    if (!this.isPinned) {
+                        this.close();
+                    }
+                });
+
+                // HTML5 Drag & Drop reordering
+                row.addEventListener('dragstart', (e) => {
+                    if (e.target.closest('.wl-flag-btn') || e.target.closest('.wl-del-btn')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    this.draggedSymbol = row.dataset.symbol;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', this.draggedSymbol);
+                    setTimeout(() => row.classList.add('dragging'), 0);
+                });
+
+                row.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (!this.draggedSymbol || this.draggedSymbol === row.dataset.symbol) return;
+
+                    const rect = row.getBoundingClientRect();
+                    const isTop = e.clientY < (rect.top + rect.height / 2);
+                    if (isTop) {
+                        row.classList.add('drag-over-top');
+                        row.classList.remove('drag-over-bottom');
+                    } else {
+                        row.classList.add('drag-over-bottom');
+                        row.classList.remove('drag-over-top');
+                    }
+                });
+
+                row.addEventListener('dragleave', () => {
+                    row.classList.remove('drag-over-top', 'drag-over-bottom');
+                });
+
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('dragging');
+                    container.querySelectorAll('.wl-item').forEach(r => {
+                        r.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+                    });
+                    this.draggedSymbol = null;
+                });
+
+                row.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    row.classList.remove('drag-over-top', 'drag-over-bottom');
+                    const fromSym = this.draggedSymbol || e.dataTransfer.getData('text/plain');
+                    const toSym = row.dataset.symbol;
+
+                    if (!fromSym || !toSym || fromSym === toSym) return;
+
+                    const rect = row.getBoundingClientRect();
+                    const isTop = e.clientY < (rect.top + rect.height / 2);
+
+                    const currActive = this.getActiveList();
+                    if (!currActive || !currActive.symbols) return;
+
+                    const fromIdx = currActive.symbols.indexOf(fromSym);
+                    if (fromIdx === -1) return;
+
+                    // Remove symbol from current position
+                    currActive.symbols.splice(fromIdx, 1);
+
+                    // Re-locate target index and insert
+                    let toIdx = currActive.symbols.indexOf(toSym);
+                    if (toIdx === -1) {
+                        currActive.symbols.push(fromSym);
+                    } else {
+                        const insertIdx = isTop ? toIdx : toIdx + 1;
+                        currActive.symbols.splice(insertIdx, 0, fromSym);
+                    }
+
+                    // Reset sort indicator since manual re-positioning establishes a custom order
+                    this.sortField = null;
+                    this.sortOrder = 'none';
+                    this.updateSortHeaderIndicators();
+
+                    this.saveLists();
+                    this.render();
                 });
             });
 
@@ -1333,6 +1605,8 @@
                 <div class="wl-flag-opt" data-color="red"><span class="dot red"></span>Red List</div>
                 <div class="wl-flag-opt" data-color="green"><span class="dot green"></span>Green List</div>
                 <div class="wl-flag-opt" data-color="blue"><span class="dot blue"></span>Blue List</div>
+                <div class="wl-flag-opt" data-color="amber"><span class="dot amber"></span>Amber List</div>
+                <div class="wl-flag-opt" data-color="black"><span class="dot black"></span>Black List</div>
                 <div class="wl-flag-divider"></div>
                 <div class="wl-flag-opt clear" data-color=""><span class="dot clear"></span>Remove Flag</div>
             `;
@@ -1477,6 +1751,13 @@
                 .wl-icon-btn:hover {
                     color: #131722;
                     background: #e0e3eb;
+                }
+                .wl-icon-btn.active, .wl-icon-btn.pinned {
+                    color: #2962ff;
+                    background: #eef3fe;
+                }
+                .wl-icon-btn.pinned:hover {
+                    background: #dce7fe;
                 }
 
                 /* Dropdown Menu */
@@ -1628,6 +1909,8 @@
                 .pill-dot.red { background: #f23645; }
                 .pill-dot.green { background: #089981; }
                 .pill-dot.blue { background: #2962ff; }
+                .pill-dot.amber { background: #ff9800; }
+                .pill-dot.black { background: #1e222d; }
 
                 /* Search Add Bar */
                 .wl-search-box {
@@ -1737,7 +2020,7 @@
                     text-align: center;
                 }
 
-                /* Column Headers (Zero-Shift Precise Grid Alignment) */
+                /* Column Headers (Zero-Shift Precise Grid Alignment with 3-Way Sorting) */
                 .wl-col-headers {
                     display: flex;
                     align-items: center;
@@ -1751,9 +2034,29 @@
                     flex-shrink: 0;
                     user-select: none;
                 }
-                .wl-col-sym { flex: 1; min-width: 0; padding-left: 28px; }
-                .wl-col-last { width: 72px; text-align: right; }
-                .wl-col-chg { width: 54px; text-align: right; }
+                .wl-col-header {
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    transition: color 0.15s;
+                }
+                .wl-col-header:hover {
+                    color: #131722;
+                }
+                .wl-col-header.sorted {
+                    color: #2962ff;
+                    font-weight: 800;
+                }
+                .wl-sort-indicator {
+                    display: inline-block;
+                    margin-left: 3px;
+                    font-size: 8px;
+                    line-height: 1;
+                    color: #2962ff;
+                }
+                .wl-col-sym { flex: 1; min-width: 0; padding-left: 38px; }
+                .wl-col-last { width: 72px; justify-content: flex-end; text-align: right; }
+                .wl-col-chg { width: 54px; justify-content: flex-end; text-align: right; }
                 .wl-col-spacer { width: 18px; flex-shrink: 0; }
 
                 /* Symbol Rows */
@@ -1778,6 +2081,36 @@
                 .wl-item.chart-active {
                     background: #edf2fe;
                     border-left: 3px solid #2962ff;
+                }
+                .wl-item.dragging {
+                    opacity: 0.35;
+                    background: #eef3fe;
+                }
+                .wl-item.drag-over-top {
+                    border-top: 2px solid #2962ff !important;
+                }
+                .wl-item.drag-over-bottom {
+                    border-bottom: 2px solid #2962ff !important;
+                }
+
+                .wl-drag-handle {
+                    width: 12px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #b2b5be;
+                    cursor: grab;
+                    opacity: 0;
+                    flex-shrink: 0;
+                    margin-right: 2px;
+                    transition: opacity 0.15s, color 0.15s;
+                }
+                .wl-item:hover .wl-drag-handle {
+                    opacity: 1;
+                }
+                .wl-drag-handle:hover {
+                    color: #131722;
                 }
 
                 /* Left Info (Full Width Ticker on Top, Badge on Subtitle) */
@@ -1970,6 +2303,8 @@
                 .wl-flag-opt .dot.red { background: #f23645; }
                 .wl-flag-opt .dot.green { background: #089981; }
                 .wl-flag-opt .dot.blue { background: #2962ff; }
+                .wl-flag-opt .dot.amber { background: #ff9800; }
+                .wl-flag-opt .dot.black { background: #1e222d; }
                 .wl-flag-opt .dot.clear { border: 1px solid #787b86; background: transparent; }
                 .wl-flag-divider {
                     height: 1px;
