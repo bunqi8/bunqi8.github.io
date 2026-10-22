@@ -378,6 +378,7 @@ function bootWidget() {
                         if (window.MT5UI) window.MT5UI.injectButton(targetEl, iframeDoc);
                         if (window.TradeUI && typeof window.TradeUI.injectToolbarButton === 'function') window.TradeUI.injectToolbarButton(targetEl, iframeDoc);
                         if (window.DatasetTimingUI) window.DatasetTimingUI.injectButton(targetEl, iframeDoc);
+                        if (window.WatchlistUI) window.WatchlistUI.injectButton(targetEl, iframeDoc);
                     }
                 }
             }, 500);
@@ -430,6 +431,14 @@ function bootWidget() {
         };
 
         activeChart.onSymbolChanged().subscribe(null, updateUrl);
+        activeChart.onSymbolChanged().subscribe(null, () => {
+            if (window.WatchlistUI && typeof window.WatchlistUI.highlightActiveRow === 'function') {
+                try {
+                    window.WatchlistUI.activeChartSymbol = activeChart.symbol().toUpperCase();
+                    window.WatchlistUI.highlightActiveRow();
+                } catch (_) {}
+            }
+        });
         activeChart.onIntervalChanged().subscribe(null, updateUrl);
         
         // Push initial state
