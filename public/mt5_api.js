@@ -467,16 +467,9 @@
                     };
                     this.ws.send(JSON.stringify(handshake));
 
-                    // If reconnected after network drop or server restart, trigger chart cache reload to reconcile historical bars
+                    // On reconnect, resume real-time streaming seamlessly without unhooking the chart
                     if (this.wasDisconnected) {
-                        console.log('[MT5API] WebSocket reconnected after drop! Re-syncing chart cache...');
-                        setTimeout(() => {
-                            if (typeof window.triggerTvCacheReset === 'function') {
-                                window.triggerTvCacheReset(this.activeSymbol);
-                            } else if (typeof window._tvResetCache === 'function') {
-                                try { window._tvResetCache(); } catch (_) {}
-                            }
-                        }, 350);
+                        console.log('[MT5API] WebSocket reconnected after drop! Real-time ticks streaming for:', this.activeSymbol);
                     }
                     this.wasDisconnected = false;
                 };

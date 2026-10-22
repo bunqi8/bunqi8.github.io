@@ -557,16 +557,11 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
 }
 
 window.triggerTvCacheReset = (symbol) => {
-    console.log('[datafeed] triggerTvCacheReset requested for:', symbol || 'all');
-    // Notify TradingView's official datafeed cache reset callbacks to quietly re-sync history
-    if (window._mt5ResetCallbacks && window._mt5ResetCallbacks.size > 0) {
-        window._mt5ResetCallbacks.forEach(cb => {
-            try { if (typeof cb === 'function') cb(); } catch (_) {}
-        });
-    }
-    if (typeof window._tvResetCache === 'function') {
-        try { window._tvResetCache(); } catch (_) {}
-    }
+    console.log('[datafeed] triggerTvCacheReset notice for:', symbol || 'all');
+    // IMPORTANT: Do NOT invoke onResetCacheNeededCallback() here!
+    // In TradingView's direct transport, invoking onResetCacheNeededCallback causes the library
+    // to execute unsubscribeBars() and permanently unhook the active chart from real-time streaming.
+    // Real-time ticks stream continuously and self-heal automatically without dropping subscriptions.
 };
 
 // -----------------------------------------------------------------------

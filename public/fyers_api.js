@@ -2464,14 +2464,9 @@ class FyersEngine {
                         // Stop REST polling: WebSocket is active!
                         this._stopRestPollingFallback();
 
-                        // If reconnected after network drop or server restart, re-sync chart cache
+                        // If reconnected after network drop or server restart, resume real-time streaming
                         if (this._wasDisconnected) {
-                            console.log('[FyersWS] WebSocket reconnected after drop! Re-syncing chart cache...');
-                            setTimeout(() => {
-                                if (typeof window.triggerTvCacheReset === 'function') {
-                                    window.triggerTvCacheReset();
-                                }
-                            }, 350);
+                            console.log('[FyersWS] WebSocket reconnected after drop! Real-time streaming active.');
                             this._wasDisconnected = false;
                         }
 
