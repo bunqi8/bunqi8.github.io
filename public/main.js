@@ -458,6 +458,7 @@ function bootWidget() {
                         if (window.TradeUI && typeof window.TradeUI.injectToolbarButton === 'function') window.TradeUI.injectToolbarButton(targetEl, iframeDoc);
                         if (window.DatasetTimingUI) window.DatasetTimingUI.injectButton(targetEl, iframeDoc);
                         if (window.WatchlistUI) window.WatchlistUI.injectButton(targetEl, iframeDoc);
+                        if (window.BarLimitUI) window.BarLimitUI.injectButton(targetEl, iframeDoc);
                     }
                 }
             }, 500);
