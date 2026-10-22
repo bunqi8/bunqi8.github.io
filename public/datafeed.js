@@ -252,6 +252,25 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
             cb([], { noData: true });
         }
     } else {
+        const lastBar = dedupedBars[dedupedBars.length - 1];
+        if (lastBar && lastBar.close != null) {
+            if (!window._tvLatestMarketPrice) window._tvLatestMarketPrice = {};
+            const p = Number(lastBar.close);
+            window._tvCurrentLastPrice = p;
+            if (symbolInfo) {
+                if (symbolInfo.name) {
+                    window._tvLatestMarketPrice[symbolInfo.name.toUpperCase()] = p;
+                    const cleanName = symbolInfo.name.replace(/^[A-Z0-9_-]+:/, '').toUpperCase();
+                    window._tvLatestMarketPrice[cleanName] = p;
+                }
+                if (symbolInfo.ticker) {
+                    window._tvLatestMarketPrice[symbolInfo.ticker.toUpperCase()] = p;
+                }
+            }
+            if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                window.TradeUIInstance.onLivePriceUpdate(p, symbolInfo ? symbolInfo.name : null);
+            }
+        }
         cb(dedupedBars, { noData: false });
     }
 }
@@ -1004,6 +1023,19 @@ const Datafeed = {
                     if (!currentLastBar || batchLastBar.time > currentLastBar.time) {
                         window._tvLastBar[cacheKey] = { ...batchLastBar };
                     }
+                    if (batchLastBar && batchLastBar.close != null) {
+                        if (!window._tvLatestMarketPrice) window._tvLatestMarketPrice = {};
+                        const p = Number(batchLastBar.close);
+                        window._tvCurrentLastPrice = p;
+                        if (symbolInfo && symbolInfo.name) {
+                            window._tvLatestMarketPrice[symbolInfo.name.toUpperCase()] = p;
+                            const cleanName = symbolInfo.name.replace(/^[A-Z0-9_-]+:/, '').toUpperCase();
+                            window._tvLatestMarketPrice[cleanName] = p;
+                        }
+                        if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                            window.TradeUIInstance.onLivePriceUpdate(p, symbolInfo ? symbolInfo.name : null);
+                        }
+                    }
                     
                     DFLog.info('getBars', `Returning ${cleanBars.length} beautifully stitched bars`);
                     return safeHistoryCallback(cleanBars, onHistoryCallback, resolution, symbolInfo);
@@ -1051,6 +1083,9 @@ const Datafeed = {
                         low: tick.last,
                         volume: tick.volume || 1
                     });
+                    if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                        window.TradeUIInstance.onLivePriceUpdate(tick.bid || tick.last, symbolInfo.name);
+                    }
                 }
             };
             window.MT5API.subscribeQuotes(symbolInfo.name, mt5Cb);
@@ -1122,6 +1157,10 @@ const Datafeed = {
                     volume: alignedTick.volume || 0
                 };
                 window._tvLastBar[cacheKey] = lastBar;
+            }
+            
+            if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                window.TradeUIInstance.onLivePriceUpdate(alignedTick.close || (lastBar && lastBar.close), fyersSymbol);
             }
             
             onRealtimeCallback({ ...lastBar });

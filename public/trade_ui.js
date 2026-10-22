@@ -91,16 +91,20 @@
             this.ordersSubFilter = 'all'; // 'all', 'working', 'inactive', 'filled', 'cancelled', 'rejected'
             this.historySubFilter = 'all'; // 'all', 'filled', 'cancelled', 'rejected'
 
-            // Live State
+            // Live State (Live Candle / Quote Data)
             this.currentSymbol = 'NIFTY50-INDEX';
             this.currentBid = 22811.35;
             this.currentAsk = 22811.85;
+            this.lastLiveCandlePrice = null;
+            this.isMouseOverChart = false;
             this.positions = [];
             this.nativeLines = new Map(); // Official TradingView line tool adapters
             this.nativeOrderLines = new Map(); // Official TradingView pending order line tool adapters
 
             // Activity Log Tracking
             this.activityLogs = this.loadActivityLogs();
+
+            window.TradeUIInstance = this;
 
             this.init();
         }
@@ -244,19 +248,73 @@
             this.updateChartContainerLayout();
         }
 
+        onLivePriceUpdate(price, symbol = null) {
+            if (!price || isNaN(price) || price <= 0) return;
+            const num = Number(price);
+            this.lastLiveCandlePrice = num;
+            const spreadStep = num > 500 ? 0.50 : (num > 10 ? 0.05 : 0.0002);
+            this.currentBid = num;
+            this.currentAsk = Number((num + spreadStep).toFixed(5));
+            this.updatePrices();
+        }
+
         getChartPrice() {
-            try {
-                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
-                if (iframe && iframe.contentDocument) {
-                    const closeEl = iframe.contentDocument.querySelector('[data-test-id-value-title="C"] [class*="valueValue"]') ||
-                                    iframe.contentDocument.querySelector('[data-test-id-value-title="C"] .valueValue-YTFIJ62h');
-                    if (closeEl && closeEl.innerText) {
-                        const parsed = parseFloat(closeEl.innerText.replace(/,/g, ''));
-                        if (!isNaN(parsed) && parsed > 0) return parsed;
+            // Priority 1: Verified live candle price (from datafeed / broker)
+            if (this.lastLiveCandlePrice && !isNaN(this.lastLiveCandlePrice) && this.lastLiveCandlePrice > 0) {
+                return this.lastLiveCandlePrice;
+            }
+
+            // Priority 2: Global datafeed latest price store
+            if (window._tvLatestMarketPrice) {
+                const sym = (this.currentSymbol || '').toUpperCase();
+                const clean = sym.replace(/^[A-Z0-9_-]+:/, '');
+                if (window._tvLatestMarketPrice[sym]) {
+                    this.lastLiveCandlePrice = window._tvLatestMarketPrice[sym];
+                    return this.lastLiveCandlePrice;
+                }
+                if (window._tvLatestMarketPrice[clean]) {
+                    this.lastLiveCandlePrice = window._tvLatestMarketPrice[clean];
+                    return this.lastLiveCandlePrice;
+                }
+            }
+            if (window._tvCurrentLastPrice && !isNaN(window._tvCurrentLastPrice) && window._tvCurrentLastPrice > 0) {
+                this.lastLiveCandlePrice = window._tvCurrentLastPrice;
+                return this.lastLiveCandlePrice;
+            }
+
+            // Priority 3: Check datafeed's _tvLastBar cache
+            if (window._tvLastBar) {
+                const sym = (this.currentSymbol || '').toUpperCase();
+                for (const key of Object.keys(window._tvLastBar)) {
+                    if (key.toUpperCase().includes(sym) || sym.includes(key.split('_')[0].toUpperCase())) {
+                        const bar = window._tvLastBar[key];
+                        if (bar && bar.close) {
+                            this.lastLiveCandlePrice = Number(bar.close);
+                            return this.lastLiveCandlePrice;
+                        }
                     }
                 }
-            } catch (_) {}
-            return null;
+            }
+
+            // Priority 4: Initial fallback from chart legend ONLY when mouse is NOT hovering over candles
+            if (!this.isMouseOverChart) {
+                try {
+                    const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                    if (iframe && iframe.contentDocument) {
+                        const closeEl = iframe.contentDocument.querySelector('[data-test-id-value-title="C"] [class*="valueValue"]') ||
+                                        iframe.contentDocument.querySelector('[data-test-id-value-title="C"] .valueValue-YTFIJ62h');
+                        if (closeEl && closeEl.innerText) {
+                            const parsed = parseFloat(closeEl.innerText.replace(/,/g, ''));
+                            if (!isNaN(parsed) && parsed > 0) {
+                                this.lastLiveCandlePrice = parsed;
+                                return parsed;
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            return this.lastLiveCandlePrice || null;
         }
 
         detectSymbolChange() {
@@ -269,6 +327,7 @@
                         const newSym = titleBtn.innerText.trim();
                         if (newSym && newSym !== this.currentSymbol) {
                             this.currentSymbol = newSym;
+                            this.lastLiveCandlePrice = null; // Reset for new symbol so live datafeed populates it
                             this.clearAllNativeChartLines();
                             this.syncNativeChartLines();
                             this.renderHeader();
@@ -544,6 +603,14 @@
                     else this.openOrderTicket('SELL');
                 }
             });
+
+            // Prevent crosshair candle hover from corrupting live market prices
+            if (!iframeDoc._hasTradeHoverTracker) {
+                iframeDoc._hasTradeHoverTracker = true;
+                iframeDoc.addEventListener('mouseenter', () => { this.isMouseOverChart = true; });
+                iframeDoc.addEventListener('mouseleave', () => { this.isMouseOverChart = false; });
+                iframeDoc.addEventListener('mousemove', () => { this.isMouseOverChart = true; });
+            }
         }
 
         renderOnChartWidget() {
