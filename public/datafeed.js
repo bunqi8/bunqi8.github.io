@@ -1163,12 +1163,8 @@ const Datafeed = {
                     }
                 }
 
-                // If no bars returned for requested range, tell TradingView to look one day earlier or signal noData
-                if (rawFrom) {
-                    onHistoryCallback([], { noData: true, nextTime: (rawFrom - 86400) * 1000 });
-                } else {
-                    onHistoryCallback([], { noData: true });
-                }
+                // If no bars returned for requested range, signal noData: true so TradingView stops paging backwards
+                onHistoryCallback([], { noData: true });
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
@@ -1463,33 +1459,37 @@ const Datafeed = {
                 let lastBar = window._tvLastBar[cacheKey];
 
                 const tickTime = Number(tick.time) || Date.now();
-                const nominalBarTime = alignTime(Math.floor(tickTime / tfMs) * tfMs);
+                let barTime;
+                if (isDwm) {
+                    const d = new Date(tickTime);
+                    d.setUTCHours(0, 0, 0, 0);
+                    barTime = d.getTime();
+                } else {
+                    barTime = Math.floor(tickTime / tfMs) * tfMs;
+                }
 
-                // Determine candle attributes (prefer MT5 terminal candle if present, else fallback)
-                let cTime = tick.candle ? alignTime(Number(tick.candle.time)) : nominalBarTime;
-                let cOpen = tick.candle ? Number(tick.candle.open) : price;
-                let cHigh = tick.candle ? Number(tick.candle.high) : price;
-                let cLow = tick.candle ? Number(tick.candle.low) : price;
-                let cClose = tick.candle ? Number(tick.candle.close) : price;
-                let cVol = tick.candle ? Number(tick.candle.volume) : (tick.volume || 1);
+                // Check if tick includes matching candle data from MT5 terminal for THIS exact resolution
+                const tickRes = String(tick.resolution || '').toUpperCase();
+                const chartRes = String(resolution || '').toUpperCase();
+                const isMatchingCandle = !!(tick.candle && (tickRes === chartRes || !tickRes));
 
                 if (!lastBar) {
                     lastBar = {
-                        time: cTime,
-                        open: cOpen,
-                        high: cHigh,
-                        low: cLow,
-                        close: cClose,
-                        volume: cVol
+                        time: barTime,
+                        open: (isMatchingCandle && tick.candle.open) ? Number(tick.candle.open) : price,
+                        high: (isMatchingCandle && tick.candle.high) ? Math.max(Number(tick.candle.high), price) : price,
+                        low: (isMatchingCandle && tick.candle.low) ? Math.min(Number(tick.candle.low), price) : price,
+                        close: price,
+                        volume: (isMatchingCandle && tick.candle.volume) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[cacheKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
 
-                // Transition to new candle if server candle time has advanced
-                if (cTime > lastBar.time) {
-                    if (tick.prev_candle) {
+                // Transition to new candle if interval has moved forward
+                if (barTime > lastBar.time) {
+                    if (tick.prev_candle && isMatchingCandle) {
                         const p = tick.prev_candle;
                         const pTime = alignTime(Number(p.time));
                         if (pTime === lastBar.time) {
@@ -1503,25 +1503,25 @@ const Datafeed = {
                     }
 
                     lastBar = {
-                        time: cTime,
-                        open: cOpen,
-                        high: cHigh,
-                        low: cLow,
-                        close: cClose,
-                        volume: cVol
+                        time: barTime,
+                        open: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Number(tick.candle.open) : price,
+                        high: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Math.max(Number(tick.candle.high), price) : price,
+                        low: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Math.min(Number(tick.candle.low), price) : price,
+                        close: price,
+                        volume: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[cacheKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
 
-                // Update active forming candle (NEVER DROP TICKS!)
-                if (tick.candle && cTime === lastBar.time) {
-                    lastBar.open = cOpen;
-                    lastBar.high = Math.max(lastBar.high, cHigh, price);
-                    lastBar.low = Math.min(lastBar.low, cLow, price);
-                    lastBar.close = cClose;
-                    lastBar.volume = cVol;
+                // Update active forming candle (never drop ticks!)
+                if (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === lastBar.time) {
+                    lastBar.open = Number(tick.candle.open) || lastBar.open;
+                    lastBar.high = Math.max(lastBar.high, Number(tick.candle.high), price);
+                    lastBar.low = Math.min(lastBar.low, Number(tick.candle.low), price);
+                    lastBar.close = price;
+                    lastBar.volume = Number(tick.candle.volume) || (lastBar.volume || 0) + 1;
                 } else {
                     lastBar.high = Math.max(lastBar.high, price);
                     lastBar.low = Math.min(lastBar.low, price);
