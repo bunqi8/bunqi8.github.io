@@ -1097,9 +1097,9 @@ const Datafeed = {
                         }
                         if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
                             const symName = symbolInfo ? symbolInfo.name : null;
-                            window.WatchlistUI.onLivePrice(symName, p, batchLastBar.open);
+                            window.WatchlistUI.onLivePrice(symName, p, null, null);
                             if (symName && symName.includes(':')) {
-                                window.WatchlistUI.onLivePrice(symName.split(':').pop(), p, batchLastBar.open);
+                                window.WatchlistUI.onLivePrice(symName.split(':').pop(), p, null, null);
                             }
                         }
                     }
@@ -1172,7 +1172,7 @@ const Datafeed = {
                 }
 
                 if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
-                    window.WatchlistUI.onLivePrice(cleanSym, price, tick.candle ? tick.candle.open : (lastBar ? lastBar.open : null));
+                    window.WatchlistUI.onLivePrice(cleanSym, price, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
                 }
 
                 if (!window._tvLastBar) window._tvLastBar = {};
@@ -1343,7 +1343,7 @@ const Datafeed = {
 
             if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
                 const fPrice = alignedTick.close || (lastBar && lastBar.close);
-                window.WatchlistUI.onLivePrice(fyersSymbol, fPrice, lastBar ? lastBar.open : null);
+                window.WatchlistUI.onLivePrice(fyersSymbol, fPrice, alignedTick.daily_open || null, alignedTick.change !== undefined ? alignedTick.change : null);
             }
             
             onRealtimeCallback({ ...lastBar });
