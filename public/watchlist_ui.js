@@ -954,9 +954,8 @@
 
             if (flagPills) {
                 flagPills.querySelectorAll('.wl-pill').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        flagPills.querySelectorAll('.wl-pill').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
                         const filter = btn.dataset.filter;
                         if (filter === 'all') {
                             this.switchList('main');
@@ -1149,12 +1148,16 @@
         }
 
         getActiveList() {
+            if (!this.lists || this.lists.length === 0) {
+                this.lists = JSON.parse(JSON.stringify(DEFAULT_LISTS));
+            }
             return this.lists.find(l => l.id === this.activeListId) || this.lists[0];
         }
 
         switchList(listId) {
-            if (this.lists.some(l => l.id === listId)) {
-                this.activeListId = listId;
+            const target = this.lists.find(l => l.id === listId || (l.flagColor && l.flagColor === listId));
+            if (target) {
+                this.activeListId = target.id;
                 this.saveLists();
                 this.render();
                 this.pollActiveListQuotes();
@@ -1270,16 +1273,22 @@
 
             if (dot) dot.style.background = active.color || '#2962ff';
             if (title) title.textContent = active.name;
-            if (count) count.textContent = active.symbols.length;
+            if (count) count.textContent = Array.isArray(active.symbols) ? active.symbols.length : 0;
 
             const flagPills = document.getElementById('wl-flag-pills');
             if (flagPills) {
+                let selectedFilter = null;
+                if (active.flagColor) {
+                    selectedFilter = active.flagColor;
+                } else if (['red', 'green', 'blue', 'amber', 'black'].includes(active.id)) {
+                    selectedFilter = active.id;
+                } else if (active.id === 'main') {
+                    selectedFilter = 'all';
+                }
+
                 flagPills.querySelectorAll('.wl-pill').forEach(b => {
                     const filter = b.dataset.filter;
-                    const isSelected = (filter === 'all' && active.id === 'main') || 
-                                       (filter === active.id) || 
-                                       (active.flagColor && filter === active.flagColor);
-                    b.classList.toggle('active', isSelected);
+                    b.classList.toggle('active', filter === selectedFilter);
                 });
             }
         }
@@ -1867,7 +1876,7 @@
                     color: #f23645;
                 }
 
-                /* Quick Flag Filter Pills */
+                /* Quick Flag Filter Pills (Persistent Color Identity) */
                 .wl-flag-pills {
                     display: flex;
                     align-items: center;
@@ -1877,40 +1886,164 @@
                     border-bottom: 1px solid #f0f3fa;
                     overflow-x: auto;
                     flex-shrink: 0;
+                    scrollbar-width: none;
+                }
+                .wl-flag-pills::-webkit-scrollbar {
+                    display: none;
                 }
                 .wl-pill {
                     display: inline-flex;
                     align-items: center;
                     gap: 5px;
-                    padding: 3px 9px;
+                    padding: 3px 10px;
                     border-radius: 12px;
                     font-size: 11.5px;
                     font-weight: 600;
-                    color: #5d606b;
-                    background: #f0f3fa;
                     border: 1px solid transparent;
                     cursor: pointer;
-                    transition: all 0.15s;
+                    transition: all 0.18s ease;
                     white-space: nowrap;
-                }
-                .wl-pill:hover {
-                    background: #e0e3eb;
-                    color: #131722;
-                }
-                .wl-pill.active {
-                    background: #2962ff;
-                    color: #ffffff;
+                    user-select: none;
                 }
                 .pill-dot {
                     width: 7px;
                     height: 7px;
                     border-radius: 50%;
+                    flex-shrink: 0;
+                    transition: background 0.15s ease;
                 }
-                .pill-dot.red { background: #f23645; }
-                .pill-dot.green { background: #089981; }
-                .pill-dot.blue { background: #2962ff; }
-                .pill-dot.amber { background: #ff9800; }
-                .pill-dot.black { background: #1e222d; }
+
+                /* Filter 'All' */
+                .wl-pill[data-filter="all"] {
+                    background: #f0f3fa;
+                    color: #5d606b;
+                    border-color: #e0e3eb;
+                }
+                .wl-pill[data-filter="all"]:hover {
+                    background: #e4e7f0;
+                    color: #131722;
+                }
+                .wl-pill[data-filter="all"].active {
+                    background: #2962ff;
+                    color: #ffffff;
+                    border-color: #2962ff;
+                    box-shadow: 0 1px 4px rgba(41, 98, 255, 0.3);
+                }
+
+                /* Filter 'Red' */
+                .wl-pill[data-filter="red"] {
+                    background: #fef0f0;
+                    color: #f23645;
+                    border-color: rgba(242, 54, 69, 0.28);
+                }
+                .wl-pill[data-filter="red"] .pill-dot {
+                    background: #f23645;
+                }
+                .wl-pill[data-filter="red"]:hover {
+                    background: #fde2e4;
+                    border-color: rgba(242, 54, 69, 0.45);
+                }
+                .wl-pill[data-filter="red"].active {
+                    background: #f23645;
+                    color: #ffffff;
+                    border-color: #f23645;
+                    box-shadow: 0 1px 5px rgba(242, 54, 69, 0.35);
+                }
+                .wl-pill[data-filter="red"].active .pill-dot {
+                    background: #ffffff;
+                }
+
+                /* Filter 'Green' */
+                .wl-pill[data-filter="green"] {
+                    background: #edf8f5;
+                    color: #089981;
+                    border-color: rgba(8, 153, 129, 0.28);
+                }
+                .wl-pill[data-filter="green"] .pill-dot {
+                    background: #089981;
+                }
+                .wl-pill[data-filter="green"]:hover {
+                    background: #def3ed;
+                    border-color: rgba(8, 153, 129, 0.45);
+                }
+                .wl-pill[data-filter="green"].active {
+                    background: #089981;
+                    color: #ffffff;
+                    border-color: #089981;
+                    box-shadow: 0 1px 5px rgba(8, 153, 129, 0.35);
+                }
+                .wl-pill[data-filter="green"].active .pill-dot {
+                    background: #ffffff;
+                }
+
+                /* Filter 'Blue' */
+                .wl-pill[data-filter="blue"] {
+                    background: #eef3fe;
+                    color: #2962ff;
+                    border-color: rgba(41, 98, 255, 0.28);
+                }
+                .wl-pill[data-filter="blue"] .pill-dot {
+                    background: #2962ff;
+                }
+                .wl-pill[data-filter="blue"]:hover {
+                    background: #dfe8fc;
+                    border-color: rgba(41, 98, 255, 0.45);
+                }
+                .wl-pill[data-filter="blue"].active {
+                    background: #2962ff;
+                    color: #ffffff;
+                    border-color: #2962ff;
+                    box-shadow: 0 1px 5px rgba(41, 98, 255, 0.35);
+                }
+                .wl-pill[data-filter="blue"].active .pill-dot {
+                    background: #ffffff;
+                }
+
+                /* Filter 'Amber' */
+                .wl-pill[data-filter="amber"] {
+                    background: #fff8ec;
+                    color: #ff9800;
+                    border-color: rgba(255, 152, 0, 0.32);
+                }
+                .wl-pill[data-filter="amber"] .pill-dot {
+                    background: #ff9800;
+                }
+                .wl-pill[data-filter="amber"]:hover {
+                    background: #ffeed1;
+                    border-color: rgba(255, 152, 0, 0.5);
+                }
+                .wl-pill[data-filter="amber"].active {
+                    background: #ff9800;
+                    color: #ffffff;
+                    border-color: #ff9800;
+                    box-shadow: 0 1px 5px rgba(255, 152, 0, 0.35);
+                }
+                .wl-pill[data-filter="amber"].active .pill-dot {
+                    background: #ffffff;
+                }
+
+                /* Filter 'Black' */
+                .wl-pill[data-filter="black"] {
+                    background: #f0f1f4;
+                    color: #1e222d;
+                    border-color: rgba(30, 34, 45, 0.28);
+                }
+                .wl-pill[data-filter="black"] .pill-dot {
+                    background: #1e222d;
+                }
+                .wl-pill[data-filter="black"]:hover {
+                    background: #e2e4e9;
+                    border-color: rgba(30, 34, 45, 0.45);
+                }
+                .wl-pill[data-filter="black"].active {
+                    background: #1e222d;
+                    color: #ffffff;
+                    border-color: #1e222d;
+                    box-shadow: 0 1px 5px rgba(30, 34, 45, 0.35);
+                }
+                .wl-pill[data-filter="black"].active .pill-dot {
+                    background: #ffffff;
+                }
 
                 /* Search Add Bar */
                 .wl-search-box {
