@@ -26,6 +26,34 @@
             // Auto-sync accounts periodically
             this.syncTimer = null;
             this.initAutoSync();
+
+            // Listen for system network recovery and tab visibility change
+            if (typeof window !== 'undefined') {
+                window.addEventListener('online', () => {
+                    console.log('[MT5API] Network back online! Reconnecting socket and resyncing chart cache...');
+                    this.wasDisconnected = true;
+                    this.reconnectWebSocket();
+                    if (typeof window.triggerTvCacheReset === 'function') {
+                        window.triggerTvCacheReset();
+                    }
+                });
+
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                        const elapsed = Date.now() - (this._lastVisibleTs || Date.now());
+                        if (elapsed > 8000) {
+                            console.log(`[MT5API] Tab resumed after ${Math.round(elapsed / 1000)}s! Verifying socket connection...`);
+                            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                                this.wasDisconnected = true;
+                                this.reconnectWebSocket();
+                            }
+                        }
+                        this._lastVisibleTs = Date.now();
+                    } else {
+                        this._lastVisibleTs = Date.now();
+                    }
+                });
+            }
         }
 
         loadConfig() {
@@ -426,9 +454,13 @@
                     this.ws.send(JSON.stringify(handshake));
 
                     // If reconnected after network drop, trigger chart cache reload to reconcile historical bars
-                    if (this.wasDisconnected && typeof window._tvResetCache === 'function') {
+                    if (this.wasDisconnected) {
                         console.log('[MT5API] WebSocket reconnected after drop! Re-syncing chart cache...');
-                        try { window._tvResetCache(); } catch (_) {}
+                        if (typeof window.triggerTvCacheReset === 'function') {
+                            window.triggerTvCacheReset(this.activeSymbol);
+                        } else if (typeof window._tvResetCache === 'function') {
+                            try { window._tvResetCache(); } catch (_) {}
+                        }
                     }
                     this.wasDisconnected = false;
                 };
