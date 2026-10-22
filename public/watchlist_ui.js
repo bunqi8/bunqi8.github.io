@@ -292,26 +292,34 @@
         }
 
         // --- Live Price Streaming Integration (Universal Hook) ---
-        onLivePrice(rawSymbol, price, openPrice = null, customChange = null) {
+        onLivePrice(rawSymbol, price, dailyOpen = null, customChange = null) {
             if (!rawSymbol || price === null || price === undefined || isNaN(price)) return;
             const sym = rawSymbol.split(':').pop().toUpperCase().trim();
 
             const updateSymbolKey = (targetSym) => {
                 const existing = this.liveQuotes[targetSym] || {};
                 const prevPrice = existing.price || Number(price);
-                const open = openPrice !== null && !isNaN(openPrice) ? Number(openPrice) : (existing.open || prevPrice);
                 
-                let change = existing.change || 0;
+                // Authoritative Daily Open: Only update dailyOpen if explicitly supplied (e.g. from D1 rates or official quotes)
+                let open = existing.open;
+                if (dailyOpen !== null && dailyOpen !== undefined && !isNaN(dailyOpen) && Number(dailyOpen) > 0) {
+                    open = Number(dailyOpen);
+                }
+
+                let change = existing.change;
                 if (customChange !== null && customChange !== undefined && !isNaN(customChange)) {
                     change = Number(customChange);
-                } else if (open > 0) {
+                } else if (open && open > 0) {
+                    // Always calculate % change from the day's candle open to current price
                     change = ((Number(price) - open) / open) * 100;
+                } else if (change === undefined || change === null) {
+                    change = 0;
                 }
 
                 this.liveQuotes[targetSym] = {
                     price: Number(price),
                     prevPrice: Number(prevPrice),
-                    open: Number(open),
+                    open: open,
                     change: Number(change),
                     direction: Number(price) > prevPrice ? 'up' : (Number(price) < prevPrice ? 'down' : (existing.direction || 'none'))
                 };
@@ -332,8 +340,7 @@
             if (!tick || !tick.symbol) return;
             const lastPrice = tick.bid || tick.last || (tick.candle ? tick.candle.close : 0);
             if (!lastPrice) return;
-            const openPrice = tick.candle ? tick.candle.open : null;
-            this.onLivePrice(tick.symbol, lastPrice, openPrice);
+            this.onLivePrice(tick.symbol, lastPrice, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
         }
 
         scanActiveChartBar() {
@@ -348,7 +355,7 @@
                         if (lastUnderscore !== -1) sym = sym.substring(0, lastUnderscore);
                         sym = sym.split(':').pop().toUpperCase().trim();
                         if (!this.liveQuotes[sym] || !this.liveQuotes[sym].price) {
-                            this.onLivePrice(sym, bar.close, bar.open);
+                            this.onLivePrice(sym, bar.close, null, null);
                         }
                     }
                 });
@@ -360,7 +367,7 @@
                     const p = window._tvLatestMarketPrice[k];
                     const sym = k.split(':').pop().toUpperCase().trim();
                     if (p && (!this.liveQuotes[sym] || !this.liveQuotes[sym].price)) {
-                        this.onLivePrice(sym, p);
+                        this.onLivePrice(sym, p, null, null);
                     }
                 });
             }
@@ -372,7 +379,7 @@
                     if (chartSym) {
                         const currSym = chartSym.split(':').pop().toUpperCase().trim();
                         if (window._tvCurrentLastPrice && (!this.liveQuotes[currSym] || !this.liveQuotes[currSym].price)) {
-                            this.onLivePrice(currSym, window._tvCurrentLastPrice);
+                            this.onLivePrice(currSym, window._tvCurrentLastPrice, null, null);
                         }
                     }
                 }
@@ -1354,7 +1361,7 @@
                     top: 0;
                     right: 0;
                     bottom: 0;
-                    width: 340px;
+                    width: 365px;
                     background: #ffffff;
                     border-left: 1px solid #e0e3eb;
                     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.08);
@@ -1720,8 +1727,8 @@
                     user-select: none;
                 }
                 .wl-col-sym { flex: 1; min-width: 0; padding-left: 28px; }
-                .wl-col-last { width: 76px; text-align: right; }
-                .wl-col-chg { width: 56px; text-align: right; }
+                .wl-col-last { width: 72px; text-align: right; }
+                .wl-col-chg { width: 54px; text-align: right; }
                 .wl-col-spacer { width: 18px; flex-shrink: 0; }
 
                 /* Symbol Rows */
@@ -1752,7 +1759,7 @@
                 .wl-item-left {
                     display: flex;
                     align-items: center;
-                    gap: 8px;
+                    gap: 6px;
                     flex: 1;
                     min-width: 0;
                     overflow: hidden;
@@ -1805,10 +1812,10 @@
                     overflow: hidden;
                 }
                 .wl-sym-name {
-                    font-size: 13px;
+                    font-size: 12.5px;
                     font-weight: 700;
                     color: #131722;
-                    letter-spacing: -0.1px;
+                    letter-spacing: -0.2px;
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
@@ -1843,20 +1850,20 @@
                 .wl-item-right {
                     display: flex;
                     align-items: center;
-                    gap: 4px;
+                    gap: 2px;
                     flex-shrink: 0;
                 }
                 .wl-price {
-                    width: 76px;
+                    width: 72px;
                     text-align: right;
-                    font-size: 12.5px;
+                    font-size: 12px;
                     font-weight: 600;
                     color: #131722;
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
                     font-variant-numeric: tabular-nums;
                     white-space: nowrap;
                     border-radius: 3px;
-                    padding: 1px 3px;
+                    padding: 1px 2px;
                     flex-shrink: 0;
                     transition: background-color 0.4s ease;
                 }
@@ -1869,7 +1876,7 @@
                     color: #f23645;
                 }
                 .wl-change {
-                    width: 56px;
+                    width: 54px;
                     text-align: right;
                     font-size: 11.5px;
                     font-weight: 600;
