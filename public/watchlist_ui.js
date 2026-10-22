@@ -1535,10 +1535,30 @@
 
             const dot = document.getElementById('wl-active-color-dot');
             const title = document.getElementById('wl-active-title');
+            const countBadge = document.getElementById('wl-active-count');
             const scopeBtn = document.getElementById('wl-btn-scope-all');
 
             if (dot) dot.style.background = this.includeAllWatchlists ? '#2962ff' : (active.color || '#2962ff');
             if (title) title.textContent = this.includeAllWatchlists ? 'All Watchlists' : active.name;
+
+            if (countBadge) {
+                let count = 0;
+                if (this.includeAllWatchlists) {
+                    const seen = new Set();
+                    this.lists.forEach(l => {
+                        if (Array.isArray(l.symbols)) {
+                            l.symbols.forEach(s => {
+                                const u = (s || '').toUpperCase().trim();
+                                if (u) seen.add(u);
+                            });
+                        }
+                    });
+                    count = seen.size;
+                } else if (active && Array.isArray(active.symbols)) {
+                    count = active.symbols.length;
+                }
+                countBadge.textContent = count;
+            }
 
             if (scopeBtn) {
                 scopeBtn.classList.toggle('active', this.includeAllWatchlists);
@@ -1706,7 +1726,7 @@
                 });
             }
 
-            const canDrag = !this.includeAllWatchlists && this.isAllSelected && this.sortOrder === 'none';
+            const canDrag = !this.includeAllWatchlists && this.sortOrder === 'none';
 
             let html = '';
             displaySymbols.forEach(sym => {
@@ -1727,8 +1747,8 @@
 
                 html += `
                     <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}" draggable="${canDrag}">
-                        <!-- Drag Handle -->
-                        <div class="wl-drag-handle" style="${canDrag ? '' : 'display: none;'}" title="Drag to reposition">
+                        <!-- Drag Handle: always reserve exact 14px footprint to prevent zero layout shift -->
+                        <div class="wl-drag-handle ${canDrag ? '' : 'disabled'}" title="${canDrag ? 'Drag to reposition' : ''}">
                             <svg viewBox="0 0 6 12" width="6" height="12" fill="currentColor">
                                 <circle cx="1.5" cy="2" r="1.1"/>
                                 <circle cx="4.5" cy="2" r="1.1"/>
@@ -2592,7 +2612,7 @@
                     line-height: 1;
                     color: #2962ff;
                 }
-                .wl-col-sym { flex: 1; min-width: 0; padding-left: 38px; }
+                .wl-col-sym { flex: 1; min-width: 0; padding-left: 49px; }
                 .wl-col-last { width: 72px; justify-content: flex-end; text-align: right; }
                 .wl-col-chg { width: 54px; justify-content: flex-end; text-align: right; }
                 .wl-col-spacer { width: 18px; flex-shrink: 0; }
@@ -2601,6 +2621,7 @@
                 .wl-items-container {
                     flex: 1;
                     overflow-y: auto;
+                    scrollbar-gutter: stable;
                 }
                 .wl-item {
                     display: flex;
@@ -2652,8 +2673,16 @@
                     margin-right: 2px;
                     transition: opacity 0.15s, color 0.15s;
                 }
+                .wl-drag-handle.disabled {
+                    visibility: hidden !important;
+                    pointer-events: none !important;
+                    cursor: default !important;
+                }
                 .wl-item:hover .wl-drag-handle {
                     opacity: 1;
+                }
+                .wl-item:hover .wl-drag-handle.disabled {
+                    opacity: 0 !important;
                 }
                 .wl-drag-handle:hover {
                     color: #131722;
