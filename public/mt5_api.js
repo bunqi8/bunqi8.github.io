@@ -341,6 +341,22 @@
         }
 
         // --- Datafeed Historical Bars ---
+        async fetchQuotes(symbols) {
+            if (!symbols || (Array.isArray(symbols) && symbols.length === 0)) return {};
+            try {
+                const symParam = Array.isArray(symbols) ? symbols.join(',') : symbols;
+                const acc = this.getActiveAccount();
+                const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
+                const url = `${this.endpoint}/api/quotes?symbols=${encodeURIComponent(symParam)}${accParam}`;
+                const res = await fetch(url, { headers: this.getHeaders() });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                return data.quotes || {};
+            } catch (e) {
+                return {};
+            }
+        }
+
         async fetchBars(symbol, resolution, from = null, to = null, count = 500) {
             try {
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
