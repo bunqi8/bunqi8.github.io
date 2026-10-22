@@ -1,5 +1,204 @@
-// Fyers Live Data & WebSocket Engine
+// Fyers Live Data & Native Binary WebSocket Engine (HSM v1.5)
 // Fully decoupled and portable module for the frontend
+
+const FYERS_WS_URL = 'wss://socket.fyers.in/hsm/v1-5/prod';
+
+const FYERS_COMMON_INDICES = {
+    "NSE:NIFTY50-INDEX": "Nifty 50",
+    "NSE:NIFTYBANK-INDEX": "Nifty Bank",
+    "NSE:BANKNIFTY-INDEX": "Nifty Bank",
+    "NSE:FINNIFTY-INDEX": "Nifty Fin Service",
+    "NSE:MIDCPNIFTY-INDEX": "NIFTY MID SELECT",
+    "NSE:NIFTYMID50-INDEX": "Nifty Midcap 50",
+    "NSE:NIFTYMIDCAP50-INDEX": "Nifty Midcap 50",
+    "NSE:NIFTYMIDCAP100-INDEX": "NIFTY MIDCAP 100",
+    "NSE:NIFTYMIDCAP150-INDEX": "NIFTY MIDCAP 150",
+    "NSE:NIFTY100-INDEX": "Nifty 100",
+    "NSE:NIFTY200-INDEX": "Nifty 200",
+    "NSE:NIFTY500-INDEX": "Nifty 500",
+    "NSE:NIFTYIT-INDEX": "Nifty IT",
+    "NSE:NIFTYAUTO-INDEX": "Nifty Auto",
+    "NSE:NIFTYFMCG-INDEX": "Nifty FMCG",
+    "NSE:NIFTYMETAL-INDEX": "Nifty Metal",
+    "NSE:NIFTYPHARMA-INDEX": "Nifty Pharma",
+    "NSE:NIFTYPSUBANK-INDEX": "Nifty PSU Bank",
+    "NSE:NIFTYPVTBANK-INDEX": "Nifty Pvt Bank",
+    "NSE:NIFTYREALTY-INDEX": "Nifty Realty",
+    "NSE:NIFTYENERGY-INDEX": "Nifty Energy",
+    "NSE:NIFTYINFRA-INDEX": "Nifty Infra",
+    "NSE:INDIAVIX-INDEX": "India VIX",
+    "NSE:NIFTYNEXT50-INDEX": "Nifty Next 50",
+    "NSE:NIFTYNXT50-INDEX": "Nifty Next 50",
+    "BSE:SENSEX-INDEX": "SENSEX",
+    "BSE:BANKEX-INDEX": "BANKEX"
+};
+
+const FYERS_EXCH_SEG = {
+    "1010": "nse_cm",
+    "1011": "nse_fo",
+    "1120": "mcx_fo",
+    "1210": "bse_cm",
+    "1012": "cde_fo",
+    "1211": "bse_fo",
+    "1212": "bcs_fo",
+    "1020": "nse_com"
+};
+
+const FYERS_SCRIP_FIELDS = [
+    "ltp", "vol_traded_today", "last_traded_time", "exch_feed_time",
+    "bid_size", "ask_size", "bid_price", "ask_price", "last_traded_qty",
+    "tot_buy_qty", "tot_sell_qty", "avg_trade_price", "OI",
+    "low_price", "high_price", "Yhigh", "Ylow", "lower_ckt", "upper_ckt",
+    "open_price", "prev_close_price"
+];
+
+const FYERS_INDEX_FIELDS = [
+    "ltp", "prev_close_price", "exch_feed_time",
+    "high_price", "low_price", "open_price"
+];
+
+const FYERS_PRICE_FIELDS = new Set([
+    "ltp", "bid_price", "ask_price", "avg_trade_price",
+    "low_price", "high_price", "open_price", "prev_close_price"
+]);
+
+function fyersBuildAuthPacket(hsmKey, source = "WebSDK-3.0") {
+    const enc = new TextEncoder();
+    const hsmBytes = enc.encode(hsmKey);
+    const sourceBytes = enc.encode(source);
+    const payloadSize = 2 + (3 + hsmBytes.length) + (3 + 1) + (3 + 1) + (3 + sourceBytes.length);
+    const buffer = new ArrayBuffer(2 + payloadSize);
+    const view = new DataView(buffer);
+    const u8 = new Uint8Array(buffer);
+    let offset = 0;
+
+    view.setUint16(offset, payloadSize, false); offset += 2;
+    view.setUint8(offset, 1); offset += 1;
+    view.setUint8(offset, 4); offset += 1;
+
+    view.setUint8(offset, 1); offset += 1;
+    view.setUint16(offset, hsmBytes.length, false); offset += 2;
+    u8.set(hsmBytes, offset); offset += hsmBytes.length;
+
+    view.setUint8(offset, 2); offset += 1;
+    view.setUint16(offset, 1, false); offset += 2;
+    view.setUint8(offset, 80); offset += 1;
+
+    view.setUint8(offset, 3); offset += 1;
+    view.setUint16(offset, 1, false); offset += 2;
+    view.setUint8(offset, 1); offset += 1;
+
+    view.setUint8(offset, 4); offset += 1;
+    view.setUint16(offset, sourceBytes.length, false); offset += 2;
+    u8.set(sourceBytes, offset); offset += sourceBytes.length;
+
+    return buffer;
+}
+
+function fyersBuildModePacket(channel = 11, mode = 'F') {
+    const payloadSize = 2 + (3 + 8) + (3 + 1);
+    const buffer = new ArrayBuffer(2 + payloadSize);
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    view.setUint16(offset, payloadSize, false); offset += 2;
+    view.setUint8(offset, 12); offset += 1;
+    view.setUint8(offset, 2); offset += 1;
+
+    view.setUint8(offset, 1); offset += 1;
+    view.setUint16(offset, 8, false); offset += 2;
+    view.setBigUint64(offset, 1n << BigInt(channel), false); offset += 8;
+
+    view.setUint8(offset, 2); offset += 1;
+    view.setUint16(offset, 1, false); offset += 2;
+    view.setUint8(offset, mode === 'L' ? 76 : 70); offset += 1;
+
+    return buffer;
+}
+
+function fyersBuildSubscribePacket(hsmSymbols, channel = 11) {
+    const enc = new TextEncoder();
+    let scripsDataLen = 2;
+    const encodedSymbols = hsmSymbols.map(s => {
+        const bytes = enc.encode(s);
+        scripsDataLen += 1 + bytes.length;
+        return bytes;
+    });
+
+    const scripsBuf = new Uint8Array(scripsDataLen);
+    const sView = new DataView(scripsBuf.buffer);
+    let sOff = 0;
+    sView.setUint16(sOff, hsmSymbols.length, false); sOff += 2;
+    for (const bytes of encodedSymbols) {
+        scripsBuf[sOff++] = bytes.length;
+        scripsBuf.set(bytes, sOff);
+        sOff += bytes.length;
+    }
+
+    const payloadSize = 2 + (3 + scripsDataLen) + (3 + 1);
+    const buffer = new ArrayBuffer(2 + payloadSize);
+    const view = new DataView(buffer);
+    const u8 = new Uint8Array(buffer);
+    let offset = 0;
+
+    view.setUint16(offset, payloadSize, false); offset += 2;
+    view.setUint8(offset, 4); offset += 1;
+    view.setUint8(offset, 2); offset += 1;
+
+    view.setUint8(offset, 1); offset += 1;
+    view.setUint16(offset, scripsDataLen, false); offset += 2;
+    u8.set(scripsBuf, offset); offset += scripsDataLen;
+
+    view.setUint8(offset, 2); offset += 1;
+    view.setUint16(offset, 1, false); offset += 2;
+    view.setUint8(offset, channel); offset += 1;
+
+    return buffer;
+}
+
+function fyersBuildUnsubscribePacket(hsmSymbols, channel = 11) {
+    const enc = new TextEncoder();
+    let scripsDataLen = 2;
+    const encodedSymbols = hsmSymbols.map(s => {
+        const bytes = enc.encode(s);
+        scripsDataLen += 1 + bytes.length;
+        return bytes;
+    });
+
+    const scripsBuf = new Uint8Array(scripsDataLen);
+    const sView = new DataView(scripsBuf.buffer);
+    let sOff = 0;
+    sView.setUint16(sOff, hsmSymbols.length, false); sOff += 2;
+    for (const bytes of encodedSymbols) {
+        scripsBuf[sOff++] = bytes.length;
+        scripsBuf.set(bytes, sOff);
+        sOff += bytes.length;
+    }
+
+    const payloadSize = 2 + (3 + scripsDataLen) + (3 + 1);
+    const buffer = new ArrayBuffer(2 + payloadSize);
+    const view = new DataView(buffer);
+    const u8 = new Uint8Array(buffer);
+    let offset = 0;
+
+    view.setUint16(offset, payloadSize, false); offset += 2;
+    view.setUint8(offset, 5); offset += 1;
+    view.setUint8(offset, 2); offset += 1;
+
+    view.setUint8(offset, 1); offset += 1;
+    view.setUint16(offset, scripsDataLen, false); offset += 2;
+    u8.set(scripsBuf, offset); offset += scripsDataLen;
+
+    view.setUint8(offset, 2); offset += 1;
+    view.setUint16(offset, 1, false); offset += 2;
+    view.setUint8(offset, channel); offset += 1;
+
+    return buffer;
+}
+
+function fyersBuildPingPacket() {
+    return new Uint8Array([0x0, 0x1, 0xb]).buffer;
+}
 
 class FyersEngine {
     constructor() {
@@ -26,11 +225,25 @@ class FyersEngine {
         }, 1500);
         
         // WebSocket state
-        
         this.subscribers = new Map(); // symbol -> Set of callbacks
         this.reconnectAttempts = 0;
         this.maxReconnect = 5;
-        this.wsUrl = 'wss://api-t1.fyers.in/data/quotes'; // standard endpoint, needs check
+        this.wsUrl = 'wss://socket.fyers.in/hsm/v1-5/prod';
+
+        // Native Fyers Binary WebSocket (HSM v1.5)
+        this.ws = null;
+        this.isWsConnected = false;
+        this.isWsStreaming = false;
+        this.wsTopics = new Map(); // topicId -> topicState
+        this.symbolToHsm = new Map(); // symbol -> hsmSymbol
+        this.hsmToSymbol = new Map(); // hsmSymbol -> symbol
+        this.subscribedHsmSymbols = new Set();
+        this.pendingHsmSubQueue = new Set();
+        this._wsPingTimer = null;
+        this._wsReconnectTimer = null;
+        this._wsReconnectAttempts = 0;
+        this._dynamicIndexMap = null;
+        this.pollTimeout = null;
         
         // Fyers Rate Limiting & Quotes Cache (200 req/min quota protection)
         this._quotesCache = new Map();
@@ -1752,45 +1965,546 @@ class FyersEngine {
     }
 
 
-    connectWebSocket() {
-        if (!this.token) return;
-        this.isConnected = true; 
-        
-        if (this.isPolling) return;
-        this.isPolling = true;
-        
-        if (!this.segmentState) this.segmentState = new Map();
-        if (!this.symbolLastTickTime) this.symbolLastTickTime = new Map();
-        this.lastStatusCheck = 0;
-        
-        const poll = async () => {
-            const symbols = Array.from(this.subscribers.keys());
-            if (symbols.length === 0) { 
-                this.isPolling = false;
-                this.pollInterval = null;
-                return; 
+    // ==========================================
+    // NATIVE FYERS BINARY WEBSOCKET STREAMING (HSM v1.5)
+    // ==========================================
+
+    _parseWsBinaryFrame(arrayBuffer) {
+        if (!arrayBuffer) return null;
+        const buf = arrayBuffer.buffer ? arrayBuffer.buffer : arrayBuffer;
+        const byteOffset = arrayBuffer.byteOffset || 0;
+        const byteLength = arrayBuffer.byteLength;
+        if (byteLength < 3) return null;
+
+        const view = new DataView(buf, byteOffset, byteLength);
+        const u8 = new Uint8Array(buf, byteOffset, byteLength);
+        const dec = new TextDecoder('utf-8');
+
+        const payloadLen = view.getUint16(0, false);
+        const respType = view.getUint8(2);
+
+        if (respType === 1) { // Auth Response
+            let offset = 4;
+            offset += 1;
+            const len = view.getUint16(offset, false); offset += 2;
+            const statusStr = dec.decode(u8.subarray(offset, offset + len));
+            offset += len;
+            offset += 1;
+            offset += 2;
+            let ackCount = 0;
+            if (offset + 4 <= byteLength) {
+                ackCount = view.getUint32(offset, false);
             }
-            
-            const now = Date.now();
-            let symbolsToPoll = [];
-            let needsStatusCheck = false;
-            
-            for (let symbol of symbols) {
-                const segKey = this.getSegmentKey(symbol);
-                const state = this.segmentState.get(segKey) || "ACTIVE";
-                
-                if (state === "ACTIVE") {
-                    symbolsToPoll.push(symbol);
-                    const lastTick = this.symbolLastTickTime.get(symbol) || now;
-                    if (now - lastTick > 5 * 60 * 1000) {
-                        needsStatusCheck = true; 
+            return {
+                type: 'auth',
+                success: statusStr === 'K',
+                statusStr,
+                ackCount
+            };
+        }
+
+        if (respType === 4) { // Subscribe Response
+            let offset = 5;
+            const len = view.getUint16(offset, true); offset += 2;
+            const statusStr = dec.decode(u8.subarray(offset, offset + 1));
+            return {
+                type: 'subscribe',
+                success: statusStr === 'K'
+            };
+        }
+
+        if (respType === 6) { // Data Feed Response
+            const ticks = [];
+            let offset = 3;
+            const messageNum = view.getUint32(offset, false); offset += 4;
+            const scripCount = view.getUint16(offset, false); offset += 2;
+
+            for (let s = 0; s < scripCount && offset < byteLength; s++) {
+                const dataType = view.getUint8(offset); offset += 1;
+
+                if (dataType === 83) { // 'S' - Snapshot
+                    const topicId = view.getUint16(offset, true); offset += 2;
+                    const nameLen = view.getUint8(offset); offset += 1;
+                    const topicName = dec.decode(u8.subarray(offset, offset + nameLen)); offset += nameLen;
+
+                    const fieldCount = view.getUint8(offset); offset += 1;
+                    const rawValues = [];
+                    for (let f = 0; f < fieldCount; f++) {
+                        rawValues.push(view.getInt32(offset, false));
+                        offset += 4;
+                    }
+                    offset += 2; // skip 2 bytes padding
+
+                    const multiplier = view.getUint16(offset, false); offset += 2;
+                    const precision = view.getUint8(offset); offset += 1;
+
+                    const strings = [];
+                    for (let strIdx = 0; strIdx < 3; strIdx++) {
+                        const strLen = view.getUint8(offset); offset += 1;
+                        strings.push(dec.decode(u8.subarray(offset, offset + strLen)));
+                        offset += strLen;
+                    }
+
+                    const isIndex = topicName.startsWith('if');
+                    const fields = isIndex ? FYERS_INDEX_FIELDS : FYERS_SCRIP_FIELDS;
+                    const topicState = {
+                        topicId,
+                        topicName,
+                        multiplier: multiplier || 1,
+                        precision: precision || 0,
+                        exchange: strings[0],
+                        exchangeToken: strings[1],
+                        rawSymbol: strings[2],
+                        symbol: this.hsmToSymbol.get(topicName) || strings[2] || topicName,
+                        isIndex,
+                        data: {}
+                    };
+
+                    const divisor = Math.pow(10, topicState.precision) * topicState.multiplier;
+                    for (let f = 0; f < rawValues.length && f < fields.length; f++) {
+                        const val = rawValues[f];
+                        if (val !== -2147483648) {
+                            const fieldName = fields[f];
+                            topicState.data[fieldName] = FYERS_PRICE_FIELDS.has(fieldName) ? (val / divisor) : val;
+                        }
+                    }
+
+                    this.wsTopics.set(topicId, topicState);
+                    const tick = this._formatHsmTick(topicState);
+                    if (tick) ticks.push(tick);
+                }
+                else if (dataType === 85) { // 'U' - Update
+                    const topicId = view.getUint16(offset, true); offset += 2;
+                    const fieldCount = view.getUint8(offset); offset += 1;
+                    const topicState = this.wsTopics.get(topicId);
+
+                    if (topicState) {
+                        const fields = topicState.isIndex ? FYERS_INDEX_FIELDS : FYERS_SCRIP_FIELDS;
+                        const divisor = Math.pow(10, topicState.precision) * topicState.multiplier;
+                        let changed = false;
+
+                        for (let f = 0; f < fieldCount; f++) {
+                            const val = view.getInt32(offset, false); offset += 4;
+                            if (val !== -2147483648 && f < fields.length) {
+                                const fieldName = fields[f];
+                                const parsedVal = FYERS_PRICE_FIELDS.has(fieldName) ? (val / divisor) : val;
+                                if (topicState.data[fieldName] !== parsedVal) {
+                                    topicState.data[fieldName] = parsedVal;
+                                    changed = true;
+                                }
+                            }
+                        }
+
+                        if (changed) {
+                            const tick = this._formatHsmTick(topicState);
+                            if (tick) ticks.push(tick);
+                        }
+                    } else {
+                        offset += fieldCount * 4;
                     }
                 }
             }
-            
+
+            return {
+                type: 'feed',
+                messageNum,
+                ticks
+            };
+        }
+
+        return null;
+    }
+
+    _formatHsmTick(topicState) {
+        const d = topicState.data;
+        const ltp = d.ltp !== undefined ? d.ltp : 0;
+        const prevClose = Number(d.prev_close_price || d.open_price || ltp);
+        const open = Number(d.open_price !== undefined ? d.open_price : prevClose);
+        const high = Number(d.high_price !== undefined ? d.high_price : ltp);
+        const low = Number(d.low_price !== undefined ? d.low_price : ltp);
+
+        let ch = 0;
+        let chp = 0;
+        if (prevClose > 0) {
+            ch = Math.round((ltp - prevClose) * 100) / 100;
+            chp = Math.round(((ltp - prevClose) / prevClose) * 10000) / 100;
+        }
+
+        let tickTime = Date.now();
+        if (d.exch_feed_time) {
+            tickTime = d.exch_feed_time.toString().length === 10 ? d.exch_feed_time * 1000 : d.exch_feed_time;
+        } else if (d.last_traded_time) {
+            tickTime = d.last_traded_time.toString().length === 10 ? d.last_traded_time * 1000 : d.last_traded_time;
+        }
+
+        return {
+            symbol: topicState.symbol,
+            hsmToken: topicState.topicName,
+            time: tickTime,
+            ltp: ltp,
+            open: open,
+            high: high,
+            low: low,
+            close: ltp,
+            prevClose: prevClose,
+            volume: d.vol_traded_today || 0,
+            bid: d.bid_price,
+            ask: d.ask_price,
+            ch: ch,
+            chp: chp,
+            daily_open: open,
+            daily_change: chp,
+            change: chp
+        };
+    }
+
+    _dispatchLiveTick(tick) {
+        if (!tick || !tick.symbol) return;
+        const symbol = tick.symbol;
+        const cleanSym = symbol.split(':').pop().toUpperCase();
+
+        // 1. Update in-memory quotes cache
+        const quoteObj = {
+            symbol: cleanSym,
+            fullSymbol: symbol,
+            last: tick.ltp,
+            price: tick.ltp,
+            open: tick.open,
+            prevClose: tick.prevClose,
+            change: tick.chp,
+            high: tick.high,
+            low: tick.low
+        };
+        if (this._quotesCache) {
+            this._quotesCache.set(cleanSym, { data: quoteObj, timestamp: Date.now() });
+            this._quotesCache.set(symbol, { data: quoteObj, timestamp: Date.now() });
+            if (cleanSym.endsWith('-INDEX')) {
+                this._quotesCache.set(cleanSym.replace('-INDEX', ''), { data: quoteObj, timestamp: Date.now() });
+            }
+        }
+
+        // 2. Dispatch to active chart subscribers
+        const subs = this.subscribers.get(symbol);
+        if (subs) {
+            const barTick = {
+                time: tick.time,
+                open: tick.open,
+                high: tick.high,
+                low: tick.low,
+                close: tick.close,
+                volume: tick.volume,
+                bid: tick.bid,
+                ask: tick.ask,
+                daily_open: tick.open,
+                daily_change: tick.chp,
+                change: tick.chp
+            };
+            subs.forEach(sub => {
+                if (typeof sub.cb === 'function') sub.cb(barTick);
+            });
+        }
+
+        // 3. Dispatch to WatchlistUI
+        if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+            window.WatchlistUI.onLivePrice(symbol, tick.ltp, tick.open, tick.chp);
+        }
+
+        // 4. Dispatch to TradeUI
+        if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+            window.TradeUIInstance.onLivePriceUpdate(tick.close, symbol, tick.bid, tick.ask);
+        }
+    }
+
+    async resolveHsmSymbol(symbol) {
+        const cleanSym = symbol.trim().toUpperCase();
+        if (this.symbolToHsm.has(cleanSym)) {
+            return this.symbolToHsm.get(cleanSym);
+        }
+
+        // A. Index check
+        if (cleanSym.endsWith('-INDEX') || cleanSym.includes('INDEX') || FYERS_COMMON_INDICES[cleanSym]) {
+            const isBse = cleanSym.startsWith('BSE:');
+            const seg = isBse ? 'bse_cm' : 'nse_cm';
+            let exchToken = FYERS_COMMON_INDICES[cleanSym];
+            if (!exchToken && this._dynamicIndexMap && this._dynamicIndexMap[cleanSym]) {
+                exchToken = this._dynamicIndexMap[cleanSym];
+            }
+            if (!exchToken) {
+                exchToken = cleanSym.split(':')[1]?.replace('-INDEX', '') || cleanSym;
+            }
+            const hsmSym = `if|${seg}|${exchToken}`;
+            this.symbolToHsm.set(cleanSym, hsmSym);
+            this.symbolToHsm.set(symbol, hsmSym);
+            this.hsmToSymbol.set(hsmSym, symbol);
+            return hsmSym;
+        }
+
+        // B. Check localStorage cached tokens
+        try {
+            const savedTokens = JSON.parse(localStorage.getItem('fyers_hsm_symbol_tokens') || '{}');
+            if (savedTokens[cleanSym]) {
+                const hsmSym = savedTokens[cleanSym];
+                this.symbolToHsm.set(cleanSym, hsmSym);
+                this.symbolToHsm.set(symbol, hsmSym);
+                this.hsmToSymbol.set(hsmSym, symbol);
+                return hsmSym;
+            }
+        } catch (_) {}
+
+        // C. Scrip / Derivative: Call symbol-token API
+        if (this.token) {
+            try {
+                const formatted = cleanSym.includes(':') ? cleanSym : `NSE:${cleanSym}`;
+                const res = await fetch('https://api-t1.fyers.in/data/symbol-token', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': this.token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ symbols: [formatted] })
+                });
+                const data = await res.json();
+                if (data && data.s === 'ok' && data.validSymbol) {
+                    const fyToken = data.validSymbol[formatted] || Object.values(data.validSymbol)[0];
+                    if (fyToken && fyToken.length >= 10) {
+                        const exSg = fyToken.substring(0, 4);
+                        const seg = FYERS_EXCH_SEG[exSg] || 'nse_cm';
+                        const exchToken = fyToken.substring(10);
+                        const hsmSym = `sf|${seg}|${exchToken}`;
+                        this.symbolToHsm.set(cleanSym, hsmSym);
+                        this.symbolToHsm.set(symbol, hsmSym);
+                        this.hsmToSymbol.set(hsmSym, symbol);
+
+                        try {
+                            const savedTokens = JSON.parse(localStorage.getItem('fyers_hsm_symbol_tokens') || '{}');
+                            savedTokens[cleanSym] = hsmSym;
+                            localStorage.setItem('fyers_hsm_symbol_tokens', JSON.stringify(savedTokens));
+                        } catch (_) {}
+
+                        return hsmSym;
+                    }
+                }
+            } catch (e) {
+                console.warn('[FyersWS] Error resolving symbol-token:', e);
+            }
+        }
+
+        return null;
+    }
+
+    async subscribeWsSymbol(symbol) {
+        if (!symbol) return;
+        if (!this.isWsConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.pendingHsmSubQueue.add(symbol);
+            if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+                this.connectWebSocket();
+            }
+            return;
+        }
+
+        const hsmSym = await this.resolveHsmSymbol(symbol);
+        if (!hsmSym) {
+            console.warn('[FyersWS] Could not resolve HSM token for:', symbol, 'will use REST fallback.');
+            return;
+        }
+
+        if (this.subscribedHsmSymbols.has(hsmSym)) return; // already subscribed
+
+        try {
+            const subPacket = fyersBuildSubscribePacket([hsmSym], 11);
+            this.ws.send(subPacket);
+            this.subscribedHsmSymbols.add(hsmSym);
+            console.log(`[FyersWS] 🚀 Subscribed ${symbol} (${hsmSym}) over native WebSocket.`);
+        } catch (e) {
+            console.error('[FyersWS] Failed to send subscribe packet:', e);
+        }
+    }
+
+    async subscribeWatchlist(symbols) {
+        if (!symbols || !Array.isArray(symbols) || symbols.length === 0) return;
+        for (const sym of symbols) {
+            this.subscribeWsSymbol(sym);
+        }
+    }
+
+    connectWebSocket() {
+        if (!this.token) return;
+        this.isConnected = true;
+
+        // Extract hsm_key from JWT
+        const jwtPayload = this.parseJwt(this.token);
+        const hsmKey = jwtPayload ? jwtPayload.hsm_key : null;
+
+        if (!hsmKey) {
+            console.warn('[FyersWS] Active token does not contain hsm_key; falling back to REST polling.');
+            this._startRestPollingFallback();
+            return;
+        }
+
+        // Avoid duplicate connection if already connecting or open
+        if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+            return;
+        }
+
+        try {
+            console.log('[FyersWS] Connecting to native Fyers WebSocket (HSM v1.5)...');
+            this.ws = new WebSocket(this.wsUrl || FYERS_WS_URL);
+            this.ws.binaryType = 'arraybuffer';
+
+            this.ws.onopen = () => {
+                console.log('[FyersWS] ✅ WebSocket connected! Transmitting binary Auth packet...');
+                const authPacket = fyersBuildAuthPacket(hsmKey);
+                this.ws.send(authPacket);
+
+                // Setup 10s ping heartbeat
+                if (this._wsPingTimer) clearInterval(this._wsPingTimer);
+                this._wsPingTimer = setInterval(() => {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(fyersBuildPingPacket());
+                    }
+                }, 10000);
+
+                this._wsReconnectAttempts = 0;
+            };
+
+            this.ws.onmessage = (event) => {
+                const parsed = this._parseWsBinaryFrame(event.data);
+                if (!parsed) return;
+
+                if (parsed.type === 'auth') {
+                    if (parsed.success) {
+                        console.log('[FyersWS] ✅ Binary Authentication Succeeded! Setting Full Mode...');
+                        const modePacket = fyersBuildModePacket(11, 'F');
+                        this.ws.send(modePacket);
+                        this.isWsConnected = true;
+                        this.isWsStreaming = true;
+
+                        // Stop REST polling: WebSocket is active!
+                        this._stopRestPollingFallback();
+
+                        // Flush pending subscriptions
+                        const toSub = new Set([...this.subscribers.keys(), ...this.pendingHsmSubQueue]);
+                        this.pendingHsmSubQueue.clear();
+                        toSub.forEach(sym => this.subscribeWsSymbol(sym));
+
+                        window.dispatchEvent(new CustomEvent('fyers_websocket_status', { detail: { connected: true } }));
+                    } else {
+                        console.warn('[FyersWS] ❌ Binary Auth Failed. Reason:', parsed.statusStr);
+                        this._startRestPollingFallback();
+                    }
+                }
+                else if (parsed.type === 'subscribe') {
+                    // Subscription confirmed by server
+                }
+                else if (parsed.type === 'feed' && parsed.ticks) {
+                    for (const tick of parsed.ticks) {
+                        this._dispatchLiveTick(tick);
+                    }
+                }
+            };
+
+            this.ws.onerror = (err) => {
+                console.error('[FyersWS] WebSocket error:', err);
+                if (!this.isWsStreaming) {
+                    this._startRestPollingFallback();
+                }
+            };
+
+            this.ws.onclose = (event) => {
+                console.warn('[FyersWS] Connection closed. Code:', event.code, 'Reason:', event.reason);
+                this.isWsConnected = false;
+                this.isWsStreaming = false;
+                if (this._wsPingTimer) {
+                    clearInterval(this._wsPingTimer);
+                    this._wsPingTimer = null;
+                }
+                this.subscribedHsmSymbols.clear();
+
+                // If we have subscribers, maintain live data via REST polling while disconnected
+                if (this.subscribers.size > 0) {
+                    this._startRestPollingFallback();
+                }
+
+                // Automatic reconnect with backoff
+                if (this.isConnected && this.token) {
+                    this._wsReconnectAttempts++;
+                    const delay = Math.min(30000, 1000 * Math.pow(1.5, this._wsReconnectAttempts));
+                    console.log(`[FyersWS] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this._wsReconnectAttempts})...`);
+                    if (this._wsReconnectTimer) clearTimeout(this._wsReconnectTimer);
+                    this._wsReconnectTimer = setTimeout(() => {
+                        this.connectWebSocket();
+                    }, delay);
+                }
+            };
+
+        } catch (e) {
+            console.error('[FyersWS] WebSocket init exception:', e);
+            this._startRestPollingFallback();
+        }
+    }
+
+    disconnectWebSocket() {
+        if (this._wsPingTimer) {
+            clearInterval(this._wsPingTimer);
+            this._wsPingTimer = null;
+        }
+        if (this._wsReconnectTimer) {
+            clearTimeout(this._wsReconnectTimer);
+            this._wsReconnectTimer = null;
+        }
+        if (this.ws) {
+            try { this.ws.close(); } catch (_) {}
+            this.ws = null;
+        }
+        this.isWsConnected = false;
+        this.isWsStreaming = false;
+        this.subscribedHsmSymbols.clear();
+    }
+
+    _stopRestPollingFallback() {
+        this.isPolling = false;
+        if (this.pollTimeout) {
+            clearTimeout(this.pollTimeout);
+            this.pollTimeout = null;
+        }
+        console.log('[FyersEngine] Stopped REST polling loop; streaming 100% via WebSocket.');
+    }
+
+    _startRestPollingFallback() {
+        if (this.isPolling) return;
+        this.isPolling = true;
+        console.log('[FyersEngine] Activating REST quotes polling fallback.');
+
+        if (!this.segmentState) this.segmentState = new Map();
+        if (!this.symbolLastTickTime) this.symbolLastTickTime = new Map();
+        this.lastStatusCheck = 0;
+
+        const poll = async () => {
+            if (!this.isPolling) return;
+            // If WebSocket came back online, stop polling immediately
+            if (this.isWsStreaming) {
+                this.isPolling = false;
+                return;
+            }
+
+            const symbols = Array.from(this.subscribers.keys());
+            if (symbols.length === 0) {
+                this.isPolling = false;
+                this.pollTimeout = null;
+                return;
+            }
+
+            const now = Date.now();
+            let symbolsToPoll = [];
+            for (let symbol of symbols) {
+                const segKey = this.getSegmentKey(symbol);
+                const state = this.segmentState.get(segKey) || "ACTIVE";
+                if (state === "ACTIVE") symbolsToPoll.push(symbol);
+            }
+
             const numChunks = Math.ceil(symbolsToPoll.length / 50);
-            const dynamicDelayMs = Math.max(1000, numChunks * 400);
-            
+            const dynamicDelayMs = Math.max(1500, numChunks * 500);
+
             try {
                 if (symbolsToPoll.length > 0) {
                     for (let i = 0; i < symbolsToPoll.length; i += 50) {
@@ -1800,53 +2514,29 @@ class FyersEngine {
                             headers: { 'Authorization': this.token }
                         });
                         const data = await res.json();
-                        
+
                         if ((data.s === 'error' && (data.code === -15 || (data.message && data.message.toLowerCase().includes('token')))) || res.status === 401) {
-                            console.error("Fyers Auth Error:", data.message);
                             const active = this.getActiveAccount();
                             if (active && active.webuiRefreshToken && !this.isRefreshExpired(active)) {
-                                console.log("[FyersEngine] Token expired during quotes polling, attempting reactive refresh...");
                                 const refreshed = await this.refreshAccountToken(active.id, false);
-                                if (refreshed.success) {
-                                    return; // Will continue polling next cycle with updated token
-                                }
+                                if (refreshed.success) return;
                             }
                             this.isPolling = false;
-                            this.pollInterval = null;
                             this.markActiveAccountExpired('Token Expired');
-                            return; 
+                            return;
                         }
-                        
+
                         if (data.s === 'ok' && data.d) {
                             data.d.forEach(item => {
                                 if (item.s === 'ok' && item.v) {
                                     const symbol = item.n;
-                                    const subs = this.subscribers.get(symbol);
-                                    if (subs) {
-                                        let tickTime = Date.now();
-                                        if (item.v.tt) {
-                                            tickTime = item.v.tt.toString().length === 10 ? item.v.tt * 1000 : item.v.tt;
-                                        } else if (item.v.exch_tm) {
-                                            tickTime = item.v.exch_tm.toString().length === 10 ? item.v.exch_tm * 1000 : item.v.exch_tm;
-                                        }
-                                        
-                                        this.symbolLastTickTime.set(symbol, tickTime);
-                                        
-                                        const tick = {
-                                            time: tickTime,
-                                            open: item.v.open_price || item.v.o || item.v.lp,
-                                            high: item.v.high_price || item.v.h || item.v.lp,
-                                            low: item.v.low_price || item.v.l || item.v.lp,
-                                            close: item.v.lp,
-                                            volume: item.v.volume || item.v.vol || item.v.v || 0,
-                                            bid: item.v.bid || item.v.b,
-                                            ask: item.v.ask || item.v.a
-                                        };
-                                        subs.forEach(sub => sub.cb(tick));
+                                    let tickTime = Date.now();
+                                    if (item.v.tt) {
+                                        tickTime = item.v.tt.toString().length === 10 ? item.v.tt * 1000 : item.v.tt;
+                                    } else if (item.v.exch_tm) {
+                                        tickTime = item.v.exch_tm.toString().length === 10 ? item.v.exch_tm * 1000 : item.v.exch_tm;
                                     }
-                                    
-                                    // Update quotes cache to avoid redundant REST calls
-                                    const cleanSym = item.n.split(':').pop().toUpperCase();
+
                                     const prevClose = Number(item.v.prev_close_price || item.v.open_price || item.v.o || item.v.lp);
                                     const lp = Number(item.v.lp);
                                     let chp = 0;
@@ -1855,102 +2545,53 @@ class FyersEngine {
                                     } else if (prevClose > 0) {
                                         chp = ((lp - prevClose) / prevClose) * 100;
                                     }
-                                    const quoteObj = {
-                                        symbol: cleanSym,
-                                        fullSymbol: item.n,
-                                        last: lp,
-                                        price: lp,
-                                        open: Number(item.v.open_price || item.v.o || prevClose),
-                                        prevClose: prevClose,
-                                        change: Math.round(chp * 100) / 100,
-                                        high: Number(item.v.high_price || item.v.h || lp),
-                                        low: Number(item.v.low_price || item.v.l || lp)
-                                    };
-                                    if (this._quotesCache) {
-                                        this._quotesCache.set(cleanSym, { data: quoteObj, timestamp: Date.now() });
-                                        this._quotesCache.set(item.n, { data: quoteObj, timestamp: Date.now() });
-                                    }
 
-                                    if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
-                                        const op = item.v.open_price || item.v.o || lp;
-                                        window.WatchlistUI.onLivePrice(item.n, lp, op, item.v.chp);
-                                    }
+                                    const tick = {
+                                        symbol: symbol,
+                                        time: tickTime,
+                                        open: Number(item.v.open_price || item.v.o || lp),
+                                        high: Number(item.v.high_price || item.v.h || lp),
+                                        low: Number(item.v.low_price || item.v.l || lp),
+                                        close: lp,
+                                        ltp: lp,
+                                        prevClose: prevClose,
+                                        volume: item.v.volume || item.v.vol || item.v.v || 0,
+                                        bid: item.v.bid || item.v.b,
+                                        ask: item.v.ask || item.v.a,
+                                        chp: Math.round(chp * 100) / 100
+                                    };
+                                    this._dispatchLiveTick(tick);
                                 }
                             });
                         }
                     }
                 }
-                
-                // Active segments staleness check
-                if (needsStatusCheck) {
-                    const statusList = await this.checkMarketStatus();
-                    if (statusList) {
-                        statusList.forEach(st => {
-                            if (st.market_type === 'NORMAL' && st.status !== 'OPEN') {
-                                const segKey = `${st.exchange}:${st.segment}`;
-                                this.segmentState.set(segKey, 'PAUSED');
-                                console.log(`[Lifecycle] Segment ${segKey} paused (Market is ${st.status})`);
-                            }
-                        });
-                    }
-                    symbolsToPoll.forEach(sym => this.symbolLastTickTime.set(sym, Date.now()));
-                }
-                
-                // Wake up check for paused segments
-                let hasPausedSegments = symbols.length > symbolsToPoll.length;
-                if (hasPausedSegments && (now - this.lastStatusCheck > 5 * 60 * 1000)) {
-                    this.lastStatusCheck = now;
-                    const statusList = await this.checkMarketStatus();
-                    if (statusList) {
-                        statusList.forEach(st => {
-                            if (st.market_type === 'NORMAL' && st.status === 'OPEN') {
-                                const segKey = `${st.exchange}:${st.segment}`;
-                                if (this.segmentState.get(segKey) === 'PAUSED') {
-                                    this.segmentState.set(segKey, 'ACTIVE');
-                                    console.log(`[Lifecycle] Segment ${segKey} awoken (Market is OPEN)`);
-                                    symbols.forEach(sym => {
-                                        if (this.getSegmentKey(sym) === segKey) {
-                                            this.symbolLastTickTime.set(sym, Date.now());
-                                            // Trigger TradingView to reload history to fetch the missing gap!
-                                            const subs = this.subscribers.get(sym);
-                                            if (subs) {
-                                                subs.forEach(sub => {
-                                                    if (sub.resetCb) sub.resetCb();
-                                                });
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        });
-                    }
-                }
-                
             } catch (err) {
-                console.error("Fyers Polling Error", err);
+                console.warn("[FyersEngine] Polling fallback notice:", err.message);
             }
-            
-            setTimeout(poll, dynamicDelayMs);
+
+            if (this.isPolling && !this.isWsStreaming) {
+                this.pollTimeout = setTimeout(poll, dynamicDelayMs);
+            }
         };
-        
-        this.pollInterval = true;
+
         poll();
     }
-
-    _handleWsMessage(msg) { }
-    _sendWsCommand(command, symbols) { }
 
     subscribe(symbol, callback, resetCallback) {
         if (!this.subscribers.has(symbol)) {
             this.subscribers.set(symbol, new Set());
         }
         this.subscribers.get(symbol).add({ cb: callback, resetCb: resetCallback });
-        
-        if (!this.pollInterval) {
+
+        // Connect or subscribe via WebSocket
+        if (this.isWsStreaming) {
+            this.subscribeWsSymbol(symbol);
+        } else {
             this.connectWebSocket();
         }
     }
-    
+
     unsubscribe(symbol, callback) {
         if (this.subscribers.has(symbol)) {
             const subs = this.subscribers.get(symbol);
@@ -1960,9 +2601,16 @@ class FyersEngine {
                     break;
                 }
             }
-            if (this.subscribers.get(symbol).size === 0) {
-                
+            if (subs.size === 0) {
                 this.subscribers.delete(symbol);
+                const hsmSym = this.symbolToHsm.get(symbol);
+                if (hsmSym && this.isWsConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    try {
+                        const unsubPacket = fyersBuildUnsubscribePacket([hsmSym], 11);
+                        this.ws.send(unsubPacket);
+                        this.subscribedHsmSymbols.delete(hsmSym);
+                    } catch (_) {}
+                }
             }
         }
     }
@@ -2005,6 +2653,11 @@ class FyersEngine {
                     allFresh = false;
                 }
             }
+        }
+
+        // Auto-subscribe symbols to WebSocket so subsequent updates stream live with 0 REST calls
+        if (this.isWsStreaming) {
+            symList.forEach(s => this.subscribeWsSymbol(s));
         }
 
         // If all requested symbols have fresh cached quotes, return immediately (zero API calls)
