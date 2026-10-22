@@ -32,6 +32,11 @@ class FyersEngine {
         this.maxReconnect = 5;
         this.wsUrl = 'wss://api-t1.fyers.in/data/quotes'; // standard endpoint, needs check
         
+        // Fyers Rate Limiting & Quotes Cache (200 req/min quota protection)
+        this._quotesCache = new Map();
+        this._lastQuotesRequestTime = 0;
+        this._rateLimitBackoffUntil = 0;
+
         // Ensure cache db is ready
         this.dbPromise = this.initCacheDB();
     }
@@ -1839,8 +1844,34 @@ class FyersEngine {
                                         };
                                         subs.forEach(sub => sub.cb(tick));
                                     }
+                                    
+                                    // Update quotes cache to avoid redundant REST calls
+                                    const cleanSym = item.n.split(':').pop().toUpperCase();
+                                    const prevClose = Number(item.v.prev_close_price || item.v.open_price || item.v.o || item.v.lp);
+                                    const lp = Number(item.v.lp);
+                                    let chp = 0;
+                                    if (item.v.chp !== undefined && !isNaN(Number(item.v.chp))) {
+                                        chp = Number(item.v.chp);
+                                    } else if (prevClose > 0) {
+                                        chp = ((lp - prevClose) / prevClose) * 100;
+                                    }
+                                    const quoteObj = {
+                                        symbol: cleanSym,
+                                        fullSymbol: item.n,
+                                        last: lp,
+                                        price: lp,
+                                        open: Number(item.v.open_price || item.v.o || prevClose),
+                                        prevClose: prevClose,
+                                        change: Math.round(chp * 100) / 100,
+                                        high: Number(item.v.high_price || item.v.h || lp),
+                                        low: Number(item.v.low_price || item.v.l || lp)
+                                    };
+                                    if (this._quotesCache) {
+                                        this._quotesCache.set(cleanSym, { data: quoteObj, timestamp: Date.now() });
+                                        this._quotesCache.set(item.n, { data: quoteObj, timestamp: Date.now() });
+                                    }
+
                                     if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
-                                        const lp = item.v.lp;
                                         const op = item.v.open_price || item.v.o || lp;
                                         window.WatchlistUI.onLivePrice(item.n, lp, op, item.v.chp);
                                     }
@@ -1941,6 +1972,52 @@ class FyersEngine {
         const symList = Array.isArray(symbols) ? symbols : [symbols];
         if (symList.length === 0) return {};
 
+        const now = Date.now();
+        if (this._rateLimitBackoffUntil && now < this._rateLimitBackoffUntil) {
+            // Respect rate-limit cooling period; serve available cached quotes
+            const resMap = {};
+            symList.forEach(s => {
+                const clean = s.split(':').pop().toUpperCase().trim();
+                const cached = this._quotesCache ? this._quotesCache.get(clean) : null;
+                if (cached) resMap[clean] = cached.data;
+            });
+            return resMap;
+        }
+
+        // Determine if market is paused for these symbols
+        const isAnyMarketPaused = symList.some(s => {
+            const seg = this.getSegmentKey ? this.getSegmentKey(s) : null;
+            return seg && this.segmentState && this.segmentState.get(seg) === 'PAUSED';
+        });
+
+        // 2s TTL during active market, 60s TTL if market is paused/closed
+        const cacheTtlMs = isAnyMarketPaused ? 60000 : 2000;
+        let allFresh = true;
+        const resMap = {};
+
+        if (this._quotesCache) {
+            for (const s of symList) {
+                const clean = s.split(':').pop().toUpperCase().trim();
+                const cached = this._quotesCache.get(clean);
+                if (cached && (now - cached.timestamp < cacheTtlMs)) {
+                    resMap[clean] = cached.data;
+                } else {
+                    allFresh = false;
+                }
+            }
+        }
+
+        // If all requested symbols have fresh cached quotes, return immediately (zero API calls)
+        if (allFresh && Object.keys(resMap).length >= symList.length) {
+            return resMap;
+        }
+
+        // Throttle quotes requests to strictly stay below Fyers 200 requests/minute quota
+        if (now - this._lastQuotesRequestTime < 1200) {
+            if (Object.keys(resMap).length > 0) return resMap;
+        }
+        this._lastQuotesRequestTime = now;
+
         const formatted = symList.map(s => {
             let clean = s.trim().toUpperCase();
             if (!clean.includes(':')) {
@@ -1968,6 +2045,13 @@ class FyersEngine {
         try {
             let { res, data } = await fetchWithToken(this.token);
 
+            // Handle rate limit 429
+            if ((res && res.status === 429) || (data && data.message && data.message.toLowerCase().includes('rate'))) {
+                console.warn("[FyersEngine] Fyers API rate limit reached. Backing off for 15 seconds.");
+                this._rateLimitBackoffUntil = Date.now() + 15000;
+                return resMap;
+            }
+
             // Handle reactive token refresh if token expired
             if ((data && data.s === 'error' && (data.code === -15 || (data.message && data.message.toLowerCase().includes('token')))) || (res && res.status === 401)) {
                 const active = this.getActiveAccount();
@@ -1981,7 +2065,6 @@ class FyersEngine {
                 }
             }
 
-            const resMap = {};
             if (data && data.s === 'ok' && data.d) {
                 data.d.forEach(item => {
                     if (item.s === 'ok' && item.v) {
@@ -2015,13 +2098,19 @@ class FyersEngine {
                         if (cleanSym.endsWith('-INDEX')) {
                             resMap[cleanSym.replace('-INDEX', '')] = quoteObj;
                         }
+
+                        // Store in persistent in-memory cache
+                        if (this._quotesCache) {
+                            this._quotesCache.set(cleanSym, { data: quoteObj, timestamp: Date.now() });
+                            this._quotesCache.set(rawSym, { data: quoteObj, timestamp: Date.now() });
+                        }
                     }
                 });
             }
             return resMap;
         } catch (e) {
             console.warn('[FyersAPI] fetchQuotes notice:', e.message);
-            return {};
+            return resMap;
         }
     }
 
