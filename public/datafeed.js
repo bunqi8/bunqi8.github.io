@@ -443,6 +443,13 @@ function alignFyersDwmTime(bars, resolution) {
 
 
 
+function getBarLimitCacheKey(symbolInfo, resolution) {
+    if (!symbolInfo) return '';
+    const raw = symbolInfo.name || symbolInfo.ticker || '';
+    const clean = raw.split(':').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return `${clean}_${resolution}`;
+}
+
 function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
     let safeBars = bars;
     const resString = resolution ? resolution.toString() : 'undefined';
@@ -531,7 +538,7 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
 
         if (window.BarLimitManager && symbolInfo) {
             const maxBarsLimit = window.BarLimitManager.getLimit();
-            const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+            const genKey = getBarLimitCacheKey(symbolInfo, resolution);
             const currentLoaded = window.BarLimitManager.getBarCount(genKey);
             const remaining = maxBarsLimit - currentLoaded;
 
@@ -549,6 +556,14 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
             } else {
                 window.BarLimitManager.incrementBarCount(genKey, returnBars.length);
             }
+
+            // Sync with global _barsCache
+            if (!window._barsCache) window._barsCache = {};
+            const curCache = window._barsCache[genKey] || [];
+            const bMap = new Map();
+            for (const b of curCache) bMap.set(b.time, b);
+            for (const b of returnBars) bMap.set(b.time, b);
+            window._barsCache[genKey] = Array.from(bMap.values()).sort((a, b) => a.time - b.time);
 
             if (returnBars.length > 0) {
                 const oldestSec = Math.floor(returnBars[0].time / 1000);
@@ -1196,7 +1211,47 @@ const Datafeed = {
         const maxBarsLimit = (window.BarLimitManager && typeof window.BarLimitManager.getLimit === 'function') 
             ? window.BarLimitManager.getLimit() 
             : 40000;
-        const generalCacheKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+        const generalCacheKey = getBarLimitCacheKey(symbolInfo, resolution);
+
+        // Ensure global bars cache is initialized
+        if (!window._barsCache) window._barsCache = {};
+
+        // FAST PATH: If firstDataRequest and we already have cached bars in memory (e.g. after limit expansion or reset)
+        if (firstDataRequest && window._barsCache[generalCacheKey] && window._barsCache[generalCacheKey].length > 0) {
+            let cachedBars = window._barsCache[generalCacheKey];
+            if (cachedBars.length > maxBarsLimit) {
+                cachedBars = cachedBars.slice(cachedBars.length - maxBarsLimit);
+                window._barsCache[generalCacheKey] = cachedBars;
+            }
+
+            if (window.BarLimitManager) {
+                window.BarLimitManager.setBarCount(generalCacheKey, cachedBars.length);
+                if (cachedBars.length > 0) {
+                    window.BarLimitManager.setOldestBar(generalCacheKey, Math.floor(cachedBars[0].time / 1000));
+                }
+            }
+
+            const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
+            const cacheKey = `MT5_${cleanSym}_${resolution}`;
+            if (!window._tvLastBar) window._tvLastBar = {};
+            const last = cachedBars[cachedBars.length - 1];
+            if (last) {
+                window._tvLastBar[cacheKey] = {
+                    time: last.time,
+                    open: Number(last.open),
+                    high: Number(last.high),
+                    low: Number(last.low),
+                    close: Number(last.close),
+                    volume: Number(last.volume)
+                };
+            }
+
+            console.log(`[datafeed] Fast cache hit for ${generalCacheKey}: returning ${cachedBars.length} bars directly.`);
+            setTimeout(() => {
+                onHistoryCallback(cachedBars, { noData: false });
+            }, 0);
+            return;
+        }
 
         // If not firstDataRequest, check if current symbol/resolution has already reached maxBarsLimit
         if (!firstDataRequest && window.BarLimitManager) {
@@ -1278,7 +1333,6 @@ const Datafeed = {
                                     returnBars = returnBars.slice(returnBars.length - maxBarsLimit);
                                     hitLimit = true;
                                 }
-                                window.BarLimitManager.setBarCount(generalCacheKey, returnBars.length);
                             } else {
                                 const currentLoaded = window.BarLimitManager.getBarCount(generalCacheKey);
                                 const remaining = maxBarsLimit - currentLoaded;
@@ -1290,15 +1344,21 @@ const Datafeed = {
                                 }
                                 if (returnBars.length >= remaining) {
                                     returnBars = returnBars.slice(returnBars.length - remaining);
-                                    window.BarLimitManager.setBarCount(generalCacheKey, maxBarsLimit);
                                     hitLimit = true;
-                                } else {
-                                    window.BarLimitManager.incrementBarCount(generalCacheKey, returnBars.length);
                                 }
                             }
 
-                            if (returnBars.length > 0) {
-                                const oldestSec = Math.floor(returnBars[0].time / 1000);
+                            // Accumulate into window._barsCache[generalCacheKey]
+                            const curCache = window._barsCache[generalCacheKey] || [];
+                            const bMap = new Map();
+                            for (const b of curCache) bMap.set(b.time, b);
+                            for (const b of returnBars) bMap.set(b.time, b);
+                            const merged = Array.from(bMap.values()).sort((a, b) => a.time - b.time);
+                            window._barsCache[generalCacheKey] = merged;
+
+                            window.BarLimitManager.setBarCount(generalCacheKey, merged.length);
+                            if (merged.length > 0) {
+                                const oldestSec = Math.floor(merged[0].time / 1000);
                                 window.BarLimitManager.setOldestBar(generalCacheKey, oldestSec);
                             }
                         }
