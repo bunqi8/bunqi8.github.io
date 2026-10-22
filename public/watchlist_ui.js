@@ -13,55 +13,28 @@
     const STORAGE_KEY_FLAGS = 'tv_symbol_flags_v1';
     const STORAGE_KEY_IS_OPEN = 'tv_watchlist_is_open';
     const STORAGE_KEY_IS_PINNED = 'tv_watchlist_is_pinned';
+    const STORAGE_KEY_CUSTOM_COLORS = 'tv_watchlist_custom_colors_v1';
+    const STORAGE_KEY_SELECTED_COLORS = 'tv_watchlist_selected_colors_v1';
+    const STORAGE_KEY_IS_ALL_SELECTED = 'tv_watchlist_is_all_selected_v1';
+    const STORAGE_KEY_SCOPE_ALL = 'tv_watchlist_scope_all_v1';
 
-    // Default Pre-seeded Lists
+    // The 5 Permanent Core Colors (Cannot be deleted)
+    const CORE_COLORS = [
+        { id: 'red', name: 'Red', color: '#f23645', isCore: true },
+        { id: 'green', name: 'Green', color: '#089981', isCore: true },
+        { id: 'blue', name: 'Blue', color: '#2962ff', isCore: true },
+        { id: 'amber', name: 'Amber', color: '#ff9800', isCore: true },
+        { id: 'black', name: 'Black', color: '#1e222d', isCore: true }
+    ];
+
+    // Default Pre-seeded Named Watchlists (Only real named watchlists; color lists are filters)
     const DEFAULT_LISTS = [
         {
             id: 'main',
             name: 'Main Watchlist',
             color: '#2962ff',
             isDefault: true,
-            symbols: ['XAUUSD', 'EURUSD', 'GBPUSD', 'US30', 'USTEC', 'BTCUSD', 'NIFTY50-INDEX', 'BANKNIFTY-INDEX']
-        },
-        {
-            id: 'red',
-            name: 'Red List',
-            color: '#f23645',
-            isFlagList: true,
-            flagColor: 'red',
-            symbols: ['XAUUSD', 'US30', 'BTCUSD']
-        },
-        {
-            id: 'green',
-            name: 'Green List',
-            color: '#089981',
-            isFlagList: true,
-            flagColor: 'green',
-            symbols: ['EURUSD', 'GBPUSD', 'NIFTY50-INDEX']
-        },
-        {
-            id: 'blue',
-            name: 'Blue List',
-            color: '#2962ff',
-            isFlagList: true,
-            flagColor: 'blue',
-            symbols: ['USTEC', 'BANKNIFTY-INDEX']
-        },
-        {
-            id: 'amber',
-            name: 'Amber List',
-            color: '#ff9800',
-            isFlagList: true,
-            flagColor: 'amber',
-            symbols: []
-        },
-        {
-            id: 'black',
-            name: 'Black List',
-            color: '#1e222d',
-            isFlagList: true,
-            flagColor: 'black',
-            symbols: []
+            symbols: ['XAUUSD', 'EURUSD', 'GBPUSD', 'US30', 'USTEC', 'BTCUSD', 'NIFTY50-INDEX', 'BANKNIFTY-INDEX', 'XAGUSD']
         },
         {
             id: 'forex_metals',
@@ -84,10 +57,14 @@
             this.drawerId = 'tv-watchlist-drawer';
             this.isOpen = false;
             this.isPinned = false;
+            this.includeAllWatchlists = false;
             this.cachedIframeDoc = null;
             this.lists = [];
             this.activeListId = 'main';
-            this.symbolFlags = {}; // symbol -> 'red' | 'green' | 'blue' | 'amber' | 'black'
+            this.customColors = [];
+            this.selectedColors = new Set();
+            this.isAllSelected = true;
+            this.symbolFlags = {}; // symbol -> colorId
             this.liveQuotes = {}; // symbol -> { price, prevPrice, open, change, direction }
             this.activeChartSymbol = '';
             this._pollerTimer = null;
@@ -166,32 +143,80 @@
                 this.lists = JSON.parse(JSON.stringify(DEFAULT_LISTS));
             }
 
-            // Ensure amber and black flag lists exist in this.lists
-            let updatedLists = false;
-            if (!this.lists.some(l => l.id === 'amber' || l.flagColor === 'amber')) {
-                this.lists.push({
-                    id: 'amber',
-                    name: 'Amber List',
-                    color: '#ff9800',
-                    isFlagList: true,
-                    flagColor: 'amber',
-                    symbols: []
-                });
-                updatedLists = true;
+            // Restore flags first
+            try {
+                const savedFlags = localStorage.getItem(STORAGE_KEY_FLAGS);
+                this.symbolFlags = savedFlags ? JSON.parse(savedFlags) : {};
+            } catch (_) {
+                this.symbolFlags = {};
             }
-            if (!this.lists.some(l => l.id === 'black' || l.flagColor === 'black')) {
-                this.lists.push({
-                    id: 'black',
-                    name: 'Black List',
-                    color: '#1e222d',
-                    isFlagList: true,
-                    flagColor: 'black',
-                    symbols: []
+
+            // Migration from legacy color watchlists (red, green, blue, amber, black)
+            let migrated = false;
+            if (Array.isArray(this.lists)) {
+                this.lists.forEach(l => {
+                    if (l.isFlagList || l.flagColor || ['red', 'green', 'blue', 'amber', 'black'].includes(l.id)) {
+                        migrated = true;
+                        const col = l.flagColor || l.id;
+                        if (Array.isArray(l.symbols)) {
+                            l.symbols.forEach(sym => {
+                                const sUpper = sym.toUpperCase().trim();
+                                if (sUpper) {
+                                    this.symbolFlags[sUpper] = col;
+                                    const mainList = this.lists.find(x => x.id === 'main');
+                                    if (mainList && Array.isArray(mainList.symbols) && !mainList.symbols.some(s => s.toUpperCase() === sUpper)) {
+                                        mainList.symbols.push(sUpper);
+                                    }
+                                }
+                            });
+                        }
+                    }
                 });
-                updatedLists = true;
+
+                // Remove legacy color watchlists so ONLY named watchlists remain
+                const filteredLists = this.lists.filter(l => !l.isFlagList && !l.flagColor && !['red', 'green', 'blue', 'amber', 'black'].includes(l.id));
+                if (filteredLists.length > 0) {
+                    this.lists = filteredLists;
+                } else {
+                    this.lists = JSON.parse(JSON.stringify(DEFAULT_LISTS));
+                    migrated = true;
+                }
             }
-            if (updatedLists) {
+
+            // Ensure Main Watchlist exists
+            if (!this.lists.some(l => l.id === 'main')) {
+                this.lists.unshift(JSON.parse(JSON.stringify(DEFAULT_LISTS[0])));
+                migrated = true;
+            }
+
+            if (migrated) {
                 this.saveLists();
+            }
+
+            // Custom colors
+            try {
+                const savedCustomColors = localStorage.getItem(STORAGE_KEY_CUSTOM_COLORS);
+                this.customColors = savedCustomColors ? JSON.parse(savedCustomColors) : [];
+            } catch (_) {
+                this.customColors = [];
+            }
+
+            // Filter state
+            try {
+                const savedSelectedColors = localStorage.getItem(STORAGE_KEY_SELECTED_COLORS);
+                this.selectedColors = savedSelectedColors ? new Set(JSON.parse(savedSelectedColors)) : new Set();
+                const savedIsAll = localStorage.getItem(STORAGE_KEY_IS_ALL_SELECTED);
+                this.isAllSelected = savedIsAll !== null ? savedIsAll === 'true' : (this.selectedColors.size === 0);
+            } catch (_) {
+                this.selectedColors = new Set();
+                this.isAllSelected = true;
+            }
+
+            // All Watchlists scope toggle
+            try {
+                this.includeAllWatchlists = localStorage.getItem(STORAGE_KEY_SCOPE_ALL) === 'true';
+            } catch (_) {
+                this.includeAllWatchlists = false;
             }
 
             try {
@@ -210,15 +235,6 @@
             } catch (_) {
                 this.activeListId = 'main';
             }
-
-            try {
-                const savedFlags = localStorage.getItem(STORAGE_KEY_FLAGS);
-                this.symbolFlags = savedFlags ? JSON.parse(savedFlags) : {};
-            } catch (_) {
-                this.symbolFlags = {};
-            }
-
-            this.syncFlagsFromLists();
         }
 
         saveLists() {
@@ -226,19 +242,71 @@
                 localStorage.setItem(STORAGE_KEY_LISTS, JSON.stringify(this.lists));
                 localStorage.setItem(STORAGE_KEY_ACTIVE_ID, this.activeListId);
                 localStorage.setItem(STORAGE_KEY_FLAGS, JSON.stringify(this.symbolFlags));
+                localStorage.setItem(STORAGE_KEY_CUSTOM_COLORS, JSON.stringify(this.customColors));
             } catch (e) {
                 console.warn('[WatchlistUI] Failed to save lists:', e);
             }
         }
 
-        syncFlagsFromLists() {
-            this.lists.forEach(l => {
-                if (l.flagColor) {
-                    l.symbols.forEach(sym => {
-                        this.symbolFlags[sym.toUpperCase()] = l.flagColor;
-                    });
+        saveFilterState() {
+            try {
+                localStorage.setItem(STORAGE_KEY_SELECTED_COLORS, JSON.stringify(Array.from(this.selectedColors)));
+                localStorage.setItem(STORAGE_KEY_IS_ALL_SELECTED, this.isAllSelected ? 'true' : 'false');
+                localStorage.setItem(STORAGE_KEY_SCOPE_ALL, this.includeAllWatchlists ? 'true' : 'false');
+            } catch (e) {
+                console.warn('[WatchlistUI] Failed to save filter state:', e);
+            }
+        }
+
+        // --- Color Suite (Core 5 + Extensible Custom Colors) ---
+        getAllColors() {
+            return [...CORE_COLORS, ...(this.customColors || [])];
+        }
+
+        getColorObj(colorId) {
+            return this.getAllColors().find(c => c.id === colorId) || null;
+        }
+
+        addColor(name, hexColor) {
+            const cleanName = (name || '').trim();
+            if (!cleanName) return;
+            const cleanHex = (hexColor || '').trim();
+            if (!cleanHex || !/^#[0-9a-fA-F]{6}$/.test(cleanHex)) return;
+
+            const id = 'c_' + cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString(36);
+            if (!this.customColors) this.customColors = [];
+            this.customColors.push({
+                id: id,
+                name: cleanName,
+                color: cleanHex,
+                isCore: false
+            });
+            this.saveLists();
+            this.renderFlagPills();
+        }
+
+        removeColor(colorId) {
+            const col = this.getColorObj(colorId);
+            if (!col || col.isCore) return; // Core 5 cannot be removed
+
+            if (!confirm(`Delete color "${col.name}"? Symbols with this flag will be unflagged.`)) {
+                return;
+            }
+
+            this.customColors = (this.customColors || []).filter(c => c.id !== colorId);
+            if (this.selectedColors.has(colorId)) {
+                this.selectedColors.delete(colorId);
+                this.saveFilterState();
+            }
+
+            Object.keys(this.symbolFlags).forEach(sym => {
+                if (this.symbolFlags[sym] === colorId) {
+                    delete this.symbolFlags[sym];
                 }
             });
+
+            this.saveLists();
+            this.render();
         }
 
         mount() {
@@ -779,7 +847,7 @@
                 <!-- Watchlist Header -->
                 <div class="wl-header">
                     <div class="wl-header-left">
-                        <div class="wl-dropdown-trigger" id="wl-dropdown-trigger">
+                        <div class="wl-dropdown-trigger" id="wl-dropdown-trigger" title="Select Watchlist">
                             <span class="wl-color-dot" id="wl-active-color-dot" style="background: #2962ff;"></span>
                             <span class="wl-title" id="wl-active-title">Main Watchlist</span>
                             <span class="wl-count-badge" id="wl-active-count">0</span>
@@ -787,6 +855,17 @@
                                 <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" d="M1 1l4 4 4-4"/>
                             </svg>
                         </div>
+
+                        <!-- All Watchlists Scope Toggle Button -->
+                        <button class="wl-scope-btn ${this.includeAllWatchlists ? 'active' : ''}" id="wl-btn-scope-all" title="${this.includeAllWatchlists ? 'Scope: ALL Watchlists (click for Current list)' : 'Scope: Current Watchlist (click to include all lists)'}">
+                            <svg class="wl-scope-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3">
+                                <circle cx="4.5" cy="4.5" r="2"/>
+                                <circle cx="11.5" cy="4.5" r="2"/>
+                                <circle cx="8" cy="11.5" r="2"/>
+                                <path d="M4.5 4.5l7 0M4.5 4.5l3.5 7M11.5 4.5l-3.5 7"/>
+                            </svg>
+                            <span class="wl-scope-text">${this.includeAllWatchlists ? 'All Lists' : 'Current'}</span>
+                        </button>
 
                         <!-- Dropdown Menu -->
                         <div class="wl-dropdown-menu" id="wl-dropdown-menu">
@@ -822,15 +901,8 @@
                     </div>
                 </div>
 
-                <!-- Quick Flag Filter Tabs -->
-                <div class="wl-flag-pills" id="wl-flag-pills">
-                    <button class="wl-pill active" data-filter="all">All</button>
-                    <button class="wl-pill" data-filter="red"><span class="pill-dot red"></span>Red</button>
-                    <button class="wl-pill" data-filter="green"><span class="pill-dot green"></span>Green</button>
-                    <button class="wl-pill" data-filter="blue"><span class="pill-dot blue"></span>Blue</button>
-                    <button class="wl-pill" data-filter="amber"><span class="pill-dot amber"></span>Amber</button>
-                    <button class="wl-pill" data-filter="black"><span class="pill-dot black"></span>Black</button>
-                </div>
+                <!-- Quick Flag Filter Tabs (Multi-line wrap, dynamic colors, multi-select) -->
+                <div class="wl-flag-pills" id="wl-flag-pills"></div>
 
                 <!-- Quick Add Search Bar -->
                 <div class="wl-search-box">
@@ -880,13 +952,13 @@
         bindDrawerEvents() {
             const trigger = document.getElementById('wl-dropdown-trigger');
             const menu = document.getElementById('wl-dropdown-menu');
+            const scopeBtn = document.getElementById('wl-btn-scope-all');
             const pinBtn = document.getElementById('wl-btn-pin');
             const closeBtn = document.getElementById('wl-btn-close');
             const createBtn = document.getElementById('wl-btn-create-list');
             const clearBtn = document.getElementById('wl-btn-clear-list');
             const searchInput = document.getElementById('wl-add-symbol-input');
             const searchClear = document.getElementById('wl-search-clear');
-            const flagPills = document.getElementById('wl-flag-pills');
             const colHeaders = document.getElementById('wl-col-headers');
 
             if (trigger && menu) {
@@ -905,6 +977,15 @@
                     if (!menu.contains(e.target) && !trigger.contains(e.target)) {
                         menu.classList.remove('show');
                     }
+                });
+            }
+
+            if (scopeBtn) {
+                scopeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.includeAllWatchlists = !this.includeAllWatchlists;
+                    this.saveFilterState();
+                    this.render();
                 });
             }
 
@@ -949,20 +1030,6 @@
                             this.render();
                         }
                     }
-                });
-            }
-
-            if (flagPills) {
-                flagPills.querySelectorAll('.wl-pill').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const filter = btn.dataset.filter;
-                        if (filter === 'all') {
-                            this.switchList('main');
-                        } else {
-                            this.switchList(filter);
-                        }
-                    });
                 });
             }
 
@@ -1155,7 +1222,7 @@
         }
 
         switchList(listId) {
-            const target = this.lists.find(l => l.id === listId || (l.flagColor && l.flagColor === listId));
+            const target = this.lists.find(l => l.id === listId);
             if (target) {
                 this.activeListId = target.id;
                 this.saveLists();
@@ -1181,7 +1248,9 @@
             });
 
             this.activeListId = id;
+            this.includeAllWatchlists = false;
             this.saveLists();
+            this.saveFilterState();
             this.render();
         }
 
@@ -1210,51 +1279,248 @@
             const active = this.getActiveList();
             if (!active) return;
 
-            if (!active.symbols.includes(sym)) {
-                active.symbols.push(sym);
-                if (active.flagColor) {
-                    this.symbolFlags[sym] = active.flagColor;
-                }
-                this.saveLists();
-                this.render();
-                this.pollActiveListQuotes();
+            if (!Array.isArray(active.symbols)) {
+                active.symbols = [];
             }
+
+            // Duplicate prevention: if already in list, highlight existing without duplicate
+            if (active.symbols.some(s => s.toUpperCase() === sym)) {
+                this.highlightSymbolRow(sym);
+                return;
+            }
+
+            active.symbols.push(sym);
+            this.saveLists();
+            this.render();
+            this.pollActiveListQuotes();
+            this.highlightSymbolRow(sym);
         }
 
         removeSymbolFromActiveList(sym) {
-            const active = this.getActiveList();
-            if (!active) return;
-
-            active.symbols = active.symbols.filter(s => s !== sym);
-            if (active.flagColor && this.symbolFlags[sym] === active.flagColor) {
-                delete this.symbolFlags[sym];
+            const sUpper = (sym || '').toUpperCase().trim();
+            if (this.includeAllWatchlists) {
+                this.lists.forEach(l => {
+                    if (Array.isArray(l.symbols)) {
+                        l.symbols = l.symbols.filter(s => s.toUpperCase() !== sUpper);
+                    }
+                });
+            } else {
+                const active = this.getActiveList();
+                if (active && Array.isArray(active.symbols)) {
+                    active.symbols = active.symbols.filter(s => s.toUpperCase() !== sUpper);
+                }
             }
             this.saveLists();
             this.render();
         }
 
         setSymbolFlag(sym, color) {
+            const sUpper = (sym || '').toUpperCase().trim();
             if (!color) {
-                delete this.symbolFlags[sym];
-                this.lists.forEach(l => {
-                    if (l.flagColor) {
-                        l.symbols = l.symbols.filter(s => s !== sym);
-                    }
-                });
+                delete this.symbolFlags[sUpper];
             } else {
-                this.symbolFlags[sym] = color;
-                const flagList = this.lists.find(l => l.flagColor === color);
-                if (flagList && !flagList.symbols.includes(sym)) {
-                    flagList.symbols.push(sym);
-                }
-                this.lists.forEach(l => {
-                    if (l.flagColor && l.flagColor !== color) {
-                        l.symbols = l.symbols.filter(s => s !== sym);
-                    }
-                });
+                this.symbolFlags[sUpper] = color;
             }
             this.saveLists();
             this.render();
+        }
+
+        highlightSymbolRow(sym) {
+            const container = document.getElementById('wl-items-container');
+            if (!container) return;
+            const sUpper = (sym || '').toUpperCase().trim();
+            const row = container.querySelector(`.wl-item[data-symbol="${sUpper}"]`);
+            if (row) {
+                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                row.classList.add('flash-highlight');
+                setTimeout(() => row.classList.remove('flash-highlight'), 1200);
+            }
+        }
+
+        toggleColorFilter(filter) {
+            if (filter === 'all') {
+                if (this.isAllSelected) {
+                    // Clicking All while active toggles it off -> Any Color (all flagged items) mode
+                    this.isAllSelected = false;
+                    this.selectedColors.clear();
+                } else {
+                    // Toggle All on -> Show all items (flagged & unflagged)
+                    this.isAllSelected = true;
+                    this.selectedColors.clear();
+                }
+            } else {
+                // Clicking a specific color
+                this.isAllSelected = false;
+                if (this.selectedColors.has(filter)) {
+                    this.selectedColors.delete(filter);
+                } else {
+                    this.selectedColors.add(filter);
+                }
+            }
+
+            this.saveFilterState();
+            this.render();
+        }
+
+        renderFlagPills() {
+            const flagPills = document.getElementById('wl-flag-pills');
+            if (!flagPills) return;
+
+            const allColors = this.getAllColors();
+            let html = `
+                <button class="wl-pill pill-all ${this.isAllSelected ? 'active' : ''}" data-filter="all" title="Show all items (click to toggle all items / flagged items)">
+                    All
+                </button>
+            `;
+
+            allColors.forEach(c => {
+                const isSelected = this.selectedColors.has(c.id);
+                const isCore = !!c.isCore;
+                const activeStyle = `background: ${c.color} !important; color: #ffffff !important; border-color: ${c.color} !important; box-shadow: 0 1px 5px ${c.color}55;`;
+                const inactiveStyle = `background: ${c.color}15; color: ${c.color}; border-color: ${c.color}38;`;
+                const style = isSelected ? activeStyle : inactiveStyle;
+                const dotColor = isSelected ? '#ffffff' : c.color;
+
+                html += `
+                    <button class="wl-pill ${isSelected ? 'active' : ''} ${!isCore ? 'custom-color' : ''}" data-filter="${c.id}" style="${style}" title="Filter by ${c.name} (click to toggle, multi-select allowed)">
+                        <span class="pill-dot" style="background: ${dotColor};"></span>
+                        <span class="pill-name">${c.name}</span>
+                        ${!isCore ? `<span class="wl-pill-del" data-del-color="${c.id}" title="Delete ${c.name} color">✕</span>` : ''}
+                    </button>
+                `;
+            });
+
+            html += `
+                <button class="wl-pill-add-btn" id="wl-btn-add-color" title="Add new custom color filter">
+                    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 2v12M2 8h12"/>
+                    </svg>
+                    <span>Add</span>
+                </button>
+            `;
+
+            flagPills.innerHTML = html;
+
+            flagPills.querySelectorAll('.wl-pill').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('wl-pill-del')) return;
+                    e.stopPropagation();
+                    const filter = btn.dataset.filter;
+                    this.toggleColorFilter(filter);
+                });
+            });
+
+            flagPills.querySelectorAll('.wl-pill-del').forEach(delBtn => {
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const colId = delBtn.dataset.delColor;
+                    this.removeColor(colId);
+                });
+            });
+
+            const addBtn = document.getElementById('wl-btn-add-color');
+            if (addBtn) {
+                addBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showAddColorPopup(addBtn);
+                });
+            }
+        }
+
+        showAddColorPopup(targetEl) {
+            const existing = document.getElementById('wl-add-color-popup');
+            if (existing) {
+                existing.remove();
+                return;
+            }
+
+            const rect = targetEl.getBoundingClientRect();
+            const popup = document.createElement('div');
+            popup.id = 'wl-add-color-popup';
+            popup.className = 'wl-add-color-popup';
+            popup.style.top = `${rect.bottom + 6}px`;
+            popup.style.left = `${Math.max(10, rect.left - 100)}px`;
+
+            popup.innerHTML = `
+                <div class="wl-popup-title">Add Custom Color</div>
+                <div class="wl-popup-field">
+                    <label>Color Name:</label>
+                    <input type="text" id="wl-new-color-name" placeholder="e.g. Purple, Cyan, Pink" maxlength="20" autocomplete="off" />
+                </div>
+                <div class="wl-popup-field">
+                    <label>Pick Color:</label>
+                    <div class="wl-pick-row">
+                        <input type="color" id="wl-new-color-picker" value="#9c27b0" />
+                        <div class="wl-preset-grid">
+                            <span class="wl-preset-dot" data-name="Purple" data-color="#9c27b0" style="background: #9c27b0;" title="Purple"></span>
+                            <span class="wl-preset-dot" data-name="Cyan" data-color="#00bcd4" style="background: #00bcd4;" title="Cyan"></span>
+                            <span class="wl-preset-dot" data-name="Pink" data-color="#e91e63" style="background: #e91e63;" title="Pink"></span>
+                            <span class="wl-preset-dot" data-name="Yellow" data-color="#fbc02d" style="background: #fbc02d;" title="Yellow"></span>
+                            <span class="wl-preset-dot" data-name="Teal" data-color="#009688" style="background: #009688;" title="Teal"></span>
+                            <span class="wl-preset-dot" data-name="Brown" data-color="#795548" style="background: #795548;" title="Brown"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="wl-popup-actions">
+                    <button class="wl-popup-btn cancel" id="wl-btn-cancel-color">Cancel</button>
+                    <button class="wl-popup-btn save" id="wl-btn-save-color">Add Color</button>
+                </div>
+            `;
+
+            document.body.appendChild(popup);
+
+            const nameInput = document.getElementById('wl-new-color-name');
+            const colorPicker = document.getElementById('wl-new-color-picker');
+            const saveBtn = document.getElementById('wl-btn-save-color');
+            const cancelBtn = document.getElementById('wl-btn-cancel-color');
+
+            if (nameInput) nameInput.focus();
+
+            popup.querySelectorAll('.wl-preset-dot').forEach(dot => {
+                dot.addEventListener('click', () => {
+                    const col = dot.dataset.color;
+                    const dName = dot.dataset.name;
+                    if (colorPicker) colorPicker.value = col;
+                    if (nameInput && (!nameInput.value.trim() || popup.querySelectorAll('.wl-preset-dot[data-name="' + nameInput.value.trim() + '"]').length)) {
+                        nameInput.value = dName;
+                    }
+                });
+            });
+
+            const closePopup = () => popup.remove();
+
+            if (cancelBtn) cancelBtn.addEventListener('click', closePopup);
+
+            if (saveBtn) {
+                saveBtn.addEventListener('click', () => {
+                    const name = nameInput ? nameInput.value.trim() : '';
+                    const col = colorPicker ? colorPicker.value : '#9c27b0';
+                    if (!name) {
+                        if (nameInput) nameInput.focus();
+                        return;
+                    }
+                    this.addColor(name, col);
+                    closePopup();
+                });
+            }
+
+            if (nameInput) {
+                nameInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        saveBtn.click();
+                    } else if (e.key === 'Escape') {
+                        closePopup();
+                    }
+                });
+            }
+
+            const docClick = (e) => {
+                if (!popup.contains(e.target) && !targetEl.contains(e.target)) {
+                    closePopup();
+                    document.removeEventListener('click', docClick);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', docClick), 50);
         }
 
         render() {
@@ -1269,28 +1535,21 @@
 
             const dot = document.getElementById('wl-active-color-dot');
             const title = document.getElementById('wl-active-title');
-            const count = document.getElementById('wl-active-count');
+            const scopeBtn = document.getElementById('wl-btn-scope-all');
 
-            if (dot) dot.style.background = active.color || '#2962ff';
-            if (title) title.textContent = active.name;
-            if (count) count.textContent = Array.isArray(active.symbols) ? active.symbols.length : 0;
+            if (dot) dot.style.background = this.includeAllWatchlists ? '#2962ff' : (active.color || '#2962ff');
+            if (title) title.textContent = this.includeAllWatchlists ? 'All Watchlists' : active.name;
 
-            const flagPills = document.getElementById('wl-flag-pills');
-            if (flagPills) {
-                let selectedFilter = null;
-                if (active.flagColor) {
-                    selectedFilter = active.flagColor;
-                } else if (['red', 'green', 'blue', 'amber', 'black'].includes(active.id)) {
-                    selectedFilter = active.id;
-                } else if (active.id === 'main') {
-                    selectedFilter = 'all';
-                }
-
-                flagPills.querySelectorAll('.wl-pill').forEach(b => {
-                    const filter = b.dataset.filter;
-                    b.classList.toggle('active', filter === selectedFilter);
-                });
+            if (scopeBtn) {
+                scopeBtn.classList.toggle('active', this.includeAllWatchlists);
+                scopeBtn.title = this.includeAllWatchlists 
+                    ? 'Scope: Searching across ALL Watchlists (click for Current list)' 
+                    : 'Scope: Current Watchlist (click to include all lists)';
+                const label = scopeBtn.querySelector('.wl-scope-text');
+                if (label) label.textContent = this.includeAllWatchlists ? 'All Lists' : 'Current';
             }
+
+            this.renderFlagPills();
         }
 
         renderDropdownLists() {
@@ -1299,15 +1558,15 @@
 
             let html = '';
             this.lists.forEach(l => {
-                const isActive = l.id === this.activeListId;
-                const canDelete = !l.isDefault && !l.isFlagList && this.lists.length > 1;
+                const isActive = l.id === this.activeListId && !this.includeAllWatchlists;
+                const canDelete = !l.isDefault && this.lists.length > 1;
 
                 html += `
                     <div class="wl-dd-item ${isActive ? 'active' : ''}" data-id="${l.id}">
                         <div class="wl-dd-item-left">
-                            <span class="wl-color-dot" style="background: ${l.color};"></span>
+                            <span class="wl-color-dot" style="background: ${l.color || '#2962ff'};"></span>
                             <span class="wl-dd-name">${l.name}</span>
-                            <span class="wl-dd-count">(${l.symbols.length})</span>
+                            <span class="wl-dd-count">(${Array.isArray(l.symbols) ? l.symbols.length : 0})</span>
                         </div>
                         <div class="wl-dd-item-right">
                             ${isActive ? '<span class="wl-dd-check">✓</span>' : ''}
@@ -1323,6 +1582,8 @@
                 item.addEventListener('click', (e) => {
                     if (e.target.classList.contains('wl-dd-del')) return;
                     const id = item.dataset.id;
+                    this.includeAllWatchlists = false;
+                    this.saveFilterState();
                     this.switchList(id);
                     const menu = document.getElementById('wl-dropdown-menu');
                     if (menu) menu.classList.remove('show');
@@ -1342,15 +1603,68 @@
             const container = document.getElementById('wl-items-container');
             if (!container) return;
 
-            const active = this.getActiveList();
-            if (!active || active.symbols.length === 0) {
+            let baseSymbols = [];
+            if (this.includeAllWatchlists) {
+                const seen = new Set();
+                this.lists.forEach(l => {
+                    if (Array.isArray(l.symbols)) {
+                        l.symbols.forEach(s => {
+                            const u = (s || '').toUpperCase().trim();
+                            if (u && !seen.has(u)) {
+                                seen.add(u);
+                                baseSymbols.push(s);
+                            }
+                        });
+                    }
+                });
+            } else {
+                const active = this.getActiveList();
+                if (active && Array.isArray(active.symbols)) {
+                    baseSymbols = [...active.symbols];
+                }
+            }
+
+            if (baseSymbols.length === 0) {
                 container.innerHTML = `
                     <div class="wl-empty-state">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#787b86" stroke-width="1.2">
                             <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
                         </svg>
-                        <p class="wl-empty-title">Watchlist is Empty</p>
+                        <p class="wl-empty-title">${this.includeAllWatchlists ? 'All Watchlists are Empty' : 'Watchlist is Empty'}</p>
                         <p class="wl-empty-sub">Type a ticker in the search bar above to add symbols to this list.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Apply Color Filtering
+            // Case 1: isAllSelected === true -> show all items
+            // Case 2: selectedColors.size > 0 -> only items whose flag is in selectedColors
+            // Case 3: !isAllSelected && selectedColors.size === 0 -> any colored/flagged item
+            let filteredSymbols = baseSymbols;
+            if (!this.isAllSelected) {
+                if (this.selectedColors.size > 0) {
+                    filteredSymbols = baseSymbols.filter(s => {
+                        const flag = this.symbolFlags[s.toUpperCase()];
+                        return flag && this.selectedColors.has(flag);
+                    });
+                } else {
+                    // "Any color" mode: only show items with any flag assigned
+                    filteredSymbols = baseSymbols.filter(s => {
+                        const flag = this.symbolFlags[s.toUpperCase()];
+                        return flag !== undefined && flag !== null && flag !== '';
+                    });
+                }
+            }
+
+            if (filteredSymbols.length === 0) {
+                container.innerHTML = `
+                    <div class="wl-empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#787b86" stroke-width="1.2">
+                            <path d="M3 4h18M6 8h12M9 12h6M11 16h2"/>
+                        </svg>
+                        <p class="wl-empty-title">No Matching Symbols</p>
+                        <p class="wl-empty-sub">No symbols in ${this.includeAllWatchlists ? 'any watchlist' : 'this watchlist'} match the active color filter.</p>
                     </div>
                 `;
                 return;
@@ -1365,7 +1679,7 @@
             this.scanActiveChartBar();
 
             // Compute display symbols based on active column sort or custom order
-            let displaySymbols = [...active.symbols];
+            let displaySymbols = [...filteredSymbols];
             if (this.sortField && this.sortOrder !== 'none') {
                 const isAsc = this.sortOrder === 'asc';
                 displaySymbols.sort((a, b) => {
@@ -1392,6 +1706,8 @@
                 });
             }
 
+            const canDrag = !this.includeAllWatchlists && this.isAllSelected && this.sortOrder === 'none';
+
             let html = '';
             displaySymbols.forEach(sym => {
                 const sUpper = sym.toUpperCase();
@@ -1400,13 +1716,9 @@
                 const quote = this.liveQuotes[sUpper] || { price: null, change: 0 };
                 const isChartActive = this.activeChartSymbol === sUpper || this.activeChartSymbol.includes(sUpper) || sUpper.includes(this.activeChartSymbol);
 
-                const flagColor = flag === 'red' ? '#f23645' : 
-                                 (flag === 'green' ? '#089981' : 
-                                 (flag === 'blue' ? '#2962ff' : 
-                                 (flag === 'amber' ? '#ff9800' :
-                                 (flag === 'black' ? '#1e222d' : '#b2b5be'))));
-
-                const flagFill = flag ? flagColor : 'none';
+                const colorObj = flag ? this.getColorObj(flag) : null;
+                const flagColor = colorObj ? colorObj.color : '#b2b5be';
+                const flagFill = colorObj ? colorObj.color : 'none';
 
                 const priceStr = this.formatPrice(quote.price);
                 const sign = quote.change > 0 ? '+' : '';
@@ -1414,9 +1726,9 @@
                 const chgClass = quote.change >= 0 ? 'pos' : 'neg';
 
                 html += `
-                    <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}" draggable="true">
+                    <div class="wl-item ${isChartActive ? 'chart-active' : ''}" data-symbol="${sUpper}" draggable="${canDrag}">
                         <!-- Drag Handle -->
-                        <div class="wl-drag-handle" title="Drag to reposition">
+                        <div class="wl-drag-handle" style="${canDrag ? '' : 'display: none;'}" title="Drag to reposition">
                             <svg viewBox="0 0 6 12" width="6" height="12" fill="currentColor">
                                 <circle cx="1.5" cy="2" r="1.1"/>
                                 <circle cx="4.5" cy="2" r="1.1"/>
@@ -1429,7 +1741,7 @@
 
                         <!-- Left Info (Fixed Widths & 2-Line Subtitle to Prevent Overlap) -->
                         <div class="wl-item-left">
-                            <button class="wl-flag-btn" data-sym="${sUpper}" title="Flag symbol (Red/Green/Blue/Amber/Black)">
+                            <button class="wl-flag-btn" data-sym="${sUpper}" title="Flag symbol (Core colors & Custom colors)">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="13" height="13" fill="${flagFill}" stroke="${flagColor}" stroke-width="1.3">
                                     <path d="M3 2v12M3 3h9l-2 4 2 4H3"/>
                                 </svg>
@@ -1475,83 +1787,85 @@
                     }
                 });
 
-                // HTML5 Drag & Drop reordering
-                row.addEventListener('dragstart', (e) => {
-                    if (e.target.closest('.wl-flag-btn') || e.target.closest('.wl-del-btn')) {
-                        e.preventDefault();
-                        return;
-                    }
-                    this.draggedSymbol = row.dataset.symbol;
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', this.draggedSymbol);
-                    setTimeout(() => row.classList.add('dragging'), 0);
-                });
-
-                row.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    if (!this.draggedSymbol || this.draggedSymbol === row.dataset.symbol) return;
-
-                    const rect = row.getBoundingClientRect();
-                    const isTop = e.clientY < (rect.top + rect.height / 2);
-                    if (isTop) {
-                        row.classList.add('drag-over-top');
-                        row.classList.remove('drag-over-bottom');
-                    } else {
-                        row.classList.add('drag-over-bottom');
-                        row.classList.remove('drag-over-top');
-                    }
-                });
-
-                row.addEventListener('dragleave', () => {
-                    row.classList.remove('drag-over-top', 'drag-over-bottom');
-                });
-
-                row.addEventListener('dragend', () => {
-                    row.classList.remove('dragging');
-                    container.querySelectorAll('.wl-item').forEach(r => {
-                        r.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+                if (canDrag) {
+                    // HTML5 Drag & Drop reordering
+                    row.addEventListener('dragstart', (e) => {
+                        if (e.target.closest('.wl-flag-btn') || e.target.closest('.wl-del-btn')) {
+                            e.preventDefault();
+                            return;
+                        }
+                        this.draggedSymbol = row.dataset.symbol;
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', this.draggedSymbol);
+                        setTimeout(() => row.classList.add('dragging'), 0);
                     });
-                    this.draggedSymbol = null;
-                });
 
-                row.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    row.classList.remove('drag-over-top', 'drag-over-bottom');
-                    const fromSym = this.draggedSymbol || e.dataTransfer.getData('text/plain');
-                    const toSym = row.dataset.symbol;
+                    row.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (!this.draggedSymbol || this.draggedSymbol === row.dataset.symbol) return;
 
-                    if (!fromSym || !toSym || fromSym === toSym) return;
+                        const rect = row.getBoundingClientRect();
+                        const isTop = e.clientY < (rect.top + rect.height / 2);
+                        if (isTop) {
+                            row.classList.add('drag-over-top');
+                            row.classList.remove('drag-over-bottom');
+                        } else {
+                            row.classList.add('drag-over-bottom');
+                            row.classList.remove('drag-over-top');
+                        }
+                    });
 
-                    const rect = row.getBoundingClientRect();
-                    const isTop = e.clientY < (rect.top + rect.height / 2);
+                    row.addEventListener('dragleave', () => {
+                        row.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
 
-                    const currActive = this.getActiveList();
-                    if (!currActive || !currActive.symbols) return;
+                    row.addEventListener('dragend', () => {
+                        row.classList.remove('dragging');
+                        container.querySelectorAll('.wl-item').forEach(r => {
+                            r.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+                        });
+                        this.draggedSymbol = null;
+                    });
 
-                    const fromIdx = currActive.symbols.indexOf(fromSym);
-                    if (fromIdx === -1) return;
+                    row.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        row.classList.remove('drag-over-top', 'drag-over-bottom');
+                        const fromSym = this.draggedSymbol || e.dataTransfer.getData('text/plain');
+                        const toSym = row.dataset.symbol;
 
-                    // Remove symbol from current position
-                    currActive.symbols.splice(fromIdx, 1);
+                        if (!fromSym || !toSym || fromSym === toSym) return;
 
-                    // Re-locate target index and insert
-                    let toIdx = currActive.symbols.indexOf(toSym);
-                    if (toIdx === -1) {
-                        currActive.symbols.push(fromSym);
-                    } else {
-                        const insertIdx = isTop ? toIdx : toIdx + 1;
-                        currActive.symbols.splice(insertIdx, 0, fromSym);
-                    }
+                        const rect = row.getBoundingClientRect();
+                        const isTop = e.clientY < (rect.top + rect.height / 2);
 
-                    // Reset sort indicator since manual re-positioning establishes a custom order
-                    this.sortField = null;
-                    this.sortOrder = 'none';
-                    this.updateSortHeaderIndicators();
+                        const currActive = this.getActiveList();
+                        if (!currActive || !currActive.symbols) return;
 
-                    this.saveLists();
-                    this.render();
-                });
+                        const fromIdx = currActive.symbols.indexOf(fromSym);
+                        if (fromIdx === -1) return;
+
+                        // Remove symbol from current position
+                        currActive.symbols.splice(fromIdx, 1);
+
+                        // Re-locate target index and insert
+                        let toIdx = currActive.symbols.indexOf(toSym);
+                        if (toIdx === -1) {
+                            currActive.symbols.push(fromSym);
+                        } else {
+                            const insertIdx = isTop ? toIdx : toIdx + 1;
+                            currActive.symbols.splice(insertIdx, 0, fromSym);
+                        }
+
+                        // Reset sort indicator since manual re-positioning establishes a custom order
+                        this.sortField = null;
+                        this.sortOrder = 'none';
+                        this.updateSortHeaderIndicators();
+
+                        this.saveLists();
+                        this.render();
+                    });
+                }
             });
 
             container.querySelectorAll('.wl-flag-btn').forEach(btn => {
@@ -1608,18 +1922,28 @@
             popup.id = 'wl-flag-popup';
             popup.className = 'wl-flag-popup';
             popup.style.top = `${rect.bottom + 4}px`;
-            popup.style.left = `${rect.left - 8}px`;
+            popup.style.left = `${Math.max(10, rect.left - 8)}px`;
 
-            popup.innerHTML = `
-                <div class="wl-flag-opt" data-color="red"><span class="dot red"></span>Red List</div>
-                <div class="wl-flag-opt" data-color="green"><span class="dot green"></span>Green List</div>
-                <div class="wl-flag-opt" data-color="blue"><span class="dot blue"></span>Blue List</div>
-                <div class="wl-flag-opt" data-color="amber"><span class="dot amber"></span>Amber List</div>
-                <div class="wl-flag-opt" data-color="black"><span class="dot black"></span>Black List</div>
+            const allColors = this.getAllColors();
+            let optionsHtml = '';
+            allColors.forEach(c => {
+                optionsHtml += `
+                    <div class="wl-flag-opt" data-color="${c.id}">
+                        <span class="dot" style="background: ${c.color};"></span>
+                        <span>${c.name} Flag</span>
+                    </div>
+                `;
+            });
+
+            optionsHtml += `
                 <div class="wl-flag-divider"></div>
-                <div class="wl-flag-opt clear" data-color=""><span class="dot clear"></span>Remove Flag</div>
+                <div class="wl-flag-opt clear" data-color="">
+                    <span class="dot clear"></span>
+                    <span>Remove Flag</span>
+                </div>
             `;
 
+            popup.innerHTML = optionsHtml;
             document.body.appendChild(popup);
 
             const removePopup = (e) => {
@@ -1653,7 +1977,35 @@
             else if (isFyers) brokerStr = 'Fyers Live Connected';
 
             if (footerBroker) footerBroker.textContent = `Broker: ${brokerStr}`;
-            if (footerStats && active) footerStats.textContent = `${active.symbols.length} symbols`;
+
+            if (footerStats) {
+                let totalSymbols = 0;
+                if (this.includeAllWatchlists) {
+                    const seen = new Set();
+                    this.lists.forEach(l => {
+                        if (Array.isArray(l.symbols)) {
+                            l.symbols.forEach(s => {
+                                const u = (s || '').toUpperCase().trim();
+                                if (u) seen.add(u);
+                            });
+                        }
+                    });
+                    totalSymbols = seen.size;
+                } else if (active && Array.isArray(active.symbols)) {
+                    totalSymbols = active.symbols.length;
+                }
+
+                // If filtered, count visible rows
+                const container = document.getElementById('wl-items-container');
+                const rowCount = container ? container.querySelectorAll('.wl-item').length : 0;
+                const isFiltered = !this.isAllSelected || this.selectedColors.size > 0;
+
+                if (isFiltered && rowCount !== totalSymbols) {
+                    footerStats.textContent = `${rowCount} / ${totalSymbols} symbols`;
+                } else {
+                    footerStats.textContent = `${totalSymbols} symbols`;
+                }
+            }
         }
 
         // --- Styles Injection ---
@@ -1714,6 +2066,35 @@
                 }
                 .wl-dropdown-trigger:hover {
                     background: #eef3fe;
+                }
+                .wl-scope-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 3px 7px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #787b86;
+                    background: #f0f3fa;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    margin-left: 6px;
+                    transition: all 0.15s ease;
+                    user-select: none;
+                }
+                .wl-scope-btn:hover {
+                    color: #131722;
+                    background: #e4e7f0;
+                }
+                .wl-scope-btn.active {
+                    color: #ffffff;
+                    background: #2962ff;
+                    border-color: #2962ff;
+                    box-shadow: 0 1px 4px rgba(41, 98, 255, 0.3);
+                }
+                .wl-scope-btn svg {
+                    flex-shrink: 0;
                 }
                 .wl-color-dot {
                     width: 9px;
@@ -1876,34 +2257,31 @@
                     color: #f23645;
                 }
 
-                /* Quick Flag Filter Pills (Persistent Color Identity) */
+                /* Quick Flag Filter Pills (Multi-line wrap, Extensible Colors) */
                 .wl-flag-pills {
                     display: flex;
+                    flex-wrap: wrap;
                     align-items: center;
-                    gap: 6px;
-                    padding: 8px 12px;
+                    gap: 5px;
+                    padding: 7px 12px;
                     background: #ffffff;
                     border-bottom: 1px solid #f0f3fa;
-                    overflow-x: auto;
                     flex-shrink: 0;
-                    scrollbar-width: none;
-                }
-                .wl-flag-pills::-webkit-scrollbar {
-                    display: none;
                 }
                 .wl-pill {
                     display: inline-flex;
                     align-items: center;
                     gap: 5px;
-                    padding: 3px 10px;
+                    padding: 3px 8px;
                     border-radius: 12px;
-                    font-size: 11.5px;
+                    font-size: 11px;
                     font-weight: 600;
                     border: 1px solid transparent;
                     cursor: pointer;
-                    transition: all 0.18s ease;
+                    transition: all 0.15s ease;
                     white-space: nowrap;
                     user-select: none;
+                    line-height: 1.2;
                 }
                 .pill-dot {
                     width: 7px;
@@ -1914,135 +2292,162 @@
                 }
 
                 /* Filter 'All' */
-                .wl-pill[data-filter="all"] {
+                .wl-pill.pill-all, .wl-pill[data-filter="all"] {
                     background: #f0f3fa;
                     color: #5d606b;
                     border-color: #e0e3eb;
                 }
-                .wl-pill[data-filter="all"]:hover {
+                .wl-pill.pill-all:hover, .wl-pill[data-filter="all"]:hover {
                     background: #e4e7f0;
                     color: #131722;
                 }
-                .wl-pill[data-filter="all"].active {
-                    background: #2962ff;
-                    color: #ffffff;
-                    border-color: #2962ff;
+                .wl-pill.pill-all.active, .wl-pill[data-filter="all"].active {
+                    background: #2962ff !important;
+                    color: #ffffff !important;
+                    border-color: #2962ff !important;
                     box-shadow: 0 1px 4px rgba(41, 98, 255, 0.3);
                 }
 
-                /* Filter 'Red' */
-                .wl-pill[data-filter="red"] {
-                    background: #fef0f0;
-                    color: #f23645;
-                    border-color: rgba(242, 54, 69, 0.28);
+                .wl-pill-del {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 9px;
+                    margin-left: 2px;
+                    opacity: 0.65;
+                    cursor: pointer;
+                    border-radius: 50%;
+                    width: 12px;
+                    height: 12px;
+                    line-height: 1;
+                    transition: opacity 0.12s, background 0.12s;
                 }
-                .wl-pill[data-filter="red"] .pill-dot {
-                    background: #f23645;
-                }
-                .wl-pill[data-filter="red"]:hover {
-                    background: #fde2e4;
-                    border-color: rgba(242, 54, 69, 0.45);
-                }
-                .wl-pill[data-filter="red"].active {
-                    background: #f23645;
-                    color: #ffffff;
-                    border-color: #f23645;
-                    box-shadow: 0 1px 5px rgba(242, 54, 69, 0.35);
-                }
-                .wl-pill[data-filter="red"].active .pill-dot {
-                    background: #ffffff;
+                .wl-pill-del:hover {
+                    opacity: 1;
+                    background: rgba(0, 0, 0, 0.18);
                 }
 
-                /* Filter 'Green' */
-                .wl-pill[data-filter="green"] {
-                    background: #edf8f5;
-                    color: #089981;
-                    border-color: rgba(8, 153, 129, 0.28);
-                }
-                .wl-pill[data-filter="green"] .pill-dot {
-                    background: #089981;
-                }
-                .wl-pill[data-filter="green"]:hover {
-                    background: #def3ed;
-                    border-color: rgba(8, 153, 129, 0.45);
-                }
-                .wl-pill[data-filter="green"].active {
-                    background: #089981;
-                    color: #ffffff;
-                    border-color: #089981;
-                    box-shadow: 0 1px 5px rgba(8, 153, 129, 0.35);
-                }
-                .wl-pill[data-filter="green"].active .pill-dot {
-                    background: #ffffff;
-                }
-
-                /* Filter 'Blue' */
-                .wl-pill[data-filter="blue"] {
-                    background: #eef3fe;
+                .wl-pill-add-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 3px;
+                    padding: 3px 8px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
                     color: #2962ff;
-                    border-color: rgba(41, 98, 255, 0.28);
+                    background: #eef3fe;
+                    border: 1px dashed #2962ff;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    line-height: 1.2;
+                    user-select: none;
                 }
-                .wl-pill[data-filter="blue"] .pill-dot {
-                    background: #2962ff;
+                .wl-pill-add-btn:hover {
+                    background: #dce7fe;
+                    border-style: solid;
                 }
-                .wl-pill[data-filter="blue"]:hover {
-                    background: #dfe8fc;
-                    border-color: rgba(41, 98, 255, 0.45);
+
+                /* Add Custom Color Popup */
+                .wl-add-color-popup {
+                    position: fixed;
+                    background: #ffffff;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 8px;
+                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+                    z-index: 2200;
+                    padding: 12px 14px;
+                    width: 220px;
+                    font-family: inherit;
+                    box-sizing: border-box;
                 }
-                .wl-pill[data-filter="blue"].active {
-                    background: #2962ff;
-                    color: #ffffff;
+                .wl-popup-title {
+                    font-size: 12.5px;
+                    font-weight: 700;
+                    color: #131722;
+                    margin-bottom: 10px;
+                }
+                .wl-popup-field {
+                    margin-bottom: 10px;
+                }
+                .wl-popup-field label {
+                    display: block;
+                    font-size: 11px;
+                    color: #787b86;
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                }
+                .wl-popup-field input[type="text"] {
+                    width: 100%;
+                    height: 28px;
+                    padding: 0 8px;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    box-sizing: border-box;
+                    outline: none;
+                }
+                .wl-popup-field input[type="text"]:focus {
                     border-color: #2962ff;
-                    box-shadow: 0 1px 5px rgba(41, 98, 255, 0.35);
                 }
-                .wl-pill[data-filter="blue"].active .pill-dot {
-                    background: #ffffff;
+                .wl-pick-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
                 }
-
-                /* Filter 'Amber' */
-                .wl-pill[data-filter="amber"] {
-                    background: #fff8ec;
-                    color: #ff9800;
-                    border-color: rgba(255, 152, 0, 0.32);
+                .wl-pick-row input[type="color"] {
+                    width: 32px;
+                    height: 28px;
+                    padding: 0;
+                    border: 1px solid #e0e3eb;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    background: none;
                 }
-                .wl-pill[data-filter="amber"] .pill-dot {
-                    background: #ff9800;
+                .wl-preset-grid {
+                    display: flex;
+                    gap: 5px;
+                    flex-wrap: wrap;
                 }
-                .wl-pill[data-filter="amber"]:hover {
-                    background: #ffeed1;
-                    border-color: rgba(255, 152, 0, 0.5);
+                .wl-preset-dot {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    border: 1px solid rgba(0, 0, 0, 0.1);
+                    transition: transform 0.12s;
                 }
-                .wl-pill[data-filter="amber"].active {
-                    background: #ff9800;
+                .wl-preset-dot:hover {
+                    transform: scale(1.25);
+                }
+                .wl-popup-actions {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 6px;
+                    margin-top: 12px;
+                }
+                .wl-popup-btn {
+                    padding: 4px 10px;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    border: none;
+                    transition: background 0.15s;
+                }
+                .wl-popup-btn.cancel {
+                    background: #f0f3fa;
+                    color: #5d606b;
+                }
+                .wl-popup-btn.cancel:hover {
+                    background: #e4e7f0;
+                }
+                .wl-popup-btn.save {
+                    background: #2962ff;
                     color: #ffffff;
-                    border-color: #ff9800;
-                    box-shadow: 0 1px 5px rgba(255, 152, 0, 0.35);
                 }
-                .wl-pill[data-filter="amber"].active .pill-dot {
-                    background: #ffffff;
-                }
-
-                /* Filter 'Black' */
-                .wl-pill[data-filter="black"] {
-                    background: #f0f1f4;
-                    color: #1e222d;
-                    border-color: rgba(30, 34, 45, 0.28);
-                }
-                .wl-pill[data-filter="black"] .pill-dot {
-                    background: #1e222d;
-                }
-                .wl-pill[data-filter="black"]:hover {
-                    background: #e2e4e9;
-                    border-color: rgba(30, 34, 45, 0.45);
-                }
-                .wl-pill[data-filter="black"].active {
-                    background: #1e222d;
-                    color: #ffffff;
-                    border-color: #1e222d;
-                    box-shadow: 0 1px 5px rgba(30, 34, 45, 0.35);
-                }
-                .wl-pill[data-filter="black"].active .pill-dot {
-                    background: #ffffff;
+                .wl-popup-btn.save:hover {
+                    background: #1e53e5;
                 }
 
                 /* Search Add Bar */
@@ -2224,6 +2629,14 @@
                 }
                 .wl-item.drag-over-bottom {
                     border-bottom: 2px solid #2962ff !important;
+                }
+                .wl-item.flash-highlight {
+                    animation: wlFlashHighlight 1.2s ease-out;
+                }
+                @keyframes wlFlashHighlight {
+                    0% { background-color: rgba(41, 98, 255, 0.4); }
+                    50% { background-color: rgba(41, 98, 255, 0.15); }
+                    100% { background-color: transparent; }
                 }
 
                 .wl-drag-handle {
