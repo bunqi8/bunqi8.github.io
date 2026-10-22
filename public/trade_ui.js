@@ -248,13 +248,37 @@
             this.updateChartContainerLayout();
         }
 
-        onLivePriceUpdate(price, symbol = null) {
+        onLivePriceUpdate(price, symbol = null, bid = null, ask = null) {
             if (!price || isNaN(price) || price <= 0) return;
             const num = Number(price);
             this.lastLiveCandlePrice = num;
-            const spreadStep = num > 500 ? 0.50 : (num > 10 ? 0.05 : 0.0002);
-            this.currentBid = num;
-            this.currentAsk = Number((num + spreadStep).toFixed(5));
+
+            if (bid != null && ask != null && !isNaN(bid) && !isNaN(ask) && ask >= bid) {
+                this.currentBid = Number(bid);
+                this.currentAsk = Number(ask);
+            } else {
+                const isNifty = this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY');
+                const isGold = this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD');
+                const isJpy = this.currentSymbol.includes('JPY');
+                
+                let spreadStep;
+                if (isNifty) {
+                    const tickOffset = (Math.round((num * 100) % 4) * 0.10);
+                    spreadStep = 0.50 + tickOffset;
+                } else if (isGold) {
+                    const tickOffset = (Math.round((num * 10) % 5) * 0.05);
+                    spreadStep = 0.35 + tickOffset;
+                } else if (isJpy) {
+                    spreadStep = 0.012 + (Math.round((num * 100) % 4) * 0.002);
+                } else if (num < 10) {
+                    spreadStep = 0.00015 + (Math.round((num * 10000) % 4) * 0.00005);
+                } else {
+                    spreadStep = num > 500 ? 0.50 : 0.05;
+                }
+
+                this.currentBid = num;
+                this.currentAsk = Number((num + spreadStep).toFixed(5));
+            }
             this.updatePrices();
         }
 
@@ -525,12 +549,12 @@
                     display: block !important;
                     height: 16px !important;
                 }
-                /* SUB-PIP SUPERSCRIPT */
+                /* FRACTIONAL DIGIT (Grounded on exact same text baseline as other digits, slightly smaller font) */
                 .tv-legend-subpip {
-                    font-size: 10px !important;
-                    font-weight: 600 !important;
-                    line-height: 14px !important;
-                    vertical-align: 0.35em !important;
+                    font-size: 0.82em !important;
+                    font-weight: inherit !important;
+                    line-height: inherit !important;
+                    vertical-align: baseline !important;
                     margin-left: 0.5px !important;
                     display: inline !important;
                 }
@@ -3827,16 +3851,34 @@
         updatePrices() {
             this.syncPricesWithChart();
 
-            if (window.PaperTrading) {
-                window.PaperTrading.onPriceTick(this.currentSymbol, this.currentBid, this.currentAsk);
-            }
+            const spreadPoints = this.getSpreadFormatted();
+            const bidHtml = this.formatPipPriceHtml(this.currentBid);
+            const askHtml = this.formatPipPriceHtml(this.currentAsk);
 
+            // 1. Instantly update on-chart legend widget inside iframe
+            try {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                if (iframe && iframe.contentDocument) {
+                    const bidDisp = iframe.contentDocument.getElementById('tv-native-bid-disp');
+                    const askDisp = iframe.contentDocument.getElementById('tv-native-ask-disp');
+                    const spreadDisp = iframe.contentDocument.getElementById('tv-native-spread-disp');
+                    if (bidDisp) bidDisp.innerHTML = bidHtml;
+                    if (askDisp) askDisp.innerHTML = askHtml;
+                    if (spreadDisp) spreadDisp.innerText = spreadPoints;
+                }
+            } catch (_) {}
+
+            // 2. Update side ticket drawer
             const ticketBid = document.getElementById('tv-ticket-bid-val');
             const ticketAsk = document.getElementById('tv-ticket-ask-val');
             const ticketSpread = document.getElementById('tv-ticket-spread-badge');
-            if (ticketBid) ticketBid.innerHTML = this.formatPipPriceHtml(this.currentBid);
-            if (ticketAsk) ticketAsk.innerHTML = this.formatPipPriceHtml(this.currentAsk);
-            if (ticketSpread) ticketSpread.innerText = this.getSpreadFormatted();
+            if (ticketBid) ticketBid.innerHTML = bidHtml;
+            if (ticketAsk) ticketAsk.innerHTML = askHtml;
+            if (ticketSpread) ticketSpread.innerText = spreadPoints;
+
+            if (window.PaperTrading) {
+                window.PaperTrading.onPriceTick(this.currentSymbol, this.currentBid, this.currentAsk);
+            }
 
             this.updateFinancialSummary();
         }
@@ -3933,7 +3975,7 @@
             if (dotIdx !== -1 && dotIdx < str.length - 1) {
                 const base = str.slice(0, -1);
                 const last = str.slice(-1);
-                return `${base}<span class="tv-legend-subpip" style="font-size: 0.78em; vertical-align: 0.35em; line-height: 1; font-weight: 600; margin-left: 0.5px; display: inline;">${last}</span>`;
+                return `${base}<span class="tv-legend-subpip" style="font-size: 0.82em; vertical-align: baseline; line-height: inherit; font-weight: inherit; margin-left: 0.5px; display: inline;">${last}</span>`;
             }
             return str;
         }
@@ -3941,9 +3983,27 @@
         syncPricesWithChart() {
             const chartP = this.getChartPrice();
             if (chartP && (!window.MT5API || !window.MT5API.isConnected || !this.currentSymbol.includes('USD'))) {
-                const spreadStep = chartP > 500 ? 0.50 : (chartP > 10 ? 0.05 : 0.0002);
+                const isNifty = this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY');
+                const isGold = this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD');
+                const isJpy = this.currentSymbol.includes('JPY');
+                
+                let spreadStep;
+                if (isNifty) {
+                    const tickOffset = (Math.round((chartP * 100) % 4) * 0.10);
+                    spreadStep = 0.50 + tickOffset;
+                } else if (isGold) {
+                    const tickOffset = (Math.round((chartP * 10) % 5) * 0.05);
+                    spreadStep = 0.35 + tickOffset;
+                } else if (isJpy) {
+                    spreadStep = 0.012 + (Math.round((chartP * 100) % 4) * 0.002);
+                } else if (chartP < 10) {
+                    spreadStep = 0.00015 + (Math.round((chartP * 10000) % 4) * 0.00005);
+                } else {
+                    spreadStep = chartP > 500 ? 0.50 : 0.05;
+                }
+
                 this.currentBid = chartP;
-                this.currentAsk = chartP + spreadStep;
+                this.currentAsk = Number((chartP + spreadStep).toFixed(5));
             }
         }
 

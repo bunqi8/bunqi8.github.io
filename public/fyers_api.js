@@ -1833,7 +1833,9 @@ class FyersEngine {
                                             high: item.v.high_price || item.v.h || item.v.lp,
                                             low: item.v.low_price || item.v.l || item.v.lp,
                                             close: item.v.lp,
-                                            volume: item.v.volume || item.v.vol || item.v.v || 0
+                                            volume: item.v.volume || item.v.vol || item.v.v || 0,
+                                            bid: item.v.bid || item.v.b,
+                                            ask: item.v.ask || item.v.a
                                         };
                                         subs.forEach(sub => sub.cb(tick));
                                     }

@@ -1160,7 +1160,7 @@ const Datafeed = {
             }
             
             if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
-                window.TradeUIInstance.onLivePriceUpdate(alignedTick.close || (lastBar && lastBar.close), fyersSymbol);
+                window.TradeUIInstance.onLivePriceUpdate(alignedTick.close || (lastBar && lastBar.close), fyersSymbol, alignedTick.bid, alignedTick.ask);
             }
             
             onRealtimeCallback({ ...lastBar });
