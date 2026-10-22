@@ -360,7 +360,7 @@ function bootWidget() {
                         
                         if (window.FyersUI) window.FyersUI.injectButton(targetEl, iframeDoc);
                         if (window.MT5UI) window.MT5UI.injectButton(targetEl, iframeDoc);
-                        if (window.TradeUI) window.TradeUI.injectToolbarButton(targetEl, iframeDoc);
+                        if (window.TradeUI && typeof window.TradeUI.injectToolbarButton === 'function') window.TradeUI.injectToolbarButton(targetEl, iframeDoc);
                         if (window.DatasetTimingUI) window.DatasetTimingUI.injectButton(targetEl, iframeDoc);
                     }
                 }

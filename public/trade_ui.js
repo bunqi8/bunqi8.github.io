@@ -104,7 +104,9 @@
             // Activity Log Tracking
             this.activityLogs = this.loadActivityLogs();
 
+            window.TradeUI = this;
             window.TradeUIInstance = this;
+            window.tradeUIInstance = this;
 
             this.init();
         }
@@ -368,13 +370,28 @@
         // ==========================================
         // 1. TOP TOOLBAR BUTTON
         // ==========================================
-        injectToolbarButton() {
-            const targetDoc = document;
+        static injectToolbarButton(targetEl = null, iframeDoc = null) {
+            if (window.TradeUIInstance) {
+                return window.TradeUIInstance.injectToolbarButton(targetEl, iframeDoc);
+            }
+        }
+
+        injectToolbarButton(targetEl = null, iframeDoc = null) {
+            if (!iframeDoc) {
+                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
+                if (iframe) {
+                    try {
+                        iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    } catch (_) {}
+                }
+            }
+            const targetDoc = iframeDoc || document;
+            this.cachedIframeDoc = targetDoc;
             if (targetDoc.getElementById(this.toolbarGroupId)) return;
 
             const mt5Wrapper = targetDoc.getElementById('header-toolbar-mt5-manager');
             const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
-            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search');
+            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
 
             const isOneClick = !!this.settings.oneClickTrading;
 
@@ -473,7 +490,17 @@
         }
 
         updateToolbarBtnState() {
-            const btn = document.getElementById(this.toolbarBtnId);
+            let targetDoc = document;
+            if (this.cachedIframeDoc) {
+                targetDoc = this.cachedIframeDoc;
+            } else {
+                try {
+                    const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe');
+                    if (iframe && iframe.contentDocument) targetDoc = iframe.contentDocument;
+                } catch (_) {}
+            }
+
+            const btn = targetDoc.getElementById(this.toolbarBtnId) || document.getElementById(this.toolbarBtnId);
             if (btn) {
                 if (this.isOrderTicketOpen) {
                     btn.style.background = '#f0f3fa';
@@ -484,8 +511,8 @@
                 }
             }
 
-            const qBtn = document.getElementById('header-toolbar-quick-trade-btn');
-            const qLabel = document.getElementById('tv-toolbar-quick-trade-label');
+            const qBtn = targetDoc.getElementById('header-toolbar-quick-trade-btn') || document.getElementById('header-toolbar-quick-trade-btn');
+            const qLabel = targetDoc.getElementById('tv-toolbar-quick-trade-label') || document.getElementById('tv-toolbar-quick-trade-label');
             const isOneClick = !!this.settings.oneClickTrading;
             if (qBtn) {
                 qBtn.style.border = isOneClick ? '1px solid #2962ff' : '1px solid #e0e3eb';
@@ -4480,7 +4507,10 @@
         }
     }
 
-    window.TradeUI = TradeUI;
-    window.tradeUIInstance = new TradeUI();
+    const tradeUIInstance = new TradeUI();
+    window.TradeUI = tradeUIInstance;
+    window.TradeUIInstance = tradeUIInstance;
+    window.tradeUIInstance = tradeUIInstance;
+    window.TradeUIClass = TradeUI;
 
 })(window);
