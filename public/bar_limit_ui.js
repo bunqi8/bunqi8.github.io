@@ -103,6 +103,172 @@
             return String(limit);
         }
 
+        getCalendarDifference(startMs, endMs) {
+            const start = new Date(startMs);
+            const end = new Date(endMs);
+
+            let yDiff = end.getFullYear() - start.getFullYear();
+            let mDiff = end.getMonth() - start.getMonth();
+            let dDiff = end.getDate() - start.getDate();
+
+            if (dDiff < 0) {
+                mDiff--;
+                const prevMonthLastDay = new Date(end.getFullYear(), end.getMonth(), 0).getDate();
+                dDiff += prevMonthLastDay;
+            }
+            if (mDiff < 0) {
+                yDiff--;
+                mDiff += 12;
+            }
+
+            const totalHours = Math.round((endMs - startMs) / 3600000);
+            const totalDays = Math.max(1, Math.round((endMs - startMs) / 86400000));
+
+            let spanShort = '';
+            let spanDetailed = '';
+
+            if (totalHours < 24) {
+                const hrs = Math.max(1, totalHours);
+                spanShort = `~${hrs} hr${hrs > 1 ? 's' : ''}`;
+                spanDetailed = `~${hrs} hour${hrs > 1 ? 's' : ''}`;
+            } else if (yDiff > 0) {
+                const yStr = `${yDiff} yr${yDiff > 1 ? 's' : ''}`;
+                const mStr = mDiff > 0 ? `${mDiff} mo${mDiff > 1 ? 's' : ''}` : '';
+                const dStr = dDiff > 0 ? `${dDiff}d` : '';
+                
+                if (mDiff > 0) {
+                    spanShort = `~${yStr}, ${mStr}`;
+                } else if (dDiff > 0 && yDiff < 2) {
+                    spanShort = `~${yStr}, ${dStr}`;
+                } else {
+                    spanShort = `~${yStr}`;
+                }
+                
+                const detParts = [`~${yDiff} year${yDiff > 1 ? 's' : ''}`];
+                if (mDiff > 0) detParts.push(`${mDiff} month${mDiff > 1 ? 's' : ''}`);
+                if (dDiff > 0 && yDiff < 5) detParts.push(`${dDiff} day${dDiff > 1 ? 's' : ''}`);
+                spanDetailed = detParts.join(', ');
+            } else if (mDiff > 0) {
+                const mStr = `${mDiff} mo${mDiff > 1 ? 's' : ''}`;
+                const dStr = dDiff > 0 ? `${dDiff}d` : '';
+                
+                spanShort = dDiff > 0 ? `~${mStr}, ${dStr}` : `~${mStr}`;
+                
+                const detParts = [`~${mDiff} month${mDiff > 1 ? 's' : ''}`];
+                if (dDiff > 0) detParts.push(`${dDiff} day${dDiff > 1 ? 's' : ''}`);
+                spanDetailed = detParts.join(', ');
+            } else {
+                spanShort = `${totalDays} days`;
+                spanDetailed = `${totalDays} day${totalDays > 1 ? 's' : ''}`;
+            }
+
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const sDay = start.getDate();
+            const sMon = months[start.getMonth()];
+            const sYr = start.getFullYear();
+
+            return {
+                startMs,
+                endMs,
+                spanShort,
+                spanDetailed,
+                dateFull: `${sMon} ${sDay}, ${sYr}`,
+                dateShort: `${sMon} '${String(sYr).slice(-2)}`,
+                dateCompact: `${sDay} ${sMon} '${String(sYr).slice(-2)}`,
+                yDiff,
+                mDiff,
+                dDiff,
+                totalDays
+            };
+        }
+
+        estimateRangeInfo(targetBarCount) {
+            const count = Math.max(1, parseInt(targetBarCount, 10) || 1000);
+            const key = this.getCurrentCacheKey();
+            const bars = (window._barsCache && key && window._barsCache[key]) ? window._barsCache[key] : [];
+            
+            let nowMs = Date.now();
+            let estimatedStartMs = null;
+            let endMs = nowMs;
+
+            if (bars && bars.length >= 2) {
+                const N = bars.length;
+                const lastBar = bars[N - 1];
+                const firstBar = bars[0];
+                endMs = lastBar.time;
+
+                if (count <= N) {
+                    const exactStartBar = bars[N - count];
+                    if (exactStartBar) {
+                        estimatedStartMs = exactStartBar.time;
+                    }
+                }
+
+                if (!estimatedStartMs) {
+                    // Empirical interval derived from real loaded candle data
+                    // Automatically incorporates market hours, holidays, weekend halts, and night breaks!
+                    const knownSpanMs = lastBar.time - firstBar.time;
+                    const avgMsPerBar = Math.max(1000, knownSpanMs / (N - 1));
+                    const additionalBars = count - N;
+                    estimatedStartMs = firstBar.time - (additionalBars * avgMsPerBar);
+                }
+            } else {
+                // Fallback theoretical interval if data cache is not yet populated
+                let res = '5';
+                let sym = '';
+                try {
+                    if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                        const chart = window.tvWidget.activeChart();
+                        res = String(chart.resolution() || '5');
+                        sym = String(chart.symbol() || '').toUpperCase();
+                    }
+                } catch (_) {}
+
+                let msPerBar = 5 * 60 * 1000;
+                const isDwm = res.includes('D') || res.includes('W') || res.includes('M');
+                if (res.includes('W')) {
+                    msPerBar = 7 * 86400 * 1000;
+                } else if (res.includes('M')) {
+                    msPerBar = 30.4375 * 86400 * 1000;
+                } else if (res.includes('D') || isDwm) {
+                    // ~250 trading days per 365.25 calendar days
+                    msPerBar = 1.461 * 86400 * 1000;
+                } else {
+                    let mins = parseInt(res, 10);
+                    if (isNaN(mins) || mins <= 0) mins = 5;
+
+                    let sessionRatio = 1.4; // Forex 24/5 default (120 trading hours per week / 168 calendar hours)
+                    if (sym.includes('NIFTY') || sym.includes('BANKNIFTY') || sym.includes('NSE') || sym.includes('BSE')) {
+                        // Indian equities: 6.25 hrs/day, 5 days = 31.25 hrs/wk (168 / 31.25 = 5.376)
+                        sessionRatio = 5.376;
+                    } else if (sym.includes('BTC') || sym.includes('ETH') || sym.includes('CRYPTO') || sym.includes('USDT')) {
+                        sessionRatio = 1.0; // Crypto 24/7
+                    }
+                    msPerBar = mins * 60 * 1000 * sessionRatio;
+                }
+
+                const spanMs = count * msPerBar;
+                estimatedStartMs = nowMs - spanMs;
+            }
+
+            if (!estimatedStartMs || isNaN(estimatedStartMs)) {
+                estimatedStartMs = endMs - (count * 300000);
+            }
+
+            // Adjust for weekend closure if start date falls on Sunday/Saturday
+            const startDate = new Date(estimatedStartMs);
+            const dayOfWeek = startDate.getDay();
+            if (dayOfWeek === 0) { // Sunday -> shift to Friday
+                startDate.setDate(startDate.getDate() - 2);
+                estimatedStartMs = startDate.getTime();
+            } else if (dayOfWeek === 6) { // Saturday -> shift to Friday
+                startDate.setDate(startDate.getDate() - 1);
+                estimatedStartMs = startDate.getTime();
+            }
+
+            return this.getCalendarDifference(estimatedStartMs, endMs);
+        }
+
         resetCounts() {
             this._barCounts = {};
             this._limitReached = {};
@@ -536,6 +702,7 @@
             // Available expansion presets (ONLY values greater than current limit)
             const allPresets = [5000, 10000, 20000, 40000];
             const expandPresets = allPresets.filter(val => val > curLimit);
+            const info40k = this.estimateRangeInfo(40000);
 
             let presetsHtml = '';
             if (expandPresets.length > 0) {
@@ -545,11 +712,15 @@
                             Quick 1-Click Expansion:
                         </div>
                         <div style="display: flex; gap: 6px;">
-                            ${expandPresets.map(p => `
-                                <button type="button" class="btn-card-quick-preset" data-val="${p}" style="flex: 1; background: rgba(41, 98, 255, 0.06); border: 1px solid rgba(41, 98, 255, 0.3); color: #2962ff; padding: 7px 4px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s;">
-                                    +${this.formatLimitShort(p)} ⚡
-                                </button>
-                            `).join('')}
+                            ${expandPresets.map(p => {
+                                const pInfo = this.estimateRangeInfo(p);
+                                return `
+                                    <button type="button" class="btn-card-quick-preset" data-val="${p}" style="flex: 1; background: rgba(41, 98, 255, 0.06); border: 1px solid rgba(41, 98, 255, 0.3); color: #2962ff; padding: 6px 3px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; align-items: center; justify-content: center;" title="Starts on ${pInfo.dateFull}">
+                                        <span style="font-size: 11.5px; font-weight: 700; line-height: 1.1;">+${this.formatLimitShort(p)} ⚡</span>
+                                        <span style="font-size: 9px; font-weight: 600; opacity: 0.9; margin-top: 2px; line-height: 1.1;">${pInfo.spanShort}</span>
+                                    </button>
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;
@@ -590,13 +761,16 @@
                 </div>
 
                 <!-- Box 2: Recommended 40,000 Bars (DIRECT 1-CLICK EXPANSION FEATURE) -->
-                <div id="box-card-recommended-40k" style="background: ${curLimit < 40000 ? 'rgba(41, 98, 255, 0.05)' : th.box2Bg}; border: 1.5px solid ${curLimit < 40000 ? '#2962ff' : th.box2Border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; width: 100%; box-sizing: border-box; cursor: ${curLimit < 40000 ? 'pointer' : 'default'}; transition: all 0.15s ease;" title="${curLimit < 40000 ? 'Click to instantly expand limit to 40,000 bars' : 'Active buffer is at safe maximum'}">
+                <div id="box-card-recommended-40k" style="background: ${curLimit < 40000 ? 'rgba(41, 98, 255, 0.05)' : th.box2Bg}; border: 1.5px solid ${curLimit < 40000 ? '#2962ff' : th.box2Border}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; width: 100%; box-sizing: border-box; cursor: ${curLimit < 40000 ? 'pointer' : 'default'}; transition: all 0.15s ease;" title="${curLimit < 40000 ? 'Click to instantly expand limit to 40,000 bars (Starts ~' + info40k.dateFull + ')' : 'Active buffer is at safe maximum'}">
                     <div style="text-align: left;">
                         <div style="font-size: 10.5px; color: ${curLimit < 40000 ? '#2962ff' : th.textMuted}; font-weight: 600; display: flex; align-items: center; gap: 4px;">
                             <span>Recommended</span>
                             ${curLimit < 40000 ? '<span style="background: #2962ff; color: #fff; font-size: 8.5px; padding: 1px 4px; border-radius: 3px; font-weight: 700;">1-CLICK</span>' : ''}
                         </div>
                         <div style="font-size: 13.5px; font-weight: 700; color: ${th.textPrimary};">Safe buffer</div>
+                        <div style="font-size: 10px; color: ${th.textSecondary}; margin-top: 2px;">
+                            📅 Covers <strong>${info40k.spanDetailed}</strong> · Starts ~<strong>${info40k.dateShort}</strong>
+                        </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 5px;">
                         <span style="font-size: 13.5px; font-weight: 700; color: ${curLimit < 40000 ? '#2962ff' : th.textPrimary};">40,000 bars</span>
@@ -613,6 +787,11 @@
                         <button id="btn-card-custom-confirm" style="background: ${th.btnBg}; color: ${th.btnColor}; border: none; border-radius: 6px; padding: 0 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.15s;">
                             Expand
                         </button>
+                    </div>
+
+                    <!-- Dynamic Range Preview for Card Custom Input -->
+                    <div id="card-custom-span-info" style="display: none; font-size: 10.5px; text-align: left; margin-top: 5px; padding: 5px 8px; background: rgba(41, 98, 255, 0.06); border-radius: 6px; color: #2962ff; line-height: 1.35; border: 1px solid rgba(41, 98, 255, 0.16);">
+                        📅 Covers <strong id="card-custom-span-val"></strong> · Starts ~<span id="card-custom-date-val"></span>
                     </div>
                     
                     <div id="card-input-validation-msg" style="display: none; font-size: 10.5px; text-align: left; margin-top: 4px; line-height: 1.35;"></div>
@@ -668,12 +847,16 @@
             const valMsg = card.querySelector('#card-input-validation-msg');
             const riskBox = card.querySelector('#card-risk-warning');
             const riskCb = card.querySelector('#card-risk-cb');
+            const spanInfoBox = card.querySelector('#card-custom-span-info');
+            const spanValEl = card.querySelector('#card-custom-span-val');
+            const dateValEl = card.querySelector('#card-custom-date-val');
 
             const validateInput = () => {
                 const val = parseInt(input.value, 10);
                 if (isNaN(val) || !val) {
                     valMsg.style.display = 'none';
                     riskBox.style.display = 'none';
+                    if (spanInfoBox) spanInfoBox.style.display = 'none';
                     return;
                 }
 
@@ -682,12 +865,21 @@
                     valMsg.style.color = '#dc2626';
                     valMsg.textContent = `⚠️ You can only expand from here (> ${curLimit.toLocaleString()}). Use top toolbar to reduce.`;
                     riskBox.style.display = 'none';
-                } else if (val > 40000) {
-                    valMsg.style.display = 'none';
-                    riskBox.style.display = 'block';
+                    if (spanInfoBox) spanInfoBox.style.display = 'none';
                 } else {
                     valMsg.style.display = 'none';
-                    riskBox.style.display = 'none';
+                    if (val > 40000) {
+                        riskBox.style.display = 'block';
+                    } else {
+                        riskBox.style.display = 'none';
+                    }
+
+                    if (spanInfoBox && spanValEl && dateValEl) {
+                        const est = this.estimateRangeInfo(val);
+                        spanValEl.textContent = est.spanDetailed;
+                        dateValEl.textContent = est.dateFull;
+                        spanInfoBox.style.display = 'block';
+                    }
                 }
             };
 
@@ -1009,6 +1201,7 @@
 
             const th = this.getThemeStyles();
             const curLimit = this.getLimit();
+            const curInfo = this.estimateRangeInfo(curLimit);
             const overlay = document.createElement('div');
             overlay.id = this.modalId;
             overlay.style.cssText = `
@@ -1027,7 +1220,7 @@
             `;
 
             overlay.innerHTML = `
-                <div style="background: ${th.modalBg}; color: ${th.textPrimary}; border: 1px solid ${th.modalBorder}; border-radius: 12px; width: 440px; max-width: calc(100vw - 32px); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04); overflow: hidden;">
+                <div style="background: ${th.modalBg}; color: ${th.textPrimary}; border: 1px solid ${th.modalBorder}; border-radius: 12px; width: 460px; max-width: calc(100vw - 32px); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04); overflow: hidden;">
                     <!-- Header -->
                     <div style="padding: 16px 20px; border-bottom: 1px solid ${th.box1Bg}; display: flex; align-items: center; justify-content: space-between; background: ${th.modalHeaderBg};">
                         <div style="display: flex; align-items: center; gap: 10px;">
@@ -1045,10 +1238,17 @@
                         <div style="margin-bottom: 16px;">
                             <label style="font-size: 11.5px; font-weight: 600; color: ${th.textMuted}; display: block; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.3px;">Select Preset Limit:</label>
                             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                                <button type="button" class="preset-btn" data-val="5000" style="background: ${curLimit===5000?'#2962ff':th.presetBg}; color: ${curLimit===5000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===5000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">5K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Ultra Light</span></button>
-                                <button type="button" class="preset-btn" data-val="10000" style="background: ${curLimit===10000?'#2962ff':th.presetBg}; color: ${curLimit===10000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===10000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">10K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Fast</span></button>
-                                <button type="button" class="preset-btn" data-val="20000" style="background: ${curLimit===20000?'#2962ff':th.presetBg}; color: ${curLimit===20000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===20000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">20K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Balanced</span></button>
-                                <button type="button" class="preset-btn" data-val="40000" style="background: ${curLimit===40000?'#2962ff':th.presetBg}; color: ${curLimit===40000?'#fff':th.textPrimary}; border: 1px solid ${curLimit===40000?'#2962ff':th.presetBorder}; padding: 10px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; transition: all 0.15s;">40K<br><span style="font-size: 9.5px; opacity: 0.8; font-weight: 400;">Default</span></button>
+                                ${[5000, 10000, 20000, 40000].map(p => {
+                                    const info = this.estimateRangeInfo(p);
+                                    const isSel = curLimit === p;
+                                    return `
+                                        <button type="button" class="preset-btn" data-val="${p}" style="background: ${isSel ? '#2962ff' : th.presetBg}; color: ${isSel ? '#fff' : th.textPrimary}; border: 1.5px solid ${isSel ? '#2962ff' : th.presetBorder}; padding: 10px 4px 8px; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.15s; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 64px; box-sizing: border-box;" title="Starts on ${info.dateFull}">
+                                            <span class="preset-title" style="font-size: 14px; font-weight: 700; line-height: 1.1;">${this.formatLimitShort(p)}</span>
+                                            <span class="preset-span-text" style="font-size: 10px; font-weight: 600; margin-top: 4px; line-height: 1.15; color: ${isSel ? '#ffffff' : '#2962ff'};">${info.spanShort}</span>
+                                            <span class="preset-date-text" style="font-size: 8.5px; opacity: ${isSel ? '0.85' : '0.65'}; margin-top: 2px; line-height: 1.1; color: inherit;">Starts ${info.dateShort}</span>
+                                        </button>
+                                    `;
+                                }).join('')}
                             </div>
                         </div>
 
@@ -1058,6 +1258,17 @@
                                 <span style="font-size: 11px; color: ${th.textMuted}; font-weight: 400; text-transform: none;">Min: 1,000 | Recommended: 40,000</span>
                             </label>
                             <input id="custom-limit-input" type="number" min="1000" step="1000" value="${curLimit}" style="width: 100%; box-sizing: border-box; background: ${th.inputBg}; border: 1px solid ${th.inputBorder}; color: ${th.textPrimary}; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: monospace; outline: none;">
+                            
+                            <!-- Dynamic Range Estimation Info Banner below custom input -->
+                            <div id="modal-custom-span-info" style="margin-top: 8px; padding: 8px 12px; border-radius: 8px; background: rgba(41, 98, 255, 0.06); border: 1px solid rgba(41, 98, 255, 0.18); display: flex; align-items: center; justify-content: space-between; font-size: 11.5px;">
+                                <div style="display: flex; align-items: center; gap: 6px; color: ${th.textPrimary};">
+                                    <span style="font-size: 13px;">📅</span>
+                                    <span>Covers: <strong id="modal-custom-span-val" style="color: #2962ff;">${curInfo.spanDetailed}</strong></span>
+                                </div>
+                                <div style="font-size: 11px; color: ${th.textSecondary};">
+                                    Starts: <strong id="modal-custom-date-val" style="color: ${th.textPrimary};">${curInfo.dateFull}</strong>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Dynamic Warning Box for values > 40K -->
@@ -1095,8 +1306,39 @@
             const riskCheckbox = overlay.querySelector('#accept-risk-checkbox');
             const presetBtns = overlay.querySelectorAll('.preset-btn');
 
+            const updateCustomInfo = (val) => {
+                const num = parseInt(val, 10);
+                const infoBox = overlay.querySelector('#modal-custom-span-info');
+                const spanEl = overlay.querySelector('#modal-custom-span-val');
+                const dateEl = overlay.querySelector('#modal-custom-date-val');
+
+                if (isNaN(num) || num < 50) {
+                    if (infoBox) infoBox.style.display = 'none';
+                    return;
+                }
+
+                const est = this.estimateRangeInfo(num);
+                if (infoBox) infoBox.style.display = 'flex';
+                if (spanEl) spanEl.textContent = est.spanDetailed;
+                if (dateEl) dateEl.textContent = est.dateFull;
+            };
+
             input.addEventListener('input', () => {
                 const val = parseInt(input.value, 10);
+                updateCustomInfo(input.value);
+
+                presetBtns.forEach(b => {
+                    const bVal = parseInt(b.getAttribute('data-val'), 10);
+                    const isMatch = bVal === val;
+                    b.style.background = isMatch ? '#2962ff' : th.presetBg;
+                    b.style.borderColor = isMatch ? '#2962ff' : th.presetBorder;
+                    b.style.color = isMatch ? '#fff' : th.textPrimary;
+                    const sp = b.querySelector('.preset-span-text');
+                    if (sp) sp.style.color = isMatch ? '#ffffff' : '#2962ff';
+                    const dt = b.querySelector('.preset-date-text');
+                    if (dt) dt.style.opacity = isMatch ? '0.85' : '0.65';
+                });
+
                 if (val > 40000) {
                     warningBox.style.display = 'block';
                 } else {
@@ -1113,10 +1355,21 @@
                         b.style.background = th.presetBg;
                         b.style.borderColor = th.presetBorder;
                         b.style.color = th.textPrimary;
+                        const sp = b.querySelector('.preset-span-text');
+                        if (sp) sp.style.color = '#2962ff';
+                        const dt = b.querySelector('.preset-date-text');
+                        if (dt) dt.style.opacity = '0.65';
                     });
                     btn.style.background = '#2962ff';
                     btn.style.borderColor = '#2962ff';
                     btn.style.color = '#fff';
+                    const actSp = btn.querySelector('.preset-span-text');
+                    if (actSp) actSp.style.color = '#ffffff';
+                    const actDt = btn.querySelector('.preset-date-text');
+                    if (actDt) actDt.style.opacity = '0.85';
+
+                    updateCustomInfo(bVal);
+
                     if (parseInt(bVal, 10) > 40000) {
                         warningBox.style.display = 'block';
                     } else {
