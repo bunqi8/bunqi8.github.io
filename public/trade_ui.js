@@ -77,10 +77,24 @@
             this.isExitsExpanded = true;
             this.isExtraSettingsExpanded = false;
             this.timeInForce = 'Week';
-            this.isTpEnabled = false;
+            this.isTpEnabled = true;
             this.isSlEnabled = false;
-            this.tpTicks = 75;
-            this.slTicks = 25;
+            this.tpTicks = 493384;
+            this.slTicks = 25000;
+            this.tpMode = 'usd'; // 'usd', 'price', 'ticks', 'pct_price', 'reward_balance'
+            this.tpEquivMode = 'pct_price'; // 'pct_price', 'price', 'ticks', 'reward_balance'
+            this.isTpDropdownOpen = false;
+            this.isTpModeDropdownOpen = false;
+
+            this.slMode = 'ticks'; // 'ticks', 'price', 'usd', 'pct_price', 'risk_balance'
+            this.slEquivMode = 'price'; // 'price', 'ticks', 'pct_price', 'risk_balance'
+            this.isSlDropdownOpen = false;
+            this.isSlModeDropdownOpen = false;
+
+            this.unitsMode = 'units'; // 'units', 'usd', 'pct_balance'
+            this.unitsEquivMode = 'usd';
+            this.isUnitsDropdownOpen = false;
+            this.isUnitsModeDropdownOpen = false;
 
             // Bottom Trading Activity Panel State
             this.isBottomPanelOpen = false;
@@ -1760,6 +1774,8 @@
             const bidFormatted = this.formatPrice(this.currentBid);
             const askFormatted = this.formatPrice(this.currentAsk);
             const displaySymbol = this.currentSymbol;
+            const tpMetrics = this.calculateExitMetrics('tp');
+            const slMetrics = this.calculateExitMetrics('sl');
 
             panel.innerHTML = `
                 <!-- 1. Header Bar (TV Logo, Symbol, Presets icon, Settings ···, ✕) -->
@@ -2014,7 +2030,7 @@
                             <!-- SELL BOX -->
                             <div id="tv-ticket-split-sell" role="button" tabindex="0" class="sell-kndSwmgU ${!isBuy ? 'active-kndSwmgU' : ''}" data-name="side-control-sell" style="
                                 padding: 8px 12px;
-                                background: ${!isBuy ? theme.sellActiveBg : theme.subtabBg};
+                                background: ${!isBuy ? '#fce8e8' : (theme.isDark ? '#1e222d' : '#ffffff')};
                                 border-right: 1px solid ${theme.border};
                                 cursor: pointer;
                                 display: flex;
@@ -2022,8 +2038,8 @@
                                 transition: background 0.15s;
                                 box-sizing: border-box;
                             ">
-                                <div class="title-kndSwmgU" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 13px; font-weight: 600; margin-bottom: 2px;">Sell</div>
-                                <div class="value-kndSwmgU" id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
+                                <div class="title-kndSwmgU" style="color: ${!isBuy ? '#f23645' : theme.text}; font-size: 13px; font-weight: ${!isBuy ? '700' : '600'}; margin-bottom: 2px;">Sell</div>
+                                <div class="value-kndSwmgU" id="tv-ticket-bid-val" style="color: ${!isBuy ? '#f23645' : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
                                     ${this.formatPipPriceHtml(this.currentBid)}
                                 </div>
                             </div>
@@ -2031,7 +2047,7 @@
                             <!-- BUY BOX -->
                             <div id="tv-ticket-split-buy" role="button" tabindex="0" class="buy-kndSwmgU ${isBuy ? 'active-kndSwmgU' : ''}" data-name="side-control-buy" style="
                                 padding: 8px 12px;
-                                background: ${isBuy ? theme.buyActiveBg : theme.subtabBg};
+                                background: ${isBuy ? 'rgba(41, 98, 255, 0.12)' : (theme.isDark ? '#1e222d' : '#ffffff')};
                                 text-align: right;
                                 cursor: pointer;
                                 display: flex;
@@ -2040,19 +2056,19 @@
                                 transition: background 0.15s;
                                 box-sizing: border-box;
                             ">
-                                <div class="title-kndSwmgU" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 13px; font-weight: 600; margin-bottom: 2px;">Buy</div>
-                                <div class="value-kndSwmgU" id="tv-ticket-ask-val" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
+                                <div class="title-kndSwmgU" style="color: ${isBuy ? '#2962ff' : theme.text}; font-size: 13px; font-weight: ${isBuy ? '700' : '600'}; margin-bottom: 2px;">Buy</div>
+                                <div class="value-kndSwmgU" id="tv-ticket-ask-val" style="color: ${isBuy ? '#2962ff' : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
                                     ${this.formatPipPriceHtml(this.currentAsk)}
                                 </div>
                             </div>
 
-                            <!-- SPREAD BADGE (Raised Top) -->
+                            <!-- SPREAD BADGE (Centered) -->
                             <div class="spread-kndSwmgU raisedTop-kndSwmgU" data-name="side-control-spread" style="
                                 position: absolute;
                                 left: 50%;
-                                top: 7px;
-                                transform: translateX(-50%);
-                                background: ${theme.panelBg};
+                                top: 50%;
+                                transform: translate(-50%, -50%);
+                                background: ${theme.isDark ? '#1e222d' : '#ffffff'};
                                 border: 1px solid ${theme.border};
                                 border-radius: 4px;
                                 padding: 1px 7px;
@@ -2179,7 +2195,7 @@
 
                         <!-- Units Input Box -->
                         <div>
-                            <div style="font-size: 12px; font-weight: 500; color: ${theme.textMuted}; margin-bottom: 4px; display: flex; align-items: center; gap: 3px; cursor: pointer;">
+                            <div id="tv-ticket-units-mode-label" style="font-size: 12px; font-weight: 500; color: ${theme.textMuted}; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; position: relative;">
                                 <span>Units</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
                             </div>
@@ -2188,12 +2204,12 @@
                                 align-items: center;
                                 border: 1px solid ${theme.border};
                                 border-radius: 6px;
-                                padding: 0 10px;
+                                padding: 0 8px 0 10px;
                                 height: 38px;
                                 background: ${theme.inputBg};
                                 box-sizing: border-box;
                             ">
-                                <div style="display: flex; align-items: center;">
+                                <div style="display: flex; align-items: center; flex: 1;">
                                     <input type="number" id="tv-ticket-units-in" min="0.01" step="0.1" value="${this.lots}" style="
                                         width: 65px;
                                         border: none;
@@ -2209,12 +2225,12 @@
                                         <button id="tv-ticket-units-down" type="button" style="border: none; background: transparent; padding: 0 3px; cursor: pointer; color: ${theme.textMuted}; font-size: 9px; line-height: 1;" title="Decrease">▼</button>
                                     </div>
                                 </div>
-                                <button id="tv-ticket-units-swap-btn" type="button" title="Order quantity presets" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                <button id="tv-ticket-units-swap-btn" type="button" title="Order presets" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; padding: 0; margin: 0 4px; transition: background 0.1s, color 0.1s;" onmouseenter="this.style.background='${theme.subtabBg}'; this.style.color='${theme.text}';" onmouseleave="this.style.background='transparent'; this.style.color='${theme.textMuted}';">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                 </button>
-                                <div id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: ${theme.textMuted}; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                                    <span id="tv-ticket-usd-val-amount">${this.calculateRequiredMarginUSD()} USD</span>
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                <div id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: ${theme.textMuted}; display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 4px 6px; border-radius: 4px;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'">
+                                    <span id="tv-ticket-usd-val-amount" style="font-weight: 600; color: ${theme.text}; font-feature-settings: 'tnum';">${this.calculateRequiredMarginUSD()} USD</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14" style="color: ${theme.textMuted};"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
                                 </div>
                             </div>
                         </div>
@@ -2251,7 +2267,7 @@
 
                         <!-- Exits Section (Take Profit & Stop Loss) -->
                         <div>
-                            <div id="tv-ticket-exits-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 4px 0;">
+                            <div id="tv-ticket-exits-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 4px 0; user-select: none;">
                                 <span style="font-size: 14px; font-weight: 700; color: ${theme.text};">Exits</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" style="color: ${theme.textMuted}; transform: ${this.isExitsExpanded ? 'rotate(0deg)' : 'rotate(180deg)'}; transition: transform 0.15s;">
                                     <path fill="currentColor" d="M3.92 10.17 9 5.71l5.08 4.46-1 1.13L9 7.71 4.91 11.3l-.99-1.13Z"/>
@@ -2259,120 +2275,224 @@
                             </div>
 
                             ${this.isExitsExpanded ? `
-                                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
+                                <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 8px;">
                                     <!-- Take Profit -->
-                                    <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 500; display: flex; align-items: center; gap: 2px;">
-                                                Take profit price
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
-                                            </span>
-                                            <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
-                                                <input type="checkbox" id="tv-ticket-check-tp" ${this.isTpEnabled ? 'checked' : ''}>
-                                                <span class="tv-toggle-slider"></span>
-                                            </label>
+                                    <div style="position: relative;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; position: relative;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span class="switcher-l3DtKLsL" id="tv-ticket-tp-switch-wrap" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                                    <input type="checkbox" id="tv-ticket-check-tp" ${this.isTpEnabled ? 'checked' : ''} style="display: none;">
+                                                    <span class="switchView-tWDICTay small-tWDICTay ${this.isTpEnabled ? 'checked-tWDICTay' : ''}" style="
+                                                        display: block;
+                                                        position: relative;
+                                                        width: 36px;
+                                                        height: 20px;
+                                                        background: ${this.isTpEnabled ? '#2e2e2e' : (theme.isDark ? '#363c4e' : '#e0e3eb')};
+                                                        border-radius: 20px;
+                                                        transition: background 0.2s ease;
+                                                    ">
+                                                        <span class="thumb-tWDICTay" style="
+                                                            display: block;
+                                                            width: 14px;
+                                                            height: 14px;
+                                                            background: #ffffff;
+                                                            border-radius: 50%;
+                                                            position: absolute;
+                                                            top: 3px;
+                                                            left: 3px;
+                                                            transform: ${this.isTpEnabled ? 'translateX(16px)' : 'translateX(0)'};
+                                                            transition: transform 0.2s ease;
+                                                            box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+                                                        "></span>
+                                                    </span>
+                                                </span>
+
+                                                <div id="tv-ticket-tp-mode-label" style="display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">
+                                                    <span style="font-size: 13px; font-weight: 500; color: ${theme.text};">${this.getExitModeHeaderLabel('tp', this.tpMode)}</span>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14" style="color: ${theme.textMuted}; transform: ${this.isTpModeDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}; transition: transform 0.15s;"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                                </div>
+                                            </div>
+
+                                            ${this.isTpModeDropdownOpen ? this.renderExitModeDropdown('tp', theme) : ''}
                                         </div>
+
                                         <div id="tv-ticket-tp-row" style="
                                             display: flex;
                                             align-items: center;
                                             border: 1px solid ${this.isTpEnabled ? '#2962ff' : theme.border};
+                                            box-shadow: ${this.isTpEnabled ? '0 0 0 1px #2962ff' : 'none'};
                                             border-radius: 6px;
-                                            padding: 0 10px;
+                                            padding: 0 8px 0 10px;
                                             height: 38px;
                                             background: ${this.isTpEnabled ? theme.inputBg : theme.subtabBg};
                                             box-sizing: border-box;
                                             opacity: ${this.isTpEnabled ? '1' : '0.45'};
                                             pointer-events: ${this.isTpEnabled ? 'auto' : 'none'};
+                                            position: relative;
                                             transition: all 0.15s;
                                         ">
-                                            <input type="text" id="tv-ticket-tp-price-disp" value="${this.calculateExitPrice('tp')}" ${!this.isTpEnabled ? 'readonly' : ''} style="
+                                            <input type="text" id="tv-ticket-tp-in" value="${this.getExitModeInputValue('tp', this.tpMode, tpMetrics)}" ${!this.isTpEnabled ? 'readonly' : ''} style="
                                                 flex: 1;
+                                                min-width: 0;
                                                 border: none;
                                                 outline: none;
                                                 background: transparent;
-                                                font-size: 14px;
-                                                font-weight: 600;
+                                                font-size: 14.5px;
+                                                font-weight: 700;
                                                 color: ${this.isTpEnabled ? theme.text : theme.textMuted};
                                                 font-feature-settings: 'tnum';
                                             ">
-                                            <button id="tv-ticket-tp-swap-btn" type="button" title="Swap input focus" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+
+                                            <button id="tv-ticket-tp-swap-btn" type="button" title="Swap primary and equivalent metrics" style="
+                                                background: transparent;
+                                                border: none;
+                                                color: ${theme.textMuted};
+                                                cursor: pointer;
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: center;
+                                                width: 28px;
+                                                height: 28px;
+                                                border-radius: 4px;
+                                                padding: 0;
+                                                margin: 0 4px;
+                                                transition: background 0.1s, color 0.1s;
+                                            " onmouseenter="this.style.background='${theme.subtabBg}'; this.style.color='${theme.text}';" onmouseleave="this.style.background='transparent'; this.style.color='${theme.textMuted}';">
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                             </button>
-                                            <div style="display: flex; align-items: center; gap: 4px;">
-                                                <input type="number" id="tv-ticket-tp-ticks-in" value="${this.tpTicks}" ${!this.isTpEnabled ? 'readonly' : ''} style="
-                                                    width: 44px;
-                                                    border: none;
-                                                    text-align: right;
-                                                    outline: none;
-                                                    background: transparent;
-                                                    font-size: 13px;
-                                                    font-weight: 600;
-                                                    color: ${this.isTpEnabled ? theme.text : theme.textMuted};
-                                                    font-feature-settings: 'tnum';
-                                                ">
-                                                <span style="font-size: 12px; color: ${theme.textMuted}; display: flex; align-items: center; gap: 2px;">
-                                                    ticks
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="12" height="12"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
-                                                </span>
-                                            </div>
+
+                                            <button id="tv-ticket-tp-equiv-btn" type="button" title="Choose equivalent metric" style="
+                                                background: transparent;
+                                                border: none;
+                                                cursor: pointer;
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                                padding: 4px 6px;
+                                                border-radius: 4px;
+                                                color: ${theme.text};
+                                                font-size: 13px;
+                                                font-weight: 600;
+                                                font-feature-settings: 'tnum';
+                                                white-space: nowrap;
+                                                transition: background 0.1s;
+                                            " onmouseenter="this.style.background='${theme.subtabBg}';" onmouseleave="this.style.background='transparent';">
+                                                <span id="tv-ticket-tp-equiv-val">${this.getExitModeDisplayValue('tp', this.tpEquivMode, tpMetrics)}</span>
+                                                <span id="tv-ticket-tp-equiv-lbl" style="font-size: 12px; font-weight: 500; color: ${theme.textMuted};">${this.getExitModeLabel('tp', this.tpEquivMode)}</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14" style="color: ${theme.textMuted}; transform: ${this.isTpDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}; transition: transform 0.15s;"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                            </button>
+
+                                            ${this.isTpDropdownOpen ? this.renderExitPopover('tp', theme) : ''}
                                         </div>
                                     </div>
 
                                     <!-- Stop Loss -->
-                                    <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 500; display: flex; align-items: center; gap: 2px;">
-                                                Stop loss ticks
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
-                                            </span>
-                                            <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
-                                                <input type="checkbox" id="tv-ticket-check-sl" ${this.isSlEnabled ? 'checked' : ''}>
-                                                <span class="tv-toggle-slider"></span>
-                                            </label>
+                                    <div style="position: relative;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; position: relative;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span class="switcher-l3DtKLsL" id="tv-ticket-sl-switch-wrap" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                                    <input type="checkbox" id="tv-ticket-check-sl" ${this.isSlEnabled ? 'checked' : ''} style="display: none;">
+                                                    <span class="switchView-tWDICTay small-tWDICTay ${this.isSlEnabled ? 'checked-tWDICTay' : ''}" style="
+                                                        display: block;
+                                                        position: relative;
+                                                        width: 36px;
+                                                        height: 20px;
+                                                        background: ${this.isSlEnabled ? '#2e2e2e' : (theme.isDark ? '#363c4e' : '#e0e3eb')};
+                                                        border-radius: 20px;
+                                                        transition: background 0.2s ease;
+                                                    ">
+                                                        <span class="thumb-tWDICTay" style="
+                                                            display: block;
+                                                            width: 14px;
+                                                            height: 14px;
+                                                            background: #ffffff;
+                                                            border-radius: 50%;
+                                                            position: absolute;
+                                                            top: 3px;
+                                                            left: 3px;
+                                                            transform: ${this.isSlEnabled ? 'translateX(16px)' : 'translateX(0)'};
+                                                            transition: transform 0.2s ease;
+                                                            box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+                                                        "></span>
+                                                    </span>
+                                                </span>
+
+                                                <div id="tv-ticket-sl-mode-label" style="display: flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">
+                                                    <span style="font-size: 13px; font-weight: 500; color: ${theme.text};">${this.getExitModeHeaderLabel('sl', this.slMode)}</span>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14" style="color: ${theme.textMuted}; transform: ${this.isSlModeDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}; transition: transform 0.15s;"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                                </div>
+                                            </div>
+
+                                            ${this.isSlModeDropdownOpen ? this.renderExitModeDropdown('sl', theme) : ''}
                                         </div>
+
                                         <div id="tv-ticket-sl-row" style="
                                             display: flex;
                                             align-items: center;
                                             border: 1px solid ${this.isSlEnabled ? '#2962ff' : theme.border};
+                                            box-shadow: ${this.isSlEnabled ? '0 0 0 1px #2962ff' : 'none'};
                                             border-radius: 6px;
-                                            padding: 0 10px;
+                                            padding: 0 8px 0 10px;
                                             height: 38px;
                                             background: ${this.isSlEnabled ? theme.inputBg : theme.subtabBg};
                                             box-sizing: border-box;
                                             opacity: ${this.isSlEnabled ? '1' : '0.45'};
                                             pointer-events: ${this.isSlEnabled ? 'auto' : 'none'};
+                                            position: relative;
                                             transition: all 0.15s;
                                         ">
-                                            <input type="number" id="tv-ticket-sl-ticks-in" value="${this.slTicks}" ${!this.isSlEnabled ? 'readonly' : ''} style="
-                                                width: 50px;
+                                            <input type="text" id="tv-ticket-sl-in" value="${this.getExitModeInputValue('sl', this.slMode, slMetrics)}" ${!this.isSlEnabled ? 'readonly' : ''} style="
+                                                flex: 1;
+                                                min-width: 0;
                                                 border: none;
                                                 outline: none;
                                                 background: transparent;
-                                                font-size: 14px;
-                                                font-weight: 600;
+                                                font-size: 14.5px;
+                                                font-weight: 700;
                                                 color: ${this.isSlEnabled ? theme.text : theme.textMuted};
                                                 font-feature-settings: 'tnum';
                                             ">
-                                            <button id="tv-ticket-sl-swap-btn" type="button" title="Swap input focus" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+
+                                            <button id="tv-ticket-sl-swap-btn" type="button" title="Swap primary and equivalent metrics" style="
+                                                background: transparent;
+                                                border: none;
+                                                color: ${theme.textMuted};
+                                                cursor: pointer;
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: center;
+                                                width: 28px;
+                                                height: 28px;
+                                                border-radius: 4px;
+                                                padding: 0;
+                                                margin: 0 4px;
+                                                transition: background 0.1s, color 0.1s;
+                                            " onmouseenter="this.style.background='${theme.subtabBg}'; this.style.color='${theme.text}';" onmouseleave="this.style.background='transparent'; this.style.color='${theme.textMuted}';">
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                             </button>
-                                            <div style="margin-left: auto; display: flex; align-items: center; gap: 4px;">
-                                                <input type="text" id="tv-ticket-sl-price-disp" value="${this.calculateExitPrice('sl')}" ${!this.isSlEnabled ? 'readonly' : ''} style="
-                                                    width: 80px;
-                                                    border: none;
-                                                    text-align: right;
-                                                    outline: none;
-                                                    background: transparent;
-                                                    font-size: 13px;
-                                                    font-weight: 600;
-                                                    color: ${this.isSlEnabled ? theme.text : theme.textMuted};
-                                                    font-feature-settings: 'tnum';
-                                                ">
-                                                <span style="font-size: 12px; color: ${theme.textMuted}; display: flex; align-items: center; gap: 2px;">
-                                                    price
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="12" height="12"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
-                                                </span>
-                                            </div>
+
+                                            <button id="tv-ticket-sl-equiv-btn" type="button" title="Choose equivalent metric" style="
+                                                background: transparent;
+                                                border: none;
+                                                cursor: pointer;
+                                                display: flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                                padding: 4px 6px;
+                                                border-radius: 4px;
+                                                color: ${theme.text};
+                                                font-size: 13px;
+                                                font-weight: 600;
+                                                font-feature-settings: 'tnum';
+                                                white-space: nowrap;
+                                                transition: background 0.1s;
+                                            " onmouseenter="this.style.background='${theme.subtabBg}';" onmouseleave="this.style.background='transparent';">
+                                                <span id="tv-ticket-sl-equiv-val">${this.getExitModeDisplayValue('sl', this.slEquivMode, slMetrics)}</span>
+                                                <span id="tv-ticket-sl-equiv-lbl" style="font-size: 12px; font-weight: 500; color: ${theme.textMuted};">${this.getExitModeLabel('sl', this.slEquivMode)}</span>
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14" style="color: ${theme.textMuted}; transform: ${this.isSlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}; transition: transform 0.15s;"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                            </button>
+
+                                            ${this.isSlDropdownOpen ? this.renderExitPopover('sl', theme) : ''}
                                         </div>
                                     </div>
                                 </div>
@@ -3027,6 +3147,27 @@
                     if (prPop && prPop.style.display === 'block' && !prPop.contains(e.target) && !bPre?.contains(e.target)) {
                         prPop.style.display = 'none';
                     }
+
+                    let needRender = false;
+                    if (this.isTpDropdownOpen && !e.target.closest('#tv-ticket-tp-equiv-popover') && !e.target.closest('#tv-ticket-tp-equiv-btn')) {
+                        this.isTpDropdownOpen = false;
+                        needRender = true;
+                    }
+                    if (this.isTpModeDropdownOpen && !e.target.closest('#tv-ticket-tp-mode-popover') && !e.target.closest('#tv-ticket-tp-mode-label')) {
+                        this.isTpModeDropdownOpen = false;
+                        needRender = true;
+                    }
+                    if (this.isSlDropdownOpen && !e.target.closest('#tv-ticket-sl-equiv-popover') && !e.target.closest('#tv-ticket-sl-equiv-btn')) {
+                        this.isSlDropdownOpen = false;
+                        needRender = true;
+                    }
+                    if (this.isSlModeDropdownOpen && !e.target.closest('#tv-ticket-sl-mode-popover') && !e.target.closest('#tv-ticket-sl-mode-label')) {
+                        this.isSlModeDropdownOpen = false;
+                        needRender = true;
+                    }
+                    if (needRender) {
+                        this.renderSideOrderTicket();
+                    }
                 });
             }
 
@@ -3177,99 +3318,191 @@
                 };
             }
 
-            // TP & SL checkboxes
-            const checkTp = panel.querySelector('#tv-ticket-check-tp');
-            const checkSl = panel.querySelector('#tv-ticket-check-sl');
-            if (checkTp) {
-                checkTp.onchange = (e) => {
-                    this.isTpEnabled = e.target.checked;
+            // TP & SL switch toggles
+            const tpSwitchWrap = panel.querySelector('#tv-ticket-tp-switch-wrap');
+            const slSwitchWrap = panel.querySelector('#tv-ticket-sl-switch-wrap');
+            if (tpSwitchWrap) {
+                tpSwitchWrap.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isTpEnabled = !this.isTpEnabled;
                     this.renderSideOrderTicket();
                 };
             }
-            if (checkSl) {
-                checkSl.onchange = (e) => {
-                    this.isSlEnabled = e.target.checked;
+            if (slSwitchWrap) {
+                slSwitchWrap.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isSlEnabled = !this.isSlEnabled;
                     this.renderSideOrderTicket();
                 };
             }
 
-            // TP Price & Ticks two-way sync
-            const tpTicksIn = panel.querySelector('#tv-ticket-tp-ticks-in');
-            const tpPriceIn = panel.querySelector('#tv-ticket-tp-price-disp');
+            // TP Mode Label Dropdown
+            const tpModeLabel = panel.querySelector('#tv-ticket-tp-mode-label');
+            if (tpModeLabel) {
+                tpModeLabel.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isTpModeDropdownOpen = !this.isTpModeDropdownOpen;
+                    this.isTpDropdownOpen = false;
+                    this.isSlDropdownOpen = false;
+                    this.isSlModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            }
+            panel.querySelectorAll('.tv-ticket-tp-mode-item').forEach(item => {
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    const mode = item.getAttribute('data-mode');
+                    this.tpMode = mode;
+                    if (this.tpEquivMode === mode) {
+                        this.tpEquivMode = mode === 'price' ? 'ticks' : 'price';
+                    }
+                    this.isTpModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            });
+
+            // TP Primary Input live sync
+            const tpIn = panel.querySelector('#tv-ticket-tp-in');
+            if (tpIn) {
+                tpIn.oninput = (e) => {
+                    const val = e.target.value;
+                    this.setExitFromInput('tp', this.tpMode, val);
+                    const m = this.calculateExitMetrics('tp');
+                    const equivValEl = panel.querySelector('#tv-ticket-tp-equiv-val');
+                    const equivLblEl = panel.querySelector('#tv-ticket-tp-equiv-lbl');
+                    if (equivValEl) equivValEl.innerText = this.getExitModeDisplayValue('tp', this.tpEquivMode, m);
+                    if (equivLblEl) equivLblEl.innerText = this.getExitModeLabel('tp', this.tpEquivMode);
+                    panel.querySelectorAll('.tv-ticket-tp-pop-item').forEach(row => {
+                        const mMode = row.getAttribute('data-mode');
+                        const rowVal = row.querySelector('span:last-child');
+                        if (rowVal) rowVal.innerText = this.getExitModeDisplayValue('tp', mMode, m);
+                    });
+                };
+            }
+
+            // TP Swap Button
             const tpSwapBtn = panel.querySelector('#tv-ticket-tp-swap-btn');
-
-            if (tpTicksIn) {
-                tpTicksIn.oninput = (e) => {
-                    this.tpTicks = Math.max(1, parseFloat(e.target.value) || 1);
-                    if (tpPriceIn) tpPriceIn.value = this.calculateExitPrice('tp');
-                };
-            }
-            if (tpPriceIn) {
-                tpPriceIn.oninput = (e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val) && val > 0) {
-                        const isBuy = this.selectedSide === 'BUY';
-                        const basePrice = this.orderType === 'market' 
-                            ? (isBuy ? this.currentAsk : this.currentBid)
-                            : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
-                        const tickSize = this.getTickSize();
-                        const diff = isBuy ? (val - basePrice) : (basePrice - val);
-                        const ticks = Math.max(1, Math.round(diff / tickSize));
-                        this.tpTicks = ticks;
-                        if (tpTicksIn) tpTicksIn.value = ticks;
-                    }
-                };
-            }
             if (tpSwapBtn) {
-                tpSwapBtn.onclick = () => {
-                    if (document.activeElement === tpPriceIn && tpTicksIn) {
-                        tpTicksIn.focus();
-                        tpTicksIn.select();
-                    } else if (tpPriceIn) {
-                        tpPriceIn.focus();
-                        tpPriceIn.select();
-                    }
+                tpSwapBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    const tmp = this.tpMode;
+                    this.tpMode = this.tpEquivMode;
+                    this.tpEquivMode = tmp;
+                    this.isTpDropdownOpen = false;
+                    this.isTpModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                    setTimeout(() => {
+                        const inp = document.getElementById('tv-ticket-tp-in');
+                        if (inp) { inp.focus(); inp.select(); }
+                    }, 50);
                 };
             }
 
-            // SL Price & Ticks two-way sync
-            const slTicksIn = panel.querySelector('#tv-ticket-sl-ticks-in');
-            const slPriceIn = panel.querySelector('#tv-ticket-sl-price-disp');
+            // TP Equivalent Button & Popover
+            const tpEquivBtn = panel.querySelector('#tv-ticket-tp-equiv-btn');
+            if (tpEquivBtn) {
+                tpEquivBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isTpDropdownOpen = !this.isTpDropdownOpen;
+                    this.isTpModeDropdownOpen = false;
+                    this.isSlDropdownOpen = false;
+                    this.isSlModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            }
+            panel.querySelectorAll('.tv-ticket-tp-pop-item').forEach(item => {
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    const mode = item.getAttribute('data-mode');
+                    this.tpEquivMode = mode;
+                    this.isTpDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            });
+
+            // SL Mode Label Dropdown
+            const slModeLabel = panel.querySelector('#tv-ticket-sl-mode-label');
+            if (slModeLabel) {
+                slModeLabel.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isSlModeDropdownOpen = !this.isSlModeDropdownOpen;
+                    this.isSlDropdownOpen = false;
+                    this.isTpDropdownOpen = false;
+                    this.isTpModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            }
+            panel.querySelectorAll('.tv-ticket-sl-mode-item').forEach(item => {
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    const mode = item.getAttribute('data-mode');
+                    this.slMode = mode;
+                    if (this.slEquivMode === mode) {
+                        this.slEquivMode = mode === 'price' ? 'ticks' : 'price';
+                    }
+                    this.isSlModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            });
+
+            // SL Primary Input live sync
+            const slIn = panel.querySelector('#tv-ticket-sl-in');
+            if (slIn) {
+                slIn.oninput = (e) => {
+                    const val = e.target.value;
+                    this.setExitFromInput('sl', this.slMode, val);
+                    const m = this.calculateExitMetrics('sl');
+                    const equivValEl = panel.querySelector('#tv-ticket-sl-equiv-val');
+                    const equivLblEl = panel.querySelector('#tv-ticket-sl-equiv-lbl');
+                    if (equivValEl) equivValEl.innerText = this.getExitModeDisplayValue('sl', this.slEquivMode, m);
+                    if (equivLblEl) equivLblEl.innerText = this.getExitModeLabel('sl', this.slEquivMode);
+                    panel.querySelectorAll('.tv-ticket-sl-pop-item').forEach(row => {
+                        const mMode = row.getAttribute('data-mode');
+                        const rowVal = row.querySelector('span:last-child');
+                        if (rowVal) rowVal.innerText = this.getExitModeDisplayValue('sl', mMode, m);
+                    });
+                };
+            }
+
+            // SL Swap Button
             const slSwapBtn = panel.querySelector('#tv-ticket-sl-swap-btn');
-
-            if (slTicksIn) {
-                slTicksIn.oninput = (e) => {
-                    this.slTicks = Math.max(1, parseFloat(e.target.value) || 1);
-                    if (slPriceIn) slPriceIn.value = this.calculateExitPrice('sl');
-                };
-            }
-            if (slPriceIn) {
-                slPriceIn.oninput = (e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val) && val > 0) {
-                        const isBuy = this.selectedSide === 'BUY';
-                        const basePrice = this.orderType === 'market' 
-                            ? (isBuy ? this.currentAsk : this.currentBid)
-                            : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
-                        const tickSize = this.getTickSize();
-                        const diff = isBuy ? (basePrice - val) : (val - basePrice);
-                        const ticks = Math.max(1, Math.round(diff / tickSize));
-                        this.slTicks = ticks;
-                        if (slTicksIn) slTicksIn.value = ticks;
-                    }
-                };
-            }
             if (slSwapBtn) {
-                slSwapBtn.onclick = () => {
-                    if (document.activeElement === slPriceIn && slTicksIn) {
-                        slTicksIn.focus();
-                        slTicksIn.select();
-                    } else if (slPriceIn) {
-                        slPriceIn.focus();
-                        slPriceIn.select();
-                    }
+                slSwapBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    const tmp = this.slMode;
+                    this.slMode = this.slEquivMode;
+                    this.slEquivMode = tmp;
+                    this.isSlDropdownOpen = false;
+                    this.isSlModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                    setTimeout(() => {
+                        const inp = document.getElementById('tv-ticket-sl-in');
+                        if (inp) { inp.focus(); inp.select(); }
+                    }, 50);
                 };
             }
+
+            // SL Equivalent Button & Popover
+            const slEquivBtn = panel.querySelector('#tv-ticket-sl-equiv-btn');
+            if (slEquivBtn) {
+                slEquivBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.isSlDropdownOpen = !this.isSlDropdownOpen;
+                    this.isSlModeDropdownOpen = false;
+                    this.isTpDropdownOpen = false;
+                    this.isTpModeDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            }
+            panel.querySelectorAll('.tv-ticket-sl-pop-item').forEach(item => {
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    const mode = item.getAttribute('data-mode');
+                    this.slEquivMode = mode;
+                    this.isSlDropdownOpen = false;
+                    this.renderSideOrderTicket();
+                };
+            });
 
             // Execute button
             const btnExecute = panel.querySelector('#tv-ticket-btn-execute');
@@ -4490,8 +4723,8 @@
 
             let sl = 0.0;
             let tp = 0.0;
-            if (this.isSlEnabled) sl = parseFloat(this.calculateExitPrice('sl')) || 0.0;
-            if (this.isTpEnabled) tp = parseFloat(this.calculateExitPrice('tp')) || 0.0;
+            if (this.isSlEnabled) sl = this.calculateExitMetrics('sl').price || 0.0;
+            if (this.isTpEnabled) tp = this.calculateExitMetrics('tp').price || 0.0;
 
             const brokerName = window.TradingEngine ? window.TradingEngine.getActiveAdapter(this.currentSymbol).name : 'Broker';
             const res = await window.TradingEngine.placeOrder({
@@ -4682,22 +4915,262 @@
             if (marginRequiredEl) marginRequiredEl.innerText = `${marginReqStr} USD`;
         }
 
-        calculateExitPrice(type) {
+        getPointValue() {
+            return 1.0;
+        }
+
+        getAccountBalanceNumber() {
+            if (window.TradingEngine && typeof window.TradingEngine.getAccountSummary === 'function') {
+                const acc = window.TradingEngine.getAccountSummary();
+                if (acc && acc.balance != null && !isNaN(acc.balance)) return Number(acc.balance);
+            }
+            if (window.PaperTrading && typeof window.PaperTrading.getAccount === 'function') {
+                const acc = window.PaperTrading.getAccount();
+                if (acc && acc.balance != null && !isNaN(acc.balance)) return Number(acc.balance);
+            }
+            if (window.MT5API && window.MT5API.isConnected) {
+                const acc = window.MT5API.accountInfo || (typeof window.MT5API.getActiveAccount === 'function' ? window.MT5API.getActiveAccount() : null);
+                if (acc && acc.balance != null && !isNaN(acc.balance)) return Number(acc.balance);
+            }
+            return 100000.00;
+        }
+
+        calculateExitMetrics(type) {
             const isBuy = this.selectedSide === 'BUY';
             const basePrice = this.orderType === 'market' 
                 ? (isBuy ? this.currentAsk : this.currentBid)
                 : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+            const safeBasePrice = (basePrice && !isNaN(basePrice) && basePrice > 0) ? Number(basePrice) : 4000.0;
             const tickSize = this.getTickSize();
+            const units = Math.max(0.0001, parseFloat(this.lots) || 1.0);
+            const pointValue = this.getPointValue();
+            const balance = this.getAccountBalanceNumber();
+
+            const ticks = Math.max(1, Math.round(type === 'tp' ? (this.tpTicks || 75) : (this.slTicks || 25)));
+            const diff = ticks * tickSize;
+
+            let targetPrice = 0;
+            if (type === 'tp') {
+                targetPrice = isBuy ? (safeBasePrice + diff) : (safeBasePrice - diff);
+            } else {
+                targetPrice = isBuy ? (safeBasePrice - diff) : (safeBasePrice + diff);
+            }
+
+            const usd = diff * units * pointValue;
+            const pctPrice = safeBasePrice > 0 ? (diff / safeBasePrice) * 100 : 0;
+            const pctBalance = balance > 0 ? (usd / balance) * 100 : 0;
+
+            return {
+                basePrice: safeBasePrice,
+                diff,
+                ticks,
+                ticksFormatted: ticks.toLocaleString('en-US'),
+                price: targetPrice,
+                priceFormatted: this.formatPrice(targetPrice),
+                usd,
+                usdFormatted: usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                pctPrice,
+                pctPriceFormatted: pctPrice.toFixed(2),
+                pctBalance,
+                pctBalanceFormatted: pctBalance.toFixed(2)
+            };
+        }
+
+        setExitFromInput(type, mode, val) {
+            const isBuy = this.selectedSide === 'BUY';
+            const basePrice = this.orderType === 'market' 
+                ? (isBuy ? this.currentAsk : this.currentBid)
+                : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+            const safeBasePrice = (basePrice && !isNaN(basePrice) && basePrice > 0) ? Number(basePrice) : 4000.0;
+            const tickSize = this.getTickSize();
+            const units = Math.max(0.0001, parseFloat(this.lots) || 1.0);
+            const pointValue = this.getPointValue();
+            const balance = this.getAccountBalanceNumber();
+
+            const num = parseFloat(String(val).replace(/,/g, ''));
+            if (isNaN(num) || num <= 0) return;
+
+            let diff = 0;
+            if (mode === 'ticks') {
+                diff = num * tickSize;
+            } else if (mode === 'price') {
+                if (type === 'tp') {
+                    diff = isBuy ? (num - safeBasePrice) : (safeBasePrice - num);
+                } else {
+                    diff = isBuy ? (safeBasePrice - num) : (num - safeBasePrice);
+                }
+            } else if (mode === 'usd') {
+                diff = num / (units * pointValue);
+            } else if (mode === 'pct_price') {
+                diff = (num / 100) * safeBasePrice;
+            } else if (mode === 'pct_balance') {
+                const usd = (num / 100) * balance;
+                diff = usd / (units * pointValue);
+            }
+
+            if (diff < tickSize) diff = tickSize;
+            const ticks = Math.max(1, Math.round(diff / tickSize));
 
             if (type === 'tp') {
-                const diff = (this.tpTicks || 75) * tickSize;
-                const p = isBuy ? (basePrice + diff) : (basePrice - diff);
-                return this.formatPrice(p);
+                this.tpTicks = ticks;
             } else {
-                const diff = (this.slTicks || 25) * tickSize;
-                const p = isBuy ? (basePrice - diff) : (basePrice + diff);
-                return this.formatPrice(p);
+                this.slTicks = ticks;
             }
+        }
+
+        getExitModeInputValue(type, mode, metrics) {
+            if (!metrics) metrics = this.calculateExitMetrics(type);
+            switch (mode) {
+                case 'price': return (metrics.price).toFixed(this.currentSymbol.includes('XAU') ? 3 : (this.currentSymbol.includes('JPY') ? 3 : 2));
+                case 'ticks': return metrics.ticks;
+                case 'usd': return (metrics.usd).toFixed(2);
+                case 'pct_price': return (metrics.pctPrice).toFixed(2);
+                case 'pct_balance': return (metrics.pctBalance).toFixed(2);
+                default: return (metrics.price).toFixed(2);
+            }
+        }
+
+        getExitModeDisplayValue(type, mode, metrics) {
+            if (!metrics) metrics = this.calculateExitMetrics(type);
+            switch (mode) {
+                case 'price': return metrics.priceFormatted;
+                case 'ticks': return metrics.ticksFormatted;
+                case 'usd': return metrics.usdFormatted;
+                case 'pct_price': return metrics.pctPriceFormatted;
+                case 'pct_balance': return metrics.pctBalanceFormatted;
+                default: return metrics.priceFormatted;
+            }
+        }
+
+        getExitModeLabel(type, mode) {
+            switch (mode) {
+                case 'price': return 'price';
+                case 'ticks': return 'ticks';
+                case 'usd': return 'USD';
+                case 'pct_price': return '% price';
+                case 'pct_balance': return type === 'tp' ? 'Reward % balance' : 'Risk % balance';
+                default: return 'price';
+            }
+        }
+
+        getExitModeCapitalizedLabel(type, mode) {
+            switch (mode) {
+                case 'price': return 'Price';
+                case 'ticks': return 'Ticks';
+                case 'usd': return 'USD';
+                case 'pct_price': return '% price';
+                case 'pct_balance': return type === 'tp' ? 'Reward % balance' : 'Risk % balance';
+                default: return 'Price';
+            }
+        }
+
+        getExitModeHeaderLabel(type, mode) {
+            const prefix = type === 'tp' ? 'Take profit ' : 'Stop loss ';
+            switch (mode) {
+                case 'price': return prefix + 'price';
+                case 'ticks': return prefix + 'ticks';
+                case 'usd': return prefix + 'USD';
+                case 'pct_price': return prefix + '% price';
+                case 'pct_balance': return prefix + (type === 'tp' ? 'Reward % balance' : 'Risk % balance');
+                default: return prefix + 'price';
+            }
+        }
+
+        renderExitPopover(type, theme) {
+            const isTp = type === 'tp';
+            const primaryMode = isTp ? this.tpMode : this.slMode;
+            const equivMode = isTp ? this.tpEquivMode : this.slEquivMode;
+            const metrics = this.calculateExitMetrics(type);
+            const allModes = ['price', 'ticks', 'usd', 'pct_price', 'pct_balance'];
+            const options = allModes.filter(m => m !== primaryMode);
+
+            return `
+                <div id="tv-ticket-${type}-equiv-popover" class="tv-ticket-equiv-popover" style="
+                    position: absolute;
+                    top: 42px;
+                    right: 0;
+                    width: 215px;
+                    background: ${theme.isDark ? '#1e222d' : '#ffffff'};
+                    border: 1px solid ${theme.border};
+                    border-radius: 8px;
+                    box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+                    z-index: 100000;
+                    padding: 4px;
+                    box-sizing: border-box;
+                ">
+                    ${options.map(m => {
+                        const isSelected = m === equivMode;
+                        const label = this.getExitModeCapitalizedLabel(type, m);
+                        const val = this.getExitModeDisplayValue(type, m, metrics);
+                        return `
+                            <div class="tv-ticket-${type}-pop-item" data-mode="${m}" style="
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                                padding: 7px 10px;
+                                border-radius: 4px;
+                                cursor: pointer;
+                                background: ${isSelected ? (theme.isDark ? '#2a2e39' : '#2e2e2e') : 'transparent'};
+                                color: ${isSelected ? '#ffffff' : theme.text};
+                                font-size: 13px;
+                                font-weight: 500;
+                                transition: background 0.1s;
+                            " onmouseenter="if (!${isSelected}) this.style.background='${theme.subtabBg}'" onmouseleave="if (!${isSelected}) this.style.background='transparent'">
+                                <span style="color: ${isSelected ? '#ffffff' : theme.text};">${label}</span>
+                                <span style="font-weight: 700; font-feature-settings: 'tnum'; color: ${isSelected ? '#ffffff' : theme.text};">${val}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        renderExitModeDropdown(type, theme) {
+            const isTp = type === 'tp';
+            const primaryMode = isTp ? this.tpMode : this.slMode;
+            const allModes = ['usd', 'price', 'ticks', 'pct_price', 'pct_balance'];
+
+            return `
+                <div id="tv-ticket-${type}-mode-popover" class="tv-ticket-mode-popover" style="
+                    position: absolute;
+                    top: 28px;
+                    left: 28px;
+                    width: 175px;
+                    background: ${theme.isDark ? '#1e222d' : '#ffffff'};
+                    border: 1px solid ${theme.border};
+                    border-radius: 8px;
+                    box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+                    z-index: 100000;
+                    padding: 4px;
+                    box-sizing: border-box;
+                ">
+                    ${allModes.map(m => {
+                        const isSelected = m === primaryMode;
+                        const label = this.getExitModeCapitalizedLabel(type, m);
+                        return `
+                            <div class="tv-ticket-${type}-mode-item" data-mode="${m}" style="
+                                display: flex;
+                                align-items: center;
+                                padding: 7px 10px;
+                                border-radius: 4px;
+                                cursor: pointer;
+                                background: ${isSelected ? (theme.isDark ? '#2a2e39' : '#2e2e2e') : 'transparent'};
+                                color: ${isSelected ? '#ffffff' : theme.text};
+                                font-size: 13px;
+                                font-weight: ${isSelected ? '700' : '500'};
+                                transition: background 0.1s;
+                            " onmouseenter="if (!${isSelected}) this.style.background='${theme.subtabBg}'" onmouseleave="if (!${isSelected}) this.style.background='transparent'">
+                                <span>${label}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        calculateExitPrice(type) {
+            const m = this.calculateExitMetrics(type);
+            return m.priceFormatted;
         }
 
         updatePrices() {
@@ -4737,6 +5210,39 @@
             // 4. Real-time update action button subtitle
             if (this.orderType === 'market') {
                 this.updateTicketButtonSummary();
+            }
+
+            // 5. Real-time update exit equivalent buttons and popovers if active
+            if (this.isOrderTicketOpen) {
+                const tpIn = document.getElementById('tv-ticket-tp-in');
+                const slIn = document.getElementById('tv-ticket-sl-in');
+                const isTpFocused = document.activeElement === tpIn;
+                const isSlFocused = document.activeElement === slIn;
+
+                if (!isTpFocused && this.isTpEnabled) {
+                    const tpM = this.calculateExitMetrics('tp');
+                    const eqVal = document.getElementById('tv-ticket-tp-equiv-val');
+                    if (eqVal) eqVal.innerText = this.getExitModeDisplayValue('tp', this.tpEquivMode, tpM);
+                    if (this.isTpDropdownOpen) {
+                        document.querySelectorAll('.tv-ticket-tp-pop-item').forEach(row => {
+                            const mMode = row.getAttribute('data-mode');
+                            const rowVal = row.querySelector('span:last-child');
+                            if (rowVal) rowVal.innerText = this.getExitModeDisplayValue('tp', mMode, tpM);
+                        });
+                    }
+                }
+                if (!isSlFocused && this.isSlEnabled) {
+                    const slM = this.calculateExitMetrics('sl');
+                    const eqVal = document.getElementById('tv-ticket-sl-equiv-val');
+                    if (eqVal) eqVal.innerText = this.getExitModeDisplayValue('sl', this.slEquivMode, slM);
+                    if (this.isSlDropdownOpen) {
+                        document.querySelectorAll('.tv-ticket-sl-pop-item').forEach(row => {
+                            const mMode = row.getAttribute('data-mode');
+                            const rowVal = row.querySelector('span:last-child');
+                            if (rowVal) rowVal.innerText = this.getExitModeDisplayValue('sl', mMode, slM);
+                        });
+                    }
+                }
             }
 
             if (window.PaperTrading) {
