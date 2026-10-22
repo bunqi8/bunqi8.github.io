@@ -79,7 +79,7 @@
         init() {
             this.loadState();
             this.injectStyles();
-            this.createDrawerDOM();
+            this.ensureDrawerDOM();
 
             // Auto-mount button into TradingView iframe toolbar
             if (document.readyState === 'loading') {
@@ -89,7 +89,7 @@
             }
 
             // Periodic check in case TradingView re-renders toolbar
-            setInterval(() => this.injectButton(), 2000);
+            setInterval(() => this.injectButton(), 1500);
 
             // Hook MT5 updates
             if (window.MT5API) {
@@ -184,6 +184,7 @@
         }
 
         mount() {
+            this.ensureDrawerDOM();
             this.injectButton();
         }
 
@@ -332,71 +333,75 @@
 
         // --- Toolbar Button Injection ---
         injectButton(targetEl = null, iframeDoc = null) {
-            if (!iframeDoc) {
-                const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]');
-                if (iframe) {
-                    try {
-                        iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    } catch (_) {}
+            try {
+                if (!iframeDoc) {
+                    const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
+                    if (iframe) {
+                        try {
+                            iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        } catch (_) {}
+                    }
                 }
-            }
-            const targetDoc = iframeDoc || document;
-            this.cachedIframeDoc = targetDoc;
+                const targetDoc = iframeDoc || document;
+                this.cachedIframeDoc = targetDoc;
 
-            if (targetDoc.getElementById(this.btnId)) {
-                this.ensureButtonPosition(targetDoc, targetEl);
+                if (targetDoc.getElementById(this.btnId)) {
+                    this.ensureButtonPosition(targetDoc, targetEl);
+                    this.updateButtonActiveState();
+                    return;
+                }
+
+                const optionChainWrapper = targetDoc.getElementById('header-toolbar-option-chain');
+                const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
+
+                const btnHtml = `
+                <div class="group-MBOVGQRI" id="${this.wrapperId}" style="margin: 0 4px; display: inline-flex; align-items: center;">
+                    <button aria-label="Watchlist (W)" data-role="button" data-tooltip="Watchlist (W)" tabindex="-1" type="button" 
+                        class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-watchlist-toolbar-btn" 
+                        id="${this.btnId}" style="padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 100%; border: none; background: transparent; position: relative;">
+                        <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
+                                <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M9 8.5h12M9 14h12M9 19.5h12"/>
+                                <circle cx="5.5" cy="8.5" r="1.3" fill="currentColor"/>
+                                <circle cx="5.5" cy="14" r="1.3" fill="currentColor"/>
+                                <circle cx="5.5" cy="19.5" r="1.3" fill="currentColor"/>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                `;
+
+                if (optionChainWrapper && optionChainWrapper.parentNode) {
+                    optionChainWrapper.insertAdjacentHTML('afterend', btnHtml);
+                } else if (symbolSearch && symbolSearch.parentNode) {
+                    symbolSearch.insertAdjacentHTML('afterend', btnHtml);
+                } else {
+                    const firstGroup = targetDoc.querySelector('.group-wWM3zP_M') || targetDoc.querySelector('.group-MBOVGQRI');
+                    if (firstGroup && firstGroup.parentNode) {
+                        firstGroup.insertAdjacentHTML('afterend', btnHtml);
+                    }
+                }
+
+                const btn = targetDoc.getElementById(this.btnId);
+                if (btn) {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.toggle();
+                    });
+
+                    btn.addEventListener('mouseenter', () => {
+                        btn.setAttribute('title', 'Watchlist (W)');
+                    });
+                    btn.addEventListener('mouseleave', () => {
+                        btn.removeAttribute('title');
+                    });
+                }
+
                 this.updateButtonActiveState();
-                return;
+            } catch (err) {
+                console.warn('[WatchlistUI] injectButton notice:', err);
             }
-
-            const optionChainWrapper = targetDoc.getElementById('header-toolbar-option-chain');
-            const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
-
-            const btnHtml = `
-            <div class="group-MBOVGQRI" id="${this.wrapperId}" style="margin: 0 4px; display: inline-flex; align-items: center;">
-                <button aria-label="Watchlist (W)" data-role="button" data-tooltip="Watchlist (W)" tabindex="-1" type="button" 
-                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-watchlist-toolbar-btn" 
-                    id="${this.btnId}" style="padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; height: 100%; border: none; background: transparent; position: relative;">
-                    <span role="img" class="icon-GwQQdU8S" aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; color: #131722;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="none">
-                            <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M9 8.5h12M9 14h12M9 19.5h12"/>
-                            <circle cx="5.5" cy="8.5" r="1.3" fill="currentColor"/>
-                            <circle cx="5.5" cy="14" r="1.3" fill="currentColor"/>
-                            <circle cx="5.5" cy="19.5" r="1.3" fill="currentColor"/>
-                        </svg>
-                    </span>
-                </button>
-            </div>
-            `;
-
-            if (optionChainWrapper && optionChainWrapper.parentNode) {
-                optionChainWrapper.insertAdjacentHTML('afterend', btnHtml);
-            } else if (symbolSearch && symbolSearch.parentNode) {
-                symbolSearch.insertAdjacentHTML('afterend', btnHtml);
-            } else {
-                const firstGroup = targetDoc.querySelector('.group-wWM3zP_M') || targetDoc.querySelector('.group-MBOVGQRI');
-                if (firstGroup && firstGroup.parentNode) {
-                    firstGroup.insertAdjacentHTML('afterend', btnHtml);
-                }
-            }
-
-            const btn = targetDoc.getElementById(this.btnId);
-            if (btn) {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.toggle();
-                });
-
-                btn.addEventListener('mouseenter', () => {
-                    btn.setAttribute('title', 'Watchlist (W)');
-                });
-                btn.addEventListener('mouseleave', () => {
-                    btn.removeAttribute('title');
-                });
-            }
-
-            this.updateButtonActiveState();
         }
 
         updateButtonActiveState() {
@@ -410,7 +415,7 @@
                 if (iconSpan) iconSpan.style.color = '#2962ff';
             } else {
                 btn.style.backgroundColor = 'transparent';
-                if (iconSpan) iconSpan.style.color = '#131722';
+                if (iconSpan) iconSpan.style.color = '';
             }
         }
 
@@ -440,6 +445,7 @@
         }
 
         open() {
+            this.ensureDrawerDOM();
             this.isOpen = true;
             const drawer = document.getElementById(this.drawerId);
             if (drawer) {
@@ -487,9 +493,21 @@
             }, 220);
         }
 
+        ensureDrawerDOM() {
+            if (document.getElementById(this.drawerId)) return;
+            if (!document.body) {
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => this.ensureDrawerDOM(), { once: true });
+                }
+                return;
+            }
+            this.createDrawerDOM();
+        }
+
         // --- DOM Creation & Rendering ---
         createDrawerDOM() {
             if (document.getElementById(this.drawerId)) return;
+            if (!document.body) return;
 
             const drawer = document.createElement('div');
             drawer.id = this.drawerId;
