@@ -315,6 +315,83 @@
         }
 
         // --- Broker Availability Resolver ---
+        getCleanBrokerExchange(acc = null) {
+            if (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') {
+                return window.MT5API.getCleanBrokerExchange(acc);
+            }
+            const target = acc || (window.MT5API && typeof window.MT5API.getActiveAccount === 'function' ? window.MT5API.getActiveAccount() : null);
+            if (!target) return 'MT5';
+            const raw = (target.server || target.broker_name || target.nickname || 'MT5').toUpperCase();
+            if (raw.includes('EXNESS')) return 'EXNESS';
+            if (raw.includes('FTMO')) return 'FTMO';
+            if (raw.includes('METAQUOTES')) return 'METAQUOTES';
+            if (raw.includes('ICMARKET') || raw.includes('IC MARKET')) return 'IC MARKETS';
+            if (raw.includes('PEPPERSTONE')) return 'PEPPERSTONE';
+            if (raw.includes('VANTAGE')) return 'VANTAGE';
+            if (raw.includes('FUNDEDNEXT')) return 'FUNDEDNEXT';
+            if (raw.includes('THE5ERS') || raw.includes('5ERS')) return 'THE 5%ERS';
+            if (raw.includes('OCTAFX') || raw.includes('OCTA')) return 'OCTAFX';
+            if (raw.includes('XM')) return 'XM';
+            if (raw.includes('FBS')) return 'FBS';
+            if (raw.includes('HOTFOREX') || raw.includes('HFM')) return 'HFM';
+            if (raw.includes('AVATRADE')) return 'AVATRADE';
+            if (raw.includes('ROBOFOREX')) return 'ROBOFOREX';
+            if (raw.includes('TICKMILL')) return 'TICKMILL';
+            if (raw.includes('FXPRO')) return 'FXPRO';
+            if (raw.includes('IG')) return 'IG';
+
+            const firstWord = (target.server || target.nickname || 'MT5').split(/[-_\s]/)[0].toUpperCase();
+            return firstWord || 'MT5';
+        }
+
+        getSymbolDescription(symbol, symObj = null) {
+            if (symObj && symObj.description) {
+                return symObj.description;
+            }
+            const clean = (symbol || '').split(':').pop().toUpperCase().trim();
+            if (window.MT5API && window.MT5API._symbolMap) {
+                const mapped = window.MT5API._symbolMap.get(clean) || window.MT5API._symbolMap.get(clean.replace(/\..*$/, ''));
+                if (mapped && mapped.description) return mapped.description;
+            }
+            const POPULAR_DESCS = {
+                'XAUUSD': 'Gold Spot / US Dollar',
+                'XAGUSD': 'Silver Spot / US Dollar',
+                'EURUSD': 'Euro / US Dollar',
+                'GBPUSD': 'British Pound / US Dollar',
+                'USDJPY': 'US Dollar / Japanese Yen',
+                'USDCAD': 'US Dollar / Canadian Dollar',
+                'USDCHF': 'US Dollar / Swiss Franc',
+                'AUDUSD': 'Australian Dollar / US Dollar',
+                'NZDUSD': 'New Zealand Dollar / US Dollar',
+                'US30': 'Wall Street 30 Index',
+                'USTEC': 'US Tech 100 Index',
+                'NAS100': 'US Tech 100 Index',
+                'US500': 'S&P 500 Index',
+                'SPX500': 'S&P 500 Index',
+                'DE40': 'Germany 40 Index',
+                'GER40': 'Germany 40 Index',
+                'UK100': 'UK 100 Index',
+                'BTCUSD': 'Bitcoin / US Dollar',
+                'ETHUSD': 'Ethereum / US Dollar',
+                'SOLUSD': 'Solana / US Dollar',
+                'NIFTY50-INDEX': 'NIFTY 50 Index',
+                'BANKNIFTY-INDEX': 'NIFTY Bank Index',
+                'FINNIFTY-INDEX': 'NIFTY Financial Services',
+                'MIDCPNIFTY-INDEX': 'NIFTY Midcap Select',
+                'SENSEX-INDEX': 'BSE SENSEX Index',
+                'BANKEX-INDEX': 'BSE BANKEX Index',
+                'CRUDEOIL': 'Crude Oil Futures',
+                'GOLDM': 'Gold Mini Futures',
+                'SILVERM': 'Silver Mini Futures',
+                'NATURALGAS': 'Natural Gas Futures'
+            };
+            if (POPULAR_DESCS[clean]) return POPULAR_DESCS[clean];
+            for (const [k, v] of Object.entries(POPULAR_DESCS)) {
+                if (clean.startsWith(k)) return v;
+            }
+            return clean;
+        }
+
         getSymbolAvailability(rawSymbol) {
             const sym = (rawSymbol || '').toUpperCase().trim();
             const cleanSym = sym.split(':').pop();
@@ -334,7 +411,8 @@
             // 1. MetaTrader 5 Check
             const isMt5Connected = window.MT5API && window.MT5API.isConnected;
             const acc = isMt5Connected ? window.MT5API.getActiveAccount() : null;
-            const brokerName = acc ? (acc.server || acc.nickname || 'MT5') : 'MT5';
+            const brokerExchange = this.getCleanBrokerExchange(acc);
+            const brokerName = acc ? (acc.server || acc.nickname || brokerExchange) : brokerExchange;
 
             if (isMt5Connected) {
                 const map = window.MT5API._symbolMap;
@@ -352,17 +430,41 @@
                 const isKnownMt5 = symObj || (window.MT5API && typeof window.MT5API.isMt5Symbol === 'function' && window.MT5API.isMt5Symbol(cleanSym));
 
                 if (isKnownMt5) {
+                    const symDesc = this.getSymbolDescription(cleanSym, symObj);
                     const isTradeable = symObj ? (symObj.tradeable !== false && symObj.trade_mode !== 0) : true;
-                    const isOpen = mkt.isOpen && isTradeable;
+
+                    if (!mkt.isOpen) {
+                        return {
+                            status: 'closed',
+                            broker: brokerExchange,
+                            badgeText: brokerExchange,
+                            description: symDesc,
+                            color: '#ff9800',
+                            dotClass: 'dot-closed',
+                            tooltip: `⏸ ${brokerExchange}: Market Closed (${mkt.reason})`
+                        };
+                    }
+
+                    if (!isTradeable) {
+                        return {
+                            status: 'view_only',
+                            broker: brokerExchange,
+                            badgeText: brokerExchange,
+                            description: symDesc,
+                            color: '#089981',
+                            dotClass: 'dot-open',
+                            tooltip: `ℹ ${brokerExchange}: Market Open (View Only on ${brokerName})`
+                        };
+                    }
+
                     return {
-                        status: isOpen ? 'open' : 'closed',
-                        broker: 'MT5',
-                        badgeText: isOpen ? 'MT5' : 'MT5 (CLOSED)',
-                        color: isOpen ? '#089981' : '#ff9800',
-                        dotClass: isOpen ? 'dot-open' : 'dot-closed',
-                        tooltip: isOpen 
-                            ? `✓ MetaTrader 5: Market Open (Live Ticking on ${brokerName})`
-                            : `⏸ MetaTrader 5: Market Closed (${mkt.reason})`
+                        status: 'open',
+                        broker: brokerExchange,
+                        badgeText: brokerExchange,
+                        description: symDesc,
+                        color: '#089981',
+                        dotClass: 'dot-open',
+                        tooltip: `✓ ${brokerExchange}: Market Open (Live Ticking on ${brokerName})`
                     };
                 }
             }
@@ -371,45 +473,58 @@
             const isIndian = cleanSym.includes('NIFTY') || cleanSym.includes('SENSEX') || 
                              cleanSym.includes('BANKEX') || cleanSym.includes('MIDCP') || 
                              cleanSym.includes('FINNIFTY') || cleanSym.includes('MCX') || 
-                             cleanSym.includes('GOLDM') || cleanSym.includes('SILVERM');
+                             cleanSym.includes('CRUDE') || cleanSym.includes('GOLDM') || 
+                             cleanSym.includes('SILVERM') || cleanSym.includes('NATURALGAS');
 
             const isFyersConnected = window.FyersAPI && (window.FyersAPI.isConnected || !!window.FyersAPI.token);
 
             if (isIndian) {
+                let indianExchange = 'NSE';
+                if (cleanSym.includes('SENSEX') || cleanSym.includes('BANKEX')) {
+                    indianExchange = 'BSE';
+                } else if (cleanSym.includes('MCX') || cleanSym.includes('CRUDE') || cleanSym.includes('GOLDM') || cleanSym.includes('SILVERM') || cleanSym.includes('NATURALGAS')) {
+                    indianExchange = 'MCX';
+                }
+
+                const symDesc = this.getSymbolDescription(cleanSym);
+
                 if (isFyersConnected || isChartActive) {
                     const isOpen = mkt.isOpen;
-                    const brokerLabel = isFyersConnected ? 'Fyers' : 'Live Chart';
                     return {
                         status: isOpen ? 'open' : 'closed',
                         broker: 'FYERS',
-                        badgeText: isOpen ? (isFyersConnected ? 'FYERS' : 'LIVE') : (isFyersConnected ? 'FYERS (CLOSED)' : 'CLOSED'),
+                        badgeText: indianExchange,
+                        description: symDesc,
                         color: isOpen ? '#089981' : '#ff9800',
                         dotClass: isOpen ? 'dot-open' : 'dot-closed',
                         tooltip: isOpen
-                            ? `✓ ${brokerLabel}: Market Open (Live Ticking)`
-                            : `⏸ ${brokerLabel}: Market Closed (${mkt.reason})`
+                            ? `✓ ${indianExchange}: Market Open (Live Ticking)`
+                            : `⏸ ${indianExchange}: Market Closed (${mkt.reason})`
                     };
                 } else if (window.db) {
                     return {
                         status: 'local',
                         broker: 'DUCKDB',
-                        badgeText: 'LOCAL',
+                        badgeText: indianExchange,
+                        description: symDesc,
                         color: '#2962ff',
                         dotClass: 'dot-local',
-                        tooltip: `ℹ DuckDB: Local Historical Data Available`
+                        tooltip: `ℹ ${indianExchange}: Local Historical Data (DuckDB)`
                     };
                 }
             }
 
             // 3. Fallbacks
+            const fallbackDesc = this.getSymbolDescription(cleanSym);
             if (!isMt5Connected && !isFyersConnected) {
                 return {
                     status: 'disconnected',
                     broker: 'NONE',
                     badgeText: 'OFFLINE',
+                    description: fallbackDesc,
                     color: '#787b86',
                     dotClass: 'dot-offline',
-                    tooltip: `⚠ Broker Disconnected: Connect MT5 or Fyers to trade`
+                    tooltip: `⚠ Broker Disconnected: Connect MT5 or Fyers to stream quotes`
                 };
             }
 
@@ -417,9 +532,10 @@
                 status: 'unavailable',
                 broker: 'NONE',
                 badgeText: 'N/A',
-                color: '#ff9800',
+                description: fallbackDesc,
+                color: '#787b86',
                 dotClass: 'dot-warning',
-                tooltip: `⚠ Symbol not found on active ${brokerName} account`
+                tooltip: `ℹ Symbol not subscribed on active broker account`
             };
         }
 
@@ -666,8 +782,8 @@
                 badge.style.background = `${avail.color}1a`;
             }
             if (desc) {
-                desc.textContent = avail.tooltip.split(':')[0];
-                desc.title = avail.tooltip;
+                desc.textContent = avail.description || sym;
+                desc.title = `${avail.description || sym} • ${avail.tooltip}`;
             }
         }
 
@@ -1795,7 +1911,7 @@
                                     <span class="wl-broker-badge" style="color: ${avail.color}; background: ${avail.color}1a;">
                                         ${avail.badgeText}
                                     </span>
-                                    <span class="wl-sym-desc" title="${avail.tooltip}">${avail.tooltip.split(':')[0]}</span>
+                                    <span class="wl-sym-desc" title="${avail.description || sUpper} • ${avail.tooltip}">${avail.description || sUpper}</span>
                                 </div>
                             </div>
                         </div>
