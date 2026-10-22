@@ -526,7 +526,37 @@ function safeHistoryCallback(bars, cb, resolution, symbolInfo = null) {
                 window.TradeUIInstance.onLivePriceUpdate(p, symbolInfo ? symbolInfo.name : null);
             }
         }
-        cb(dedupedBars, { noData: false });
+        let returnBars = dedupedBars;
+        let hitLimit = false;
+
+        if (window.BarLimitManager && symbolInfo) {
+            const maxBarsLimit = window.BarLimitManager.getLimit();
+            const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+            const currentLoaded = window.BarLimitManager.getBarCount(genKey);
+            const remaining = maxBarsLimit - currentLoaded;
+
+            if (remaining <= 0) {
+                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                cb([], { noData: true });
+                return;
+            }
+
+            if (returnBars.length >= remaining) {
+                returnBars = returnBars.slice(returnBars.length - remaining);
+                window.BarLimitManager.setBarCount(genKey, maxBarsLimit);
+                hitLimit = true;
+            } else {
+                window.BarLimitManager.incrementBarCount(genKey, returnBars.length);
+            }
+
+            if (hitLimit) {
+                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                cb(returnBars, { noData: true });
+                return;
+            }
+        }
+
+        cb(returnBars, { noData: false });
     }
 }
 
@@ -1155,6 +1185,22 @@ const Datafeed = {
         const rawFrom = from;
         const rawTo = to;
         countBack = countBack || 300;
+
+        const maxBarsLimit = (window.BarLimitManager && typeof window.BarLimitManager.getLimit === 'function') 
+            ? window.BarLimitManager.getLimit() 
+            : 40000;
+        const generalCacheKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+
+        // If not firstDataRequest, check if current symbol/resolution has already reached maxBarsLimit
+        if (!firstDataRequest && window.BarLimitManager) {
+            const currentLoaded = window.BarLimitManager.getBarCount(generalCacheKey);
+            if (currentLoaded >= maxBarsLimit) {
+                console.warn(`[datafeed] Hardcore bar limit reached for ${generalCacheKey} (${currentLoaded}/${maxBarsLimit} bars). Halting historical load.`);
+                window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                onHistoryCallback([], { noData: true });
+                return;
+            }
+        }
         
         // 1. MT5 Live Feed - ALWAYS CHECK FIRST FOR ALL MT5 INSTRUMENTS
         const isMt5Exchange = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
@@ -1216,10 +1262,38 @@ const Datafeed = {
                     validBars.sort((a, b) => a.time - b.time);
 
                     if (validBars.length > 0) {
+                        let returnBars = validBars;
+                        let hitLimit = false;
+
+                        if (window.BarLimitManager) {
+                            if (firstDataRequest) {
+                                if (returnBars.length > maxBarsLimit) {
+                                    returnBars = returnBars.slice(returnBars.length - maxBarsLimit);
+                                    hitLimit = true;
+                                }
+                                window.BarLimitManager.setBarCount(generalCacheKey, returnBars.length);
+                            } else {
+                                const currentLoaded = window.BarLimitManager.getBarCount(generalCacheKey);
+                                const remaining = maxBarsLimit - currentLoaded;
+                                if (remaining <= 0) {
+                                    window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                                    onHistoryCallback([], { noData: true });
+                                    return;
+                                }
+                                if (returnBars.length >= remaining) {
+                                    returnBars = returnBars.slice(returnBars.length - remaining);
+                                    window.BarLimitManager.setBarCount(generalCacheKey, maxBarsLimit);
+                                    hitLimit = true;
+                                } else {
+                                    window.BarLimitManager.incrementBarCount(generalCacheKey, returnBars.length);
+                                }
+                            }
+                        }
+
                         // Only update _tvLastBar if this is the initial load or a newer bar.
                         // NEVER overwrite active forming candle with older historical chunks when scrolling back!
                         if (!window._tvLastBar) window._tvLastBar = {};
-                        const last = validBars[validBars.length - 1];
+                        const last = returnBars[returnBars.length - 1];
                         const currLast = window._tvLastBar[cacheKey];
                         if (firstDataRequest || !currLast || last.time >= currLast.time) {
                             window._tvLastBar[cacheKey] = {
@@ -1232,7 +1306,13 @@ const Datafeed = {
                             };
                         }
 
-                        onHistoryCallback(validBars, { noData: false });
+                        if (hitLimit && window.BarLimitManager) {
+                            window.BarLimitManager.showLimitWarningBanner(maxBarsLimit);
+                            onHistoryCallback(returnBars, { noData: true });
+                            return;
+                        }
+
+                        onHistoryCallback(returnBars, { noData: false });
                         return;
                     }
                 }
@@ -1578,6 +1658,10 @@ const Datafeed = {
 
                 // Transition to new candle if interval has moved forward
                 if (barTime > lastBar.time) {
+                    if (window.BarLimitManager) {
+                        const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+                        window.BarLimitManager.onLiveBarAdded(genKey);
+                    }
                     if (tick.prev_candle && isMatchingCandle) {
                         const p = tick.prev_candle;
                         const pTime = alignTime(Number(p.time));
@@ -1689,6 +1773,10 @@ const Datafeed = {
             
             // Advance to new candle if interval has moved forward
             if (barTime > lastBar.time) {
+                if (window.BarLimitManager) {
+                    const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+                    window.BarLimitManager.onLiveBarAdded(genKey);
+                }
                 lastBar = {
                     time: barTime,
                     open: alignedTick.close,
