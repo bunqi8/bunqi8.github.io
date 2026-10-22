@@ -119,6 +119,11 @@
                 this.activeAccountId = data.active_account_id;
                 this.isConnected = true;
 
+                // Preload full symbol catalog into memory once connected for 0ms instant search
+                if (!this._allSymbols && !this._loadingSymbolsPromise) {
+                    this.loadAllSymbolsCache();
+                }
+
                 // Sync positions for active account
                 if (this.activeAccountId) {
                     this.fetchPositions();
@@ -192,38 +197,91 @@
             return false;
         }
 
-        // --- MT5 Symbol Catalog & Search ---
-        async fetchSymbols(search = '', category = '') {
-            try {
-                const acc = this.getActiveAccount();
-                const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-                const catParam = category ? `&category=${encodeURIComponent(category)}` : '';
-
-                // If no filter and already cached, return from memory
-                if (!search && !category && this._allSymbols && this._allSymbols.length > 0) {
+        // --- MT5 Symbol Catalog & Instant In-Memory Search ---
+        async loadAllSymbolsCache() {
+            if (this._loadingSymbolsPromise) return this._loadingSymbolsPromise;
+            this._loadingSymbolsPromise = (async () => {
+                try {
+                    const acc = this.getActiveAccount();
+                    const accParam = acc ? `?account_id=${encodeURIComponent(acc.id)}` : '';
+                    const url = `${this.endpoint}/api/symbols${accParam}`;
+                    const res = await fetch(url, { headers: this.getHeaders() });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    this._allSymbols = data.symbols || [];
+                    if (!this._symbolMap) this._symbolMap = new Map();
+                    this._allSymbols.forEach(s => {
+                        this._symbolMap.set(s.symbol.toUpperCase(), s);
+                    });
+                    console.log(`[MT5API] Cached ${this._allSymbols.length} MT5 symbols in local memory for instant search.`);
                     return this._allSymbols;
+                } catch (e) {
+                    console.warn('[MT5API] Failed to cache symbols:', e.message);
+                    return this.getMockSymbols();
+                } finally {
+                    this._loadingSymbolsPromise = null;
                 }
+            })();
+            return this._loadingSymbolsPromise;
+        }
 
-                const url = `${this.endpoint}/api/symbols?_t=${Date.now()}${searchParam}${catParam}${accParam}`;
-                const res = await fetch(url, { headers: this.getHeaders() });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                const list = data.symbols || [];
-
-                if (!this._symbolMap) this._symbolMap = new Map();
-                list.forEach(s => {
-                    this._symbolMap.set(s.symbol.toUpperCase(), s);
-                });
-
-                if (!search && !category) {
-                    this._allSymbols = list;
-                }
-                return list;
-            } catch (e) {
-                console.warn('[MT5API] fetchSymbols notice:', e.message);
-                return this.getMockSymbols(search);
+        async fetchSymbols(search = '', category = '') {
+            if (!this._allSymbols || this._allSymbols.length === 0) {
+                await this.loadAllSymbolsCache();
             }
+
+            const all = (this._allSymbols && this._allSymbols.length > 0) ? this._allSymbols : this.getMockSymbols();
+            let filtered = all;
+
+            if (category) {
+                const catLower = category.toLowerCase().trim();
+                filtered = filtered.filter(s => {
+                    const t = (s.type || '').toLowerCase();
+                    const c = (s.category || '').toLowerCase();
+                    return t === catLower || c.includes(catLower);
+                });
+            }
+
+            if (search) {
+                const q = search.toUpperCase().trim();
+                const exact = [];
+                const starts = [];
+                const contains = [];
+
+                for (let i = 0; i < filtered.length; i++) {
+                    const s = filtered[i];
+                    const sym = (s.symbol || s.name || '').toUpperCase();
+                    const desc = (s.description || '').toUpperCase();
+
+                    if (sym === q) {
+                        exact.push(s);
+                    } else if (sym.startsWith(q)) {
+                        starts.push(s);
+                    } else if (sym.includes(q) || desc.includes(q)) {
+                        contains.push(s);
+                    }
+                }
+
+                return [...exact, ...starts, ...contains];
+            }
+
+            // When search is empty, boost popular assets to the top
+            const POPULAR = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US30', 'USTEC', 'US500', 'BTCUSD', 'ETHUSD', 'XAGUSD', 'AUDUSD', 'USDCAD', 'USDCHF'];
+            const popSet = new Set(POPULAR);
+            const boosted = [];
+            const regular = [];
+
+            for (let i = 0; i < filtered.length; i++) {
+                const s = filtered[i];
+                if (popSet.has(s.symbol.toUpperCase())) {
+                    boosted.push(s);
+                } else {
+                    regular.push(s);
+                }
+            }
+
+            boosted.sort((a, b) => POPULAR.indexOf(a.symbol.toUpperCase()) - POPULAR.indexOf(b.symbol.toUpperCase()));
+            return [...boosted, ...regular];
         }
 
         async fetchSymbolInfo(symbol) {

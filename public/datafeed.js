@@ -5,7 +5,7 @@
 
 const configurationData = {
     supported_resolutions: [
-        // Seconds (Smallest data is 5S, so 1S is mathematically impossible)
+        // Seconds
         '5S', '10S', '15S', '30S', '45S',
         // Minutes
         '1', '2', '3', '5', '10', '15', '30', '45',
@@ -14,8 +14,26 @@ const configurationData = {
         // Days, Weeks, Months
         '1D', '1W', '1M', '3M', '6M', '12M'
     ],
-    exchanges: [{ value: 'CUSTOM', name: 'Custom', desc: 'Custom Datafeed' }],
-    symbols_types: [{ name: 'Crypto', value: 'crypto'}],
+    supports_marks: false,
+    supports_timescale_marks: false,
+    supports_time: true,
+    exchanges: [
+        { value: '', name: 'All Exchanges', desc: 'All connected markets' },
+        { value: 'MT5', name: 'MetaTrader 5', desc: 'MT5 Broker Fleet' },
+        { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
+        { value: 'BSE', name: 'BSE', desc: 'Bombay Stock Exchange' },
+        { value: 'MCX', name: 'MCX', desc: 'Multi Commodity Exchange' }
+    ],
+    symbols_types: [
+        { value: '', name: 'All' },
+        { value: 'commodity', name: 'Commodities' },
+        { value: 'forex', name: 'Forex' },
+        { value: 'index', name: 'Indices' },
+        { value: 'crypto', name: 'Crypto' },
+        { value: 'stock', name: 'Stocks' },
+        { value: 'futures', name: 'Futures' },
+        { value: 'option', name: 'Options' }
+    ]
 };
 
 // -----------------------------------------------------------------------
@@ -331,43 +349,34 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
 // -----------------------------------------------------------------------
 const Datafeed = {
     onReady: (callback) => {
-        setTimeout(() => callback({
-            supported_resolutions: configurationData.supported_resolutions,
-            supports_marks: false,
-            supports_timescale_marks: false,
-            supports_time: true,
-        }));
+        setTimeout(() => callback(configurationData));
     },
 
     searchSymbols: async (userInput, exchange, symbolType, onResultReadyCallback) => {
-        const popMap = { 'NIFTY50':1, 'NIFTY':1, 'BANKNIFTY':2, 'SENSEX':3, 'FINNIFTY':4, 'BANKEX':5, 'MIDCPNIFTY':6, 'NIFTYNXT50':7, 'SX50':8 };
-        let query = (userInput || '').toUpperCase().trim();
+        const query = (userInput || '').toUpperCase().trim();
         const results = [];
-        
-        try {
-            // If the search box is pre-filled with the exact current chart symbol (which happens when clicking the top-left symbol button),
-            // treat it as an empty search so we can display all available Base Indices for easy switching!
-            try {
-                const chartSym = window.tvWidget ? window.tvWidget.activeChart().symbol() : '';
-                if (query === chartSym.toUpperCase().trim()) {
-                    query = '';
-                }
-            } catch(e) {}
+        const popMap = { 'XAUUSD':1, 'EURUSD':2, 'GBPUSD':3, 'USDJPY':4, 'US30':5, 'USTEC':6, 'US500':7, 'BTCUSD':8, 'NIFTY50-INDEX':9, 'BANKNIFTY-INDEX':10, 'SENSEX-INDEX':11, 'FINNIFTY-INDEX':12, 'MIDCPNIFTY-INDEX':13 };
 
-            // 1. MT5 Symbols Search when MT5 broker is connected
-            if (window.MT5API && window.MT5API.isConnected) {
+        try {
+            // Check exchange filter from TradingView dropdown
+            const isMt5Allowed = !exchange || exchange === 'MT5' || exchange.includes('MT5');
+            const isIndianAllowed = !exchange || exchange === 'NSE' || exchange === 'BSE' || exchange === 'MCX';
+
+            // 1. Instant MT5 In-Memory Search (< 1ms)
+            if (isMt5Allowed && window.MT5API && window.MT5API.isConnected) {
                 try {
                     const acc = window.MT5API.getActiveAccount();
                     const brokerName = acc ? (acc.server || acc.nickname || 'MT5') : 'MT5';
-                    const mt5Symbols = await window.MT5API.fetchSymbols(query);
+                    const mt5Symbols = await window.MT5API.fetchSymbols(query, symbolType || '');
                     if (mt5Symbols && mt5Symbols.length > 0) {
                         const limit = query ? 50 : 25;
                         mt5Symbols.slice(0, limit).forEach(s => {
                             results.push({
                                 symbol: s.name,
+                                ticker: s.name,
                                 full_name: `MT5:${s.name}`,
                                 description: `${s.description || s.name} (${brokerName})`,
-                                exchange: `MT5 (${brokerName})`,
+                                exchange: `MT5`,
                                 type: s.type || 'forex'
                             });
                         });
@@ -377,140 +386,106 @@ const Datafeed = {
                 }
             }
 
-            const expiries = await window.SyncManager.getAllExpiries();
-            
-            // Default listing when search box is empty
-            if (!query) {
-                const uniqueTickers = [...new Set(expiries.map(e => e.baseTicker))];
-                uniqueTickers.forEach(bt => {
-                    const isMcx = bt.startsWith('MCX_');
-                    if (isMcx) {
-                        const rawSymbol = bt.replace('MCX_', '');
-                        results.push({
-                            symbol: rawSymbol,
-                            full_name: rawSymbol,
-                            description: `${rawSymbol} Futures`,
-                            exchange: 'MCX',
-                            type: "futures"
-                        });
-                    } else {
-                        const idxSymbol = bt.replace('NSE_', '').replace('BSE_', '').replace('_INDEX', '') + '-INDEX';
-                        results.push({
-                            symbol: idxSymbol,
-                            full_name: idxSymbol,
-                            description: `${idxSymbol.replace('-INDEX', '')} Index`,
-                            exchange: (bt || "NSE_").split('_')[0],
-                            type: "index"
-                        });
-                    }
-                });
-                
-                results.sort((a, b) => {
-                    const baseA = a.symbol.replace('-INDEX', '');
-                    const baseB = b.symbol.replace('-INDEX', '');
-                    return (popMap[baseA] || 99) - (popMap[baseB] || 99) || a.symbol.localeCompare(b.symbol);
-                });
-                
-                return onResultReadyCallback(results);
-            }
+            // 2. Pre-Indexed Indian Base Indices & Commodities
+            if (isIndianAllowed) {
+                const INDICES = [
+                    { symbol: 'NIFTY50-INDEX', full_name: 'NIFTY50-INDEX', description: 'NIFTY 50 Index', exchange: 'NSE', type: 'index' },
+                    { symbol: 'BANKNIFTY-INDEX', full_name: 'BANKNIFTY-INDEX', description: 'NIFTY Bank Index', exchange: 'NSE', type: 'index' },
+                    { symbol: 'FINNIFTY-INDEX', full_name: 'FINNIFTY-INDEX', description: 'NIFTY Financial Services Index', exchange: 'NSE', type: 'index' },
+                    { symbol: 'SENSEX-INDEX', full_name: 'SENSEX-INDEX', description: 'BSE SENSEX Index', exchange: 'BSE', type: 'index' },
+                    { symbol: 'MIDCPNIFTY-INDEX', full_name: 'MIDCPNIFTY-INDEX', description: 'NIFTY Midcap Select Index', exchange: 'NSE', type: 'index' },
+                    { symbol: 'CRUDEOIL', full_name: 'CRUDEOIL', description: 'Crude Oil Futures', exchange: 'MCX', type: 'futures' },
+                    { symbol: 'GOLD', full_name: 'GOLD', description: 'Gold Futures', exchange: 'MCX', type: 'futures' },
+                    { symbol: 'SILVER', full_name: 'SILVER', description: 'Silver Futures', exchange: 'MCX', type: 'futures' },
+                ];
 
-        
-            for (let exp of expiries) {
-                
-                for (let f of exp.files) {
-                    const filename = f.path.split('/').pop();
-                    
-                    // Check for Index
-                    if (filename.includes('-INDEX_')) {
-                        const idxSymbol = filename.split('_')[0];
-                        if (idxSymbol.includes(query) && !results.find(r => r.symbol === idxSymbol)) {
-                            results.push({
-                                symbol: idxSymbol,
-                                full_name: idxSymbol,
-                                description: `${idxSymbol.replace('-INDEX', '')} Index`,
-                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
-                                type: "index"
-                            });
-                        }
+                INDICES.forEach(idx => {
+                    if (symbolType && symbolType !== idx.type) return;
+                    if (exchange && exchange !== idx.exchange) return;
+                    if (!query || idx.symbol.includes(query) || idx.description.toUpperCase().includes(query)) {
+                        results.push(idx);
                     }
-                    
-                    if (filename.includes('FUT_')) {
-                        const futSymbol = filename.split('_')[0];
-                        if (futSymbol.includes(query) && !results.find(r => r.symbol === futSymbol)) {
-                            const baseName = futSymbol.replace(/\d{2}[A-Z]{3}FUT/, '');
-                            let desc = `${baseName} Futures`;
-                            const futMatch = futSymbol.match(/[A-Z]+(\d{2})([A-Z]{3})FUT/);
-                            if (futMatch) {
-                                desc = `${baseName} Futures (${futMatch[2]} 20${futMatch[1]})`;
+                });
+
+                // 3. Deep Option Contracts (Searched on-demand only when user types strike/option/futures queries)
+                const isOptionQuery = query && (query.includes('CE') || query.includes('PE') || query.includes('FUT') || /\d{3,}/.test(query) || symbolType === 'option' || symbolType === 'futures');
+                if (isOptionQuery && window.SyncManager) {
+                    try {
+                        const expiries = await window.SyncManager.getAllExpiries();
+                        for (let exp of expiries) {
+                            for (let f of exp.files) {
+                                const filename = f.path.split('/').pop();
+                                const match = filename.match(/[A-Z]+.+?(\d{3,6})([CP]E)_/);
+                                if (match) {
+                                    const symbol = filename.split('_')[0];
+                                    if (symbol.includes(query)) {
+                                        const strike = parseInt(match[1], 10);
+                                        const type = match[2];
+                                        const typeDesc = type === 'CE' ? 'CALL' : 'PUT';
+                                        const baseName = symbol.replace(/\d.*/, '');
+                                        const desc = `${baseName} ${strike} ${typeDesc} (${exp.day} ${exp.monthLabel} ${exp.year})`;
+                                        results.push({
+                                            symbol: symbol,
+                                            ticker: symbol,
+                                            full_name: symbol,
+                                            description: desc,
+                                            exchange: (exp.baseTicker || "NSE_").split('_')[0],
+                                            type: "option"
+                                        });
+                                        if (results.length > 60) break;
+                                    }
+                                }
                             }
-                            
-                            results.push({
-                                symbol: futSymbol,
-                                full_name: futSymbol,
-                                description: desc,
-                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
-                                type: "futures"
-                            });
+                            if (results.length > 60) break;
                         }
-                    }
-                    
-                    const match = filename.match(/[A-Z]+.+?(\d{3,6})([CP]E)_/);
-                    if (match) {
-                        const symbol = filename.split('_')[0];
-                        if (symbol.includes(query) && !results.find(r => r.symbol === symbol)) {
-                            const strike = parseInt(match[1], 10);
-                            const type = match[2];
-                            const typeDesc = type === 'CE' ? 'CALL' : 'PUT';
-                            const baseName = symbol.replace(/\d.*/, '');
-                            const desc = `${baseName} ${strike} ${typeDesc} (${exp.day} ${exp.monthLabel} ${exp.year})`;
-                            
-                            results.push({
-                                symbol: symbol,
-                                full_name: symbol,
-                                description: desc,
-                                exchange: (exp.baseTicker || "NSE_").split('_')[0],
-                                type: "option"
-                            });
-                        }
-                    }
+                    } catch (_) {}
                 }
             }
         } catch(e) {
             console.error("Search error", e);
         }
-        
-        results.sort((a, b) => {
-            // 1. Type Priority (Index > Futures > Options)
-            const typeScore = { 'index': 1, 'futures': 2, 'option': 3 };
-            if (typeScore[a.type] !== typeScore[b.type]) {
-                return typeScore[a.type] - typeScore[b.type];
-            }
-            
-            // 2. Popularity Priority (NIFTY > BANKNIFTY > SENSEX ...)
-            const baseA = a.symbol.replace(/\d.*/, '').replace('-INDEX', '');
-            const baseB = b.symbol.replace(/\d.*/, '').replace('-INDEX', '');
-            const scoreA = popMap[baseA] || 99;
-            const scoreB = popMap[baseB] || 99;
-            
-            if (scoreA !== scoreB) {
-                return scoreA - scoreB;
-            }
-            
-            // 3. Alphabetical fallback (will naturally group same expiries/strikes together)
-            return a.symbol.localeCompare(b.symbol);
-        });
-        
-        // Remove exact duplicates just in case (dedup by symbol)
-        const uniqueResults = [];
+
+        // Deduplicate symbols
+        const unique = [];
         const seen = new Set();
         for (let r of results) {
-            if (!seen.has(r.symbol)) {
-                seen.add(r.symbol);
-                uniqueResults.push(r);
+            const k = r.symbol.toUpperCase();
+            if (!seen.has(k)) {
+                seen.add(k);
+                unique.push(r);
             }
         }
-        
-        onResultReadyCallback(uniqueResults.slice(0, 50));
+
+        // Intelligent Ranking:
+        // Rank 1: Exact symbol match (e.g. XAUUSD)
+        // Rank 2: Symbol starts with query
+        // Rank 3: Description contains query
+        // Rank 4: Popularity priority booster
+        if (query) {
+            unique.sort((a, b) => {
+                const aSym = a.symbol.toUpperCase();
+                const bSym = b.symbol.toUpperCase();
+
+                // 1. Exact match always wins
+                if (aSym === query && bSym !== query) return -1;
+                if (bSym === query && aSym !== query) return 1;
+
+                // 2. Starts with query
+                const aStarts = aSym.startsWith(query);
+                const bStarts = bSym.startsWith(query);
+                if (aStarts && !bStarts) return -1;
+                if (!aStarts && bStarts) return 1;
+
+                // 3. Popularity booster
+                const aPop = popMap[aSym] || 99;
+                const bPop = popMap[bSym] || 99;
+                if (aPop !== bPop) return aPop - bPop;
+
+                return aSym.localeCompare(bSym);
+            });
+        }
+
+        onResultReadyCallback(unique.slice(0, 60));
     },
 
     resolveSymbol: (symbolName, onSymbolResolvedCallback, onResolveErrorCallback) => {
