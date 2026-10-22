@@ -444,7 +444,7 @@
                 if (this.isOpen) {
                     this.pollActiveListQuotes();
                 }
-            }, 2500);
+            }, 3000);
             this.pollActiveListQuotes();
         }
 
