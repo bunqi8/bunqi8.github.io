@@ -346,27 +346,34 @@ function arrowToTVBars(arrowResult, resolution = '', symbolInfo = null) {
 
 window.triggerTvCacheReset = (symbol) => {
     console.log('[datafeed] triggerTvCacheReset requested for:', symbol || 'all');
-    if (window._tvLastBar) {
-        if (symbol) {
-            const sym = symbol.split(':').pop().toUpperCase().trim();
-            Object.keys(window._tvLastBar).forEach(k => {
-                if (k.includes(sym)) {
-                    delete window._tvLastBar[k];
-                    if (!window._tvResetPending) window._tvResetPending = {};
-                    window._tvResetPending[k] = true;
-                }
-            });
-        } else {
-            window._tvLastBar = {};
-            window._tvResetPending = {};
-        }
-    }
+    // NOTE: We do not wipe window._tvLastBar or block incoming ticks with _tvResetPending.
+    // Retaining the forming bar ensures the real-time tick stream never freezes.
+
+    // 1. Notify TradingView datafeed reset callbacks
     if (window._mt5ResetCallbacks && window._mt5ResetCallbacks.size > 0) {
         window._mt5ResetCallbacks.forEach(cb => {
             try { if (typeof cb === 'function') cb(); } catch (_) {}
         });
-    } else if (typeof window._tvResetCache === 'function') {
+    }
+    if (typeof window._tvResetCache === 'function') {
         try { window._tvResetCache(); } catch (_) {}
+    }
+
+    // 2. Authoritatively reset TradingView chart widget cache and reload historical bars
+    if (window.tvWidget) {
+        try {
+            if (typeof window.tvWidget.resetCache === 'function') {
+                window.tvWidget.resetCache();
+            }
+            if (typeof window.tvWidget.activeChart === 'function') {
+                const chart = window.tvWidget.activeChart();
+                if (chart && typeof chart.resetData === 'function') {
+                    chart.resetData();
+                }
+            }
+        } catch (e) {
+            console.warn('[datafeed] tvWidget resetData notice:', e);
+        }
     }
 };
 
@@ -900,9 +907,17 @@ const Datafeed = {
                               (window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name));
 
         if (isMt5Exchange && window.MT5API) {
+            const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
+            const cacheKey = `MT5_${cleanSym}_${resolution}`;
             try {
-                const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-                const mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
+                let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
+
+                // If fetchBars returned empty (e.g. server in middle of restart), quick retry once after 350ms
+                if ((!mt5Bars || mt5Bars.length === 0) && (firstDataRequest || (window.MT5API && window.MT5API.wasDisconnected))) {
+                    await new Promise(r => setTimeout(r, 350));
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
+                }
+
                 if (mt5Bars && mt5Bars.length > 0) {
                     // Filter out any invalid bars or future anomalies (allowing 5 min buffer)
                     const maxAllowedTime = Date.now() + 300000;
@@ -923,7 +938,6 @@ const Datafeed = {
 
                     if (validBars.length > 0) {
                         // Attach latest bar for real-time live ticking aggregation
-                        const cacheKey = `MT5_${cleanSym}_${resolution}`;
                         if (!window._tvLastBar) window._tvLastBar = {};
                         const last = validBars[validBars.length - 1];
                         window._tvLastBar[cacheKey] = {
@@ -934,19 +948,31 @@ const Datafeed = {
                             close: Number(last.close),
                             volume: Number(last.volume)
                         };
-                        if (window._tvResetPending) {
-                            delete window._tvResetPending[cacheKey];
-                        }
 
                         onHistoryCallback(validBars, { noData: false });
                         return;
                     }
                 }
+
+                // If bridge server is temporarily reconnecting, fallback to cached last bar if available
+                if (window._tvLastBar && window._tvLastBar[cacheKey]) {
+                    onHistoryCallback([window._tvLastBar[cacheKey]], { noData: false });
+                    return;
+                }
+
                 onHistoryCallback([], { noData: true });
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
-                onHistoryCallback([], { noData: true });
+                if (window._tvLastBar && window._tvLastBar[cacheKey]) {
+                    onHistoryCallback([window._tvLastBar[cacheKey]], { noData: false });
+                    return;
+                }
+                if (typeof onErrorCallback === 'function') {
+                    onErrorCallback(err.message || 'MT5 server reconnecting');
+                } else {
+                    onHistoryCallback([], { noData: true });
+                }
                 return;
             }
         }
@@ -1230,12 +1256,6 @@ const Datafeed = {
                 }
 
                 if (!window._tvLastBar) window._tvLastBar = {};
-
-                // If cache reset is currently pending for this series, wait for getBars to finish
-                if (window._tvResetPending && window._tvResetPending[cacheKey]) {
-                    return;
-                }
-
                 let lastBar = window._tvLastBar[cacheKey];
 
                 // 1. AUTHORITATIVE CANDLE STREAMING:
@@ -1307,12 +1327,30 @@ const Datafeed = {
                             onRealtimeCallback({ ...lastBar });
                             return;
                         } else {
-                            // Gap detected (> 1.5 bars missing, e.g. network disconnect or sleep)
-                            console.log(`[datafeed] MT5 candle gap detected (${lastBar.time} -> ${cTime}, tfMs=${tfMs}). Triggering authoritative cache reload...`);
-                            if (!window._tvResetPending) window._tvResetPending = {};
-                            window._tvResetPending[cacheKey] = true;
-                            if (typeof onResetCacheNeededCallback === 'function') {
-                                onResetCacheNeededCallback();
+                            // Gap detected (> 1.5 bars missing, e.g. server restart, network reconnect or sleep)
+                            console.log(`[datafeed] MT5 candle gap detected (${lastBar.time} -> ${cTime}, tfMs=${tfMs}). Streaming new bar and scheduling history re-sync...`);
+                            
+                            // Immediately advance forming candle so chart ticks live right away
+                            lastBar = {
+                                time: cTime,
+                                open: cOpen,
+                                high: cHigh,
+                                low: cLow,
+                                close: cClose,
+                                volume: cVol
+                            };
+                            window._tvLastBar[cacheKey] = lastBar;
+                            onRealtimeCallback({ ...lastBar });
+
+                            // Debounce background cache re-sync to backfill missing bars seamlessly
+                            if (!window._tvResetDebounce) window._tvResetDebounce = {};
+                            if (!window._tvResetDebounce[cacheKey]) {
+                                window._tvResetDebounce[cacheKey] = setTimeout(() => {
+                                    delete window._tvResetDebounce[cacheKey];
+                                    if (typeof window.triggerTvCacheReset === 'function') {
+                                        window.triggerTvCacheReset(cleanSym);
+                                    }
+                                }, 600);
                             }
                             return;
                         }
@@ -1320,12 +1358,7 @@ const Datafeed = {
 
                     // C. Anomaly / time inversion (cTime < lastBar.time)
                     if (cTime < lastBar.time) {
-                        console.warn(`[datafeed] MT5 time inversion detected (${cTime} < ${lastBar.time}). Triggering cache reset.`);
-                        if (!window._tvResetPending) window._tvResetPending = {};
-                        window._tvResetPending[cacheKey] = true;
-                        if (typeof onResetCacheNeededCallback === 'function') {
-                            onResetCacheNeededCallback();
-                        }
+                        console.warn(`[datafeed] MT5 time inversion notice (${cTime} < ${lastBar.time}).`);
                         return;
                     }
                 }
