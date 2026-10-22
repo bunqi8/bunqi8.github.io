@@ -376,8 +376,11 @@
             const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
             const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search');
 
+            const isOneClick = !!this.settings.oneClickTrading;
+
             const btnHtml = `
-            <div class="group-MBOVGQRI" id="${this.toolbarGroupId}" style="margin: 0 4px; display: inline-flex; align-items: center;">
+            <div class="group-MBOVGQRI" id="${this.toolbarGroupId}" style="margin: 0 4px; display: inline-flex; align-items: center; gap: 4px;">
+                <!-- Trade Ticket Button -->
                 <button aria-label="Trade Ticket" data-role="button" tabindex="-1" type="button" 
                     class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S tv-trade-toggle-btn" 
                     id="${this.toolbarBtnId}" style="
@@ -405,6 +408,32 @@
                         <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
                     </svg>
                 </button>
+
+                <!-- Quick Trading Toggle Button on Top -->
+                <button aria-label="Toggle Quick Trading" data-role="button" tabindex="-1" type="button" 
+                    class="button-OhqNVIYA button-ptpAHg8E button-GwQQdU8S apply-common-tooltip isInteractive-GwQQdU8S accessible-GwQQdU8S" 
+                    id="header-toolbar-quick-trade-btn" style="
+                        padding: 0 8px;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 4px;
+                        cursor: pointer;
+                        height: 28px;
+                        border-radius: 4px;
+                        border: 1px solid ${isOneClick ? '#2962ff' : '#e0e3eb'};
+                        background: ${isOneClick ? '#eaf2ff' : '#ffffff'};
+                        color: ${isOneClick ? '#2962ff' : '#787b86'};
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        outline: none;
+                        transition: all 0.15s;
+                    " title="Quick Trading (Instant 1-Click Orders without Ticket): ${isOneClick ? 'Enabled' : 'Disabled'}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="${isOneClick ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                    <span id="tv-toolbar-quick-trade-label">${isOneClick ? 'Instant ON' : 'Instant OFF'}</span>
+                </button>
             </div>
             `;
 
@@ -424,17 +453,50 @@
                     this.toggleOrderTicket();
                 };
             }
+
+            const qBtn = targetDoc.getElementById('header-toolbar-quick-trade-btn');
+            if (qBtn) {
+                qBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.settings.oneClickTrading = !this.settings.oneClickTrading;
+                    this.saveSettings();
+                    this.updateToolbarBtnState();
+                    this.renderOnChartWidget();
+                    const checkQuick = document.getElementById('tv-check-quick-trading');
+                    if (checkQuick) checkQuick.checked = this.settings.oneClickTrading;
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast(`⚡ Quick Trading: ${this.settings.oneClickTrading ? 'Enabled (Instant Orders)' : 'Disabled (Ticket Mode)'}`, 'info');
+                    }
+                };
+            }
         }
 
         updateToolbarBtnState() {
             const btn = document.getElementById(this.toolbarBtnId);
-            if (!btn) return;
-            if (this.isOrderTicketOpen) {
-                btn.style.background = '#f0f3fa';
-                btn.style.color = '#2962ff';
-            } else {
-                btn.style.background = '#ffffff';
-                btn.style.color = '#131722';
+            if (btn) {
+                if (this.isOrderTicketOpen) {
+                    btn.style.background = '#f0f3fa';
+                    btn.style.color = '#2962ff';
+                } else {
+                    btn.style.background = '#ffffff';
+                    btn.style.color = '#131722';
+                }
+            }
+
+            const qBtn = document.getElementById('header-toolbar-quick-trade-btn');
+            const qLabel = document.getElementById('tv-toolbar-quick-trade-label');
+            const isOneClick = !!this.settings.oneClickTrading;
+            if (qBtn) {
+                qBtn.style.border = isOneClick ? '1px solid #2962ff' : '1px solid #e0e3eb';
+                qBtn.style.background = isOneClick ? '#eaf2ff' : '#ffffff';
+                qBtn.style.color = isOneClick ? '#2962ff' : '#787b86';
+                const svg = qBtn.querySelector('svg');
+                if (svg) svg.setAttribute('fill', isOneClick ? 'currentColor' : 'none');
+                qBtn.title = `Quick Trading (Instant 1-Click Orders without Ticket): ${isOneClick ? 'Enabled' : 'Disabled'}`;
+            }
+            if (qLabel) {
+                qLabel.innerText = isOneClick ? 'Instant ON' : 'Instant OFF';
             }
         }
 
@@ -785,7 +847,7 @@
             };
 
             if (btnSell) {
-                btnSell.onmouseenter = () => showTooltip(btnSell, 'Sell Market', 'S');
+                btnSell.onmouseenter = () => showTooltip(btnSell, this.settings.oneClickTrading ? 'Sell Market (Instant Order)' : 'Sell (Open Ticket)', 'S');
                 btnSell.onmouseleave = hideTooltip;
                 btnSell.onclick = (e) => {
                     e.stopPropagation();
@@ -803,7 +865,7 @@
             }
 
             if (btnBuy) {
-                btnBuy.onmouseenter = () => showTooltip(btnBuy, 'Buy Market', 'B');
+                btnBuy.onmouseenter = () => showTooltip(btnBuy, this.settings.oneClickTrading ? 'Buy Market (Instant Order)' : 'Buy (Open Ticket)', 'B');
                 btnBuy.onmouseleave = hideTooltip;
                 btnBuy.onclick = (e) => {
                     e.stopPropagation();
@@ -1448,7 +1510,7 @@
         }
 
         // ==========================================
-        // 5. PURE RIGHT-SIDE ORDER TICKET (100% Match to Image 2)
+        // 5. PURE RIGHT-SIDE ORDER TICKET (100% Authentic TradingView Match)
         // ==========================================
         renderSideOrderTicket() {
             let panel = document.getElementById(this.sideTicketId);
@@ -1462,13 +1524,14 @@
             const isDocked = this.dockMode === 'docked';
             const isDockRight = this.dockSide === 'right';
 
+            panel.className = 'layout__area--tradingpanel rootContainer-AVbA9qZC rootContainer-wspftEtf';
             if (isDocked) {
                 panel.style.cssText = `
                     position: fixed;
                     top: 0;
                     bottom: 0;
                     ${isDockRight ? 'right: 0; left: auto;' : 'left: 0; right: auto;'}
-                    width: 340px;
+                    width: 315px;
                     background: ${theme.panelBg};
                     color: ${theme.text};
                     ${isDockRight ? `border-left: 1px solid ${theme.border};` : `border-right: 1px solid ${theme.border};`}
@@ -1479,6 +1542,7 @@
                     box-shadow: none;
                     border-radius: 0;
                     user-select: none;
+                    box-sizing: border-box;
                 `;
             } else {
                 const fPos = this.floatingPos;
@@ -1486,12 +1550,12 @@
                     position: fixed;
                     top: ${fPos.top || '80px'};
                     ${fPos.left && fPos.left !== 'auto' ? `left: ${fPos.left}; right: auto;` : `right: ${fPos.right || '30px'}; left: auto;`}
-                    width: 340px;
+                    width: 315px;
                     max-height: 92vh;
                     background: ${theme.panelBg};
                     color: ${theme.text};
                     border: 1px solid ${theme.border};
-                    border-radius: 12px;
+                    border-radius: 8px;
                     display: ${this.isOrderTicketOpen ? 'flex' : 'none'};
                     flex-direction: column;
                     z-index: 99999;
@@ -1499,6 +1563,7 @@
                     box-shadow: ${theme.shadow};
                     user-select: none;
                     overflow: hidden;
+                    box-sizing: border-box;
                 `;
             }
 
@@ -1510,315 +1575,477 @@
             const spreadPoints = this.getSpreadFormatted();
             const bidFormatted = this.formatPrice(this.currentBid);
             const askFormatted = this.formatPrice(this.currentAsk);
-
             const displaySymbol = this.currentSymbol;
 
             panel.innerHTML = `
-                <!-- 1. Header Bar (TV Logo, Symbol, DOM grid icon, ···, ✕) -->
-                <div id="tv-ticket-drag-header" style="
+                <!-- 1. Header Bar (TV Logo, Symbol, Presets icon, Settings ···, ✕) -->
+                <div class="trading-panel-header-wspftEtf" id="tv-ticket-drag-header" style="
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 12px 16px 8px;
+                    height: 48px;
+                    padding: 0 16px;
                     border-bottom: none;
+                    box-sizing: border-box;
                     cursor: ${isDocked ? 'default' : 'move'};
                 ">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="
-                            width: 22px;
-                            height: 22px;
+                    <div class="wrapper-eXazYeWn" style="display: flex; align-items: center; gap: 8px;">
+                        <div class="logoWrapper-eXazYeWn" style="width: 22px; height: 22px; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #131722; flex-shrink: 0;">
+                            <img class="logo-eXazYeWn" src="https://static.tradingview.com/static/bundles/paper.22325298770f1a027936.svg" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.outerHTML='<span style=\\'color:#ffffff;font-size:11px;font-weight:900;\\'>TV</span>'">
+                        </div>
+                        <span class="title-eXazYeWn apply-overflow-tooltip" id="tv-ticket-symbol-disp" style="font-size: 15px; font-weight: 700; color: ${theme.text}; letter-spacing: -0.2px;">${displaySymbol}</span>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 4px; position: relative;">
+                        <!-- Order Presets Button -->
+                        <button data-qa-id="header-order-presets-menu-button" id="tv-ticket-btn-presets" type="button" title="Order presets" style="
+                            width: 28px;
+                            height: 28px;
+                            background: transparent;
+                            border: none;
                             border-radius: 4px;
-                            background: #131722;
-                            color: #ffffff;
+                            color: ${theme.textMuted};
+                            cursor: pointer;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            font-size: 11px;
-                            font-weight: 900;
-                            letter-spacing: -0.5px;
-                        ">TV</div>
-                        <span id="tv-ticket-symbol-disp" style="font-size: 15px; font-weight: 700; color: ${theme.text};">${displaySymbol}</span>
-                    </div>
+                            padding: 0;
+                            transition: background 0.15s, color 0.15s;
+                        ">
+                            <span role="img" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 28 28" fill="none">
+                                    <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M8 6a2 2 0 00-2 2v3a2 2 0 002 2h3a2 2 0 002-2V8a2 2 0 00-2-2H8zm3 1H8a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1V8a1 1 0 00-1-1zM8 15a2 2 0 00-2 2v3a2 2 0 002 2h3a2 2 0 002-2v-3a2 2 0 00-2-2H8zm3 1H8a1 1 0 00-1 1v3a1 1 0 001 1h3a1 1 0 001-1v-3a1 1 0 00-1-1zM15 8a2 2 0 012-2h3a2 2 0 012 2v3a2 2 0 01-2 2h-3a2 2 0 01-2-2V8zm2-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1V8a1 1 0 011-1z"></path>
+                                    <path fill="currentColor" d="M18 19h-3v-1h3v-3h1v3h3v1h-3v3h-1v-3z"></path>
+                                </svg>
+                            </span>
+                        </button>
 
-                    <div style="display: flex; align-items: center; gap: 4px;">
-                        <button id="tv-ticket-btn-dom-header" type="button" title="Depth of Market" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center;">
-                            <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
-                                <rect x="2" y="2" width="6" height="6" rx="1"/><rect x="10" y="2" width="6" height="6" rx="1"/>
-                                <rect x="2" y="10" width="6" height="6" rx="1"/><path d="M13 10v6m-3-3h6"/>
-                            </svg>
+                        <!-- Settings Button (3 dots ...) -->
+                        <div class="settingsWrapper-eXazYeWn" style="position: relative;">
+                            <button data-qa-id="header-settings" id="tv-ticket-btn-settings" type="button" title="Trading settings" style="
+                                width: 28px;
+                                height: 28px;
+                                background: transparent;
+                                border: none;
+                                border-radius: 4px;
+                                color: ${theme.textMuted};
+                                cursor: pointer;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                padding: 0;
+                                transition: background 0.15s, color 0.15s;
+                            ">
+                                <span role="img" aria-hidden="true">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="22" height="22">
+                                        <path fill="currentColor" d="M7.5 13a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM5 14.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0zm9.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM12 14.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0zm9.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM19 14.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0z"></path>
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
+
+                        <!-- Close Button (✕) -->
+                        <button data-qa-id="button-close" id="tv-ticket-btn-close" type="button" aria-label="Close button" style="
+                            width: 28px;
+                            height: 28px;
+                            background: transparent;
+                            border: none;
+                            border-radius: 4px;
+                            color: ${theme.textMuted};
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            padding: 0;
+                            transition: background 0.15s, color 0.15s;
+                        ">
+                            <span role="img" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="20" height="20" fill="none">
+                                    <path stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M7 6l14 14m0-14L7 20"></path>
+                                </svg>
+                            </span>
                         </button>
-                        <button id="tv-ticket-btn-dock" type="button" title="${isDocked ? 'Undock to Floating' : 'Dock to Right'}" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center;">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="12" r="1.5"/>
-                            </svg>
-                        </button>
-                        <button id="tv-ticket-btn-close" type="button" title="Close Ticket" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M18 6L6 18M6 6l12 12"/>
-                            </svg>
-                        </button>
+
+                        <!-- Settings Dropdown Popover -->
+                        <div id="tv-ticket-settings-popover" style="
+                            display: none;
+                            position: absolute;
+                            top: 34px;
+                            right: 0;
+                            width: 255px;
+                            background: ${theme.panelBg};
+                            border: 1px solid ${theme.border};
+                            border-radius: 8px;
+                            box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+                            z-index: 100000;
+                            padding: 8px 0;
+                        ">
+                            <div style="padding: 4px 14px 6px; font-size: 11px; font-weight: 700; color: ${theme.textMuted}; text-transform: uppercase; letter-spacing: 0.5px;">Trading Settings</div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer; transition: background 0.1s;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'" id="tv-opt-toggle-quick">
+                                <div>
+                                    <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">Instant orders placement</div>
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">Execute on chart click without ticket</div>
+                                </div>
+                                <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
+                                    <input type="checkbox" id="tv-check-quick-trading" ${this.settings.oneClickTrading ? 'checked' : ''}>
+                                    <span class="tv-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer; transition: background 0.1s;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'" id="tv-opt-toggle-buttons">
+                                <div>
+                                    <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">Show Buy/Sell buttons</div>
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">On-chart legend trading buttons</div>
+                                </div>
+                                <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
+                                    <input type="checkbox" id="tv-check-show-buttons" ${this.settings.showBuySellButtons ? 'checked' : ''}>
+                                    <span class="tv-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div style="height: 1px; background: ${theme.border}; margin: 6px 0;"></div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; cursor: pointer;" onmouseenter="this.style.background='${theme.subtabBg}'" onmouseleave="this.style.background='transparent'" id="tv-opt-toggle-dock">
+                                <div style="font-size: 13px; font-weight: 600; color: ${theme.text};">${isDocked ? 'Undock to Floating' : 'Dock to Right'}</div>
+                                <span style="font-size: 12px; color: ${theme.textMuted};">⇄</span>
+                            </div>
+                        </div>
+
+                        <!-- Presets Dropdown Popover -->
+                        <div id="tv-ticket-presets-popover" style="
+                            display: none;
+                            position: absolute;
+                            top: 34px;
+                            right: 24px;
+                            width: 220px;
+                            background: ${theme.panelBg};
+                            border: 1px solid ${theme.border};
+                            border-radius: 8px;
+                            box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+                            z-index: 100000;
+                            padding: 10px;
+                        ">
+                            <div style="font-size: 12px; font-weight: 700; color: ${theme.text}; margin-bottom: 8px;">Order Quantity Presets</div>
+                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                                ${['0.01', '0.1', '0.5', '1', '2', '5', '10', '50'].map(q => `
+                                    <button type="button" class="tv-ticket-preset-chip" data-qty="${q}" style="
+                                        padding: 6px 0;
+                                        background: ${Number(this.lots) === Number(q) ? theme.buyColor : theme.subtabBg};
+                                        color: ${Number(this.lots) === Number(q) ? '#ffffff' : theme.text};
+                                        border: none;
+                                        border-radius: 4px;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                        text-align: center;
+                                    ">${q}</button>
+                                `).join('')}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 2. Segmented Pill Switch: Order | DOM -->
-                <div style="padding: 0 16px 8px;">
-                    <div style="
-                        display: flex;
-                        background: ${theme.subtabBg};
-                        border-radius: 6px;
-                        padding: 3px;
-                        gap: 2px;
-                    ">
-                        <button id="tv-ticket-tab-order" type="button" style="
-                            flex: 1;
-                            padding: 6px 0;
-                            border: none;
-                            border-radius: 4px;
-                            background: ${this.ticketTab === 'order' ? '#ffffff' : 'transparent'};
-                            color: ${this.ticketTab === 'order' ? '#131722' : '#787b86'};
-                            font-size: 12.5px;
-                            font-weight: 600;
-                            cursor: pointer;
-                            box-shadow: ${this.ticketTab === 'order' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none'};
-                        ">Order</button>
-                        <button id="tv-ticket-tab-dom" type="button" style="
-                            flex: 1;
-                            padding: 6px 0;
-                            border: none;
-                            border-radius: 4px;
-                            background: ${this.ticketTab === 'dom' ? '#ffffff' : 'transparent'};
-                            color: ${this.ticketTab === 'dom' ? '#131722' : '#787b86'};
-                            font-size: 12.5px;
-                            font-weight: 600;
-                            cursor: pointer;
-                            box-shadow: ${this.ticketTab === 'dom' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none'};
-                        ">DOM</button>
+                <div class="trading-panel-tabs-wspftEtf" style="padding: 0 16px 10px;">
+                    <div class="tabs-EkS3Iys9">
+                        <div class="segmentedControls-O9cSv1MO xsmall-O9cSv1MO" style="
+                            display: flex;
+                            background: ${theme.subtabBg};
+                            border-radius: 6px;
+                            padding: 2px;
+                            gap: 2px;
+                            box-sizing: border-box;
+                        ">
+                            <button id="tv-ticket-tab-order" type="button" class="segmentedControlBase-Wsyc2cnT ${this.ticketTab === 'order' ? 'checked-Wsyc2cnT' : ''}" style="
+                                flex: 1;
+                                height: 28px;
+                                border: none;
+                                border-radius: 4px;
+                                background: ${this.ticketTab === 'order' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                color: ${this.ticketTab === 'order' ? theme.text : theme.textMuted};
+                                font-size: 13px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                box-shadow: ${this.ticketTab === 'order' ? '0 1px 2px rgba(19,23,34,0.08)' : 'none'};
+                                transition: all 0.15s;
+                            ">Order</button>
+                            <button id="tv-ticket-tab-dom" type="button" class="segmentedControlBase-Wsyc2cnT ${this.ticketTab === 'dom' ? 'checked-Wsyc2cnT' : ''}" style="
+                                flex: 1;
+                                height: 28px;
+                                border: none;
+                                border-radius: 4px;
+                                background: ${this.ticketTab === 'dom' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                color: ${this.ticketTab === 'dom' ? theme.text : theme.textMuted};
+                                font-size: 13px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                box-shadow: ${this.ticketTab === 'dom' ? '0 1px 2px rgba(19,23,34,0.08)' : 'none'};
+                                transition: all 0.15s;
+                            ">DOM</button>
+                        </div>
                     </div>
                 </div>
 
                 ${this.ticketTab === 'dom' ? this.renderDomLadder(theme) : `
-                    <!-- 3. Scrollable Order Form Body -->
-                    <div style="flex: 1; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px;">
-                        <!-- Split Sell / Buy Quote Box (Image 1) -->
-                        <div style="
+                    <!-- 3. Side Control: Sell / Spread / Buy Split Box -->
+                    <div class="side-u3DtG1BP" style="padding: 0 16px 10px;">
+                        <div class="sideControl-kndSwmgU" style="
                             display: grid;
                             grid-template-columns: 1fr 1fr;
                             border-radius: 6px;
                             border: 1px solid ${theme.border};
                             overflow: hidden;
                             position: relative;
-                            background: #ffffff;
+                            background: ${theme.panelBg};
+                            box-sizing: border-box;
                         ">
                             <!-- SELL BOX -->
-                            <div id="tv-ticket-split-sell" style="
+                            <div id="tv-ticket-split-sell" role="button" tabindex="0" class="sell-kndSwmgU ${!isBuy ? 'active-kndSwmgU' : ''}" data-name="side-control-sell" style="
                                 padding: 8px 12px;
-                                background: ${!isBuy ? theme.sellActiveBg : '#ffffff'};
+                                background: ${!isBuy ? theme.sellActiveBg : theme.subtabBg};
                                 border-right: 1px solid ${theme.border};
                                 cursor: pointer;
                                 display: flex;
                                 flex-direction: column;
                                 transition: background 0.15s;
+                                box-sizing: border-box;
                             ">
-                                <span style="color: ${!isBuy ? theme.sellColor : theme.textMuted}; font-size: 11px; font-weight: 600; margin-bottom: 2px;">Sell</span>
-                                <span id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 18px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentBid)}</span>
-                            </div>
-
-                            <!-- CENTER SPREAD BADGE PILL (Image 1) -->
-                            <div style="
-                                position: absolute;
-                                left: 50%;
-                                top: 50%;
-                                transform: translate(-50%, -50%);
-                                background: #ffffff;
-                                border: 1px solid ${theme.border};
-                                border-radius: 4px;
-                                padding: 2px 8px;
-                                font-size: 11.5px;
-                                font-weight: 600;
-                                color: #131722;
-                                box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-                                pointer-events: none;
-                            ">
-                                <span id="tv-ticket-spread-badge">${spreadPoints}</span>
+                                <div class="title-kndSwmgU" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 13px; font-weight: 600; margin-bottom: 2px;">Sell</div>
+                                <div class="value-kndSwmgU" id="tv-ticket-bid-val" style="color: ${!isBuy ? theme.sellColor : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
+                                    ${this.formatPipPriceHtml(this.currentBid)}
+                                </div>
                             </div>
 
                             <!-- BUY BOX -->
-                            <div id="tv-ticket-split-buy" style="
+                            <div id="tv-ticket-split-buy" role="button" tabindex="0" class="buy-kndSwmgU ${isBuy ? 'active-kndSwmgU' : ''}" data-name="side-control-buy" style="
                                 padding: 8px 12px;
-                                background: ${isBuy ? theme.buyActiveBg : '#ffffff'};
+                                background: ${isBuy ? theme.buyActiveBg : theme.subtabBg};
                                 text-align: right;
                                 cursor: pointer;
                                 display: flex;
                                 flex-direction: column;
+                                align-items: flex-end;
                                 transition: background 0.15s;
+                                box-sizing: border-box;
                             ">
-                                <span style="color: ${isBuy ? theme.buyColor : theme.textMuted}; font-size: 11px; font-weight: 600; margin-bottom: 2px;">Buy</span>
-                                <span id="tv-ticket-ask-val" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 18px; font-weight: 700; line-height: 1.15;">${this.formatPipPriceHtml(this.currentAsk)}</span>
+                                <div class="title-kndSwmgU" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 13px; font-weight: 600; margin-bottom: 2px;">Buy</div>
+                                <div class="value-kndSwmgU" id="tv-ticket-ask-val" style="color: ${isBuy ? theme.buyColor : theme.text}; font-size: 17px; font-weight: 700; line-height: 1.15; font-feature-settings: 'tnum';">
+                                    ${this.formatPipPriceHtml(this.currentAsk)}
+                                </div>
+                            </div>
+
+                            <!-- SPREAD BADGE (Raised Top) -->
+                            <div class="spread-kndSwmgU raisedTop-kndSwmgU" data-name="side-control-spread" style="
+                                position: absolute;
+                                left: 50%;
+                                top: 7px;
+                                transform: translateX(-50%);
+                                background: ${theme.panelBg};
+                                border: 1px solid ${theme.border};
+                                border-radius: 4px;
+                                padding: 1px 7px;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: ${theme.text};
+                                box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                                pointer-events: none;
+                                z-index: 2;
+                                font-feature-settings: 'tnum';
+                            ">
+                                <span id="tv-ticket-spread-badge">${spreadPoints}</span>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Order Type Tabs: Market | Limit | Stop with Solid Underline -->
-                        <div style="display: flex; border-bottom: 1px solid ${theme.border}; position: relative;">
-                            <button type="button" class="tv-order-type-btn" data-type="market" style="
-                                flex: 1;
+                    <!-- 4. Order Type Tabs: Market | Limit | Stop with Solid Underline -->
+                    <div tabindex="-1" class="tabsContainer-YjfvTmI6" style="padding: 0 16px;">
+                        <div id="order-type-tabs" role="tablist" class="underline-tabs-pej7qj3O" style="
+                            display: grid;
+                            grid-template-columns: 1fr 1fr 1fr;
+                            border-bottom: 1px solid ${theme.border};
+                            position: relative;
+                        ">
+                            <button id="Market" role="tab" type="button" class="tv-order-type-btn underline-tab-GAhOQ4ll ${this.orderType === 'market' ? 'selected-GAhOQ4ll' : ''}" data-type="market" style="
                                 padding: 8px 0;
                                 border: none;
                                 background: transparent;
-                                color: ${this.orderType === 'market' ? '#131722' : '#787b86'};
-                                font-weight: 700;
-                                font-size: 12.5px;
+                                color: ${this.orderType === 'market' ? theme.text : theme.textMuted};
+                                font-weight: ${this.orderType === 'market' ? '700' : '600'};
+                                font-size: 13px;
                                 cursor: pointer;
                                 position: relative;
+                                text-align: center;
                             ">
                                 Market
-                                ${this.orderType === 'market' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #131722;"></div>` : ''}
+                                ${this.orderType === 'market' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: ${theme.text}; border-radius: 1px;"></div>` : ''}
                             </button>
-                            <button type="button" class="tv-order-type-btn" data-type="limit" style="
-                                flex: 1;
+                            <button id="Limit" role="tab" type="button" class="tv-order-type-btn underline-tab-GAhOQ4ll ${this.orderType === 'limit' ? 'selected-GAhOQ4ll' : ''}" data-type="limit" style="
                                 padding: 8px 0;
                                 border: none;
                                 background: transparent;
-                                color: ${this.orderType === 'limit' ? '#131722' : '#787b86'};
-                                font-weight: 700;
-                                font-size: 12.5px;
+                                color: ${this.orderType === 'limit' ? theme.text : theme.textMuted};
+                                font-weight: ${this.orderType === 'limit' ? '700' : '600'};
+                                font-size: 13px;
                                 cursor: pointer;
                                 position: relative;
+                                text-align: center;
                             ">
                                 Limit
-                                ${this.orderType === 'limit' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #131722;"></div>` : ''}
+                                ${this.orderType === 'limit' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: ${theme.text}; border-radius: 1px;"></div>` : ''}
                             </button>
-                            <button type="button" class="tv-order-type-btn" data-type="stop" style="
-                                flex: 1;
+                            <button id="Stop" role="tab" type="button" class="tv-order-type-btn underline-tab-GAhOQ4ll ${this.orderType === 'stop' ? 'selected-GAhOQ4ll' : ''}" data-type="stop" style="
                                 padding: 8px 0;
                                 border: none;
                                 background: transparent;
-                                color: ${this.orderType === 'stop' ? '#131722' : '#787b86'};
-                                font-weight: 700;
-                                font-size: 12.5px;
+                                color: ${this.orderType === 'stop' ? theme.text : theme.textMuted};
+                                font-weight: ${this.orderType === 'stop' ? '700' : '600'};
+                                font-size: 13px;
                                 cursor: pointer;
                                 position: relative;
+                                text-align: center;
                             ">
                                 Stop
-                                ${this.orderType === 'stop' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #131722;"></div>` : ''}
+                                ${this.orderType === 'stop' ? `<div style="position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: ${theme.text}; border-radius: 1px;"></div>` : ''}
                             </button>
                         </div>
+                    </div>
 
+                    <!-- 5. Scrollable Form Body -->
+                    <div class="scrollWrapper-u3DtG1BP" style="
+                        flex: 1;
+                        overflow-y: auto;
+                        overflow-x: hidden;
+                        padding: 12px 16px 16px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        box-sizing: border-box;
+                    ">
                         <!-- Price Input (Shown for Limit & Stop) -->
                         ${this.orderType !== 'market' ? `
                             <div>
-                                <label style="display: block; font-size: 11.5px; color: ${theme.textMuted}; margin-bottom: 5px; font-weight: 600;">Price</label>
+                                <div style="font-size: 12px; font-weight: 500; color: ${theme.textMuted}; margin-bottom: 4px;">Price</div>
                                 <div style="
                                     display: flex;
                                     align-items: center;
                                     border: 1px solid #2962ff;
+                                    box-shadow: 0 0 0 1px #2962ff;
                                     border-radius: 6px;
-                                    padding: 6px 12px;
-                                    background: #ffffff;
+                                    padding: 0 10px;
                                     height: 38px;
+                                    background: ${theme.inputBg};
                                     box-sizing: border-box;
                                 ">
-                                    <input type="number" id="tv-ticket-price-in" step="any" value="${this.limitPrice || (isBuy ? askFormatted : bidFormatted)}" style="
+                                    <input type="text" id="tv-ticket-price-in" value="${this.limitPrice || (isBuy ? askFormatted : bidFormatted)}" style="
                                         flex: 1;
                                         border: none;
                                         outline: none;
-                                        font-size: 14px;
+                                        font-size: 15px;
                                         font-weight: 700;
-                                        color: #131722;
+                                        color: ${theme.text};
                                         background: transparent;
+                                        font-feature-settings: 'tnum';
                                     ">
                                     <button id="tv-ticket-price-swap-btn" type="button" title="Set to current price" style="
                                         background: transparent;
                                         border: none;
-                                        color: #787b86;
-                                        margin: 0 8px;
+                                        color: ${theme.textMuted};
                                         cursor: pointer;
                                         display: flex;
                                         align-items: center;
-                                        padding: 2px;
+                                        padding: 4px;
+                                        margin: 0 6px;
                                     ">
-                                        <svg width="15" height="15" viewBox="0 0 18 18" fill="currentColor">
-                                            <path d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"/>
-                                        </svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
                                     </button>
-                                    <span id="tv-ticket-price-ref-badge" style="font-size: 12px; font-weight: 600; color: #2962ff; cursor: pointer;">
-                                        ${isBuy ? 'Ask' : 'Bid'}
+                                    <span id="tv-ticket-price-ref-badge" style="font-size: 13px; font-weight: 600; color: #2962ff; cursor: pointer; white-space: nowrap;">
+                                        ${this.getPriceRefBadgeText(isBuy)}
                                     </span>
                                 </div>
                             </div>
                         ` : ''}
 
-                        <!-- Units Input Box (Image 1) -->
+                        <!-- Units Input Box -->
                         <div>
-                            <div style="font-size: 11.5px; color: ${theme.textMuted}; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                            <div style="font-size: 12px; font-weight: 500; color: ${theme.textMuted}; margin-bottom: 4px; display: flex; align-items: center; gap: 3px; cursor: pointer;">
                                 <span>Units</span>
-                                <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor"><path d="M4 4.5L0.5 1L1.2 0.3L4 3.1L6.8 0.3L7.5 1L4 4.5Z"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
                             </div>
                             <div style="
                                 display: flex;
                                 align-items: center;
-                                border: 1px solid #d1d4dc;
+                                border: 1px solid ${theme.border};
                                 border-radius: 6px;
-                                padding: 6px 12px;
+                                padding: 0 10px;
                                 height: 38px;
+                                background: ${theme.inputBg};
                                 box-sizing: border-box;
-                                background: #ffffff;
                             ">
                                 <input type="number" id="tv-ticket-units-in" min="0.01" step="0.1" value="${this.lots}" style="
-                                    width: 80px;
+                                    width: 75px;
                                     border: none;
                                     outline: none;
                                     background: transparent;
-                                    color: #131722;
-                                    font-size: 14px;
+                                    color: ${theme.text};
+                                    font-size: 15px;
                                     font-weight: 700;
+                                    font-feature-settings: 'tnum';
                                 ">
-                                <span style="color: #787b86; margin: 0 8px; display: flex; align-items: center; cursor: pointer;">
-                                    <svg width="15" height="15" viewBox="0 0 18 18" fill="currentColor"><path d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"/></svg>
-                                </span>
-                                <span id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: #787b86; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                                    ${this.calculateTradeValueUSD()} USD
-                                    <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor"><path d="M4 4.5L0.5 1L1.2 0.3L4 3.1L6.8 0.3L7.5 1L4 4.5Z"/></svg>
-                                </span>
+                                <button id="tv-ticket-units-swap-btn" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
+                                </button>
+                                <div id="tv-ticket-usd-val" style="margin-left: auto; font-size: 13px; font-weight: 500; color: ${theme.textMuted}; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                    <span id="tv-ticket-usd-val-amount">${this.calculateRequiredMarginUSD()} USD</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Financial Metrics Card (Trade Value, Available Margin, Tick Value) -->
-                        <div style="
+                        <!-- Financial Metrics Card -->
+                        <div class="infoBlock-lBT_g5ou withBackground-lBT_g5ou" style="
                             background: ${theme.cardBg};
                             border-radius: 6px;
                             padding: 10px 14px;
                             display: flex;
                             flex-direction: column;
-                            gap: 8px;
-                            font-size: 11.5px;
+                            gap: 6px;
+                            box-sizing: border-box;
                         ">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: ${theme.textMuted};">Trade value (50x)</span>
-                                <span id="tv-val-trade-summary" style="font-weight: 700; color: ${theme.text};">${this.calculateTradeValueUSD()} USD</span>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: ${theme.textMuted};">Trade value (50x)</span>
+                                <span id="tv-val-trade-summary" style="font-size: 12.5px; font-weight: 600; color: ${theme.text}; font-feature-settings: 'tnum';">
+                                    ${this.calculateTradeValueUSD()} <span style="font-size: 11px; font-weight: 500; color: ${theme.textMuted};">USD</span>
+                                </span>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: ${theme.textMuted};">Available margin</span>
-                                <span id="tv-val-avail-margin" style="font-weight: 700; color: ${theme.text};">${this.getAvailableMarginFormatted()} USD</span>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: ${theme.textMuted};">Available margin</span>
+                                <span id="tv-val-avail-margin" style="font-size: 12.5px; font-weight: 600; color: ${theme.text}; font-feature-settings: 'tnum';">
+                                    ${this.getAvailableMarginFormatted()} <span style="font-size: 11px; font-weight: 500; color: ${theme.textMuted};">USD</span>
+                                </span>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: ${theme.textMuted};">Tick value</span>
-                                <span style="font-weight: 700; color: ${theme.text};">0.001 USD</span>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: ${theme.textMuted};">Tick value</span>
+                                <span style="font-size: 12.5px; font-weight: 600; color: ${theme.text}; font-feature-settings: 'tnum';">
+                                    0.001 <span style="font-size: 11px; font-weight: 500; color: ${theme.textMuted};">USD</span>
+                                </span>
                             </div>
                         </div>
 
-                        <!-- Exits Section (Take Profit & Stop Loss with iOS Toggles) -->
+                        <!-- Exits Section (Take Profit & Stop Loss) -->
                         <div>
                             <div id="tv-ticket-exits-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 4px 0;">
-                                <span style="font-size: 13px; font-weight: 700; color: ${theme.text};">Exits</span>
-                                <span style="font-size: 11px; color: ${theme.textMuted};">${this.isExitsExpanded ? '▲' : '▼'}</span>
+                                <span style="font-size: 14px; font-weight: 700; color: ${theme.text};">Exits</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" style="color: ${theme.textMuted}; transform: ${this.isExitsExpanded ? 'rotate(0deg)' : 'rotate(180deg)'}; transition: transform 0.15s;">
+                                    <path fill="currentColor" d="M3.92 10.17 9 5.71l5.08 4.46-1 1.13L9 7.71 4.91 11.3l-.99-1.13Z"/>
+                                </svg>
                             </div>
 
                             ${this.isExitsExpanded ? `
                                 <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
                                     <!-- Take Profit -->
                                     <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 600;">Take profit price ⌵</span>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 500; display: flex; align-items: center; gap: 2px;">
+                                                Take profit price
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                            </span>
                                             <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
                                                 <input type="checkbox" id="tv-ticket-check-tp" ${this.isTpEnabled ? 'checked' : ''}>
                                                 <span class="tv-toggle-slider"></span>
@@ -1829,39 +2056,51 @@
                                             align-items: center;
                                             border: 1px solid ${this.isTpEnabled ? '#2962ff' : theme.border};
                                             border-radius: 6px;
-                                            padding: 6px 12px;
-                                            background: ${this.isTpEnabled ? '#ffffff' : '#f8f9fd'};
+                                            padding: 0 10px;
+                                            height: 38px;
+                                            background: ${this.isTpEnabled ? theme.inputBg : theme.subtabBg};
+                                            box-sizing: border-box;
                                         ">
-                                            <input type="text" id="tv-ticket-tp-price-disp" value="${this.calculateExitPrice('tp')}" ${!this.isTpEnabled ? 'disabled' : ''} style="
+                                            <input type="text" id="tv-ticket-tp-price-disp" value="${this.calculateExitPrice('tp')}" ${!this.isTpEnabled ? 'readonly' : ''} style="
+                                                flex: 1;
                                                 border: none;
                                                 outline: none;
                                                 background: transparent;
-                                                font-size: 13px;
+                                                font-size: 14px;
                                                 font-weight: 600;
                                                 color: ${this.isTpEnabled ? theme.text : theme.textMuted};
-                                                width: 100px;
+                                                font-feature-settings: 'tnum';
                                             ">
-                                            <span style="color: ${theme.textMuted}; margin: 0 8px;">⇄</span>
-                                            <div style="margin-left: auto; display: flex; align-items: center; gap: 4px;">
-                                                <input type="number" id="tv-ticket-tp-ticks-in" value="${this.tpTicks}" ${!this.isTpEnabled ? 'disabled' : ''} style="
-                                                    width: 44px;
+                                            <button type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
+                                            </button>
+                                            <div style="display: flex; align-items: center; gap: 4px;">
+                                                <input type="number" id="tv-ticket-tp-ticks-in" value="${this.tpTicks}" ${!this.isTpEnabled ? 'readonly' : ''} style="
+                                                    width: 38px;
                                                     border: none;
                                                     text-align: right;
                                                     outline: none;
                                                     background: transparent;
-                                                    font-size: 12px;
+                                                    font-size: 13px;
                                                     font-weight: 600;
                                                     color: ${this.isTpEnabled ? theme.text : theme.textMuted};
+                                                    font-feature-settings: 'tnum';
                                                 ">
-                                                <span style="font-size: 11.5px; color: ${theme.textMuted};">ticks ⌵</span>
+                                                <span style="font-size: 12px; color: ${theme.textMuted}; display: flex; align-items: center; gap: 2px;">
+                                                    ticks
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="12" height="12"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <!-- Stop Loss -->
                                     <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 600;">Stop loss price ⌵</span>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                            <span style="font-size: 12px; color: ${theme.text}; font-weight: 500; display: flex; align-items: center; gap: 2px;">
+                                                Stop loss ticks
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                            </span>
                                             <label class="tv-toggle-switch" style="cursor: pointer; margin: 0;">
                                                 <input type="checkbox" id="tv-ticket-check-sl" ${this.isSlEnabled ? 'checked' : ''}>
                                                 <span class="tv-toggle-slider"></span>
@@ -1872,31 +2111,32 @@
                                             align-items: center;
                                             border: 1px solid ${this.isSlEnabled ? '#2962ff' : theme.border};
                                             border-radius: 6px;
-                                            padding: 6px 12px;
-                                            background: ${this.isSlEnabled ? '#ffffff' : '#f8f9fd'};
+                                            padding: 0 10px;
+                                            height: 38px;
+                                            background: ${this.isSlEnabled ? theme.inputBg : theme.subtabBg};
+                                            box-sizing: border-box;
                                         ">
-                                            <input type="text" id="tv-ticket-sl-price-disp" value="${this.calculateExitPrice('sl')}" ${!this.isSlEnabled ? 'disabled' : ''} style="
+                                            <input type="number" id="tv-ticket-sl-ticks-in" value="${this.slTicks}" ${!this.isSlEnabled ? 'readonly' : ''} style="
+                                                width: 50px;
                                                 border: none;
                                                 outline: none;
                                                 background: transparent;
-                                                font-size: 13px;
+                                                font-size: 14px;
                                                 font-weight: 600;
                                                 color: ${this.isSlEnabled ? theme.text : theme.textMuted};
-                                                width: 100px;
+                                                font-feature-settings: 'tnum';
                                             ">
-                                            <span style="color: ${theme.textMuted}; margin: 0 8px;">⇄</span>
+                                            <button type="button" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; display: flex; align-items: center; padding: 4px; margin: 0 6px;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" fill="none"><path fill="currentColor" d="M15 10.5a2.5 2.5 0 0 1-2.5 2.5H4.948l1.337 1.308L5.57 15 3 12.485 5.57 10l.715.662L4.918 12H12.5a1.5 1.5 0 0 0 1.5-1.5V9h1zm-.002-4.977L12.426 8l-.715-.653L13.087 6H5.5A1.5 1.5 0 0 0 4 7.5V9H3V7.5A2.5 2.5 0 0 1 5.5 5h7.538L11.71 3.701l.715-.7z"></path></svg>
+                                            </button>
                                             <div style="margin-left: auto; display: flex; align-items: center; gap: 4px;">
-                                                <input type="number" id="tv-ticket-sl-ticks-in" value="${this.slTicks}" ${!this.isSlEnabled ? 'disabled' : ''} style="
-                                                    width: 44px;
-                                                    border: none;
-                                                    text-align: right;
-                                                    outline: none;
-                                                    background: transparent;
-                                                    font-size: 12px;
-                                                    font-weight: 600;
-                                                    color: ${this.isSlEnabled ? theme.text : theme.textMuted};
-                                                ">
-                                                <span style="font-size: 11.5px; color: ${theme.textMuted};">ticks ⌵</span>
+                                                <span id="tv-ticket-sl-price-disp" style="font-size: 13px; font-weight: 600; color: ${this.isSlEnabled ? theme.text : theme.textMuted}; font-feature-settings: 'tnum';">
+                                                    ${this.calculateExitPrice('sl')}
+                                                </span>
+                                                <span style="font-size: 12px; color: ${theme.textMuted}; display: flex; align-items: center; gap: 2px;">
+                                                    price
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="12" height="12"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -1907,40 +2147,55 @@
                         <!-- Extra Settings Section -->
                         <div>
                             <div id="tv-ticket-extra-toggle" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 4px 0;">
-                                <span style="font-size: 13px; font-weight: 700; color: ${theme.text};">Extra settings</span>
-                                <span style="font-size: 11px; color: ${theme.textMuted};">${this.isExtraSettingsExpanded ? '▲' : '▼'}</span>
+                                <span style="font-size: 14px; font-weight: 700; color: ${theme.text};">Extra settings</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16" style="color: ${theme.textMuted}; transform: ${this.isExtraSettingsExpanded ? 'rotate(0deg)' : 'rotate(180deg)'}; transition: transform 0.15s;">
+                                    <path fill="currentColor" d="M3.92 10.17 9 5.71l5.08 4.46-1 1.13L9 7.71 4.91 11.3l-.99-1.13Z"/>
+                                </svg>
                             </div>
 
                             ${this.isExtraSettingsExpanded ? `
                                 <div style="margin-top: 8px;">
-                                    <label style="display: block; font-size: 12px; color: ${theme.textMuted}; margin-bottom: 5px;">Time in force</label>
-                                    <select id="tv-ticket-tif-select" style="
-                                        width: 100%;
-                                        border: 1px solid ${theme.border};
-                                        border-radius: 6px;
-                                        padding: 6px 10px;
-                                        background: #ffffff;
-                                        color: ${theme.text};
-                                        font-size: 12px;
-                                        font-weight: 600;
-                                        outline: none;
-                                        cursor: pointer;
-                                    ">
-                                        <option value="Day" ${this.timeInForce === 'Day' ? 'selected' : ''}>Day</option>
-                                        <option value="GTC" ${this.timeInForce === 'GTC' ? 'selected' : ''}>GTC (Good 'Til Cancelled)</option>
-                                        <option value="IOC" ${this.timeInForce === 'IOC' ? 'selected' : ''}>IOC (Immediate or Cancel)</option>
-                                        <option value="Week" ${this.timeInForce === 'Week' ? 'selected' : ''}>Week</option>
-                                    </select>
+                                    <label style="display: block; font-size: 12px; color: ${theme.textMuted}; margin-bottom: 4px; font-weight: 500;">Time in force</label>
+                                    <div style="position: relative;">
+                                        <select id="tv-ticket-tif-select" style="
+                                            width: 100%;
+                                            height: 38px;
+                                            border: 1px solid ${theme.border};
+                                            border-radius: 6px;
+                                            padding: 0 32px 0 12px;
+                                            background: ${theme.inputBg};
+                                            color: ${theme.text};
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            outline: none;
+                                            cursor: pointer;
+                                            appearance: none;
+                                            -webkit-appearance: none;
+                                        ">
+                                            <option value="Day" ${this.timeInForce === 'Day' ? 'selected' : ''}>Day</option>
+                                            <option value="GTC" ${this.timeInForce === 'GTC' ? 'selected' : ''}>GTC (Good 'Til Cancelled)</option>
+                                            <option value="IOC" ${this.timeInForce === 'IOC' ? 'selected' : ''}>IOC (Immediate or Cancel)</option>
+                                            <option value="Week" ${this.timeInForce === 'Week' ? 'selected' : ''}>Week</option>
+                                        </select>
+                                        <div style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: ${theme.textMuted};">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="M3.92 7.83 9 12.29l5.08-4.46-1-1.13L9 10.29l-4.09-3.6-.99 1.14Z"/></svg>
+                                        </div>
+                                    </div>
                                 </div>
                             ` : ''}
                         </div>
                     </div>
 
-                    <!-- 4. Big Action Button (Dual-line Text) -->
-                    <div style="padding: 12px 16px 16px; border-top: 1px solid ${theme.border}; background: #ffffff;">
-                        <button id="tv-ticket-btn-execute" type="button" style="
+                    <!-- 6. Big Action Button (Pinned at Bottom) -->
+                    <div class="doneButton-u3DtG1BP" style="
+                        padding: 12px 16px 16px;
+                        border-top: 1px solid ${theme.border};
+                        background: ${theme.panelBg};
+                        box-sizing: border-box;
+                    ">
+                        <button id="tv-ticket-btn-execute" data-name="place-and-modify-button" type="button" class="button-mLEhCrVw xlarge-mLEhCrVw primary-mLEhCrVw" style="
                             width: 100%;
-                            height: 50px;
+                            height: 52px;
                             background: ${isBuy ? theme.buyColor : theme.sellColor};
                             color: #ffffff;
                             border: none;
@@ -1950,17 +2205,17 @@
                             flex-direction: column;
                             align-items: center;
                             justify-content: center;
-                            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-                            transition: background 0.15s, opacity 0.15s;
-                        ">
-                            <span id="tv-ticket-btn-title-text" style="font-size: 15.5px; font-weight: 700; line-height: 1.15;">
-                                ${this.orderType === 'market' 
-                                    ? (isBuy ? 'Buy' : 'Sell') 
-                                    : `${isBuy ? 'Buy' : 'Sell'} ${this.orderType.charAt(0).toUpperCase() + this.orderType.slice(1)}`}
-                            </span>
-                            <span id="tv-ticket-btn-summary-text" style="font-size: 11px; opacity: 0.95; letter-spacing: 0.4px; margin-top: 2px;">
-                                ${this.lots} ${displaySymbol} @ ${this.orderType === 'market' ? (isBuy ? askFormatted : bidFormatted) : (this.limitPrice || (isBuy ? askFormatted : bidFormatted))} ${this.orderType === 'market' ? 'MARKET' : ''}
-                            </span>
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+                            transition: background 0.15s, transform 0.05s, opacity 0.15s;
+                        " onmouseenter="this.style.background='${isBuy ? '#1e53e5' : '#d82c3b'}';" onmouseleave="this.style.background='${isBuy ? theme.buyColor : theme.sellColor}';" onmousedown="this.style.transform='scale(0.99)';" onmouseup="this.style.transform='none';">
+                            <div class="textWrap-mLEhCrVw" style="display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+                                <span id="tv-ticket-btn-title-text" class="primaryText-mLEhCrVw" style="font-size: 16px; font-weight: 700; line-height: 1.2;">
+                                    ${this.getExecuteButtonTitle(isBuy)}
+                                </span>
+                                <span id="tv-ticket-btn-summary-text" class="secondaryText-mLEhCrVw" style="font-size: 12px; font-weight: 500; opacity: 0.95; margin-top: 2px;">
+                                    ${this.getExecuteButtonSubtitle(isBuy, displaySymbol, bidFormatted, askFormatted)}
+                                </span>
+                            </div>
                         </button>
                     </div>
                 `}
@@ -2398,19 +2653,105 @@
 
         bindSideOrderTicketEvents(panel) {
             const btnClose = panel.querySelector('#tv-ticket-btn-close');
-            const btnDock = panel.querySelector('#tv-ticket-btn-dock');
+            const btnSettings = panel.querySelector('#tv-ticket-btn-settings');
+            const btnPresets = panel.querySelector('#tv-ticket-btn-presets');
             const tabOrder = panel.querySelector('#tv-ticket-tab-order');
             const tabDom = panel.querySelector('#tv-ticket-tab-dom');
             const splitSell = panel.querySelector('#tv-ticket-split-sell');
             const splitBuy = panel.querySelector('#tv-ticket-split-buy');
 
+            const settingsPop = panel.querySelector('#tv-ticket-settings-popover');
+            const presetsPop = panel.querySelector('#tv-ticket-presets-popover');
+
             if (btnClose) btnClose.onclick = () => this.closeOrderTicket();
-            if (btnDock) {
-                btnDock.onclick = () => {
+
+            // Settings Popover Toggle
+            if (btnSettings && settingsPop) {
+                btnSettings.onclick = (e) => {
+                    e.stopPropagation();
+                    const isOpen = settingsPop.style.display === 'block';
+                    settingsPop.style.display = isOpen ? 'none' : 'block';
+                    if (presetsPop) presetsPop.style.display = 'none';
+                };
+            }
+
+            // Presets Popover Toggle
+            if (btnPresets && presetsPop) {
+                btnPresets.onclick = (e) => {
+                    e.stopPropagation();
+                    const isOpen = presetsPop.style.display === 'block';
+                    presetsPop.style.display = isOpen ? 'none' : 'block';
+                    if (settingsPop) settingsPop.style.display = 'none';
+                };
+            }
+
+            // Quick Trading Toggle inside Settings
+            const checkQuick = panel.querySelector('#tv-check-quick-trading');
+            if (checkQuick) {
+                checkQuick.onchange = (e) => {
+                    this.settings.oneClickTrading = e.target.checked;
+                    this.saveSettings();
+                    this.updateToolbarBtnState();
+                    this.renderOnChartWidget();
+                    if (window.FyersAPI && window.FyersAPI.showToast) {
+                        window.FyersAPI.showToast(`⚡ Quick Trading: ${this.settings.oneClickTrading ? 'Enabled (Instant Orders)' : 'Disabled (Ticket Mode)'}`, 'info');
+                    }
+                };
+            }
+
+            // Show Buttons Toggle inside Settings
+            const checkShowButtons = panel.querySelector('#tv-check-show-buttons');
+            if (checkShowButtons) {
+                checkShowButtons.onchange = (e) => {
+                    this.settings.showBuySellButtons = e.target.checked;
+                    this.saveSettings();
+                    this.renderOnChartWidget();
+                };
+            }
+
+            // Dock / Undock Option
+            const optDock = panel.querySelector('#tv-opt-toggle-dock');
+            if (optDock) {
+                optDock.onclick = () => {
                     this.dockMode = this.dockMode === 'docked' ? 'floating' : 'docked';
                     this.saveSettings();
                     this.renderSideOrderTicket();
                 };
+            }
+
+            // Presets chips
+            panel.querySelectorAll('.tv-ticket-preset-chip').forEach(chip => {
+                chip.onclick = (e) => {
+                    e.stopPropagation();
+                    const qty = parseFloat(e.currentTarget.getAttribute('data-qty')) || 1.0;
+                    this.lots = qty;
+                    this.settings.defaultLots = qty;
+                    this.saveSettings();
+                    const unitsIn = panel.querySelector('#tv-ticket-units-in');
+                    if (unitsIn) unitsIn.value = qty;
+                    this.updateFinancialSummary();
+                    this.updateTicketButtonSummary();
+                    if (presetsPop) presetsPop.style.display = 'none';
+                };
+            });
+
+            // Close popovers on click outside
+            if (!this._hasPanelGlobalClick) {
+                this._hasPanelGlobalClick = true;
+                document.addEventListener('click', (e) => {
+                    const p = document.getElementById(this.sideTicketId);
+                    if (!p) return;
+                    const sPop = p.querySelector('#tv-ticket-settings-popover');
+                    const prPop = p.querySelector('#tv-ticket-presets-popover');
+                    const bSet = p.querySelector('#tv-ticket-btn-settings');
+                    const bPre = p.querySelector('#tv-ticket-btn-presets');
+                    if (sPop && sPop.style.display === 'block' && !sPop.contains(e.target) && !bSet?.contains(e.target)) {
+                        sPop.style.display = 'none';
+                    }
+                    if (prPop && prPop.style.display === 'block' && !prPop.contains(e.target) && !bPre?.contains(e.target)) {
+                        prPop.style.display = 'none';
+                    }
+                });
             }
 
             if (tabOrder) {
@@ -2448,6 +2789,10 @@
             panel.querySelectorAll('.tv-order-type-btn').forEach(btn => {
                 btn.onclick = (e) => {
                     this.orderType = e.currentTarget.getAttribute('data-type');
+                    if (this.orderType !== 'market' && !this.limitPrice) {
+                        const isBuy = this.selectedSide === 'BUY';
+                        this.limitPrice = isBuy ? this.currentAsk : this.currentBid;
+                    }
                     this.renderSideOrderTicket();
                 };
             });
@@ -2464,27 +2809,46 @@
                 };
             }
 
-            // Price input
+            // Units swap button / dropdown
+            const unitsSwap = panel.querySelector('#tv-ticket-units-swap-btn');
+            const unitsUsdVal = panel.querySelector('#tv-ticket-usd-val');
+            if (unitsSwap || unitsUsdVal) {
+                const togglePresets = (e) => {
+                    e.stopPropagation();
+                    if (presetsPop) {
+                        presetsPop.style.display = presetsPop.style.display === 'block' ? 'none' : 'block';
+                    }
+                };
+                if (unitsSwap) unitsSwap.onclick = togglePresets;
+                if (unitsUsdVal) unitsUsdVal.onclick = togglePresets;
+            }
+
+            // Price input & Swap button
             const priceIn = panel.querySelector('#tv-ticket-price-in');
+            const swapBtn = panel.querySelector('#tv-ticket-price-swap-btn');
+            const refBadge = panel.querySelector('#tv-ticket-price-ref-badge');
+
             if (priceIn) {
                 priceIn.oninput = (e) => {
                     this.limitPrice = parseFloat(e.target.value) || 0;
                     this.updateTicketButtonSummary();
+                    if (refBadge) {
+                        refBadge.innerText = this.getPriceRefBadgeText(this.selectedSide === 'BUY');
+                    }
                 };
             }
 
-            const swapBtn = panel.querySelector('#tv-ticket-price-swap-btn');
-            const refBadge = panel.querySelector('#tv-ticket-price-ref-badge');
-            if (swapBtn || refBadge) {
-                const handler = () => {
-                    const refVal = this.selectedSide === 'BUY' ? this.currentAsk : this.currentBid;
-                    this.limitPrice = Number(refVal.toFixed(2));
-                    if (priceIn) priceIn.value = this.limitPrice;
-                    this.updateTicketButtonSummary();
-                };
-                if (swapBtn) swapBtn.onclick = handler;
-                if (refBadge) refBadge.onclick = handler;
-            }
+            const snapToRef = () => {
+                const isBuy = this.selectedSide === 'BUY';
+                const refVal = isBuy ? this.currentAsk : this.currentBid;
+                this.limitPrice = refVal;
+                if (priceIn) priceIn.value = this.formatPrice(refVal);
+                if (refBadge) refBadge.innerText = isBuy ? 'Ask' : 'Bid';
+                this.updateTicketButtonSummary();
+            };
+
+            if (swapBtn) swapBtn.onclick = snapToRef;
+            if (refBadge) refBadge.onclick = snapToRef;
 
             // Exits accordion toggle
             const exitsToggle = panel.querySelector('#tv-ticket-exits-toggle');
@@ -2561,26 +2925,59 @@
             }
         }
 
+        getPriceRefBadgeText(isBuy) {
+            const refVal = isBuy ? this.currentAsk : this.currentBid;
+            const refName = isBuy ? 'Ask' : 'Bid';
+            if (!this.limitPrice || Math.abs(this.limitPrice - refVal) < 0.00001) {
+                return refName;
+            }
+            const tickSize = this.getTickSize();
+            const diff = Math.round((this.limitPrice - refVal) / tickSize);
+            if (diff === 0) return refName;
+            const sign = diff > 0 ? '+' : '-';
+            return `${refName} ${sign} ${Math.abs(diff)}`;
+        }
+
+        getExecuteButtonTitle(isBuy) {
+            const action = isBuy ? 'Buy' : 'Sell';
+            if (this.orderType === 'market') return action;
+            if (this.orderType === 'limit') return action;
+            if (this.orderType === 'stop') {
+                return this.currentSymbol.includes('NIFTY') ? `${action} Stop` : action;
+            }
+            return action;
+        }
+
+        getExecuteButtonSubtitle(isBuy, displaySymbol, bidFormatted, askFormatted) {
+            const refPrice = this.orderType === 'market' 
+                ? (isBuy ? askFormatted : bidFormatted)
+                : (this.limitPrice ? this.formatPrice(this.limitPrice) : (isBuy ? askFormatted : bidFormatted));
+            
+            if (this.orderType === 'market') {
+                return `${this.lots} ${displaySymbol} MARKET`;
+            } else if (this.orderType === 'limit') {
+                return `${this.lots} ${displaySymbol} @ ${refPrice} LIMIT`;
+            } else if (this.orderType === 'stop') {
+                if (this.currentSymbol.includes('NIFTY')) {
+                    return `${this.lots} ${displaySymbol} @ ${refPrice}`;
+                }
+                return `${this.lots} ${displaySymbol} @ ${refPrice} STOP`;
+            }
+            return `${this.lots} ${displaySymbol} @ ${refPrice}`;
+        }
+
         updateTicketButtonSummary() {
             const btnSummary = document.querySelector('#tv-ticket-btn-summary-text');
             const btnTitle = document.querySelector('#tv-ticket-btn-title-text');
             const isBuy = this.selectedSide === 'BUY';
-            const actionVerb = isBuy ? 'Buy' : 'Sell';
-            const refPrice = this.orderType === 'market' 
-                ? (isBuy ? this.formatPrice(this.currentAsk) : this.formatPrice(this.currentBid))
-                : (this.limitPrice || (isBuy ? this.formatPrice(this.currentAsk) : this.formatPrice(this.currentBid)));
+            const bidFormatted = this.formatPrice(this.currentBid);
+            const askFormatted = this.formatPrice(this.currentAsk);
 
             if (btnTitle) {
-                if (this.orderType === 'market') {
-                    btnTitle.innerText = actionVerb;
-                } else if (this.orderType === 'limit') {
-                    btnTitle.innerText = `${actionVerb} Limit`;
-                } else if (this.orderType === 'stop') {
-                    btnTitle.innerText = `${actionVerb} Stop`;
-                }
+                btnTitle.innerText = this.getExecuteButtonTitle(isBuy);
             }
             if (btnSummary) {
-                btnSummary.innerText = `${this.lots} ${this.currentSymbol} @ ${refPrice} ${this.orderType === 'market' ? 'MARKET' : ''}`.trim();
+                btnSummary.innerText = this.getExecuteButtonSubtitle(isBuy, this.currentSymbol, bidFormatted, askFormatted);
             }
         }
 
@@ -2620,8 +3017,8 @@
 
             panel.style.cssText = `
                 position: fixed;
-                left: ${isDockedLeft ? '340px' : '0'};
-                right: ${isDockedRight ? '340px' : '0'};
+                left: ${isDockedLeft ? '315px' : '0'};
+                right: ${isDockedRight ? '315px' : '0'};
                 bottom: 0;
                 height: ${panelHeight}px;
                 background: ${theme.panelBg};
@@ -3628,7 +4025,7 @@
             if (!chartCont) return;
 
             const isSideDocked = this.isOrderTicketOpen && this.dockMode === 'docked';
-            const sideWidth = isSideDocked ? 340 : 0;
+            const sideWidth = isSideDocked ? 315 : 0;
 
             const isBottomOpen = this.isBottomPanelOpen && !this.isBottomPanelFullscreen;
             const bottomHeight = isBottomOpen ? (this.bottomPanelHeight || 270) : 30; // 30px for launcher bar
@@ -3848,6 +4245,71 @@
             };
         }
 
+        getTickSize() {
+            if (this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD')) return 0.001;
+            if (this.currentSymbol.includes('JPY')) return 0.001;
+            if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY')) return 0.05;
+            if (this.currentSymbol.includes('USD') || this.currentSymbol.includes('EUR') || this.currentSymbol.includes('GBP')) return 0.00001;
+            return 0.01;
+        }
+
+        calculateNotionalTradeValue() {
+            const isBuy = this.selectedSide === 'BUY';
+            const refPrice = this.orderType === 'market' 
+                ? (isBuy ? this.currentAsk : this.currentBid)
+                : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+            const lots = Number(this.lots) || 1.0;
+            
+            let multiplier = 1;
+            if (this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY')) {
+                multiplier = 100;
+            }
+            return lots * refPrice * multiplier;
+        }
+
+        calculateTradeValueUSD() {
+            const val = this.calculateNotionalTradeValue();
+            return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        calculateRequiredMarginUSD() {
+            const notional = this.calculateNotionalTradeValue();
+            // TradingView 50x leverage: Margin Required = Notional / 50
+            const margin = notional / 50;
+            return margin.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        updateFinancialSummary() {
+            const tradeSumEl = document.getElementById('tv-val-trade-summary');
+            const availMarginEl = document.getElementById('tv-val-avail-margin');
+            const marginRequiredEl = document.getElementById('tv-ticket-usd-val-amount');
+
+            const notionalStr = this.calculateTradeValueUSD();
+            const marginReqStr = this.calculateRequiredMarginUSD();
+
+            if (tradeSumEl) tradeSumEl.innerHTML = `${notionalStr} <span style="font-size: 11px; font-weight: 500; color: #787b86;">USD</span>`;
+            if (availMarginEl) availMarginEl.innerHTML = `${this.getAvailableMarginFormatted()} <span style="font-size: 11px; font-weight: 500; color: #787b86;">USD</span>`;
+            if (marginRequiredEl) marginRequiredEl.innerText = `${marginReqStr} USD`;
+        }
+
+        calculateExitPrice(type) {
+            const isBuy = this.selectedSide === 'BUY';
+            const basePrice = this.orderType === 'market' 
+                ? (isBuy ? this.currentAsk : this.currentBid)
+                : (Number(this.limitPrice) || (isBuy ? this.currentAsk : this.currentBid));
+            const tickSize = this.getTickSize();
+
+            if (type === 'tp') {
+                const diff = (this.tpTicks || 75) * tickSize;
+                const p = isBuy ? (basePrice + diff) : (basePrice - diff);
+                return this.formatPrice(p);
+            } else {
+                const diff = (this.slTicks || 25) * tickSize;
+                const p = isBuy ? (basePrice - diff) : (basePrice + diff);
+                return this.formatPrice(p);
+            }
+        }
+
         updatePrices() {
             this.syncPricesWithChart();
 
@@ -3876,67 +4338,22 @@
             if (ticketAsk) ticketAsk.innerHTML = askHtml;
             if (ticketSpread) ticketSpread.innerText = spreadPoints;
 
+            // 3. Real-time update reference badge in limit/stop mode
+            const refBadge = document.getElementById('tv-ticket-price-ref-badge');
+            if (refBadge) {
+                refBadge.innerText = this.getPriceRefBadgeText(this.selectedSide === 'BUY');
+            }
+
+            // 4. Real-time update action button subtitle
+            if (this.orderType === 'market') {
+                this.updateTicketButtonSummary();
+            }
+
             if (window.PaperTrading) {
                 window.PaperTrading.onPriceTick(this.currentSymbol, this.currentBid, this.currentAsk);
             }
 
             this.updateFinancialSummary();
-        }
-
-        renderHeader() {
-            const symEl = document.getElementById('tv-ticket-symbol-disp');
-            if (symEl) symEl.innerText = this.currentSymbol;
-        }
-
-        updateFinancialSummary() {
-            const tradeValEl = document.getElementById('tv-ticket-usd-val');
-            const tradeSumEl = document.getElementById('tv-val-trade-summary');
-            const availMarginEl = document.getElementById('tv-val-avail-margin');
-
-            const valStr = this.calculateTradeValueUSD();
-            if (tradeValEl) tradeValEl.innerText = `${valStr} USD ⌵`;
-            if (tradeSumEl) tradeSumEl.innerText = `${valStr} USD`;
-            if (availMarginEl) availMarginEl.innerText = `${this.getAvailableMarginFormatted()} USD`;
-        }
-
-        calculateTradeValueUSD() {
-            const refPrice = this.selectedSide === 'BUY' ? this.currentAsk : this.currentBid;
-            let contractSize = 100000;
-            if (this.currentSymbol.includes('XAU')) contractSize = 100;
-            else if (this.currentSymbol.includes('US30') || this.currentSymbol.includes('NAS')) contractSize = 1;
-
-            const totalValue = this.lots * refPrice * (contractSize > 1 ? contractSize / 1000 : 1);
-            return totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
-
-        getAvailableMarginFormatted() {
-            const adapterKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
-            if (adapterKey === 'paper' && window.PaperTrading) {
-                const s = window.PaperTrading.getAccountSummary();
-                return Number(s.freeMargin).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            }
-            if (window.MT5API) {
-                const acc = window.MT5API.getActiveAccount();
-                if (acc && acc.margin_free != null) {
-                    return Number(acc.margin_free).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                }
-            }
-            return '99,913.45';
-        }
-
-        calculateExitPrice(type) {
-            const refPrice = this.selectedSide === 'BUY' ? this.currentAsk : this.currentBid;
-            const pipUnit = this.currentSymbol.includes('JPY') ? 0.01 : (this.currentSymbol.includes('XAU') ? 0.01 : (this.currentSymbol.includes('US30') ? 1.0 : (this.currentSymbol.includes('NIFTY') ? 0.05 : 0.0001)));
-
-            if (type === 'tp') {
-                const diff = this.tpTicks * pipUnit;
-                const p = this.selectedSide === 'BUY' ? (refPrice + diff) : (refPrice - diff);
-                return this.formatPrice(p);
-            } else {
-                const diff = this.slTicks * pipUnit;
-                const p = this.selectedSide === 'BUY' ? (refPrice - diff) : (refPrice + diff);
-                return this.formatPrice(p);
-            }
         }
 
         getSpreadFormatted() {
