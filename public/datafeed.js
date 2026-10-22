@@ -1441,9 +1441,7 @@ const Datafeed = {
                 return d.getTime();
             };
 
-            let isReconcilingGap = false;
-
-            const mt5Cb = async (tick) => {
+            const mt5Cb = (tick) => {
                 if (!tick) return;
                 // Only process ticks for this exact symbol
                 const tickSym = (tick.symbol || '').split(':').pop().toUpperCase().trim();
@@ -1489,50 +1487,8 @@ const Datafeed = {
                     return;
                 }
 
-                if (isReconcilingGap) return;
-
                 // Transition to new candle if server candle time has advanced
                 if (cTime > lastBar.time) {
-                    const elapsedBars = Math.round((cTime - lastBar.time) / tfMs);
-
-                    // Reconcile offline gaps: fetch missing historical bars and play forward in order
-                    if (elapsedBars > 1 && !isDwm) {
-                        if (elapsedBars <= 100 && window.MT5API && typeof window.MT5API.fetchBars === 'function') {
-                            isReconcilingGap = true;
-                            try {
-                                const fromSec = Math.floor(lastBar.time / 1000);
-                                const toSec = Math.ceil(cTime / 1000);
-                                const gapBars = await window.MT5API.fetchBars(cleanSym, resolution, fromSec, toSec, elapsedBars + 5);
-                                if (gapBars && gapBars.length > 0) {
-                                    gapBars.sort((a, b) => a.time - b.time);
-                                    for (const b of gapBars) {
-                                        if (b.time > lastBar.time && b.time < cTime) {
-                                            lastBar = {
-                                                time: b.time,
-                                                open: Number(b.open),
-                                                high: Number(b.high),
-                                                low: Number(b.low),
-                                                close: Number(b.close),
-                                                volume: Number(b.volume || 1)
-                                            };
-                                            window._tvLastBar[cacheKey] = lastBar;
-                                            onRealtimeCallback({ ...lastBar });
-                                        }
-                                    }
-                                }
-                            } catch (gapErr) {
-                                console.warn('[datafeed] MT5 gap backfill notice:', gapErr);
-                            } finally {
-                                isReconcilingGap = false;
-                            }
-                        } else if (elapsedBars > 100) {
-                            if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                                try { window.tvWidget.activeChart().resetData(); } catch (_) {}
-                            }
-                            return;
-                        }
-                    }
-
                     if (tick.prev_candle) {
                         const p = tick.prev_candle;
                         const pTime = alignTime(Number(p.time));
@@ -1604,8 +1560,6 @@ const Datafeed = {
         };
         const tfMs = getFyersResolutionMs(resolution);
         
-        let isFyersGapReconciling = false;
-
         const cb = (tick) => {
             let alignedTick = { ...tick };
             const cacheKey = `${fyersSymbol}_${resolution}`;
@@ -1646,45 +1600,6 @@ const Datafeed = {
             
             // Advance to new candle if interval has moved forward
             if (barTime > lastBar.time) {
-                const elapsedBars = Math.round((barTime - lastBar.time) / tfMs);
-                if (elapsedBars > 1 && !isDWM && !isFyersGapReconciling) {
-                    if (elapsedBars <= 100 && window.FyersAPI && typeof window.FyersAPI.getHistory === 'function') {
-                        isFyersGapReconciling = true;
-                        (async () => {
-                            try {
-                                const fromSec = Math.floor(lastBar.time / 1000);
-                                const toSec = Math.ceil(barTime / 1000);
-                                const gapBars = await window.FyersAPI.getHistory(fyersSymbol, resolution, fromSec, toSec);
-                                if (gapBars && gapBars.length > 0) {
-                                    gapBars.sort((a, b) => a.time - b.time);
-                                    for (const b of gapBars) {
-                                        if (b.time > lastBar.time && b.time < barTime) {
-                                            lastBar = {
-                                                time: b.time,
-                                                open: Number(b.open),
-                                                high: Number(b.high),
-                                                low: Number(b.low),
-                                                close: Number(b.close),
-                                                volume: Number(b.volume || 0)
-                                            };
-                                            window._tvLastBar[cacheKey] = lastBar;
-                                            onRealtimeCallback({ ...lastBar });
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn('[datafeed] Fyers gap backfill notice:', e);
-                            } finally {
-                                isFyersGapReconciling = false;
-                            }
-                        })();
-                    } else if (elapsedBars > 100) {
-                        if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                            try { window.tvWidget.activeChart().resetData(); } catch (_) {}
-                        }
-                    }
-                }
-
                 lastBar = {
                     time: barTime,
                     open: alignedTick.close,
