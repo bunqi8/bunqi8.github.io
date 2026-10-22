@@ -181,13 +181,107 @@
             return false;
         }
 
+        // --- MT5 Symbol Catalog & Search ---
+        async fetchSymbols(search = '', category = '') {
+            try {
+                const acc = this.getActiveAccount();
+                const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
+                const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
+                const catParam = category ? `&category=${encodeURIComponent(category)}` : '';
+
+                // If no filter and already cached, return from memory
+                if (!search && !category && this._allSymbols && this._allSymbols.length > 0) {
+                    return this._allSymbols;
+                }
+
+                const url = `${this.endpoint}/api/symbols?_t=${Date.now()}${searchParam}${catParam}${accParam}`;
+                const res = await fetch(url, { headers: this.getHeaders() });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const list = data.symbols || [];
+
+                if (!this._symbolMap) this._symbolMap = new Map();
+                list.forEach(s => {
+                    this._symbolMap.set(s.symbol.toUpperCase(), s);
+                });
+
+                if (!search && !category) {
+                    this._allSymbols = list;
+                }
+                return list;
+            } catch (e) {
+                console.warn('[MT5API] fetchSymbols notice:', e.message);
+                return this.getMockSymbols(search);
+            }
+        }
+
+        async fetchSymbolInfo(symbol) {
+            const clean = (symbol || 'EURUSD').split(':').pop().toUpperCase().trim();
+            if (this._symbolMap && this._symbolMap.has(clean)) {
+                return this._symbolMap.get(clean);
+            }
+            try {
+                const acc = this.getActiveAccount();
+                const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
+                const url = `${this.endpoint}/api/symbol_info?symbol=${encodeURIComponent(clean)}${accParam}`;
+                const res = await fetch(url, { headers: this.getHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.symbol_info) {
+                        if (!this._symbolMap) this._symbolMap = new Map();
+                        this._symbolMap.set(clean, data.symbol_info);
+                        return data.symbol_info;
+                    }
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        getSymbolInfo(symbol) {
+            const clean = (symbol || 'EURUSD').split(':').pop().toUpperCase().trim();
+            if (this._symbolMap && this._symbolMap.has(clean)) {
+                return this._symbolMap.get(clean);
+            }
+            return null;
+        }
+
+        isMt5Symbol(symbol) {
+            if (!symbol) return false;
+            const s = String(symbol).toUpperCase().trim();
+            if (s.startsWith('MT5:')) return true;
+            const clean = s.split(':').pop();
+            if (this._symbolMap && this._symbolMap.has(clean)) return true;
+            const POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'BTCUSD', 'ETHUSD'];
+            return POPULAR.some(p => clean.startsWith(p));
+        }
+
+        getMockSymbols(query = '') {
+            const POPULAR = [
+                { symbol: 'XAUUSD', name: 'XAUUSD', full_name: 'MT5:XAUUSD', description: 'Gold vs US Dollar', category: 'Metals', digits: 2, pricescale: 100, type: 'commodity', tradeable: true },
+                { symbol: 'XAGUSD', name: 'XAGUSD', full_name: 'MT5:XAGUSD', description: 'Silver vs US Dollar', category: 'Metals', digits: 2, pricescale: 100, type: 'commodity', tradeable: true },
+                { symbol: 'EURUSD', name: 'EURUSD', full_name: 'MT5:EURUSD', description: 'Euro vs US Dollar', category: 'Forex', digits: 5, pricescale: 100000, type: 'forex', tradeable: true },
+                { symbol: 'GBPUSD', name: 'GBPUSD', full_name: 'MT5:GBPUSD', description: 'British Pound vs US Dollar', category: 'Forex', digits: 5, pricescale: 100000, type: 'forex', tradeable: true },
+                { symbol: 'USDJPY', name: 'USDJPY', full_name: 'MT5:USDJPY', description: 'US Dollar vs Japanese Yen', category: 'Forex', digits: 3, pricescale: 1000, type: 'forex', tradeable: true },
+                { symbol: 'US30', name: 'US30', full_name: 'MT5:US30', description: 'Wall Street 30 Index', category: 'Indexes', digits: 1, pricescale: 10, type: 'index', tradeable: true },
+                { symbol: 'USTEC', name: 'USTEC', full_name: 'MT5:USTEC', description: 'US Tech 100 Index', category: 'Indexes', digits: 2, pricescale: 100, type: 'index', tradeable: true },
+                { symbol: 'US500', name: 'US500', full_name: 'MT5:US500', description: 'US SPX 500 Index', category: 'Indexes', digits: 2, pricescale: 100, type: 'index', tradeable: true },
+            ];
+            if (!query) return POPULAR;
+            const q = query.toUpperCase();
+            return POPULAR.filter(s => s.symbol.includes(q) || s.description.toUpperCase().includes(q));
+        }
+
         // --- Datafeed Historical Bars ---
-        async fetchBars(symbol, resolution, count = 500) {
+        async fetchBars(symbol, resolution, from = null, to = null, count = 500) {
             try {
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
                 const acc = this.getActiveAccount();
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                const url = `${this.endpoint}/api/bars?symbol=${encodeURIComponent(cleanSym)}&resolution=${encodeURIComponent(resolution)}&count=${count}${accParam}`;
+                let rangeParams = '';
+                if (from && to) {
+                    rangeParams = `&from=${Math.floor(from)}&to=${Math.ceil(to)}`;
+                }
+                const url = `${this.endpoint}/api/bars?symbol=${encodeURIComponent(cleanSym)}&resolution=${encodeURIComponent(resolution)}&count=${count}${rangeParams}${accParam}`;
                 const res = await fetch(url, { headers: this.getHeaders() });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
@@ -203,6 +297,14 @@
             this.activeSymbol = (symbol || 'EURUSD').split(':').pop();
             this.tickListeners.add(callback);
             this.ensureWebSocket();
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                const acc = this.getActiveAccount();
+                this.ws.send(JSON.stringify({
+                    action: 'subscribe',
+                    symbol: this.activeSymbol,
+                    account_id: acc ? acc.id : null
+                }));
+            }
         }
 
         unsubscribeQuotes(callback) {
@@ -224,6 +326,7 @@
                 this.ws.onopen = () => {
                     const acc = this.getActiveAccount();
                     const handshake = {
+                        action: 'subscribe',
                         symbol: this.activeSymbol,
                         token: this.apiKey,
                         account_id: acc ? acc.id : null

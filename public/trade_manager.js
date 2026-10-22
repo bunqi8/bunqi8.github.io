@@ -100,7 +100,7 @@
                 placeOrder: async (params) => {
                     if (!window.MT5API) return { success: false, error: 'MT5 API not initialized' };
                     const multiAccounts = Array.from(window.MT5API.multiAccountSelection || []);
-                    if (params.broadcast && multiAccounts.length > 0) {
+                    if (multiAccounts.length > 1 || (params.broadcast && multiAccounts.length > 0)) {
                         return await window.MT5API.broadcastOrder({
                             accountIds: multiAccounts,
                             symbol: params.symbol,
