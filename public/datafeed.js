@@ -1123,6 +1123,14 @@ const Datafeed = {
                     mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
                 }
 
+                // If still empty when scrolling back (not firstDataRequest), the requested range likely fell
+                // on a weekend (Saturday/Sunday) or trading holiday! Look back up to 4 days prior to bridge the market close gap:
+                if ((!mt5Bars || mt5Bars.length === 0) && !firstDataRequest) {
+                    const weekendLookback = 4 * 86400; // 4 days prior
+                    const bridgeFrom = Math.max(0, rawFrom - weekendLookback);
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, bridgeFrom, rawTo, countBack || 500);
+                }
+
                 if (mt5Bars && mt5Bars.length > 0) {
                     // Filter out any invalid bars or future anomalies (allowing 5 min buffer)
                     const maxAllowedTime = Date.now() + 300000;
