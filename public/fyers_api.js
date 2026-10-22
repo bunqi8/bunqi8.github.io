@@ -5,32 +5,61 @@ const FYERS_WS_URL = 'wss://socket.fyers.in/hsm/v1-5/prod';
 
 const FYERS_COMMON_INDICES = {
     "NSE:NIFTY50-INDEX": "Nifty 50",
+    "NIFTY50-INDEX": "Nifty 50",
+    "NSE:NIFTY-INDEX": "Nifty 50",
+    "NIFTY-INDEX": "Nifty 50",
     "NSE:NIFTYBANK-INDEX": "Nifty Bank",
+    "NIFTYBANK-INDEX": "Nifty Bank",
     "NSE:BANKNIFTY-INDEX": "Nifty Bank",
+    "BANKNIFTY-INDEX": "Nifty Bank",
     "NSE:FINNIFTY-INDEX": "Nifty Fin Service",
+    "FINNIFTY-INDEX": "Nifty Fin Service",
     "NSE:MIDCPNIFTY-INDEX": "NIFTY MID SELECT",
+    "MIDCPNIFTY-INDEX": "NIFTY MID SELECT",
     "NSE:NIFTYMID50-INDEX": "Nifty Midcap 50",
+    "NIFTYMID50-INDEX": "Nifty Midcap 50",
     "NSE:NIFTYMIDCAP50-INDEX": "Nifty Midcap 50",
+    "NIFTYMIDCAP50-INDEX": "Nifty Midcap 50",
     "NSE:NIFTYMIDCAP100-INDEX": "NIFTY MIDCAP 100",
+    "NIFTYMIDCAP100-INDEX": "NIFTY MIDCAP 100",
     "NSE:NIFTYMIDCAP150-INDEX": "NIFTY MIDCAP 150",
+    "NIFTYMIDCAP150-INDEX": "NIFTY MIDCAP 150",
     "NSE:NIFTY100-INDEX": "Nifty 100",
+    "NIFTY100-INDEX": "Nifty 100",
     "NSE:NIFTY200-INDEX": "Nifty 200",
+    "NIFTY200-INDEX": "Nifty 200",
     "NSE:NIFTY500-INDEX": "Nifty 500",
+    "NIFTY500-INDEX": "Nifty 500",
     "NSE:NIFTYIT-INDEX": "Nifty IT",
+    "NIFTYIT-INDEX": "Nifty IT",
     "NSE:NIFTYAUTO-INDEX": "Nifty Auto",
+    "NIFTYAUTO-INDEX": "Nifty Auto",
     "NSE:NIFTYFMCG-INDEX": "Nifty FMCG",
+    "NIFTYFMCG-INDEX": "Nifty FMCG",
     "NSE:NIFTYMETAL-INDEX": "Nifty Metal",
+    "NIFTYMETAL-INDEX": "Nifty Metal",
     "NSE:NIFTYPHARMA-INDEX": "Nifty Pharma",
+    "NIFTYPHARMA-INDEX": "Nifty Pharma",
     "NSE:NIFTYPSUBANK-INDEX": "Nifty PSU Bank",
+    "NIFTYPSUBANK-INDEX": "Nifty PSU Bank",
     "NSE:NIFTYPVTBANK-INDEX": "Nifty Pvt Bank",
+    "NIFTYPVTBANK-INDEX": "Nifty Pvt Bank",
     "NSE:NIFTYREALTY-INDEX": "Nifty Realty",
+    "NIFTYREALTY-INDEX": "Nifty Realty",
     "NSE:NIFTYENERGY-INDEX": "Nifty Energy",
+    "NIFTYENERGY-INDEX": "Nifty Energy",
     "NSE:NIFTYINFRA-INDEX": "Nifty Infra",
+    "NIFTYINFRA-INDEX": "Nifty Infra",
     "NSE:INDIAVIX-INDEX": "India VIX",
+    "INDIAVIX-INDEX": "India VIX",
     "NSE:NIFTYNEXT50-INDEX": "Nifty Next 50",
+    "NIFTYNEXT50-INDEX": "Nifty Next 50",
     "NSE:NIFTYNXT50-INDEX": "Nifty Next 50",
+    "NIFTYNXT50-INDEX": "Nifty Next 50",
     "BSE:SENSEX-INDEX": "SENSEX",
-    "BSE:BANKEX-INDEX": "BANKEX"
+    "SENSEX-INDEX": "SENSEX",
+    "BSE:BANKEX-INDEX": "BANKEX",
+    "BANKEX-INDEX": "BANKEX"
 };
 
 const FYERS_EXCH_SEG = {
@@ -2207,6 +2236,19 @@ class FyersEngine {
         // 3. Dispatch to WatchlistUI
         if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
             window.WatchlistUI.onLivePrice(symbol, tick.ltp, tick.open, tick.chp);
+            const bare = symbol.split(':').pop().toUpperCase();
+            if (bare !== symbol) {
+                window.WatchlistUI.onLivePrice(bare, tick.ltp, tick.open, tick.chp);
+            }
+            if (bare === 'NIFTYBANK-INDEX' || bare === 'BANKNIFTY-INDEX') {
+                window.WatchlistUI.onLivePrice('BANKNIFTY-INDEX', tick.ltp, tick.open, tick.chp);
+                window.WatchlistUI.onLivePrice('NIFTYBANK-INDEX', tick.ltp, tick.open, tick.chp);
+                window.WatchlistUI.onLivePrice('NSE:BANKNIFTY-INDEX', tick.ltp, tick.open, tick.chp);
+                window.WatchlistUI.onLivePrice('NSE:NIFTYBANK-INDEX', tick.ltp, tick.open, tick.chp);
+            } else if (bare === 'NIFTY50-INDEX' || bare === 'NIFTY-INDEX') {
+                window.WatchlistUI.onLivePrice('NIFTY50-INDEX', tick.ltp, tick.open, tick.chp);
+                window.WatchlistUI.onLivePrice('NSE:NIFTY50-INDEX', tick.ltp, tick.open, tick.chp);
+            }
         }
 
         // 4. Dispatch to TradeUI
@@ -2222,20 +2264,38 @@ class FyersEngine {
         }
 
         // A. Index check
-        if (cleanSym.endsWith('-INDEX') || cleanSym.includes('INDEX') || FYERS_COMMON_INDICES[cleanSym]) {
-            const isBse = cleanSym.startsWith('BSE:');
+        let indexKey = cleanSym;
+        if (!FYERS_COMMON_INDICES[indexKey]) {
+            if (!indexKey.startsWith('NSE:') && !indexKey.startsWith('BSE:')) {
+                const prefix = (indexKey.includes('SENSEX') || indexKey.includes('BANKEX')) ? 'BSE:' : 'NSE:';
+                if (FYERS_COMMON_INDICES[prefix + indexKey]) {
+                    indexKey = prefix + indexKey;
+                }
+            }
+        }
+
+        let exchToken = FYERS_COMMON_INDICES[cleanSym] || FYERS_COMMON_INDICES[indexKey];
+        if (exchToken || cleanSym.endsWith('-INDEX') || cleanSym.includes('INDEX')) {
+            const isBse = cleanSym.startsWith('BSE:') || indexKey.startsWith('BSE:');
             const seg = isBse ? 'bse_cm' : 'nse_cm';
-            let exchToken = FYERS_COMMON_INDICES[cleanSym];
-            if (!exchToken && this._dynamicIndexMap && this._dynamicIndexMap[cleanSym]) {
-                exchToken = this._dynamicIndexMap[cleanSym];
+            if (!exchToken && this._dynamicIndexMap) {
+                exchToken = this._dynamicIndexMap[cleanSym] || this._dynamicIndexMap[indexKey];
             }
             if (!exchToken) {
-                exchToken = cleanSym.split(':')[1]?.replace('-INDEX', '') || cleanSym;
+                exchToken = cleanSym.split(':').pop().replace('-INDEX', '') || cleanSym;
             }
             const hsmSym = `if|${seg}|${exchToken}`;
             this.symbolToHsm.set(cleanSym, hsmSym);
             this.symbolToHsm.set(symbol, hsmSym);
-            this.hsmToSymbol.set(hsmSym, symbol);
+            if (!this.hsmToSymbol.has(hsmSym)) {
+                this.hsmToSymbol.set(hsmSym, symbol);
+            }
+            if (cleanSym.includes('BANKNIFTY') || cleanSym.includes('NIFTYBANK')) {
+                this.symbolToHsm.set('BANKNIFTY-INDEX', hsmSym);
+                this.symbolToHsm.set('NSE:BANKNIFTY-INDEX', hsmSym);
+                this.symbolToHsm.set('NIFTYBANK-INDEX', hsmSym);
+                this.symbolToHsm.set('NSE:NIFTYBANK-INDEX', hsmSym);
+            }
             return hsmSym;
         }
 
@@ -2658,6 +2718,10 @@ class FyersEngine {
         // Auto-subscribe symbols to WebSocket so subsequent updates stream live with 0 REST calls
         if (this.isWsStreaming) {
             symList.forEach(s => this.subscribeWsSymbol(s));
+            // When WebSocket is streaming, serve cached live quotes with ZERO REST API calls
+            if (Object.keys(resMap).length > 0) {
+                return resMap;
+            }
         }
 
         // If all requested symbols have fresh cached quotes, return immediately (zero API calls)
@@ -2673,6 +2737,9 @@ class FyersEngine {
 
         const formatted = symList.map(s => {
             let clean = s.trim().toUpperCase();
+            if (clean.includes('BANKNIFTY')) {
+                clean = clean.replace('BANKNIFTY', 'NIFTYBANK');
+            }
             if (!clean.includes(':')) {
                 if (clean.includes('SENSEX') || clean.includes('BANKEX')) {
                     clean = `BSE:${clean}`;
@@ -2752,10 +2819,20 @@ class FyersEngine {
                             resMap[cleanSym.replace('-INDEX', '')] = quoteObj;
                         }
 
+                        if (cleanSym === 'NIFTYBANK-INDEX' || cleanSym === 'NIFTYBANK') {
+                            resMap['BANKNIFTY-INDEX'] = quoteObj;
+                            resMap['BANKNIFTY'] = quoteObj;
+                            resMap['NSE:BANKNIFTY-INDEX'] = quoteObj;
+                        }
+
                         // Store in persistent in-memory cache
                         if (this._quotesCache) {
                             this._quotesCache.set(cleanSym, { data: quoteObj, timestamp: Date.now() });
                             this._quotesCache.set(rawSym, { data: quoteObj, timestamp: Date.now() });
+                            if (cleanSym === 'NIFTYBANK-INDEX' || cleanSym === 'NIFTYBANK') {
+                                this._quotesCache.set('BANKNIFTY-INDEX', { data: quoteObj, timestamp: Date.now() });
+                                this._quotesCache.set('NSE:BANKNIFTY-INDEX', { data: quoteObj, timestamp: Date.now() });
+                            }
                         }
                     }
                 });
