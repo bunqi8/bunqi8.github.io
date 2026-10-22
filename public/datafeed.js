@@ -736,56 +736,81 @@ const Datafeed = {
                 ? window.MT5API.getCleanBrokerExchange(acc)
                 : (acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5');
             const symInfo = window.MT5API ? window.MT5API.getSymbolInfo(cleanSym) : null;
-            const mkt = window.getMarketStatus ? window.getMarketStatus(cleanSym) : null;
 
-            let priceScale = 100000;
-            if (symInfo && symInfo.pricescale) {
-                priceScale = Number(symInfo.pricescale);
-            } else if (cleanSym.includes('JPY') || cleanSym.includes('XAU') || cleanSym.includes('US30') || cleanSym.includes('USTEC') || cleanSym.includes('US500')) {
-                priceScale = 100;
-            }
+            const proceedWithSymbol = (info) => {
+                const mkt = window.getMarketStatus ? window.getMarketStatus(cleanSym) : null;
 
-            let assetType = 'forex';
-            if (symInfo && symInfo.type) {
-                assetType = symInfo.type;
-            } else if (cleanSym.includes('XAU') || cleanSym.includes('XAG') || cleanSym.includes('OIL')) {
-                assetType = 'commodity';
-            } else if (cleanSym.includes('30') || cleanSym.includes('100') || cleanSym.includes('500') || cleanSym.includes('DE40')) {
-                assetType = 'index';
-            } else if (cleanSym.includes('BTC') || cleanSym.includes('ETH')) {
-                assetType = 'crypto';
-            }
+                let priceScale = 100000;
+                if (info && info.pricescale) {
+                    priceScale = Number(info.pricescale);
+                } else if (cleanSym.includes('JPY') || cleanSym.includes('XAU') || cleanSym.includes('US30') || cleanSym.includes('USTEC') || cleanSym.includes('US500')) {
+                    priceScale = 100;
+                }
 
-            const desc = symInfo && symInfo.description ? symInfo.description : cleanSym;
-            const sessionStr = (symInfo && symInfo.session) ? symInfo.session : (mkt ? mkt.session : (assetType === 'crypto' ? '24x7' : '2200-2200:12345'));
-            const tzStr = (symInfo && symInfo.timezone) ? symInfo.timezone : (mkt ? mkt.timezone : 'Etc/UTC');
+                let assetType = 'forex';
+                if (info && info.type) {
+                    assetType = info.type;
+                } else if (cleanSym.includes('XAU') || cleanSym.includes('XAG') || cleanSym.includes('OIL')) {
+                    assetType = 'commodity';
+                } else if (cleanSym.includes('30') || cleanSym.includes('100') || cleanSym.includes('500') || cleanSym.includes('DE40')) {
+                    assetType = 'index';
+                } else if (cleanSym.includes('BTC') || cleanSym.includes('ETH')) {
+                    assetType = 'crypto';
+                }
 
-            const symbolInfo = {
-                name: cleanSym,
-                ticker: cleanSym,
-                full_name: `${brokerExchange}:${cleanSym}`,
-                isLive: true,
-                description: desc,
-                type: assetType,
-                exchange: brokerExchange,
-                listed_exchange: brokerExchange,
-                format: 'price',
-                session: sessionStr,
-                timezone: tzStr,
-                minmov: 1,
-                pricescale: priceScale,
-                has_intraday: true,
-                has_no_volume: false,
-                has_empty_bars: false,
-                has_daily: true,
-                has_weekly_and_monthly: true,
-                supported_resolutions: ['1', '2', '3', '5', '10', '15', '30', '60', '120', '240', 'D', 'W', 'M'],
-                intraday_multipliers: ['1', '2', '3', '5', '10', '15', '30', '60', '120', '240'],
-                has_seconds: false,
-                volume_precision: 2,
-                data_status: 'streaming',
+                const desc = info && info.description ? info.description : cleanSym;
+                const sessionStr = (info && info.session) ? info.session : (mkt ? mkt.session : (assetType === 'crypto' ? '24x7' : '2200-2200:12345'));
+                const tzStr = (info && info.timezone) ? info.timezone : (mkt ? mkt.timezone : 'Etc/UTC');
+
+                const earliestSec = (info && info.earliest_time) ? info.earliest_time : 1086912000;
+                const earliestMs = earliestSec * 1000;
+                const earliestDate = (info && info.earliest_date) ? info.earliest_date : '2004-06-11';
+
+                if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
+                window._symbolEarliestTime[cleanSym] = earliestMs;
+                if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
+                window._symbolEarliestDate[cleanSym] = earliestDate;
+
+                const symbolInfo = {
+                    name: cleanSym,
+                    ticker: cleanSym,
+                    full_name: `${brokerExchange}:${cleanSym}`,
+                    isLive: true,
+                    description: desc,
+                    type: assetType,
+                    exchange: brokerExchange,
+                    listed_exchange: brokerExchange,
+                    format: 'price',
+                    session: sessionStr,
+                    timezone: tzStr,
+                    minmov: 1,
+                    pricescale: priceScale,
+                    has_intraday: true,
+                    has_no_volume: false,
+                    has_empty_bars: false,
+                    has_daily: true,
+                    has_weekly_and_monthly: true,
+                    supported_resolutions: ['1', '2', '3', '5', '10', '15', '30', '60', '120', '240', 'D', 'W', 'M'],
+                    intraday_multipliers: ['1', '2', '3', '5', '10', '15', '30', '60', '120', '240'],
+                    has_seconds: false,
+                    volume_precision: 2,
+                    data_status: 'streaming',
+                    earliest_time: earliestSec,
+                    earliest_time_ms: earliestMs,
+                    earliest_date: earliestDate
+                };
+                setTimeout(() => onSymbolResolvedCallback(symbolInfo));
             };
-            setTimeout(() => onSymbolResolvedCallback(symbolInfo));
+
+            if (!symInfo && window.MT5API && typeof window.MT5API.fetchSymbolInfo === 'function') {
+                window.MT5API.fetchSymbolInfo(cleanSym).then(fetched => {
+                    proceedWithSymbol(fetched || symInfo);
+                }).catch(() => {
+                    proceedWithSymbol(symInfo);
+                });
+            } else {
+                proceedWithSymbol(symInfo);
+            }
             return;
         }
         
@@ -1114,7 +1139,24 @@ const Datafeed = {
         if (isMt5Exchange && window.MT5API) {
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             const cacheKey = `MT5_${cleanSym}_${resolution}`;
+
+            // Retrieve cached inception start time for this symbol (guarantees we know if data has ended)
+            const earliestTimeMs = (window._symbolEarliestTime && window._symbolEarliestTime[cleanSym])
+                || (symbolInfo.earliest_time_ms)
+                || (1086912000 * 1000);
+            const earliestTimeSec = Math.floor(earliestTimeMs / 1000);
+            const earliestDateStr = (window._symbolEarliestDate && window._symbolEarliestDate[cleanSym])
+                || (symbolInfo.earliest_date)
+                || '2004-06-11';
+
             try {
+                // If requested range is completely before the confirmed inception date, stop immediately
+                if (rawTo <= earliestTimeSec) {
+                    console.log(`[datafeed] Inception date reached for ${cleanSym} (${earliestDateStr}). Stopping backward pagination.`);
+                    onHistoryCallback([], { noData: true });
+                    return;
+                }
+
                 let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
 
                 // If fetchBars returned empty (e.g. server in middle of restart), quick retry once after 350ms
@@ -1123,11 +1165,10 @@ const Datafeed = {
                     mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
                 }
 
-                // If still empty when scrolling back (not firstDataRequest), the requested range likely fell
-                // on a weekend (Saturday/Sunday) or trading holiday! Look back up to 4 days prior to bridge the market close gap:
-                if ((!mt5Bars || mt5Bars.length === 0) && !firstDataRequest) {
+                // If still empty when scrolling back (not firstDataRequest), look back up to 4 days prior to bridge weekend gap
+                if ((!mt5Bars || mt5Bars.length === 0) && !firstDataRequest && rawTo > earliestTimeSec) {
                     const weekendLookback = 4 * 86400; // 4 days prior
-                    const bridgeFrom = Math.max(0, rawFrom - weekendLookback);
+                    const bridgeFrom = Math.max(earliestTimeSec, rawFrom - weekendLookback);
                     mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, bridgeFrom, rawTo, countBack || 500);
                 }
 
@@ -1171,13 +1212,28 @@ const Datafeed = {
                     }
                 }
 
-                // If no bars returned for requested range, signal noData: true so TradingView stops paging backwards
+                // If no bars returned for requested range:
+                // Check whether requested rawTo is still above the confirmed symbol inception date:
+                if (rawTo > earliestTimeSec) {
+                    // DATA IS NOT ENDED! We are simply traversing a weekend, holiday, or broker quote pause.
+                    // Supply nextTime so TradingView jumps across the gap and keeps scrolling back!
+                    const gapHopSec = Math.max(earliestTimeSec, rawTo - (3 * 86400));
+                    console.log(`[datafeed] Gap encountered for ${cleanSym} at ${new Date(rawTo * 1000).toISOString()} (inception: ${earliestDateStr}). Bridging via nextTime: ${new Date(gapHopSec * 1000).toISOString()}`);
+                    onHistoryCallback([], { noData: true, nextTime: gapHopSec * 1000 });
+                    return;
+                }
+
+                // If rawTo is at or before inception date, history is truly exhausted.
+                console.log(`[datafeed] True inception date reached for ${cleanSym} (${earliestDateStr}). History exhausted.`);
                 onHistoryCallback([], { noData: true });
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
                 if (firstDataRequest && typeof onErrorCallback === 'function') {
                     onErrorCallback(err.message || 'MT5 server reconnecting');
+                } else if (rawTo > earliestTimeSec) {
+                    const fallbackNextTime = Math.max(earliestTimeSec, rawTo - 86400);
+                    onHistoryCallback([], { noData: true, nextTime: fallbackNextTime * 1000 });
                 } else {
                     onHistoryCallback([], { noData: true });
                 }
