@@ -29,6 +29,20 @@
         }
     }
 
+    function safeRemoveEntity(chart, id) {
+        if (!chart || !id || typeof chart.removeEntity !== "function") return;
+        try {
+            if (chart._chartWidget && typeof chart._chartWidget.model === "function") {
+                var m = chart._chartWidget.model();
+                var im = m && typeof m.model === "function" ? m.model() : m;
+                if (im && typeof im.dataSourceForId === "function") {
+                    if (!im.dataSourceForId(id)) return; // Entity already removed from chart!
+                }
+            }
+            chart.removeEntity(id, { disableUndo: true });
+        } catch (_) {}
+    }
+
     function SmartDrawingPool() {
         this.activeShapes = new Map();
         this._gen = 0;
@@ -59,9 +73,7 @@
                     // Changed -> mark existing for removal and recreate
                     existing.isDestroyed = true;
                     if (existing.id) {
-                        try {
-                            chart.removeEntity(existing.id, { disableUndo: true });
-                        } catch (_) {}
+                        safeRemoveEntity(chart, existing.id);
                     }
                 }
             }
@@ -75,9 +87,7 @@
             if (!nextKeys.has(oldKey) && oldShape && !oldShape.isDestroyed) {
                 oldShape.isDestroyed = true;
                 if (oldShape.id) {
-                    try {
-                        chart.removeEntity(oldShape.id, { disableUndo: true });
-                    } catch (_) {}
+                    safeRemoveEntity(chart, oldShape.id);
                 }
             }
         }
@@ -112,9 +122,7 @@
                         promise.then(function(id) {
                             if (!id) return;
                             if (rec.isDestroyed) {
-                                try {
-                                    chart.removeEntity(id, { disableUndo: true });
-                                } catch (_) {}
+                                safeRemoveEntity(chart, id);
                                 return;
                             }
                             rec.id = id;
@@ -145,10 +153,8 @@
             var rec = entry[1];
             if (rec) {
                 rec.isDestroyed = true;
-                if (rec.id && chart && typeof chart.removeEntity === "function") {
-                    try {
-                        chart.removeEntity(rec.id, { disableUndo: true });
-                    } catch (_) {}
+                if (rec.id && chart) {
+                    safeRemoveEntity(chart, rec.id);
                 }
             }
         }
