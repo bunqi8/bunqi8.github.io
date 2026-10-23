@@ -961,30 +961,30 @@ window.getCustomIndicators = function (PineJS) {
                 { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2_github_bunqi8_tradingview_indicators@tv-basicstudies-1" },
                 { name: "UltimateMA", id: "UltimateMA@tv-basicstudies-1" }
             ],
-            "SMC Major Swing Fibs (v1.4.0)": [
+            "SMC Major Swing Fibs": [
+                { name: "SMC Major Swing Fibs (v1.4.0)", id: "SMC_Major_Swing_Fibs_v1_4_0@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.3.1)", id: "SMC_Major_Swing_Fibs_v1_3_1@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.3.0)", id: "SMC_Major_Swing_Fibs_v1_3_0@tv-basicstudies-1" },
-                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
-            ],
-            "SMC Major Swing Fibs (v1.3.1)": [
-                { name: "SMC Major Swing Fibs (v1.3.0)", id: "SMC_Major_Swing_Fibs_v1_3_0@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.2.0)", id: "SMC_Major_Swing_Fibs_v1_2_0@tv-basicstudies-1" },
-                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
+                { name: "SMC Major Swing Fibs (v1.1.0)", id: "SMC_Major_Swing_Fibs_v1_1_0@tv-basicstudies-1" },
+                { name: "SMC Major Swing Fibs (v1.0.0)", id: "SMC_Major_Swing_Fibs_v1_0_0@tv-basicstudies-1" }
             ],
-            "SMC Major Swing Fibs (v1.3.0)": [
-                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
-            ],
-            "Smart Money Concepts with Fib (v2.3.0)": [
+            "Smart Money Concepts with Fib": [
+                { name: "Smart Money Concepts with Fib (v2.3.0)", id: "Smart_Money_Concepts_with_Fib_v2_3_0@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.2.0)", id: "Smart_Money_Concepts_with_Fib_v2_2_0@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.1.0)", id: "Smart_Money_Concepts_with_Fib_v2_1_0@tv-basicstudies-1" },
-                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
+                { name: "Smart Money Concepts with Fib (v2.0.0)", id: "Smart_Money_Concepts_with_Fib_v2_0_0@tv-basicstudies-1" }
             ],
-            "Smart Money Concepts with Fib (v2.2.0)": [
-                { name: "Smart Money Concepts with Fib (v2.1.0)", id: "Smart_Money_Concepts_with_Fib_v2_1_0@tv-basicstudies-1" },
-                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
+            "Supertrend + HH/LL Flow Merged": [
+                { name: "Supertrend + HH/LL Flow Merged (v6.1.0)", id: "Supertrend_HH_LL_Flow_v6_1_0@tv-basicstudies-1" },
+                { name: "Supertrend + HH/LL Flow Merged v6.0.2", id: "Supertrend_HH_LL_Flow_v6_0_2@tv-basicstudies-1" },
+                { name: "Supertrend + HH/LL Flow Merged v6.0.2", id: "Supertrend_HH_LL_Flow_v6@tv-basicstudies-1" },
+                { name: "Supertrend + HH/LL Flow Merged (v6.0.2)", id: "Supertrend_HH_LL_Flow_v6_0_2@tv-basicstudies-1" }
             ],
-            "Smart Money Concepts with Fib (v2.1.0)": [
-                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
+            "HH/LL Flow": [
+                { name: "HH/LL Flow (v6.1.0)", id: "HH_LL_Flow_v6_1_0@tv-basicstudies-1" },
+                { name: "HH/LL Flow v6.0.1", id: "HH_LL_Flow_v6_2@tv-basicstudies-1" },
+                { name: "HH/LL Flow (v6.0.1)", id: "HH_LL_Flow_v6_2@tv-basicstudies-1" }
             ]
         };
 
@@ -1005,7 +1005,9 @@ window.getCustomIndicators = function (PineJS) {
             const curName = (ind.name || curDesc).trim();
 
             // Explicit aliases from map
-            const aliases = LEGACY_STUDY_ALIASES[curName] || LEGACY_STUDY_ALIASES[curDesc];
+            const cleanBase = curName.replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').replace(/\s+[vV]\d+(\.\d+)*/i, '').trim();
+            const cleanDesc = curDesc.replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').replace(/\s+[vV]\d+(\.\d+)*/i, '').trim();
+            const aliases = LEGACY_STUDY_ALIASES[curName] || LEGACY_STUDY_ALIASES[curDesc] || LEGACY_STUDY_ALIASES[cleanBase] || LEGACY_STUDY_ALIASES[cleanDesc];
             if (aliases && Array.isArray(aliases)) {
                 aliases.forEach(alias => {
                     const aliasDescLower = alias.name.toLowerCase();
