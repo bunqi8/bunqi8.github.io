@@ -21,16 +21,34 @@ function setupCustomIndicatorsDialog(widget) {
         const autoLoad = sessionStorage.getItem('tv_auto_reload_study');
         if (autoLoad) {
             sessionStorage.removeItem('tv_auto_reload_study');
-            setTimeout(() => {
+            setTimeout(async () => {
                 try {
                     const chart = widget.chart();
-                    const studies = chart.getAllStudies();
-                    const exists = studies.find(s => s.name === autoLoad);
+                    if (!chart) return;
+                    const studies = (typeof chart.getAllStudies === 'function') ? chart.getAllStudies() : [];
+                    const autoLoadLower = autoLoad.toLowerCase();
+                    const exists = studies.find(s => (s.name && s.name.toLowerCase() === autoLoadLower) || (s.description && s.description.toLowerCase() === autoLoadLower));
                     if (exists) {
                         chart.removeEntity(exists.id);
                     }
-                    setTimeout(() => {
-                        chart.createStudy(autoLoad, false, false);
+                    setTimeout(async () => {
+                        try {
+                            const resPromise = chart.createStudy(autoLoad, false, false);
+                            if (resPromise && typeof resPromise.then === 'function') {
+                                await resPromise.catch(err => {
+                                    console.warn(`[AutoReload] Direct createStudy('${autoLoad}') failed:`, err);
+                                    // Fallback: try unversioned base name if autoLoad has version tag
+                                    const baseName = autoLoad.replace(/\s*\([vV]?\d+(\.\d+)*\)/, '').trim();
+                                    if (baseName && baseName.toLowerCase() !== autoLoadLower) {
+                                        return chart.createStudy(baseName, false, false).catch(e => {
+                                            console.warn(`[AutoReload] Fallback createStudy('${baseName}') failed:`, e);
+                                        });
+                                    }
+                                });
+                            }
+                        } catch (err) {
+                            console.warn("[AutoReload] Handled error in study reload:", err);
+                        }
                     }, 200);
                 } catch (e) {
                     console.error("Hot-swap failed", e);

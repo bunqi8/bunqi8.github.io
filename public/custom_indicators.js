@@ -1,3 +1,163 @@
+// --- GLOBAL SMART DRAWING POOL (ZERO-FLICKER DIFFING & CACHE ENGINE) ---
+(function() {
+    function arePointsEqual(ptsA, ptsB) {
+        if (!ptsA || !ptsB || ptsA.length !== ptsB.length) return false;
+        for (var i = 0; i < ptsA.length; i++) {
+            var a = ptsA[i];
+            var b = ptsB[i];
+            if (!a || !b) return false;
+            if (a.time !== b.time || Math.abs(a.price - b.price) > 0.0001) return false;
+        }
+        return true;
+    }
+
+    function areSinglePointsEqual(ptA, ptB) {
+        if (!ptA || !ptB) return false;
+        return ptA.time === ptB.time && Math.abs(ptA.price - ptB.price) <= 0.0001;
+    }
+
+    function hasShapeChanged(existing, desired) {
+        if (existing.type !== desired.type) return true;
+        if (existing.options && desired.options) {
+            if (existing.options.shape !== desired.options.shape) return true;
+            if (existing.options.text !== desired.options.text) return true;
+        }
+        if (desired.type === "multipoint") {
+            return !arePointsEqual(existing.points, desired.points);
+        } else {
+            return !areSinglePointsEqual(existing.point, desired.point);
+        }
+    }
+
+    function SmartDrawingPool() {
+        this.activeShapes = new Map();
+        this._gen = 0;
+    }
+
+    SmartDrawingPool.prototype.sync = function(desiredShapes, chart, studyId) {
+        if (!chart || typeof chart.createShape !== "function") return;
+        var currentGen = ++this._gen;
+        var nextMap = new Map();
+        var nextKeys = new Set();
+        var toCreate = [];
+
+        // 1. Reconcile desired shapes with active shapes
+        for (var i = 0; i < desiredShapes.length; i++) {
+            var item = desiredShapes[i];
+            if (!item || !item.key) continue;
+            var key = item.key;
+            nextKeys.add(key);
+
+            var existing = this.activeShapes.get(key);
+            if (existing && !existing.isDestroyed) {
+                var changed = hasShapeChanged(existing, item);
+                if (!changed) {
+                    // Coordinates and properties match exactly -> KEEP existing shape!
+                    nextMap.set(key, existing);
+                    continue;
+                } else {
+                    // Changed -> mark existing for removal and recreate
+                    existing.isDestroyed = true;
+                    if (existing.id) {
+                        try {
+                            chart.removeEntity(existing.id, { disableUndo: true });
+                        } catch (_) {}
+                    }
+                }
+            }
+            toCreate.push(item);
+        }
+
+        // 2. Remove shapes that are no longer requested
+        for (var entry of this.activeShapes.entries()) {
+            var oldKey = entry[0];
+            var oldShape = entry[1];
+            if (!nextKeys.has(oldKey) && oldShape && !oldShape.isDestroyed) {
+                oldShape.isDestroyed = true;
+                if (oldShape.id) {
+                    try {
+                        chart.removeEntity(oldShape.id, { disableUndo: true });
+                    } catch (_) {}
+                }
+            }
+        }
+
+        // 3. Create newly requested or changed shapes
+        for (var j = 0; j < toCreate.length; j++) {
+            var newItem = toCreate[j];
+            var record = {
+                key: newItem.key,
+                type: newItem.type,
+                points: newItem.points,
+                point: newItem.point,
+                options: newItem.options,
+                text: (newItem.options && newItem.options.text) || "",
+                id: null,
+                isText: !!newItem.isText,
+                isDestroyed: false,
+                gen: currentGen
+            };
+            nextMap.set(newItem.key, record);
+
+            (function(rec, itm) {
+                try {
+                    var promise = null;
+                    if (itm.type === "multipoint" && typeof chart.createMultipointShape === "function") {
+                        promise = chart.createMultipointShape(itm.points, itm.options);
+                    } else if (typeof chart.createShape === "function") {
+                        promise = chart.createShape(itm.point, itm.options);
+                    }
+
+                    if (promise && typeof promise.then === "function") {
+                        promise.then(function(id) {
+                            if (!id) return;
+                            if (rec.isDestroyed) {
+                                try {
+                                    chart.removeEntity(id, { disableUndo: true });
+                                } catch (_) {}
+                                return;
+                            }
+                            rec.id = id;
+                            if (rec.isText) {
+                                try {
+                                    if (chart._chartWidget) {
+                                        var lt = chart._chartWidget.model().model().getLineToolById(id);
+                                        if (lt && typeof lt.centerPosition === "function") {
+                                            lt.centerPosition();
+                                        }
+                                    }
+                                } catch (_) {}
+                            }
+                        }).catch(function() {});
+                    } else if (promise && typeof promise === "string") {
+                        rec.id = promise;
+                    }
+                } catch (_) {}
+            })(record, newItem);
+        }
+
+        this.activeShapes = nextMap;
+    };
+
+    SmartDrawingPool.prototype.clearAll = function(chart) {
+        this._gen++;
+        for (var entry of this.activeShapes.entries()) {
+            var rec = entry[1];
+            if (rec) {
+                rec.isDestroyed = true;
+                if (rec.id && chart && typeof chart.removeEntity === "function") {
+                    try {
+                        chart.removeEntity(rec.id, { disableUndo: true });
+                    } catch (_) {}
+                }
+            }
+        }
+        this.activeShapes.clear();
+    };
+
+    window.SmartDrawingPool = SmartDrawingPool;
+})();
+
 window.isStrategyScript = function(code) {
     if (!code || typeof code !== 'string') return false;
     const hasBuy = /this\.strategy\.buy|strategy\.buy|action\s*:\s*['"]BUY['"]/i.test(code);
@@ -791,37 +951,124 @@ window.getCustomIndicators = function (PineJS) {
             };
         });
 
-        // Backwards compatibility alias engine:
-        // Automatically registers legacy names and IDs so charts with previously applied studies
-        // run the updated constructor and calculations seamlessly without "study not found" errors.
+        // Backwards compatibility & version alias engine:
+        // Automatically registers legacy names, versioned names, and unversioned descriptions
+        // so charts and reload mechanisms calling createStudy(...) by name or description
+        // never fail with "unexpected study id" errors.
         const LEGACY_STUDY_ALIASES = {
             "MA Ultimate MTF v2": [
                 { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2@tv-basicstudies-1" },
                 { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2_github_bunqi8_tradingview_indicators@tv-basicstudies-1" },
                 { name: "UltimateMA", id: "UltimateMA@tv-basicstudies-1" }
+            ],
+            "SMC Major Swing Fibs (v1.4.0)": [
+                { name: "SMC Major Swing Fibs (v1.3.1)", id: "SMC_Major_Swing_Fibs_v1_3_1@tv-basicstudies-1" },
+                { name: "SMC Major Swing Fibs (v1.3.0)", id: "SMC_Major_Swing_Fibs_v1_3_0@tv-basicstudies-1" },
+                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
+            ],
+            "SMC Major Swing Fibs (v1.3.1)": [
+                { name: "SMC Major Swing Fibs (v1.3.0)", id: "SMC_Major_Swing_Fibs_v1_3_0@tv-basicstudies-1" },
+                { name: "SMC Major Swing Fibs (v1.2.0)", id: "SMC_Major_Swing_Fibs_v1_2_0@tv-basicstudies-1" },
+                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
+            ],
+            "SMC Major Swing Fibs (v1.3.0)": [
+                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" }
+            ],
+            "Smart Money Concepts with Fib (v2.3.0)": [
+                { name: "Smart Money Concepts with Fib (v2.2.0)", id: "Smart_Money_Concepts_with_Fib_v2_2_0@tv-basicstudies-1" },
+                { name: "Smart Money Concepts with Fib (v2.1.0)", id: "Smart_Money_Concepts_with_Fib_v2_1_0@tv-basicstudies-1" },
+                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
+            ],
+            "Smart Money Concepts with Fib (v2.2.0)": [
+                { name: "Smart Money Concepts with Fib (v2.1.0)", id: "Smart_Money_Concepts_with_Fib_v2_1_0@tv-basicstudies-1" },
+                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
+            ],
+            "Smart Money Concepts with Fib (v2.1.0)": [
+                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" }
             ]
         };
 
         const aliasList = [];
+        const seenDescriptions = new Set();
         allList.forEach(ind => {
-            const aliases = LEGACY_STUDY_ALIASES[ind.name];
+            if (ind && ind.metainfo && ind.metainfo.description) {
+                seenDescriptions.add(ind.metainfo.description.toLowerCase());
+            }
+            if (ind && ind.name) {
+                seenDescriptions.add(ind.name.toLowerCase());
+            }
+        });
+
+        allList.forEach(ind => {
+            if (!ind || !ind.metainfo) return;
+            const curDesc = (ind.metainfo.description || ind.name || "").trim();
+            const curName = (ind.name || curDesc).trim();
+
+            // Explicit aliases from map
+            const aliases = LEGACY_STUDY_ALIASES[curName] || LEGACY_STUDY_ALIASES[curDesc];
             if (aliases && Array.isArray(aliases)) {
                 aliases.forEach(alias => {
-                    const cloned = {
+                    const aliasDescLower = alias.name.toLowerCase();
+                    if (!seenDescriptions.has(aliasDescLower)) {
+                        seenDescriptions.add(aliasDescLower);
+                        aliasList.push({
+                            ...ind,
+                            name: alias.name,
+                            metainfo: {
+                                ...ind.metainfo,
+                                id: alias.id || `${alias.name.replace(/[^a-zA-Z0-9]/g, '_')}@tv-basicstudies-1`,
+                                name: alias.name,
+                                description: alias.name,
+                                shortDescription: alias.name,
+                                is_hidden_study: true
+                            },
+                            constructor: ind.constructor
+                        });
+                    }
+                });
+            }
+
+            // Auto-alias 1: If name !== description, register an alias with description = name
+            if (curName && curDesc && curName.toLowerCase() !== curDesc.toLowerCase()) {
+                const nameLower = curName.toLowerCase();
+                if (!seenDescriptions.has(nameLower)) {
+                    seenDescriptions.add(nameLower);
+                    aliasList.push({
                         ...ind,
-                        name: alias.name,
+                        name: curName,
                         metainfo: {
                             ...ind.metainfo,
-                            id: alias.id,
-                            name: alias.name,
-                            description: alias.name,
-                            shortDescription: alias.name,
+                            id: `${ind.metainfo.id || curName}_alias_name@tv-basicstudies-1`,
+                            name: curName,
+                            description: curName,
+                            shortDescription: ind.metainfo.shortDescription || curName,
                             is_hidden_study: true
                         },
                         constructor: ind.constructor
-                    };
-                    aliasList.push(cloned);
-                });
+                    });
+                }
+            }
+
+            // Auto-alias 2: If name/desc has a version tag like (v1.3.0), register unversioned base name
+            const baseName = curName.replace(/\s*\([vV]?\d+(\.\d+)*\)/, '').trim();
+            if (baseName) {
+                const baseLower = baseName.toLowerCase();
+                if (!seenDescriptions.has(baseLower)) {
+                    seenDescriptions.add(baseLower);
+                    aliasList.push({
+                        ...ind,
+                        name: baseName,
+                        metainfo: {
+                            ...ind.metainfo,
+                            id: `${ind.metainfo.id || baseName}_alias_base@tv-basicstudies-1`,
+                            name: baseName,
+                            description: baseName,
+                            shortDescription: baseName,
+                            is_hidden_study: true
+                        },
+                        constructor: ind.constructor
+                    });
+                }
             }
         });
 
