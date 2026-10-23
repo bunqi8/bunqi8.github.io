@@ -391,6 +391,67 @@ function bootWidget() {
 
     widget.chartReady().then(() => {
         console.log("[App] Chart is fully ready and fluid.");
+
+        // Guard chart.removeEntity to silently ignore IDs already removed by TradingView template switches
+        const guardChartRemoveEntity = (c) => {
+            if (!c || c._removeEntityGuarded) return;
+            c._removeEntityGuarded = true;
+            const origRemove = c.removeEntity;
+            if (typeof origRemove === 'function') {
+                c.removeEntity = function(id, options) {
+                    if (!id) return;
+                    try {
+                        if (this._chartWidget && typeof this._chartWidget.model === 'function') {
+                            const m = this._chartWidget.model();
+                            const im = m && typeof m.model === 'function' ? m.model() : m;
+                            if (im && typeof im.dataSourceForId === 'function') {
+                                if (!im.dataSourceForId(id)) {
+                                    // Entity already removed from chart model (e.g. during template switch)
+                                    return;
+                                }
+                            }
+                        }
+                    } catch (_) {}
+                    return origRemove.call(this, id, options);
+                };
+            }
+        };
+
+        try {
+            guardChartRemoveEntity(widget.chart());
+            if (typeof widget.activeChart === 'function') guardChartRemoveEntity(widget.activeChart());
+
+            const origChartFn = widget.chart;
+            if (typeof origChartFn === 'function' && !widget._chartFnGuarded) {
+                widget._chartFnGuarded = true;
+                widget.chart = function(...args) {
+                    const ch = origChartFn.apply(this, args);
+                    guardChartRemoveEntity(ch);
+                    return ch;
+                };
+            }
+
+            const origActiveChartFn = widget.activeChart;
+            if (typeof origActiveChartFn === 'function' && !widget._activeChartFnGuarded) {
+                widget._activeChartFnGuarded = true;
+                widget.activeChart = function(...args) {
+                    const ch = origActiveChartFn.apply(this, args);
+                    guardChartRemoveEntity(ch);
+                    return ch;
+                };
+            }
+        } catch (_) {}
+
+        if (!window._warnGuardedForStaleSource) {
+            window._warnGuardedForStaleSource = true;
+            const origWarn = console.warn;
+            console.warn = function(...args) {
+                if (typeof args[0] === 'string' && args[0].indexOf("Can't find a source with id:") !== -1) {
+                    return;
+                }
+                return origWarn.apply(this, args);
+            };
+        }
         
         window.tvWidget.headerReady().then(function() {
             // Wait for iframe DOM
