@@ -832,21 +832,38 @@ window.getCustomIndicators = function (PineJS) {
 
                         if (!indicatorObj.metainfo) indicatorObj.metainfo = {};
 
-                        // 1. Ensure metainfo.description and indicatorObj.name match and are never empty
-                        if (!indicatorObj.metainfo.description) {
-                            indicatorObj.metainfo.description = indicatorObj.name || key;
+                        // 1. Version extraction & persistence
+                        let scriptVer = indicatorObj.version || indicatorObj.metainfo.version;
+                        if (!scriptVer && typeof code === 'string') {
+                            const mVer = code.match(/version\s*:\s*["']([^"']+)["']/i) || code.match(/\b(?:v|Version\s*:?\s*)(\d+(\.\d+)+)\b/i);
+                            if (mVer && mVer[1]) scriptVer = mVer[1];
                         }
-                        if (!indicatorObj.name) {
-                            indicatorObj.name = indicatorObj.metainfo.description || key;
-                        }
-                        if (!indicatorObj.metainfo.shortDescription) {
-                            indicatorObj.metainfo.shortDescription = indicatorObj.metainfo.description;
+                        if (scriptVer) {
+                            indicatorObj.version = scriptVer;
+                            indicatorObj.metainfo.version = scriptVer;
                         }
 
-                        // 2. Guarantee DETERMINISTIC, STABLE metainfo.id (CRITICAL: NEVER use Date.now() on reload!)
+                        // 2. Canonical unversioned name & shortDescription (rendered on screen in chart status line)
+                        const cleanName = (indicatorObj.name || indicatorObj.metainfo.description || key).replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').trim();
+                        indicatorObj.name = cleanName;
+                        if (!indicatorObj.metainfo.shortDescription) {
+                            indicatorObj.metainfo.shortDescription = cleanName;
+                        }
+
+                        // 3. Full description with version (rendered on chart legend hover tooltip)
+                        if (scriptVer) {
+                            const verTag = scriptVer.startsWith('v') || scriptVer.startsWith('V') ? scriptVer : `v${scriptVer}`;
+                            indicatorObj.metainfo.description = `${cleanName} (${verTag})`;
+                        } else {
+                            if (!indicatorObj.metainfo.description) {
+                                indicatorObj.metainfo.description = cleanName;
+                            }
+                        }
+
+                        // 4. Guarantee DETERMINISTIC, STABLE metainfo.id (CRITICAL: NEVER use Date.now() on reload!)
                         // If already defined, preserve it so active chart studies restore without "study not found" errors
                         if (!indicatorObj.metainfo.id) {
-                            const clean = indicatorObj.name.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '');
+                            const clean = cleanName.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '');
                             const stableLocalId = `${clean || 'Custom_Study'}_Local@tv-basicstudies-1`;
                             indicatorObj.metainfo.id = stableLocalId;
                             if (window.injectStudyMetaId) {
@@ -899,6 +916,25 @@ window.getCustomIndicators = function (PineJS) {
 
         const allList = [...hardcodedIndicators, ...localIndicators, ...remoteIndicators];
         
+        // Standardize shortDescription (for on-screen status line) and description (for hover tooltip with version)
+        allList.forEach(ind => {
+            if (!ind || !ind.metainfo) return;
+            const scriptVer = ind.version || ind.metainfo.version;
+            const cleanName = (ind.name || ind.metainfo.description || "").replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').trim();
+            if (cleanName && !ind.name) ind.name = cleanName;
+            if (!ind.metainfo.shortDescription || ind.metainfo.shortDescription === ind.metainfo.description) {
+                ind.metainfo.shortDescription = cleanName;
+            }
+            if (scriptVer) {
+                const verTag = scriptVer.startsWith('v') || scriptVer.startsWith('V') ? scriptVer : `v${scriptVer}`;
+                if (!ind.metainfo.description || !ind.metainfo.description.includes(verTag)) {
+                    ind.metainfo.description = `${cleanName} (${verTag})`;
+                }
+            } else if (!ind.metainfo.description) {
+                ind.metainfo.description = cleanName;
+            }
+        });
+
         // Wrap ONLY true strategies with StrategyEngine context (leave normal indicators untouched!)
         allList.forEach(ind => {
             if (!ind || !ind.constructor) return;

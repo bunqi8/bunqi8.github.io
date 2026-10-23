@@ -793,11 +793,17 @@ function setupCustomIndicatorsDialog(widget) {
                 flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; text-align: left;
             }
             .tv-script-title-wrap {
-                display: flex; align-items: center; min-width: 0; width: 100%; text-align: left; justify-content: flex-start;
+                display: flex; align-items: center; min-width: 0; width: 100%; text-align: left; justify-content: flex-start; gap: 6px;
             }
             .tv-script-title {
                 font-size: 13.5px; font-weight: 600; color: #131722; line-height: 1.35; text-align: left;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 65px);
+            }
+            .tv-script-version-tag {
+                display: inline-flex; align-items: center; font-size: 10px; font-weight: 600;
+                color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0;
+                border-radius: 4px; padding: 1px 5px; line-height: 1.2; flex-shrink: 0;
+                letter-spacing: 0.2px;
             }
             .tv-script-meta-wrap {
                 display: flex; align-items: center; gap: 5px; flex-wrap: wrap; text-align: left; justify-content: flex-start; margin-top: 1px;
@@ -2120,21 +2126,34 @@ function setupCustomIndicatorsDialog(widget) {
                 const code = storedLocal[name] || '';
                 let metaDesc = name;
                 let metaName = name;
+                let metaShort = null;
+                let scriptVersion = null;
                 try {
                     const factory = new Function('PineJS', 'return (' + code + ');');
                     const obj = factory({ Std: {} });
                     if (obj) {
                         if (obj.name) metaName = obj.name;
-                        if (obj.metainfo && obj.metainfo.description) metaDesc = obj.metainfo.description;
-                        else metaDesc = metaName;
+                        if (obj.version) scriptVersion = obj.version;
+                        if (obj.metainfo) {
+                            if (obj.metainfo.description) metaDesc = obj.metainfo.description;
+                            if (obj.metainfo.shortDescription) metaShort = obj.metainfo.shortDescription;
+                            if (obj.metainfo.version) scriptVersion = obj.metainfo.version;
+                        }
+                        if (!metaDesc) metaDesc = metaName;
                     }
                 } catch (_) {}
+                if (!scriptVersion && typeof code === 'string') {
+                    const mVer = code.match(/version\s*:\s*["']([^"']+)["']/i) || code.match(/\b(?:v|Version\s*:?\s*)(\d+(\.\d+)+)\b/i);
+                    if (mVer && mVer[1]) scriptVersion = mVer[1];
+                }
                 const cleanDisplayName = window.sanitizeIndicatorName ? window.sanitizeIndicatorName(name) : name;
                 const isStrat = cleanDisplayName.includes("Strategy") || name.includes("Strategy") || (window.isStrategyScript && window.isStrategyScript(code));
                 return {
                     name: name,
                     displayName: cleanDisplayName,
                     studyName: metaDesc || metaName || cleanDisplayName,
+                    shortDescription: metaShort || cleanDisplayName,
+                    version: scriptVersion,
                     isStrat: isStrat,
                     sourceType: "local",
                     isLocal: true,
@@ -2149,9 +2168,15 @@ function setupCustomIndicatorsDialog(widget) {
                     const repo = window.ScriptRepoManager.repos.find(r => r.id === item.repoId);
                     return !repo || repo.enabled !== false;
                 }).map(item => {
+                    let rVersion = item.version || null;
+                    if (!rVersion && item.code && typeof item.code === 'string') {
+                        const mVer = item.code.match(/version\s*:\s*["']([^"']+)["']/i) || item.code.match(/\b(?:v|Version\s*:?\s*)(\d+(\.\d+)+)\b/i);
+                        if (mVer && mVer[1]) rVersion = mVer[1];
+                    }
                     return {
                         name: item.name,
                         displayName: item.name,
+                        version: rVersion,
                         isStrat: !!item.isStrategy,
                         sourceType: item.provider || 'github',
                         isRemote: true,
@@ -2382,8 +2407,21 @@ function setupCustomIndicatorsDialog(widget) {
                 const nameLabel = document.createElement('span');
                 nameLabel.className = 'tv-script-title';
                 nameLabel.textContent = item.displayName;
-                nameLabel.title = item.displayName;
+                const hoverFullName = item.version 
+                    ? `${item.displayName} (${item.version.startsWith('v') || item.version.startsWith('V') ? item.version : 'v' + item.version})` 
+                    : item.displayName;
+                nameLabel.title = hoverFullName;
+                row.title = hoverFullName;
                 titleWrap.appendChild(nameLabel);
+
+                if (item.version) {
+                    const verBadge = document.createElement('span');
+                    verBadge.className = 'tv-script-version-tag';
+                    const verText = item.version.startsWith('v') || item.version.startsWith('V') ? item.version : `v${item.version}`;
+                    verBadge.textContent = verText;
+                    verBadge.title = `Version ${item.version}`;
+                    titleWrap.appendChild(verBadge);
+                }
                 mainContent.appendChild(titleWrap);
 
                 const badgesWrap = document.createElement('div');
