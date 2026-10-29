@@ -833,11 +833,26 @@
             const chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
             if (!chart) return;
 
-            let brokerExchange = '';
-            if (window.MT5API && typeof window.MT5API.getBrokerExchangeName === 'function') {
-                brokerExchange = window.MT5API.getBrokerExchangeName(brokerServer);
+            let targetAcc = null;
+            if (brokerServer && window.MT5API && window.MT5API.accounts) {
+                targetAcc = window.MT5API.accounts.find(a => 
+                    a.server === brokerServer || 
+                    String(a.id) === String(brokerServer) || 
+                    (a.nickname && a.nickname.toLowerCase() === String(brokerServer).toLowerCase()) ||
+                    (window.MT5API.getCleanBrokerExchange(a) === String(brokerServer).toUpperCase())
+                );
             }
-            const cleanSym = String(symbol || '').trim();
+            if (!targetAcc && window.MT5API) {
+                targetAcc = window.MT5API.getActiveAccount();
+            }
+
+            // Sync active account if loading for a specific broker account
+            if (targetAcc && window.MT5API && String(targetAcc.id) !== String(window.MT5API.activeAccountId)) {
+                await window.MT5API.setActiveAccount(targetAcc.id);
+            }
+
+            const brokerExchange = window.MT5API ? window.MT5API.getCleanBrokerExchange(targetAcc) : 'MT5';
+            const cleanSym = String(symbol || '').split(':').pop().trim();
             const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanSym}` : cleanSym;
 
             console.log(`[MT5UI] Loading symbol on chart: ${targetSymbol}`);
@@ -862,9 +877,17 @@
 
             try {
                 if (typeof chart.setSymbol === 'function') {
-                    await chart.setSymbol(targetSymbol);
-                }
-                if (typeof chart.resetData === 'function') {
+                    chart.setSymbol(targetSymbol, () => {
+                        if (typeof chart.resetData === 'function') {
+                            try { chart.resetData(); } catch (_) {}
+                        }
+                    });
+                    setTimeout(() => {
+                        if (typeof chart.resetData === 'function') {
+                            try { chart.resetData(); } catch (_) {}
+                        }
+                    }, 150);
+                } else if (typeof chart.resetData === 'function') {
                     chart.resetData();
                 }
             } catch (e) {
@@ -2226,7 +2249,7 @@
                         const accName = targetAcc ? targetAcc.nickname : id;
 
                         // 0ms instant switch!
-                        window.MT5API.setActiveAccount(id);
+                        await window.MT5API.setActiveAccount(id);
                         this.updateButtonState();
                         this.renderModal();
                         this.showFloatingSwitchToast('⚡ Feed Switched', `Active chart feed switched to ${accName} (0ms)!`, 100, true);

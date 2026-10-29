@@ -253,64 +253,8 @@
                 return;
             }
 
-            const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanTicker}` : cleanTicker;
-            console.log(`[MT5API] Auto-refreshing chart for ${targetSymbol} with active broker candles...`);
-
-            // 1. Wipe stale caches for this ticker
-            if (window._barsCache) {
-                for (const k in window._barsCache) {
-                    if (k.toUpperCase().includes(cleanTicker)) delete window._barsCache[k];
-                }
-            }
-            if (window._tvLastBar) {
-                for (const k in window._tvLastBar) {
-                    if (k.toUpperCase().includes(cleanTicker)) delete window._tvLastBar[k];
-                }
-            }
-            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanTicker];
-            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanTicker];
-
-            // 2. Clear TradingView datafeed caches
-            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
-                try { window.tvWidget.resetCache(); } catch (_) {}
-            }
-            if (typeof window._tvResetCache === 'function') {
-                try { window._tvResetCache(); } catch (_) {}
-            }
-            if (window._mt5ResetCallbacks) {
-                window._mt5ResetCallbacks.forEach(cb => {
-                    if (typeof cb === 'function') {
-                        try { cb(); } catch (_) {}
-                    }
-                });
-            }
-
-            // 3. Force TradingView re-resolution and bar re-request
-            try {
-                const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
-                if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
-                    await chart.setSymbol(targetSymbol);
-                }
-                if (typeof chart.resetData === 'function') {
-                    chart.resetData();
-                }
-                const cw = chart._chartWidget;
-                if (cw && typeof cw.model === 'function') {
-                    const model = cw.model();
-                    const ms = model ? model.mainSeries() : null;
-                    if (ms) {
-                        ms._requestMoreDataAvailable = true;
-                        if (ms._lastCompleteFlags) {
-                            delete ms._lastCompleteFlags.data_completed;
-                        }
-                        if (typeof ms.rerequestData === 'function') {
-                            ms.rerequestData();
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn('[MT5API] Auto-refresh chart notice:', err);
-            }
+            // Ensure WebSocket tick stream is alive for the active symbol
+            this.ensureWebSocket();
         }
 
         getActiveAccount() {
@@ -345,6 +289,29 @@
             // Clean fallback: take first word before dash or space (e.g. "MetaQuotes-Demo" -> "METAQUOTES")
             const firstWord = (target.server || target.nickname || 'MT5').split(/[-_\s]/)[0].toUpperCase();
             return firstWord || 'MT5';
+        }
+
+        getBrokerExchangeName(accOrServer = null) {
+            if (!accOrServer) return this.getCleanBrokerExchange();
+            if (typeof accOrServer === 'object') return this.getCleanBrokerExchange(accOrServer);
+            if (typeof accOrServer === 'string') {
+                const str = accOrServer.trim();
+                const matched = this.accounts.find(a => 
+                    String(a.id) === str || 
+                    (a.server && a.server.toLowerCase() === str.toLowerCase()) ||
+                    (a.nickname && a.nickname.toLowerCase() === str.toLowerCase())
+                );
+                if (matched) return this.getCleanBrokerExchange(matched);
+                const raw = str.toUpperCase();
+                if (raw.includes('FUNDEDNEXT')) return 'FUNDEDNEXT';
+                if (raw.includes('FIVEPERCENT') || raw.includes('5ERS') || raw.includes('THE5ERS')) return 'THE 5%ERS';
+                if (raw.includes('METAQUOTES')) return 'METAQUOTES';
+                if (raw.includes('EXNESS')) return 'EXNESS';
+                if (raw.includes('FTMO')) return 'FTMO';
+                const firstWord = str.split(/[-_\s]/)[0].toUpperCase();
+                return firstWord || 'MT5';
+            }
+            return 'MT5';
         }
 
         async isSymbolSupportedByAccount(ticker, accountId) {
@@ -463,10 +430,13 @@
                 // 3. Update live WebSocket subscription for this account immediately
                 this.reconnectWebSocket();
 
-                // 4. Report instant completion to progress listener
+                // 4. Instant Chart Feed Switch: Switch active chart feed & candles to this account
+                this.switchChartFeedToAccount(id);
+
+                // 5. Report instant completion to progress listener
                 report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
 
-                // 5. In the background (asynchronous, non-blocking):
+                // 6. In the background (asynchronous, non-blocking):
                 // Send switch command to bridge server and sync fresh positions/symbols
                 fetch(`${this.endpoint}/api/accounts/active`, {
                     method: 'POST',
@@ -487,6 +457,79 @@
                 report(0, `Switch Error`, e.message || 'Connection failed', 0);
             }
             return false;
+        }
+
+        async switchChartFeedToAccount(accountId) {
+            let chart = null;
+            let currentSymbol = null;
+            if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                try {
+                    chart = window.tvWidget.activeChart();
+                    if (chart && typeof chart.symbol === 'function') {
+                        currentSymbol = chart.symbol();
+                    }
+                } catch (_) {}
+            }
+            if (!chart && window.tvWidget && typeof window.tvWidget.chart === 'function') {
+                try {
+                    chart = window.tvWidget.chart();
+                    if (chart && typeof chart.symbol === 'function') {
+                        currentSymbol = chart.symbol();
+                    }
+                } catch (_) {}
+            }
+
+            if (!chart || !currentSymbol) return;
+
+            const cleanTicker = currentSymbol.split('|')[0].split(':').pop().toUpperCase().trim();
+            const isMt5 = this.isMt5Symbol(currentSymbol) || this.isMt5Symbol(cleanTicker);
+            if (!isMt5) {
+                // Not an MT5 chart (e.g. Indian Fyers NIFTY/RELIANCE); leave untouched
+                return;
+            }
+
+            const targetAcc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
+            const newBrokerExchange = this.getCleanBrokerExchange(targetAcc);
+            const targetSymbol = newBrokerExchange ? `${newBrokerExchange}:${cleanTicker}` : cleanTicker;
+
+            console.log(`[MT5API] ⚡ Switching open chart feed from '${currentSymbol}' to '${targetSymbol}' (${targetAcc ? targetAcc.nickname : accountId})`);
+
+            // Clear cache for this ticker so old broker bars and last ticks never persist
+            if (window._barsCache) {
+                for (const k in window._barsCache) {
+                    if (k.toUpperCase().includes(cleanTicker)) delete window._barsCache[k];
+                }
+            }
+            if (window._tvLastBar) {
+                for (const k in window._tvLastBar) {
+                    if (k.toUpperCase().includes(cleanTicker)) delete window._tvLastBar[k];
+                }
+            }
+            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanTicker];
+            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanTicker];
+
+            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                try { window.tvWidget.resetCache(); } catch (_) {}
+            }
+
+            try {
+                if (chart.symbol() !== targetSymbol && typeof chart.setSymbol === 'function') {
+                    chart.setSymbol(targetSymbol, () => {
+                        if (typeof chart.resetData === 'function') {
+                            try { chart.resetData(); } catch (_) {}
+                        }
+                    });
+                    setTimeout(() => {
+                        if (typeof chart.resetData === 'function') {
+                            try { chart.resetData(); } catch (_) {}
+                        }
+                    }, 150);
+                } else if (typeof chart.resetData === 'function') {
+                    chart.resetData();
+                }
+            } catch (chartErr) {
+                console.warn('[MT5API] Error updating chart on active account switch:', chartErr);
+            }
         }
 
         async fetchAccountFullDetails(accountId, onProgress = null) {
@@ -843,9 +886,12 @@
             if (!symbol) return false;
             const s = String(symbol).toUpperCase().trim();
             if (s.startsWith('MT5:')) return true;
-            const clean = s.split(':').pop();
+            const clean = s.split('|')[0].split(':').pop().trim();
             if (this._symbolMap && this._symbolMap.has(clean)) return true;
-            const POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'BTCUSD', 'ETHUSD'];
+            const KNOWN_BROKERS = ['THE 5%ERS', 'FUNDEDNEXT', 'FTMO', 'EXNESS', 'IC MARKETS', 'PEPPERSTONE', 'VANTAGE', 'METAQUOTES', 'OCTAFX', 'XM', 'FBS', 'HFM', 'AVATRADE', 'ROBOFOREX', 'TICKMILL', 'FXPRO', 'IG'];
+            if (KNOWN_BROKERS.some(b => s.startsWith(b + ':'))) return true;
+            if (this.accounts && this.accounts.some(a => s.startsWith(this.getCleanBrokerExchange(a) + ':'))) return true;
+            const POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'BTCUSD', 'ETHUSD', 'WTI', 'BRENT', 'XTIUSD', 'XBRUSD', 'USOIL', 'UKOIL', 'NGAS', 'NAS100', 'SP500', 'GER40', 'DJ30'];
             return POPULAR.some(p => clean.startsWith(p));
         }
 
@@ -897,10 +943,12 @@
             }
         }
 
-        async fetchBars(symbol, resolution, from = null, to = null, count = 500) {
+        async fetchBars(symbol, resolution, from = null, to = null, count = 500, accountId = null) {
             try {
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
-                const acc = this.getActiveAccount();
+                const acc = accountId 
+                    ? (this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount())
+                    : this.getActiveAccount();
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
                 let rangeParams = '';
                 if (from && to) {
