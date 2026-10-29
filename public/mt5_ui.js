@@ -27,7 +27,12 @@
 
             // Listen to account updates from MT5API
             if (window.MT5API) {
-                window.MT5API.onAccountUpdate(() => this.updateButtonState());
+                window.MT5API.onAccountUpdate(() => {
+                    this.updateButtonState();
+                    if (this.isOpen) {
+                        this.renderModal();
+                    }
+                });
             }
         }
 
