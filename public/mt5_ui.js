@@ -430,34 +430,42 @@
 
             const cards = accounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
-                const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id);
+                const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
+                const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
                 return `
                     <div style="
                         background: ${theme.cardBg};
-                        border: 1px solid ${isActive ? 'rgba(41,98,255,0.6)' : theme.border};
+                        border: 1px solid ${isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border)};
                         border-radius: 8px;
                         padding: 14px;
                         margin-bottom: 10px;
                         display: flex;
                         flex-direction: column;
                         gap: 10px;
+                        opacity: ${isPaused ? '0.85' : '1'};
+                        transition: all 0.2s ease;
                     ">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} title="Select for Multi-Account Simultaneous Copying" style="cursor: pointer; width: 16px; height: 16px; accent-color: ${theme.primary};">
+                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
                                 <div>
                                     <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
                                         <span>${acc.nickname}</span>
                                         ${isActive ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
+                                        ${isPaused ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
                                     </div>
                                     <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
                                         Login: <strong>${acc.login}</strong> • Server: <strong>${acc.server}</strong>
                                     </div>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 6px;">
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                ${isPaused
+                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Resume account back to Online mode">▶️ Resume</button>`
+                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Pause account to put into Standby mode">⏸️ Pause</button>`
+                                }
                                 ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;">✕</button>
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Disconnect / remove account">✕</button>
                             </div>
                         </div>
 
@@ -476,8 +484,8 @@
                             </div>
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Connection:</span><br>
-                                <strong style="color: ${acc.is_connected ? theme.success : theme.warning}; font-size: 12px;">
-                                    ${acc.is_connected ? '🟢 Online' : '⚪ Standby'}
+                                <strong style="color: ${isPaused ? '#ffa500' : theme.success}; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                                    ${isPaused ? '⚪ Standby (Paused)' : '🟢 Online'}
                                 </strong>
                             </div>
                         </div>
@@ -627,6 +635,17 @@
                     alert(`Failed to add account: ${res.error}`);
                 }
             };
+
+            // Toggle Pause / Resume account standby mode
+            modal.querySelectorAll('.mt5-btn-pause-acc, .mt5-btn-resume-acc').forEach(b => {
+                b.onclick = (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (id && window.MT5API) {
+                        window.MT5API.toggleAccountPause(id);
+                        this.renderModal();
+                    }
+                };
+            });
 
             // Switch active account
             modal.querySelectorAll('.mt5-btn-set-active').forEach(b => {
