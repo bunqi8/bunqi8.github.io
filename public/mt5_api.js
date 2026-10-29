@@ -552,21 +552,28 @@
             return false;
         }
 
-        async fetchAccountFullDetails(accountId) {
+        async fetchAccountFullDetails(accountId, onProgress = null) {
             const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
             if (!acc) return null;
 
-            // 1. Fetch symbols for this account (using memory cache if already loaded)
+            if (onProgress) onProgress(1, 'Connecting to MT5 Profile', `Checking #${acc.login} (${acc.server})...`, 25);
+
+            // 1. Fetch symbols for this account with 8s timeout
             let symbols = [];
             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
             if (this._accountSymbolsCache.has(accountId)) {
                 symbols = this._accountSymbolsCache.get(accountId);
             } else {
+                if (onProgress) onProgress(2, 'Loading Supported Tickers', 'Querying broker symbols and market watch...', 50);
                 try {
                     const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
                     const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, {
-                        headers: this.getHeaders()
+                        headers: this.getHeaders(),
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
                     if (res.ok) {
                         const data = await res.json();
                         symbols = data.symbols || [];
@@ -577,22 +584,32 @@
                 }
             }
 
-            // 2. Fetch active positions for this account
+            // 2. Fetch active positions with 5s timeout
+            if (onProgress) onProgress(3, 'Fetching Active Positions', 'Retrieving open trades and floating PnL...', 75);
             let positions = [];
             try {
                 positions = await this.fetchPositions(accountId);
             } catch (_) {}
 
-            // 3. Compute last traded date and activity
+            // 3. Fetch order history
+            if (onProgress) onProgress(4, 'Synchronizing Order History', 'Loading closed trade deals and performance metrics...', 90);
+            let history = [];
+            try {
+                history = await this.fetchOrderHistory(accountId);
+            } catch (_) {}
+
+            // 4. Compute last traded date and activity
             let lastTradeTime = null;
             if (positions && positions.length > 0) {
                 const times = positions.map(p => Number(p.time || 0) * 1000).filter(t => t > 0);
-                if (times.length > 0) {
-                    lastTradeTime = Math.max(...times);
-                }
+                if (times.length > 0) lastTradeTime = Math.max(...times);
+            }
+            if (!lastTradeTime && history && history.length > 0) {
+                const histTimes = history.map(h => Number(h.time || 0)).filter(t => t > 0);
+                if (histTimes.length > 0) lastTradeTime = Math.max(...histTimes);
             }
 
-            // 4. Categorize symbols
+            // 5. Categorize symbols
             const categories = {};
             symbols.forEach(s => {
                 const cat = s.category || s.type || 'Other';
@@ -600,16 +617,78 @@
                 categories[cat]++;
             });
 
+            if (onProgress) onProgress(5, 'Ready', 'Full account specifications loaded successfully', 100);
+
             return {
                 account: acc,
                 symbols: symbols,
                 positions: positions,
+                history: history,
                 categories: categories,
                 lastTradeTime: lastTradeTime,
-                lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'No active trades'),
+                lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'No recent trades'),
                 totalSymbols: symbols.length,
                 fetchedAt: Date.now()
             };
+        }
+
+        async fetchOrderHistory(accountId = null) {
+            const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
+            let remoteHistory = [];
+            try {
+                const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=90&limit=500` : '?days=90&limit=500';
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 7000);
+                const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
+                    headers: this.getHeaders(),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (res.ok) {
+                    const data = await res.json();
+                    remoteHistory = data.history || [];
+                }
+            } catch (e) {
+                console.warn('[MT5API] fetchOrderHistory network note:', e.message || e);
+            }
+
+            // Merge with local trade history
+            const localHistory = this.getStoredTradeHistory(targetId);
+            const combinedMap = new Map();
+            remoteHistory.forEach(h => combinedMap.set(String(h.ticket), h));
+            localHistory.forEach(h => {
+                if (!combinedMap.has(String(h.ticket))) {
+                    combinedMap.set(String(h.ticket), h);
+                }
+            });
+
+            const merged = Array.from(combinedMap.values());
+            merged.sort((a, b) => Number(b.time || 0) - Number(a.time || 0));
+            return merged;
+        }
+
+        getStoredTradeHistory(accountId) {
+            if (!accountId || typeof localStorage === 'undefined') return [];
+            try {
+                const raw = localStorage.getItem(`mt5_trade_history_${accountId}`);
+                return raw ? JSON.parse(raw) : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        saveTradeToHistory(accountId, trade) {
+            if (!accountId || !trade || typeof localStorage === 'undefined') return;
+            try {
+                const existing = this.getStoredTradeHistory(accountId);
+                const idx = existing.findIndex(t => String(t.ticket) === String(trade.ticket));
+                if (idx >= 0) {
+                    existing[idx] = { ...existing[idx], ...trade };
+                } else {
+                    existing.unshift(trade);
+                }
+                localStorage.setItem(`mt5_trade_history_${accountId}`, JSON.stringify(existing.slice(0, 500)));
+            } catch (_) {}
         }
 
         async addAccount(accountData) {

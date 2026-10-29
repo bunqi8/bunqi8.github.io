@@ -19,19 +19,40 @@
             this.switchingAccountId = null;
             this.switchProgress = null;
 
-            // Full account details state
+            // Full account details state & history
             this.detailsAccountId = null;
             this.detailsData = null;
             this.detailsLoading = false;
-            this.detailsSubTab = 'overview'; // 'overview', 'tickers', 'positions'
+            this.detailsSyncing = false;
+            this.detailsProgress = null;
+            this.detailsSubTab = 'overview'; // 'overview', 'tickers', 'positions', 'history'
             this.tickerSearchQuery = '';
             this.tickerCategoryFilter = 'ALL';
+            this.historySearchQuery = '';
+            this.historyTypeFilter = 'ALL'; // 'ALL', 'BUY', 'SELL'
+            this.historyOutcomeFilter = 'ALL'; // 'ALL', 'WIN', 'LOSS'
+            this.historyDateFilter = 'ALL'; // 'ALL', 'TODAY', '7D', '30D'
+            this.historySortField = 'time'; // 'time', 'profit', 'volume', 'symbol', 'ticket'
+            this.historySortDir = 'desc'; // 'desc', 'asc'
             this._accountDetailsCache = new Map();
 
             this.init();
         }
 
         init() {
+            // Isolate input fields from TradingView's global hotkey capture
+            ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                window.addEventListener(evt, (e) => {
+                    const tag = e.target ? e.target.tagName : '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') {
+                            e.stopImmediatePropagation();
+                        }
+                    }
+                }, true);
+            });
+
             if (!document.getElementById('mt5-spin-style')) {
                 const style = document.createElement('style');
                 style.id = 'mt5-spin-style';
@@ -664,33 +685,82 @@
             this.detailsAccountId = accountId;
             this.tickerSearchQuery = '';
             this.tickerCategoryFilter = 'ALL';
-            this.detailsSubTab = 'overview';
+            this.historySearchQuery = '';
+            this.historyTypeFilter = 'ALL';
+            this.historyOutcomeFilter = 'ALL';
+            this.historyDateFilter = 'ALL';
+            this.historySortField = 'time';
+            this.historySortDir = 'desc';
 
             if (!forceRefresh && this._accountDetailsCache.has(accountId)) {
                 this.detailsData = this._accountDetailsCache.get(accountId);
                 this.detailsLoading = false;
+                this.detailsSyncing = false;
                 this.renderModal();
                 return;
             }
 
-            this.detailsLoading = true;
-            this.detailsData = null;
+            // Immediately pre-populate with known account info so user NEVER sees a blank screen!
+            const existingAcc = window.MT5API ? (window.MT5API.accounts.find(a => String(a.id) === String(accountId)) || window.MT5API.getActiveAccount()) : null;
+            const cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
+            const storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
+
+            const initialCategories = {};
+            cachedSymbols.forEach(s => {
+                const cat = s.category || s.type || 'Other';
+                if (!initialCategories[cat]) initialCategories[cat] = 0;
+                initialCategories[cat]++;
+            });
+
+            this.detailsData = {
+                account: existingAcc,
+                symbols: cachedSymbols,
+                positions: [],
+                history: storedHistory,
+                categories: initialCategories,
+                lastTradeFormatted: (storedHistory && storedHistory.length > 0) ? new Date(storedHistory[0].time).toLocaleString() : (existingAcc && existingAcc.created_at ? `Account added: ${new Date(existingAcc.created_at * 1000).toLocaleDateString()}` : 'Syncing live...'),
+                totalSymbols: cachedSymbols.length,
+                fetchedAt: Date.now()
+            };
+
+            this.detailsLoading = false;
+            this.detailsSyncing = true;
+            this.detailsProgress = { step: 1, title: 'Connecting to MT5 Profile...', detail: `Checking account specs for #${existingAcc ? existingAcc.login : accountId}`, pct: 20 };
             this.renderModal();
+
+            const onProgress = (step, title, detail, pct) => {
+                this.detailsProgress = { step, title, detail, pct };
+                this.updateDetailsSyncProgress(title, detail, pct);
+            };
 
             try {
                 if (window.MT5API) {
-                    const data = await window.MT5API.fetchAccountFullDetails(accountId);
-                    this.detailsData = data;
+                    const data = await window.MT5API.fetchAccountFullDetails(accountId, onProgress);
                     if (data) {
+                        this.detailsData = data;
                         this._accountDetailsCache.set(accountId, data);
                     }
                 }
             } catch (err) {
                 console.error('[MT5UI] Failed to fetch account details:', err);
             } finally {
-                this.detailsLoading = false;
+                this.detailsSyncing = false;
+                this.detailsProgress = null;
                 this.renderModal();
             }
+        }
+
+        updateDetailsSyncProgress(title, detail, pct) {
+            const modal = document.getElementById(this.modalId);
+            if (!modal) return;
+            const titleEl = modal.querySelector('#mt5-details-sync-title');
+            const detailEl = modal.querySelector('#mt5-details-sync-detail');
+            const barEl = modal.querySelector('#mt5-details-sync-bar');
+            const pctEl = modal.querySelector('#mt5-details-sync-pct');
+            if (titleEl) titleEl.innerText = title;
+            if (detailEl) detailEl.innerText = detail;
+            if (barEl) barEl.style.width = `${pct}%`;
+            if (pctEl) pctEl.innerText = `${pct}%`;
         }
 
         async loadSymbolOnChart(symbol, brokerServer = null) {
@@ -741,6 +811,211 @@
 
             this.closeModal();
             this.showFloatingSwitchToast('Chart Loaded', `Opened ${targetSymbol} on chart`, 100, true);
+        }
+
+
+        getFilteredAndSortedHistory() {
+            if (!this.detailsData || !this.detailsData.history) return [];
+            let list = [...this.detailsData.history];
+
+            // 1. Text Search (symbol, ticket, comment)
+            if (this.historySearchQuery) {
+                const q = this.historySearchQuery.toUpperCase().trim();
+                list = list.filter(h => {
+                    const symMatch = h.symbol && h.symbol.toUpperCase().includes(q);
+                    const ticketMatch = String(h.ticket).includes(q) || String(h.order).includes(q);
+                    const commentMatch = h.comment && h.comment.toUpperCase().includes(q);
+                    return symMatch || ticketMatch || commentMatch;
+                });
+            }
+
+            // 2. Type Filter (ALL, BUY, SELL)
+            if (this.historyTypeFilter && this.historyTypeFilter !== 'ALL') {
+                list = list.filter(h => String(h.type).toUpperCase() === this.historyTypeFilter);
+            }
+
+            // 3. Outcome Filter (ALL, WIN, LOSS)
+            if (this.historyOutcomeFilter === 'WIN') {
+                list = list.filter(h => Number(h.profit || 0) >= 0);
+            } else if (this.historyOutcomeFilter === 'LOSS') {
+                list = list.filter(h => Number(h.profit || 0) < 0);
+            }
+
+            // 4. Date Filter (ALL, TODAY, 7D, 30D)
+            if (this.historyDateFilter && this.historyDateFilter !== 'ALL') {
+                const now = Date.now();
+                let cutoff = 0;
+                if (this.historyDateFilter === 'TODAY') {
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0, 0, 0, 0);
+                    cutoff = startOfToday.getTime();
+                } else if (this.historyDateFilter === '7D') {
+                    cutoff = now - (7 * 24 * 60 * 60 * 1000);
+                } else if (this.historyDateFilter === '30D') {
+                    cutoff = now - (30 * 24 * 60 * 60 * 1000);
+                }
+                if (cutoff > 0) {
+                    list = list.filter(h => Number(h.time || 0) >= cutoff);
+                }
+            }
+
+            // 5. Sorting
+            const field = this.historySortField || 'time';
+            const isAsc = this.historySortDir === 'asc';
+            list.sort((a, b) => {
+                let vA, vB;
+                if (field === 'time') {
+                    vA = Number(a.time || 0);
+                    vB = Number(b.time || 0);
+                } else if (field === 'profit') {
+                    vA = Number(a.profit || 0);
+                    vB = Number(b.profit || 0);
+                } else if (field === 'volume') {
+                    vA = Number(a.volume || 0);
+                    vB = Number(b.volume || 0);
+                } else if (field === 'symbol') {
+                    vA = String(a.symbol || '');
+                    vB = String(b.symbol || '');
+                    return isAsc ? vA.localeCompare(vB) : vB.localeCompare(vA);
+                } else if (field === 'ticket') {
+                    vA = Number(a.ticket || 0);
+                    vB = Number(b.ticket || 0);
+                } else {
+                    vA = Number(a.time || 0);
+                    vB = Number(b.time || 0);
+                }
+                return isAsc ? (vA - vB) : (vB - vA);
+            });
+
+            return list;
+        }
+
+        exportHistoryToCsv() {
+            const list = this.getFilteredAndSortedHistory();
+            if (!list || list.length === 0) {
+                alert('No trades available to export.');
+                return;
+            }
+            const acc = this.detailsData && this.detailsData.account ? this.detailsData.account : { login: 'account' };
+            const headers = ['Ticket', 'Order', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Swap', 'Commission', 'Time', 'Comment'];
+            const rows = list.map(h => [
+                h.ticket,
+                h.order,
+                h.symbol,
+                h.type,
+                h.volume,
+                h.price,
+                h.profit,
+                h.swap || 0,
+                h.commission || 0,
+                h.time_formatted || (h.time ? new Date(h.time).toISOString() : ''),
+                `"${(h.comment || '').replace(/"/g, '""')}"`
+            ]);
+            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', `MT5_History_${acc.login}_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        getHistoryTableHtml(theme, server) {
+            const list = this.getFilteredAndSortedHistory();
+            if (list.length === 0) {
+                return `
+                    <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
+                        <div style="font-size: 26px; margin-bottom: 6px;">📜</div>
+                        <div style="font-weight: 600; font-size: 13.5px; color: ${theme.text};">No Trades Found</div>
+                        <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">No closed deals match the active filters. Try resetting search or time filters.</div>
+                    </div>
+                `;
+            }
+
+            const arrow = (col) => {
+                if (this.historySortField !== col) return '<span style="opacity:0.3; margin-left:3px;">⇅</span>';
+                return this.historySortDir === 'asc' ? '<span style="color:#2962ff; margin-left:3px;">▲</span>' : '<span style="color:#2962ff; margin-left:3px;">▼</span>';
+            };
+
+            return `
+                <div style="overflow-x: auto; border: 1px solid ${theme.border}; border-radius: 8px; max-height: 380px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
+                        <thead>
+                            <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted}; position: sticky; top: 0; z-index: 2;">
+                                <th class="mt5-sort-header" data-sort="ticket" style="padding: 8px 10px; cursor: pointer; user-select: none;">Ticket ${arrow('ticket')}</th>
+                                <th class="mt5-sort-header" data-sort="symbol" style="padding: 8px 10px; cursor: pointer; user-select: none;">Symbol ${arrow('symbol')}</th>
+                                <th class="mt5-sort-header" data-sort="type" style="padding: 8px 10px; cursor: pointer; user-select: none;">Type ${arrow('type')}</th>
+                                <th class="mt5-sort-header" data-sort="volume" style="padding: 8px 10px; cursor: pointer; user-select: none;">Lots ${arrow('volume')}</th>
+                                <th style="padding: 8px 10px;">Price</th>
+                                <th class="mt5-sort-header" data-sort="profit" style="padding: 8px 10px; text-align: right; cursor: pointer; user-select: none;">Profit ($) ${arrow('profit')}</th>
+                                <th class="mt5-sort-header" data-sort="time" style="padding: 8px 10px; cursor: pointer; user-select: none;">Close Time ${arrow('time')}</th>
+                                <th style="padding: 8px 10px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${list.map(h => {
+                                const isBuy = String(h.type).toUpperCase() === 'BUY';
+                                const profit = Number(h.profit || 0);
+                                const profitColor = profit >= 0 ? theme.success : theme.error;
+                                const timeStr = h.time_formatted || (h.time ? new Date(h.time).toLocaleString() : 'N/A');
+                                return `
+                                    <tr style="border-bottom: 1px solid ${theme.border};">
+                                        <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${h.ticket}</td>
+                                        <td style="padding: 7px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${h.symbol}</td>
+                                        <td style="padding: 7px 10px; font-weight: 700; color: ${isBuy ? theme.success : theme.error};">${h.type}</td>
+                                        <td style="padding: 7px 10px;">${h.volume}</td>
+                                        <td style="padding: 7px 10px;">${h.price}</td>
+                                        <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
+                                        <td style="padding: 7px 10px; color: ${theme.textMuted}; white-space: nowrap;">${timeStr}</td>
+                                        <td style="padding: 7px 10px; text-align: center;">
+                                            <button class="mt5-btn-chart-symbol" data-symbol="${h.symbol}" data-server="${server || ''}" style="
+                                                background: rgba(41,98,255,0.12);
+                                                color: ${theme.primary};
+                                                border: 1px solid rgba(41,98,255,0.3);
+                                                padding: 2px 7px;
+                                                border-radius: 4px;
+                                                font-size: 10px;
+                                                cursor: pointer;
+                                            ">📈</button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        updateHistoryListView(modal, theme) {
+            const container = modal.querySelector('#mt5-history-items-container');
+            if (!container) return;
+            const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+            container.innerHTML = this.getHistoryTableHtml(theme, server);
+
+            // Re-bind chart buttons
+            container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
+                btn.onclick = (e) => {
+                    const sym = e.currentTarget.getAttribute('data-symbol');
+                    const srv = e.currentTarget.getAttribute('data-server');
+                    this.loadSymbolOnChart(sym, srv);
+                };
+            });
+
+            // Re-bind sort headers
+            container.querySelectorAll('.mt5-sort-header').forEach(th => {
+                th.onclick = (e) => {
+                    const field = e.currentTarget.getAttribute('data-sort');
+                    if (this.historySortField === field) {
+                        this.historySortDir = this.historySortDir === 'desc' ? 'asc' : 'desc';
+                    } else {
+                        this.historySortField = field;
+                        this.historySortDir = 'desc';
+                    }
+                    this.updateHistoryListView(modal, theme);
+                };
+            });
         }
 
         getTickerListHtml(symbols, theme, server) {
@@ -849,16 +1124,6 @@
         }
 
         getAccountDetailsHtml(theme, accounts, activeAcc) {
-            if (this.detailsLoading) {
-                return `
-                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 14px;">
-                        <span class="mt5-pulse-spin" style="display:inline-block; width:34px; height:34px; border:3px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
-                        <div style="font-weight: 700; font-size: 14px; color: ${theme.text};">Loading Full Account Details & Tickers...</div>
-                        <div style="font-size: 12px; color: ${theme.textMuted};">Querying balance, live margin specs, and supported symbols from MT5 bridge...</div>
-                    </div>
-                `;
-            }
-
             if (!this.detailsData || !this.detailsData.account) {
                 return `
                     <div style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
@@ -878,8 +1143,21 @@
             const acc = this.detailsData.account;
             const symbols = this.detailsData.symbols || [];
             const positions = this.detailsData.positions || [];
+            const history = this.detailsData.history || [];
             const categories = this.detailsData.categories || {};
             const lastTradeFormatted = this.detailsData.lastTradeFormatted || 'No active trades';
+
+            // Performance metrics from history
+            const closedWins = history.filter(h => Number(h.profit || 0) > 0);
+            const closedLosses = history.filter(h => Number(h.profit || 0) < 0);
+            const totalClosed = closedWins.length + closedLosses.length;
+            const winRate = totalClosed > 0 ? ((closedWins.length / totalClosed) * 100).toFixed(1) : '0.0';
+            const netHistoryProfit = history.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+            const grossProfit = closedWins.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+            const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
+            const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
+            const bestWin = closedWins.length > 0 ? Math.max(...closedWins.map(h => Number(h.profit || 0))).toFixed(2) : '0.00';
+            const worstLoss = closedLosses.length > 0 ? Math.min(...closedLosses.map(h => Number(h.profit || 0))).toFixed(2) : '0.00';
             const isActive = activeAcc && activeAcc.id === acc.id;
             const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
 
@@ -954,20 +1232,48 @@
                         </div>
                     </div>
 
+                    ${this.detailsSyncing ? `
+                        <div id="mt5-details-sync-progress-box" style="
+                            background: ${theme.isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)'};
+                            border: 1px solid rgba(41, 98, 255, 0.45);
+                            border-radius: 8px;
+                            padding: 10px 14px;
+                            display: flex;
+                            flex-direction: column;
+                            gap: 6px;
+                            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+                        ">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span class="mt5-pulse-spin" style="display:inline-block; width:12px; height:12px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
+                                    <strong style="color: ${theme.primary}; font-size: 12.5px;" id="mt5-details-sync-title">${this.detailsProgress ? this.detailsProgress.title : 'Syncing Live MT5 Specs...'}</strong>
+                                </div>
+                                <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};" id="mt5-details-sync-pct">${this.detailsProgress ? this.detailsProgress.pct : 25}%</span>
+                            </div>
+                            <div style="width: 100%; height: 4px; background: rgba(0,0,0,0.15); border-radius: 3px; overflow: hidden;">
+                                <div id="mt5-details-sync-bar" style="width: ${this.detailsProgress ? this.detailsProgress.pct : 25}%; height: 100%; background: linear-gradient(90deg, #2962ff, #00b0ff); border-radius: 3px; transition: width 0.3s ease;"></div>
+                            </div>
+                            <div style="font-size: 11px; color: ${theme.textMuted};" id="mt5-details-sync-detail">
+                                ${this.detailsProgress ? this.detailsProgress.detail : 'Fetching broker market watch & trade history...'}
+                            </div>
+                        </div>
+                    ` : ''}
+
                     <!-- Subtabs Header -->
-                    <div style="display: flex; gap: 6px; border-bottom: 1px solid ${theme.border}; margin-top: 4px;">
+                    <div style="display: flex; gap: 6px; border-bottom: 1px solid ${theme.border}; margin-top: 4px; overflow-x: auto;">
                         <button class="mt5-subtab-btn" data-subtab="overview" style="
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'overview' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'overview' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 14px;
-                            font-size: 12.5px;
+                            padding: 8px 12px;
+                            font-size: 12px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
+                            white-space: nowrap;
                         ">
                             <span>📊</span> Overview & Financials
                         </button>
@@ -976,13 +1282,14 @@
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'tickers' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'tickers' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 14px;
-                            font-size: 12.5px;
+                            padding: 8px 12px;
+                            font-size: 12px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
+                            white-space: nowrap;
                         ">
                             <span>📈</span> Supported Tickers (${symbols.length})
                         </button>
@@ -991,15 +1298,32 @@
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'positions' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'positions' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 14px;
-                            font-size: 12.5px;
+                            padding: 8px 12px;
+                            font-size: 12px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
+                            white-space: nowrap;
                         ">
                             <span>💼</span> Active Positions (${positions.length})
+                        </button>
+                        <button class="mt5-subtab-btn" data-subtab="history" style="
+                            background: transparent;
+                            border: none;
+                            border-bottom: 2px solid ${this.detailsSubTab === 'history' ? theme.primary : 'transparent'};
+                            color: ${this.detailsSubTab === 'history' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
+                            padding: 8px 12px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                            white-space: nowrap;
+                        ">
+                            <span>📜</span> Order History (${history.length})
                         </button>
                     </div>
 
@@ -1242,6 +1566,132 @@
                             `}
                         </div>
                     ` : ''}
+
+                    <!-- Subtab 4: Order History with Full Sorting & Filtering -->
+                    ${this.detailsSubTab === 'history' ? `
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Mini Performance KPI Cards -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Closed Trades</div>
+                                    <div style="font-size: 14px; font-weight: 700; color: ${theme.text};">${history.length}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Net Profit</div>
+                                    <div style="font-size: 14px; font-weight: 700; color: ${netHistoryProfit >= 0 ? theme.success : theme.error};">${netHistoryProfit >= 0 ? '+' : ''}$${netHistoryProfit.toFixed(2)}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Win Rate</div>
+                                    <div style="font-size: 14px; font-weight: 700; color: ${Number(winRate) >= 50 ? theme.success : theme.text};">${winRate}%</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Profit Factor</div>
+                                    <div style="font-size: 14px; font-weight: 700; color: ${theme.primary};">${profitFactor}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Best / Worst</div>
+                                    <div style="font-size: 11px; font-weight: 700; color: ${theme.text};">+$${bestWin} / -$${worstLoss}</div>
+                                </div>
+                            </div>
+
+                            <!-- Filter & Controls Toolbar -->
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <div style="position: relative; flex: 1; min-width: 180px;">
+                                        <input type="text" id="mt5-history-search-in" value="${this.historySearchQuery}" placeholder="Filter by symbol, ticket, or notes..." style="
+                                            width: 100%;
+                                            padding: 7px 10px 7px 28px;
+                                            background: ${theme.inputBg};
+                                            color: ${theme.inputText};
+                                            border: 1px solid ${theme.inputBorder};
+                                            border-radius: 6px;
+                                            font-size: 12px;
+                                            box-sizing: border-box;
+                                            pointer-events: auto;
+                                            user-select: text;
+                                        ">
+                                        <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 12px;">🔍</span>
+                                    </div>
+                                    <button id="mt5-btn-export-csv" type="button" style="
+                                        background: ${theme.cardBg};
+                                        border: 1px solid ${theme.border};
+                                        color: ${theme.text};
+                                        padding: 6px 12px;
+                                        border-radius: 6px;
+                                        font-size: 11.5px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 4px;
+                                        white-space: nowrap;
+                                    " title="Export trade history to CSV spreadsheet">
+                                        <span>📥</span> Export CSV
+                                    </button>
+                                </div>
+
+                                <!-- Filter Buttons Row -->
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
+                                        <span style="font-size: 11px; color: ${theme.textMuted}; margin-right: 2px;">Type:</span>
+                                        ${['ALL', 'BUY', 'SELL'].map(t => `
+                                            <button class="mt5-hist-type-btn" data-type="${t}" style="
+                                                background: ${this.historyTypeFilter === t ? theme.primary : 'transparent'};
+                                                color: ${this.historyTypeFilter === t ? '#fff' : theme.textMuted};
+                                                border: 1px solid ${this.historyTypeFilter === t ? theme.primary : theme.border};
+                                                padding: 2px 8px;
+                                                border-radius: 10px;
+                                                font-size: 10.5px;
+                                                font-weight: 600;
+                                                cursor: pointer;
+                                            ">${t}</button>
+                                        `).join('')}
+
+                                        <span style="font-size: 11px; color: ${theme.textMuted}; margin-left: 6px; margin-right: 2px;">Outcome:</span>
+                                        ${[
+                                            { id: 'ALL', label: 'All' },
+                                            { id: 'WIN', label: 'Wins' },
+                                            { id: 'LOSS', label: 'Losses' }
+                                        ].map(o => `
+                                            <button class="mt5-hist-outcome-btn" data-outcome="${o.id}" style="
+                                                background: ${this.historyOutcomeFilter === o.id ? theme.primary : 'transparent'};
+                                                color: ${this.historyOutcomeFilter === o.id ? '#fff' : theme.textMuted};
+                                                border: 1px solid ${this.historyOutcomeFilter === o.id ? theme.primary : theme.border};
+                                                padding: 2px 8px;
+                                                border-radius: 10px;
+                                                font-size: 10.5px;
+                                                font-weight: 600;
+                                                cursor: pointer;
+                                            ">${o.label}</button>
+                                        `).join('')}
+                                    </div>
+
+                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                        <span style="font-size: 11px; color: ${theme.textMuted};">Period:</span>
+                                        <select id="mt5-hist-date-select" style="
+                                            background: ${theme.inputBg};
+                                            color: ${theme.inputText};
+                                            border: 1px solid ${theme.inputBorder};
+                                            border-radius: 5px;
+                                            padding: 3px 6px;
+                                            font-size: 11px;
+                                            cursor: pointer;
+                                        ">
+                                            <option value="ALL" ${this.historyDateFilter === 'ALL' ? 'selected' : ''}>All Time</option>
+                                            <option value="TODAY" ${this.historyDateFilter === 'TODAY' ? 'selected' : ''}>Today</option>
+                                            <option value="7D" ${this.historyDateFilter === '7D' ? 'selected' : ''}>Last 7 Days</option>
+                                            <option value="30D" ${this.historyDateFilter === '30D' ? 'selected' : ''}>Last 30 Days</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- History Table Container -->
+                            <div id="mt5-history-items-container">
+                                ${this.getHistoryTableHtml(theme, acc.server)}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
             `;
         }
@@ -1314,15 +1764,99 @@
                 };
             });
 
-            // Search input (Tickers tab) -> instant live filter without losing focus
+            // Search input (Tickers tab) -> instant live filter with full keyboard isolation
             const searchIn = modal.querySelector('#mt5-ticker-search-in');
             if (searchIn) {
+                ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                    searchIn.addEventListener(evt, (e) => {
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                    }, true);
+                });
                 searchIn.oninput = (e) => {
+                    e.stopPropagation();
                     this.tickerSearchQuery = e.target.value;
                     const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     this.updateTickerListView(modal, this.getTheme(), server);
                 };
             }
+
+            // Search input (Order History tab) -> filter with keyboard isolation
+            const histSearchIn = modal.querySelector('#mt5-history-search-in');
+            if (histSearchIn) {
+                ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                    histSearchIn.addEventListener(evt, (e) => {
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                    }, true);
+                });
+                histSearchIn.oninput = (e) => {
+                    e.stopPropagation();
+                    this.historySearchQuery = e.target.value;
+                    this.updateHistoryListView(modal, this.getTheme());
+                };
+            }
+
+            // History Type Filter Buttons (ALL, BUY, SELL)
+            modal.querySelectorAll('.mt5-hist-type-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const t = e.currentTarget.getAttribute('data-type');
+                    this.historyTypeFilter = t || 'ALL';
+                    const theme = this.getTheme();
+                    modal.querySelectorAll('.mt5-hist-type-btn').forEach(b => {
+                        const active = b.getAttribute('data-type') === this.historyTypeFilter;
+                        b.style.background = active ? theme.primary : 'transparent';
+                        b.style.color = active ? '#fff' : theme.textMuted;
+                        b.style.borderColor = active ? theme.primary : theme.border;
+                    });
+                    this.updateHistoryListView(modal, theme);
+                };
+            });
+
+            // History Outcome Filter Buttons (ALL, WIN, LOSS)
+            modal.querySelectorAll('.mt5-hist-outcome-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const o = e.currentTarget.getAttribute('data-outcome');
+                    this.historyOutcomeFilter = o || 'ALL';
+                    const theme = this.getTheme();
+                    modal.querySelectorAll('.mt5-hist-outcome-btn').forEach(b => {
+                        const active = b.getAttribute('data-outcome') === this.historyOutcomeFilter;
+                        b.style.background = active ? theme.primary : 'transparent';
+                        b.style.color = active ? '#fff' : theme.textMuted;
+                        b.style.borderColor = active ? theme.primary : theme.border;
+                    });
+                    this.updateHistoryListView(modal, theme);
+                };
+            });
+
+            // History Date Period Select
+            const dateSel = modal.querySelector('#mt5-hist-date-select');
+            if (dateSel) {
+                dateSel.onchange = (e) => {
+                    this.historyDateFilter = e.target.value;
+                    this.updateHistoryListView(modal, this.getTheme());
+                };
+            }
+
+            // Export History to CSV
+            const btnCsv = modal.querySelector('#mt5-btn-export-csv');
+            if (btnCsv) {
+                btnCsv.onclick = () => this.exportHistoryToCsv();
+            }
+
+            // Order History Sorting Headers
+            modal.querySelectorAll('.mt5-sort-header').forEach(th => {
+                th.onclick = (e) => {
+                    const field = e.currentTarget.getAttribute('data-sort');
+                    if (this.historySortField === field) {
+                        this.historySortDir = this.historySortDir === 'desc' ? 'asc' : 'desc';
+                    } else {
+                        this.historySortField = field;
+                        this.historySortDir = 'desc';
+                    }
+                    this.updateHistoryListView(modal, this.getTheme());
+                };
+            });
 
             // Load Symbol on Chart (from tickers or positions)
             modal.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
