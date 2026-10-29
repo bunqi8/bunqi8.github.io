@@ -208,6 +208,9 @@
                     this.loadAllSymbolsCache();
                 }
 
+                // Preload symbols & history across all accounts for 0ms instant details
+                this.preloadAllAccountsData();
+
                 // Sync positions for active account
                 if (this.activeAccountId) {
                     this.fetchPositions();
@@ -395,6 +398,41 @@
             });
         }
 
+        async preloadAllAccountsData() {
+            if (!this.accounts || this.accounts.length === 0) return;
+            for (const acc of this.accounts) {
+                const accId = String(acc.id);
+                const cached = this._accountSymbolsCache && this._accountSymbolsCache.get(accId);
+                if (!cached || cached.length <= 2) {
+                    try {
+                        const localSyms = localStorage.getItem(`mt5_symbols_${accId}`);
+                        if (localSyms) {
+                            const parsed = JSON.parse(localSyms);
+                            if (Array.isArray(parsed) && parsed.length > 2) {
+                                if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
+                                this._accountSymbolsCache.set(accId, parsed);
+                                continue;
+                            } else {
+                                localStorage.removeItem(`mt5_symbols_${accId}`);
+                            }
+                        }
+                    } catch (_) {}
+
+                    fetch(`${this.endpoint}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
+                        headers: this.getHeaders()
+                    }).then(r => r.ok ? r.json() : null).then(data => {
+                        if (data && data.symbols && data.symbols.length > 2) {
+                            if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
+                            this._accountSymbolsCache.set(accId, data.symbols);
+                            try {
+                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(data.symbols));
+                            } catch (_) {}
+                        }
+                    }).catch(() => {});
+                }
+            }
+        }
+
         async setActiveAccount(id, onProgress = null) {
             const report = (step, title, detail, pct) => {
                 if (typeof onProgress === 'function') {
@@ -412,142 +450,38 @@
                     this.saveConfig();
                 }
 
-                report(1, `Initiating Switch to ${accName}...`, `Sending switch command to MT5 bridge...`, 15);
+                // --- 0ms INSTANT SWITCH ---
+                // 1. Immediately update active account ID and status in memory
+                this.activeAccountId = id;
+                this.accounts.forEach(a => {
+                    a.is_active = (String(a.id) === String(id));
+                });
 
-                let elapsedSec = 0;
-                const timer = setInterval(() => {
-                    elapsedSec += 1;
-                    let phaseDetail = `Connecting to ${brokerName} terminal on bridge server (${elapsedSec}s)...`;
-                    let pct = Math.min(65, 20 + elapsedSec * 3);
-                    if (elapsedSec > 2 && elapsedSec <= 6) {
-                        phaseDetail = `Launching MetaTrader 5 terminal executable for ${brokerName} (${elapsedSec}s)...`;
-                    } else if (elapsedSec > 6 && elapsedSec <= 12) {
-                        phaseDetail = `Authenticating login ${targetAcc ? targetAcc.login : ''} on trade server (${elapsedSec}s)...`;
-                    } else if (elapsedSec > 12) {
-                        phaseDetail = `Finalizing terminal connection & Market Watch (${elapsedSec}s)...`;
+                // 2. Notify listeners immediately in 0ms (updates buttons, pills, headers)
+                this.notifyAccountListeners();
+
+                // 3. Update live WebSocket subscription for this account immediately
+                this.reconnectWebSocket();
+
+                // 4. Report instant completion to progress listener
+                report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
+
+                // 5. In the background (asynchronous, non-blocking):
+                // Send switch command to bridge server and sync fresh positions/symbols
+                fetch(`${this.endpoint}/api/accounts/active`, {
+                    method: 'POST',
+                    headers: this.getHeaders(),
+                    body: JSON.stringify({ account_id: id })
+                }).then(async res => {
+                    if (res.ok) {
+                        this.fetchPositions(id);
+                        this.loadAllSymbolsCache();
                     }
-                    report(2, `Switching to ${accName} (${elapsedSec}s)...`, phaseDetail, pct);
-                }, 1000);
+                }).catch(e => {
+                    console.warn('[MT5API] Background active account switch note:', e.message);
+                });
 
-                let res;
-                try {
-                    res = await fetch(`${this.endpoint}/api/accounts/active`, {
-                        method: 'POST',
-                        headers: this.getHeaders(),
-                        body: JSON.stringify({ account_id: id })
-                    });
-                } finally {
-                    clearInterval(timer);
-                }
-
-                if (res.ok) {
-                    this.activeAccountId = id;
-                    this.reconnectWebSocket();
-                    this.fetchPositions();
-                    this.notifyAccountListeners();
-
-                    report(3, `Terminal Connected!`, `Synchronizing symbol catalog & Market Watch for ${brokerName}...`, 75);
-
-                    // Invalidate and reload in-memory symbol catalog for newly switched account
-                    this._allSymbols = null;
-                    this._symbolMap = null;
-                    this._loadingSymbolsPromise = null;
-                    this.loadAllSymbolsCache();
-
-                    // Check if current chart symbol exists on the switched broker fleet
-                    let currentSymbol = null;
-                    let chart = null;
-                    if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                        try {
-                            chart = window.tvWidget.activeChart();
-                            if (chart && typeof chart.symbol === 'function') {
-                                currentSymbol = chart.symbol();
-                            }
-                        } catch (_) {}
-                    }
-
-                    if (chart && currentSymbol) {
-                        const cleanTicker = currentSymbol.split(':').pop().toUpperCase().trim();
-                        report(3, `Verifying Symbol...`, `Checking if ${cleanTicker} is available on ${brokerName}...`, 80);
-                        const isSupported = await this.isSymbolSupportedByAccount(cleanTicker, id);
-
-                        if (isSupported) {
-                            const newAcc = this.getActiveAccount();
-                            const brokerExchange = this.getCleanBrokerExchange(newAcc);
-                            const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanTicker}` : cleanTicker;
-
-                            report(4, `Reloading Chart Candles...`, `Loading ${targetSymbol} candles from ${brokerName}...`, 90);
-                            console.log(`[MT5API] Symbol ${cleanTicker} is available on switched account (${brokerExchange}). Reloading chart data for new broker...`);
-
-                            // 1. Purge all in-memory bars and tick caches for this symbol
-                            if (window._barsCache) {
-                                for (const k in window._barsCache) {
-                                    if (k.toUpperCase().includes(cleanTicker)) {
-                                        delete window._barsCache[k];
-                                    }
-                                }
-                            }
-                            if (window._tvLastBar) {
-                                for (const k in window._tvLastBar) {
-                                    if (k.toUpperCase().includes(cleanTicker)) {
-                                        delete window._tvLastBar[k];
-                                    }
-                                }
-                            }
-                            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanTicker];
-                            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanTicker];
-
-                            // 2. Fire TradingView datafeed reset caches
-                            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
-                                try { window.tvWidget.resetCache(); } catch (_) {}
-                            }
-                            if (typeof window._tvResetCache === 'function') {
-                                try { window._tvResetCache(); } catch (_) {}
-                            }
-                            if (window._mt5ResetCallbacks) {
-                                window._mt5ResetCallbacks.forEach(cb => {
-                                    if (typeof cb === 'function') {
-                                        try { cb(); } catch (_) {}
-                                    }
-                                });
-                            }
-
-                            // 3. Force TradingView to switch symbol or reset series data cleanly
-                            try {
-                                const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
-                                if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
-                                    await chart.setSymbol(targetSymbol);
-                                }
-                                if (typeof chart.resetData === 'function') {
-                                    chart.resetData();
-                                }
-                                const cw = chart._chartWidget;
-                                if (cw && typeof cw.model === 'function') {
-                                    const model = cw.model();
-                                    const ms = model ? model.mainSeries() : null;
-                                    if (ms) {
-                                        ms._requestMoreDataAvailable = true;
-                                        if (ms._lastCompleteFlags) {
-                                            delete ms._lastCompleteFlags.data_completed;
-                                        }
-                                        if (typeof ms.rerequestData === 'function') {
-                                            ms.rerequestData();
-                                        }
-                                    }
-                                }
-                            } catch (chartErr) {
-                                console.warn('[MT5API] Chart reload notice:', chartErr);
-                            }
-                        } else {
-                            console.log(`[MT5API] Switched fleet to ${id}, but current chart symbol (${cleanTicker}) is not offered by this broker. Keeping working chart intact.`);
-                        }
-                    }
-
-                    report(5, `✓ Active Fleet Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
-                    return true;
-                } else {
-                    report(0, `Switch Failed`, `Bridge server returned HTTP ${res.status}`, 0);
-                }
+                return true;
             } catch (e) {
                 console.error('[MT5API] Failed to set active account:', e);
                 report(0, `Switch Error`, e.message || 'Connection failed', 0);
@@ -561,20 +495,33 @@
 
             if (onProgress) onProgress(1, 'Connecting to MT5 Profile', `Checking #${acc.login} (${acc.server})...`, 25);
 
-            // 1. Fetch symbols for this account (with instant localStorage cache)
+            // 1. Fetch symbols for this account (with instant memory & localStorage cache)
             let symbols = [];
             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
             if (this._accountSymbolsCache.has(accountId)) {
-                symbols = this._accountSymbolsCache.get(accountId);
-            } else {
+                const cached = this._accountSymbolsCache.get(accountId);
+                if (Array.isArray(cached) && cached.length > 2) {
+                    symbols = cached;
+                }
+            }
+
+            if (symbols.length <= 2) {
                 try {
                     const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
                     if (localSyms) {
-                        symbols = JSON.parse(localSyms);
-                        this._accountSymbolsCache.set(accountId, symbols);
+                        const parsed = JSON.parse(localSyms);
+                        if (Array.isArray(parsed) && parsed.length > 2) {
+                            symbols = parsed;
+                            this._accountSymbolsCache.set(accountId, symbols);
+                        } else {
+                            localStorage.removeItem(`mt5_symbols_${accountId}`);
+                        }
                     }
                 } catch (_) {}
+            }
 
+            // Always ensure full symbol catalog from bridge server if symbols is small (<= 2)
+            if (symbols.length <= 2) {
                 if (onProgress) onProgress(2, 'Loading Supported Tickers', 'Querying broker symbols and market watch...', 50);
                 try {
                     const accParam = `?account_id=${encodeURIComponent(accountId)}`;
@@ -583,7 +530,7 @@
                     });
                     if (res.ok) {
                         const data = await res.json();
-                        if (data.symbols && data.symbols.length > 0) {
+                        if (data.symbols && data.symbols.length > 2) {
                             symbols = data.symbols;
                             this._accountSymbolsCache.set(accountId, symbols);
                             try {
@@ -594,6 +541,19 @@
                 } catch (e) {
                     // Suppress abort/network timeout logs
                 }
+            } else {
+                // Background update of symbols catalog so next open is always up-to-date
+                const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                fetch(`${this.endpoint}/api/symbols${accParam}`, { headers: this.getHeaders() })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (data && data.symbols && data.symbols.length > 2) {
+                            this._accountSymbolsCache.set(accountId, data.symbols);
+                            try {
+                                localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(data.symbols));
+                            } catch (_) {}
+                        }
+                    }).catch(() => {});
             }
 
             // 2. Fetch active positions
@@ -638,6 +598,13 @@
                 symbols: symbols,
                 positions: positions,
                 history: history,
+                categories: categories,
+                lastTradeTime: lastTradeTime,
+                lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'Ready'),
+                totalSymbols: symbols.length,
+                fetchedAt: Date.now()
+            };
+        }
                 categories: categories,
                 lastTradeTime: lastTradeTime,
                 lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'No recent trades'),
@@ -1272,14 +1239,18 @@
         processPositionDiff(accountId, newPositions = []) {
             const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
             const accName = acc ? acc.nickname : `Account #${accountId || ''}`;
+            const accIdStr = String(accountId || (acc ? acc.id : 'default'));
 
-            if (!this._hasInitialPositionsSnapshot) {
-                // Initial baseline snapshot: populate without triggering popups
-                this._previousPositionsMap.clear();
+            if (!this._accountPositionsMap) this._accountPositionsMap = new Map();
+            const prevPositions = this._accountPositionsMap.get(accIdStr);
+
+            if (!prevPositions) {
+                // Initial baseline snapshot for this specific account
+                const map = new Map();
                 newPositions.forEach(p => {
-                    this._previousPositionsMap.set(String(p.ticket), p);
+                    map.set(String(p.ticket), p);
                 });
-                this._hasInitialPositionsSnapshot = true;
+                this._accountPositionsMap.set(accIdStr, map);
                 return;
             }
 
@@ -1289,7 +1260,7 @@
             newPositions.forEach(p => {
                 const ticketKey = String(p.ticket);
                 currentTickets.add(ticketKey);
-                if (!this._previousPositionsMap.has(ticketKey)) {
+                if (!prevPositions.has(ticketKey)) {
                     // Position Opened!
                     this.notifyNotificationListeners({
                         type: 'opened',
@@ -1306,7 +1277,7 @@
                     });
                 } else {
                     // Check for SL/TP modification
-                    const oldP = this._previousPositionsMap.get(ticketKey);
+                    const oldP = prevPositions.get(ticketKey);
                     if (oldP && (Number(oldP.sl) !== Number(p.sl) || Number(oldP.tp) !== Number(p.tp))) {
                         this.notifyNotificationListeners({
                             type: 'modified',
@@ -1327,7 +1298,7 @@
             });
 
             // 2. Check for closed positions
-            this._previousPositionsMap.forEach((oldP, ticketKey) => {
+            prevPositions.forEach((oldP, ticketKey) => {
                 if (!currentTickets.has(ticketKey)) {
                     // Position Closed!
                     this.notifyNotificationListeners({
@@ -1344,11 +1315,12 @@
                 }
             });
 
-            // Refresh map
-            this._previousPositionsMap.clear();
+            // Refresh map for this specific account
+            const updatedMap = new Map();
             newPositions.forEach(p => {
-                this._previousPositionsMap.set(String(p.ticket), p);
+                updatedMap.set(String(p.ticket), p);
             });
+            this._accountPositionsMap.set(accIdStr, updatedMap);
         }
     }
 

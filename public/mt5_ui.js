@@ -74,7 +74,7 @@
                         if (this.viewMode === 'details') {
                             this.updateLiveDetailsFinancials();
                         } else {
-                            this.renderModal();
+                            this.updateFleetCardsInPlace();
                         }
                     }
                 });
@@ -386,15 +386,15 @@
                         background: transparent;
                     }
                     #mt5-fleet-modal *::-webkit-scrollbar-thumb {
-                        background: rgba(255, 255, 255, 0.2);
+                        background: rgba(120, 120, 120, 0.35);
                         border-radius: 4px;
                     }
                     #mt5-fleet-modal *::-webkit-scrollbar-thumb:hover {
-                        background: rgba(41, 98, 255, 0.6);
+                        background: rgba(41, 98, 255, 0.7);
                     }
                     #mt5-fleet-modal * {
                         scrollbar-width: thin;
-                        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+                        scrollbar-color: rgba(120, 120, 120, 0.35) transparent;
                     }
                 </style>
                 <div style="
@@ -546,47 +546,15 @@
                 `;
             }
 
-            const progressBanner = (this.switchingAccountId && this.switchProgress) ? `
-                <div id="mt5-switch-progress-box" style="
-                    background: ${theme.isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)'};
-                    border: 1px solid rgba(41, 98, 255, 0.45);
-                    border-radius: 8px;
-                    padding: 12px 16px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 8px;
-                    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-                ">
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="mt5-pulse-spin" style="display:inline-block; width:13px; height:13px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
-                            <strong style="color: ${theme.primary}; font-size: 13px;" id="mt5-progress-title">${this.switchProgress.title}</strong>
-                        </div>
-                        <span style="font-size: 11.5px; font-weight: 700; color: ${theme.primary};" id="mt5-progress-pct">${this.switchProgress.pct}%</span>
-                    </div>
-                    <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.15); border-radius: 4px; overflow: hidden;">
-                        <div id="mt5-progress-bar" style="width: ${this.switchProgress.pct}%; height: 100%; background: linear-gradient(90deg, #2962ff, #00b0ff); border-radius: 4px; transition: width 0.3s ease;"></div>
-                    </div>
-                    <div style="font-size: 11.5px; color: ${theme.textMuted}; display: flex; align-items: center; justify-content: space-between;" id="mt5-progress-detail">
-                        <span>${this.switchProgress.detail}</span>
-                    </div>
-                </div>
-            ` : '';
-
             const cards = accounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
                 const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
                 const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
-                const isThisSwitching = (this.switchingAccountId === acc.id);
-                const isAnySwitching = !!this.switchingAccountId;
 
                 let cardBorder = isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border);
-                if (isThisSwitching) {
-                    cardBorder = '#2962ff';
-                }
 
                 return `
-                    <div style="
+                    <div class="mt5-account-card" data-id="${acc.id}" style="
                         background: ${theme.cardBg};
                         border: 1px solid ${cardBorder};
                         border-radius: 8px;
@@ -596,12 +564,11 @@
                         flex-direction: column;
                         gap: 10px;
                         opacity: ${isPaused ? '0.85' : '1'};
-                        transition: all 0.2s ease;
-                        ${isThisSwitching ? 'box-shadow: 0 0 12px rgba(41, 98, 255, 0.25);' : ''}
+                        transition: border 0.2s ease;
                     ">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused || isAnySwitching ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${(isPaused || isAnySwitching) ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
+                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
                                 <div>
                                     <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
                                         <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(41,98,255,0.4); text-underline-offset: 2px;" title="Click to view full account details">${acc.nickname}</span>
@@ -616,29 +583,22 @@
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View full account details, financial metrics, and supported tickers">📋 Details</button>
                                 ${isPaused
-                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Resume account back to Online mode">▶️ Resume</button>`
-                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Pause account to put into Standby mode">⏸️ Pause</button>`
+                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Resume account back to Online mode">▶️ Resume</button>`
+                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Pause account to put into Standby mode">⏸️ Pause</button>`
                                 }
-                                ${!isActive ? (
-                                    isThisSwitching
-                                        ? `<button class="mt5-btn-set-active" data-id="${acc.id}" disabled style="background: rgba(41,98,255,0.2); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.6); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: wait; display: flex; align-items: center; gap: 4px;"><span class="mt5-pulse-spin" style="display:inline-block; width:10px; height:10px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span> Switching... (${this.switchProgress ? this.switchProgress.pct : 15}%)</button>`
-                                        : (isAnySwitching
-                                            ? `<button class="mt5-btn-set-active" data-id="${acc.id}" disabled style="background: rgba(41,98,255,0.05); color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 9px; border-radius: 5px; font-size: 11px; opacity: 0.4; cursor: not-allowed;">Show Chart Feed</button>`
-                                            : `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>`
-                                        )
-                                ) : ''}
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;"`} title="Disconnect / remove account">✕</button>
+                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Switch chart feed to this account (0ms)">⚡ Show Chart Feed</button>` : ''}
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Disconnect / remove account">✕</button>
                             </div>
                         </div>
 
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11.5px;">
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Balance:</span><br>
-                                <strong style="color: ${theme.text}; font-size: 12px;">$${Number(acc.balance || 0).toLocaleString()}</strong>
+                                <strong class="mt5-card-bal" data-id="${acc.id}" style="color: ${theme.text}; font-size: 12px;">$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
                             </div>
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Equity:</span><br>
-                                <strong style="color: ${theme.success}; font-size: 12px;">$${Number(acc.equity || 0).toLocaleString()}</strong>
+                                <strong class="mt5-card-eq" data-id="${acc.id}" style="color: ${theme.success}; font-size: 12px;">$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
                             </div>
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Multiplier:</span><br>
@@ -754,11 +714,14 @@
             this.historySortDir = 'desc';
 
             if (!forceRefresh && this._accountDetailsCache.has(accountId)) {
-                this.detailsData = this._accountDetailsCache.get(accountId);
-                this.detailsLoading = false;
-                this.detailsSyncing = false;
-                this.renderModal();
-                return;
+                const cachedData = this._accountDetailsCache.get(accountId);
+                if (cachedData && cachedData.symbols && cachedData.symbols.length > 2) {
+                    this.detailsData = cachedData;
+                    this.detailsLoading = false;
+                    this.detailsSyncing = false;
+                    this.renderModal();
+                    return;
+                }
             }
 
             // Immediately pre-populate with known account info, localStorage symbols & history so user NEVER waits!
@@ -766,10 +729,21 @@
             let cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
             let storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
 
-            if (cachedSymbols.length === 0) {
+            if (cachedSymbols.length <= 2) {
+                cachedSymbols = [];
                 try {
                     const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
-                    if (localSyms) cachedSymbols = JSON.parse(localSyms);
+                    if (localSyms) {
+                        const parsed = JSON.parse(localSyms);
+                        if (Array.isArray(parsed) && parsed.length > 2) {
+                            cachedSymbols = parsed;
+                            if (window.MT5API && window.MT5API._accountSymbolsCache) {
+                                window.MT5API._accountSymbolsCache.set(accountId, cachedSymbols);
+                            }
+                        } else {
+                            localStorage.removeItem(`mt5_symbols_${accountId}`);
+                        }
+                    }
                 } catch (_) {}
             }
             if (storedHistory.length === 0) {
@@ -797,7 +771,7 @@
                 fetchedAt: Date.now()
             };
 
-            const hasInstantCache = cachedSymbols.length > 0;
+            const hasInstantCache = cachedSymbols.length > 2;
             this.detailsLoading = false;
             this.detailsSyncing = !hasInstantCache;
             this.detailsProgress = hasInstantCache ? null : { step: 1, title: 'Connecting to MT5 Profile...', detail: `Checking account specs for #${existingAcc ? existingAcc.login : accountId}`, pct: 25 };
@@ -823,16 +797,19 @@
             } finally {
                 this.detailsSyncing = false;
                 this.detailsProgress = null;
-                // If user is currently typing in search input, do NOT rebuild whole modal!
-                const activeEl = document.activeElement;
-                const isTyping = activeEl && (activeEl.id === 'mt5-ticker-search-in' || activeEl.id === 'mt5-history-search-in');
-                if (isTyping) {
+                const modal = document.getElementById(this.modalId);
+                if (modal) {
+                    const syncBox = modal.querySelector('#mt5-details-sync-progress-box');
+                    if (syncBox) syncBox.remove();
+                    this.updateLiveDetailsFinancials();
                     const theme = this.getTheme();
                     const srv = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
-                    if (this.detailsSubTab === 'tickers') this.updateTickerListView(document.getElementById(this.modalId), theme, srv);
-                    if (this.detailsSubTab === 'history') this.updateHistoryListView(document.getElementById(this.modalId), theme);
-                } else {
-                    this.renderModal();
+                    if (this.detailsSubTab === 'tickers') this.updateTickerListView(modal, theme, srv);
+                    if (this.detailsSubTab === 'history') this.updateHistoryListView(modal, theme);
+                    const tabTickers = modal.querySelector('.mt5-subtab-btn[data-subtab="tickers"]');
+                    if (tabTickers && this.detailsData && this.detailsData.symbols) {
+                        tabTickers.innerHTML = `<span>📈</span> Market Watch & Tickers (${this.detailsData.symbols.length})`;
+                    }
                 }
             }
         }
@@ -1146,6 +1123,18 @@
                     }
                     this.updateHistoryListView(modal, theme);
                 };
+            });
+        }
+
+        updateFleetCardsInPlace() {
+            const modal = document.getElementById(this.modalId);
+            if (!modal || this.viewMode !== 'list') return;
+            const accounts = window.MT5API ? window.MT5API.accounts : [];
+            accounts.forEach(acc => {
+                const balEl = modal.querySelector(`.mt5-card-bal[data-id="${acc.id}"]`);
+                const eqEl = modal.querySelector(`.mt5-card-eq[data-id="${acc.id}"]`);
+                if (balEl) balEl.textContent = `$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                if (eqEl) eqEl.textContent = `$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
             });
         }
 
@@ -2230,65 +2219,19 @@
                 };
             });
 
-            // Switch active account with live real-time progress updates
+            // Switch active account (0ms Instant Switch)
             modal.querySelectorAll('.mt5-btn-set-active').forEach(b => {
                 b.onclick = async (e) => {
                     const id = e.currentTarget.getAttribute('data-id');
-                    if (id && window.MT5API && !this.switchingAccountId) {
-                        this.switchingAccountId = id;
-                        this.switchProgress = {
-                            step: 1,
-                            title: 'Initiating Switch...',
-                            detail: 'Sending switch request to MT5 bridge...',
-                            pct: 15
-                        };
+                    if (id && window.MT5API) {
+                        const targetAcc = window.MT5API.accounts.find(a => String(a.id) === String(id));
+                        const accName = targetAcc ? targetAcc.nickname : id;
+
+                        // 0ms instant switch!
+                        window.MT5API.setActiveAccount(id);
                         this.updateButtonState();
                         this.renderModal();
-
-                        const onProgress = (step, title, detail, pct) => {
-                            this.switchProgress = { step, title, detail, pct };
-                            const isDone = (step === 5 || pct === 100);
-                            const isErr = (step === 0);
-
-                            // Update in-modal card if modal is open
-                            const activeModal = document.getElementById(this.modalId);
-                            if (activeModal) {
-                                const titleEl = activeModal.querySelector('#mt5-progress-title');
-                                const detailEl = activeModal.querySelector('#mt5-progress-detail');
-                                const barEl = activeModal.querySelector('#mt5-progress-bar');
-                                const pctEl = activeModal.querySelector('#mt5-progress-pct');
-                                if (titleEl) titleEl.innerText = title;
-                                if (detailEl) detailEl.innerHTML = `<span>${detail}</span>`;
-                                if (barEl) barEl.style.width = `${pct}%`;
-                                if (pctEl) pctEl.innerText = `${pct}%`;
-
-                                const btnEl = activeModal.querySelector(`.mt5-btn-set-active[data-id="${id}"]`);
-                                if (btnEl) {
-                                    if (isDone) {
-                                        btnEl.innerHTML = `✓ Switched!`;
-                                        btnEl.style.background = 'rgba(0, 200, 83, 0.2)';
-                                        btnEl.style.color = '#00c853';
-                                        btnEl.style.borderColor = 'rgba(0, 200, 83, 0.5)';
-                                    } else {
-                                        btnEl.innerHTML = `<span class="mt5-pulse-spin" style="display:inline-block; width:10px; height:10px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite; margin-right:4px;"></span> Switching... (${pct}%)`;
-                                    }
-                                }
-                            }
-
-                            // Also show floating toast on the chart in real-time
-                            this.showFloatingSwitchToast(title, detail, pct, isDone, isErr);
-                            this.updateButtonState();
-                        };
-
-                        try {
-                            await window.MT5API.setActiveAccount(id, onProgress);
-                            await new Promise(r => setTimeout(r, 700));
-                        } finally {
-                            this.switchingAccountId = null;
-                            this.switchProgress = null;
-                            this.updateButtonState();
-                            this.renderModal();
-                        }
+                        this.showFloatingSwitchToast('⚡ Feed Switched', `Active chart feed switched to ${accName} (0ms)!`, 100, true);
                     }
                 };
             });
