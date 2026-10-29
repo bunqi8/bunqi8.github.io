@@ -172,12 +172,12 @@
             const fyersWrapper = targetDoc.getElementById('header-toolbar-broker-manager');
             const symbolSearch = targetDoc.getElementById('header-toolbar-symbol-search') || targetEl;
 
-            if (mt5Wrapper && fyersWrapper && fyersWrapper.parentNode) {
-                if (fyersWrapper.nextElementSibling !== mt5Wrapper) {
-                    fyersWrapper.parentNode.insertBefore(mt5Wrapper, fyersWrapper.nextSibling);
-                }
-            } else if (mt5Wrapper && symbolSearch && symbolSearch.parentNode) {
-                if (symbolSearch.previousElementSibling !== mt5Wrapper) {
+            if (mt5Wrapper && symbolSearch && symbolSearch.parentNode) {
+                if (fyersWrapper && fyersWrapper.parentNode === symbolSearch.parentNode) {
+                    if (fyersWrapper.nextElementSibling !== mt5Wrapper) {
+                        fyersWrapper.parentNode.insertBefore(mt5Wrapper, fyersWrapper.nextSibling);
+                    }
+                } else if (symbolSearch.previousElementSibling !== mt5Wrapper) {
                     symbolSearch.parentNode.insertBefore(mt5Wrapper, symbolSearch);
                 }
             }
@@ -206,7 +206,17 @@
             if (acc) {
                 dotColor = isConn ? '#089981' : '#ff9800';
                 avatarBg = isConn ? 'linear-gradient(135deg, #089981, #00796b)' : 'linear-gradient(135deg, #ff9800, #e65100)';
-                label = (acc.nickname || 'MT').slice(0, 2).toUpperCase();
+                const srv = (acc.server || '').toLowerCase();
+                const nick = (acc.nickname || '').toLowerCase();
+                if (srv.includes('fivepercent') || nick.includes('5er')) {
+                    label = '5%';
+                } else if (srv.includes('metaquotes') || nick.includes('demo')) {
+                    label = 'MQ';
+                } else if (srv.includes('ftmo')) {
+                    label = 'FT';
+                } else {
+                    label = (acc.nickname || 'MT').slice(0, 2).toUpperCase();
+                }
             }
 
             btn.innerHTML = `

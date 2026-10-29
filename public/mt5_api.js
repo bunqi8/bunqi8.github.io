@@ -215,6 +215,20 @@
                     this.activeAccountId = id;
                     this.fetchPositions();
                     this.notifyAccountListeners();
+
+                    // Invalidate last-bar memory and force active chart to reload data from the new active broker
+                    if (window._tvLastBar) window._tvLastBar = {};
+                    if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                        try {
+                            const chart = window.tvWidget.activeChart();
+                            if (chart && typeof chart.resetData === 'function') {
+                                chart.resetData();
+                            }
+                        } catch (chartErr) {
+                            console.warn('[MT5API] Could not reset chart data automatically:', chartErr);
+                        }
+                    }
+
                     return true;
                 }
             } catch (e) {

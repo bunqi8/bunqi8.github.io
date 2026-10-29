@@ -11,6 +11,20 @@ class FyersUI {
         this._extractorOpen = false;
         this._e2eeReceiver = null;
         this.setupEventListeners();
+        this.init();
+    }
+
+    init() {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => this.mount());
+        } else {
+            this.mount();
+        }
+    }
+
+    mount() {
+        this.injectButton();
+        setInterval(() => this.injectButton(), 2000);
     }
 
     getTheme() {
@@ -35,7 +49,15 @@ class FyersUI {
         };
     }
 
-    injectButton(targetEl, iframeDoc) {
+    injectButton(targetEl = null, iframeDoc = null) {
+        if (!iframeDoc) {
+            const iframe = document.querySelector('#tv_chart_container iframe') || document.querySelector('iframe[id^="tradingview_"]') || document.querySelector('iframe');
+            if (iframe) {
+                try {
+                    iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                } catch (_) {}
+            }
+        }
         if (!iframeDoc) return;
         this.cachedIframeDoc = iframeDoc;
         if (iframeDoc.getElementById(this.btnId)) {
@@ -120,9 +142,21 @@ class FyersUI {
     ensureButtonPosition(iframeDoc, targetEl = null) {
         if (!iframeDoc) return;
         const btnWrapper = iframeDoc.getElementById('header-toolbar-broker-manager');
+        const mt5Wrapper = iframeDoc.getElementById('header-toolbar-mt5-manager');
         const symbolSearch = iframeDoc.getElementById('header-toolbar-symbol-search') || targetEl;
-        if (btnWrapper && symbolSearch && symbolSearch.parentNode && symbolSearch.previousElementSibling !== btnWrapper) {
-            symbolSearch.parentNode.insertBefore(btnWrapper, symbolSearch);
+
+        if (btnWrapper && symbolSearch && symbolSearch.parentNode) {
+            if (mt5Wrapper && mt5Wrapper.parentNode === symbolSearch.parentNode) {
+                // Keep Fyers immediately before MT5 manager: [Fyers] -> [MT5] -> [SymbolSearch]
+                if (mt5Wrapper.previousElementSibling !== btnWrapper) {
+                    symbolSearch.parentNode.insertBefore(btnWrapper, mt5Wrapper);
+                }
+            } else {
+                // Otherwise keep before symbol search
+                if (symbolSearch.previousElementSibling !== btnWrapper) {
+                    symbolSearch.parentNode.insertBefore(btnWrapper, symbolSearch);
+                }
+            }
         }
     }
 

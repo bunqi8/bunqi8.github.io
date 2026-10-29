@@ -682,7 +682,7 @@
                 }
             `;
             if (iframeDoc.head) iframeDoc.head.appendChild(style);
-            else iframeDoc.body.appendChild(style);
+            else if (iframeDoc.body) iframeDoc.body.appendChild(style);
 
             // Forward keyboard shortcuts from iframe to window
             iframeDoc.addEventListener('keydown', (e) => {
