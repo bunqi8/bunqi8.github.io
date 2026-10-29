@@ -635,21 +635,28 @@
         async fetchOrderHistory(accountId = null) {
             const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
             let remoteHistory = [];
-            try {
-                const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=90&limit=500` : '?days=90&limit=500';
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 7000);
-                const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
-                    headers: this.getHeaders(),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                if (res.ok) {
-                    const data = await res.json();
-                    remoteHistory = data.history || [];
+
+            // If we already know the running bridge daemon does not support /api/history (v1.0), skip query to avoid 404 console logs
+            if (this._historyEndpointSupported !== false) {
+                try {
+                    const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=90&limit=500` : '?days=90&limit=500';
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 6000);
+                    const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
+                        headers: this.getHeaders(),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    if (res.ok) {
+                        const data = await res.json();
+                        remoteHistory = data.history || [];
+                        this._historyEndpointSupported = true;
+                    } else if (res.status === 404) {
+                        this._historyEndpointSupported = false;
+                    }
+                } catch (e) {
+                    // Suppress network log for optional history endpoint
                 }
-            } catch (e) {
-                console.warn('[MT5API] fetchOrderHistory network note:', e.message || e);
             }
 
             // Merge with local trade history

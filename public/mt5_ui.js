@@ -25,7 +25,7 @@
             this.detailsLoading = false;
             this.detailsSyncing = false;
             this.detailsProgress = null;
-            this.detailsSubTab = 'overview'; // 'overview', 'tickers', 'positions', 'history'
+            this.detailsSubTab = 'tickers'; // 'overview', 'tickers', 'positions', 'history'
             this.tickerSearchQuery = '';
             this.tickerCategoryFilter = 'ALL';
             this.historySearchQuery = '';
@@ -924,11 +924,16 @@
         getHistoryTableHtml(theme, server) {
             const list = this.getFilteredAndSortedHistory();
             if (list.length === 0) {
+                const isDaemonV1 = window.MT5API && window.MT5API._historyEndpointSupported === false;
                 return `
                     <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
                         <div style="font-size: 26px; margin-bottom: 6px;">📜</div>
-                        <div style="font-weight: 600; font-size: 13.5px; color: ${theme.text};">No Trades Found</div>
-                        <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">No closed deals match the active filters. Try resetting search or time filters.</div>
+                        <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text};">No Closed Trades Recorded Yet</div>
+                        <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 6px; max-width: 440px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+                            ${isDaemonV1 
+                                ? 'Trades executed or closed through TradingView will record here automatically.<br>To synchronize historical closed deals directly from your MT5 terminal database, restart <strong style="color: ' + theme.text + ';">Start_MT5_Bridge.bat</strong> on your Windows desktop.' 
+                                : 'No closed deals match the active filters. Try resetting search or time period filters.'}
+                        </div>
                     </div>
                 `;
             }
@@ -1146,18 +1151,6 @@
             const history = this.detailsData.history || [];
             const categories = this.detailsData.categories || {};
             const lastTradeFormatted = this.detailsData.lastTradeFormatted || 'No active trades';
-
-            // Performance metrics from history
-            const closedWins = history.filter(h => Number(h.profit || 0) > 0);
-            const closedLosses = history.filter(h => Number(h.profit || 0) < 0);
-            const totalClosed = closedWins.length + closedLosses.length;
-            const winRate = totalClosed > 0 ? ((closedWins.length / totalClosed) * 100).toFixed(1) : '0.0';
-            const netHistoryProfit = history.reduce((sum, h) => sum + Number(h.profit || 0), 0);
-            const grossProfit = closedWins.reduce((sum, h) => sum + Number(h.profit || 0), 0);
-            const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
-            const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
-            const bestWin = closedWins.length > 0 ? Math.max(...closedWins.map(h => Number(h.profit || 0))).toFixed(2) : '0.00';
-            const worstLoss = closedLosses.length > 0 ? Math.min(...closedLosses.map(h => Number(h.profit || 0))).toFixed(2) : '0.00';
             const isActive = activeAcc && activeAcc.id === acc.id;
             const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
 
@@ -1167,6 +1160,10 @@
             const margin = acc.margin != null ? Number(acc.margin) : 0;
             const marginLvl = acc.margin_level != null ? Number(acc.margin_level) : null;
             const pnl = eq - bal;
+            const pnlPct = bal > 0 ? ((pnl / bal) * 100).toFixed(2) : '0.00';
+
+            const marginUsedPct = (margin + freeMargin) > 0 ? Math.min(100, Math.round((margin / (margin + freeMargin)) * 100)) : 0;
+            const freeMarginPct = 100 - marginUsedPct;
 
             const categoryList = Object.keys(categories);
 
@@ -1185,42 +1182,55 @@
                 });
             }
 
+            // History metrics
+            const closedWins = history.filter(h => Number(h.profit || 0) > 0);
+            const closedLosses = history.filter(h => Number(h.profit || 0) < 0);
+            const totalClosed = closedWins.length + closedLosses.length;
+            const winRate = totalClosed > 0 ? ((closedWins.length / totalClosed) * 100).toFixed(1) : '0.0';
+            const netHistoryProfit = history.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+            const grossProfit = closedWins.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+            const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
+            const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
+
             return `
-                <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <!-- Top Breadcrumb & Controls -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Top Navigation Bar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <button id="mt5-btn-back-fleet" type="button" style="
                                 background: ${theme.cardBg};
                                 border: 1px solid ${theme.border};
                                 color: ${theme.text};
-                                padding: 6px 12px;
+                                padding: 5px 11px;
                                 border-radius: 6px;
-                                font-size: 12px;
+                                font-size: 11.5px;
                                 font-weight: 600;
                                 cursor: pointer;
                                 display: inline-flex;
                                 align-items: center;
-                                gap: 5px;
+                                gap: 4px;
                             ">
                                 <span>←</span> Fleet
                             </button>
-                            <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 7px;">
                                 <strong style="font-size: 15px; color: ${theme.text};">${acc.nickname}</strong>
+                                <span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; font-weight: 700; border: 1px solid rgba(41,98,255,0.25);">
+                                    ${acc.broker_name || (acc.server.includes('FivePercent') ? 'The5ers' : acc.server)}
+                                </span>
                                 ${isActive ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
                             </div>
                         </div>
 
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 11px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
                             <button id="mt5-btn-refresh-details" data-id="${acc.id}" style="
                                 background: ${theme.cardBg};
                                 border: 1px solid ${theme.border};
                                 color: ${theme.textMuted};
-                                padding: 5px 10px;
+                                padding: 5px 9px;
                                 border-radius: 6px;
-                                font-size: 11.5px;
+                                font-size: 11px;
                                 font-weight: 600;
                                 cursor: pointer;
                                 display: inline-flex;
@@ -1232,58 +1242,99 @@
                         </div>
                     </div>
 
+                    <!-- Sleek Executive Financial Cockpit (High Utility, No Repetition) -->
+                    <div style="
+                        background: ${theme.cardBg};
+                        border: 1px solid ${theme.border};
+                        border-radius: 8px;
+                        padding: 12px 14px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 10px;
+                    ">
+                        <!-- Row 1: Real-time Balance, Equity, and Margin Meter -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: center;">
+                            <div>
+                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Account Balance</span>
+                                <div style="font-size: 16px; font-weight: 700; color: ${theme.text}; margin-top: 1px;">
+                                    $${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 400; margin-left: 2px;">${acc.currency || 'USD'}</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Equity (Floating PnL)</span>
+                                <div style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 1px;">
+                                    $${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    <span style="font-size: 10px; font-weight: 600; margin-left: 3px;">(${pnl >= 0 ? '+' : ''}${pnlPct}%)</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
+                                    <span style="color: ${theme.textMuted};">Free Margin:</span>
+                                    <strong style="color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                                </div>
+                                <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.2); border-radius: 3px; overflow: hidden;" title="Margin used: ${marginUsedPct}%">
+                                    <div style="width: ${freeMarginPct}%; height: 100%; background: ${theme.success}; border-radius: 3px;"></div>
+                                </div>
+                                <div style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
+                                    Used: $${margin.toFixed(2)} (${marginUsedPct}%)
+                                </div>
+                            </div>
+
+                            <div>
+                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Leverage & Sizing</span>
+                                <div style="font-size: 13.5px; font-weight: 700; color: ${theme.primary}; margin-top: 2px;">
+                                    1:${acc.leverage || 100}
+                                    <span style="font-size: 10.5px; color: ${theme.textMuted}; font-weight: 500; margin-left: 3px;">(${acc.lot_multiplier || 1.0}x mult / ${acc.risk_percent || 1.0}% risk)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Concise Parameter Chips (One Single Row) -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11px; color: ${theme.textMuted};">
+                            <span>Server: <strong style="color: ${theme.text};">${acc.server}</strong></span>
+                            <span>•</span>
+                            <span>Login: <strong style="color: ${theme.text};">#${acc.login}</strong></span>
+                            <span>•</span>
+                            <span>Ping: <strong style="color: ${theme.text};">${acc.ping_ms || (window.MT5API ? window.MT5API.pingMs : 0)}ms</strong></span>
+                            <span>•</span>
+                            <span>Status: <strong style="color: ${isPaused ? '#ffa500' : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
+                            <span>•</span>
+                            <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
+                        </div>
+                    </div>
+
                     ${this.detailsSyncing ? `
                         <div id="mt5-details-sync-progress-box" style="
                             background: ${theme.isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)'};
                             border: 1px solid rgba(41, 98, 255, 0.45);
-                            border-radius: 8px;
-                            padding: 10px 14px;
+                            border-radius: 6px;
+                            padding: 8px 12px;
                             display: flex;
-                            flex-direction: column;
-                            gap: 6px;
-                            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+                            align-items: center;
+                            justify-content: space-between;
+                            gap: 8px;
                         ">
-                            <div style="display: flex; align-items: center; justify-content: space-between;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span class="mt5-pulse-spin" style="display:inline-block; width:12px; height:12px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
-                                    <strong style="color: ${theme.primary}; font-size: 12.5px;" id="mt5-details-sync-title">${this.detailsProgress ? this.detailsProgress.title : 'Syncing Live MT5 Specs...'}</strong>
-                                </div>
-                                <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};" id="mt5-details-sync-pct">${this.detailsProgress ? this.detailsProgress.pct : 25}%</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="mt5-pulse-spin" style="display:inline-block; width:11px; height:11px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
+                                <span style="color: ${theme.primary}; font-size: 11.5px; font-weight: 600;" id="mt5-details-sync-title">${this.detailsProgress ? this.detailsProgress.title : 'Syncing Live MT5 Specs...'}</span>
+                                <span style="color: ${theme.textMuted}; font-size: 11px;" id="mt5-details-sync-detail">(${this.detailsProgress ? this.detailsProgress.detail : 'Loading'})</span>
                             </div>
-                            <div style="width: 100%; height: 4px; background: rgba(0,0,0,0.15); border-radius: 3px; overflow: hidden;">
-                                <div id="mt5-details-sync-bar" style="width: ${this.detailsProgress ? this.detailsProgress.pct : 25}%; height: 100%; background: linear-gradient(90deg, #2962ff, #00b0ff); border-radius: 3px; transition: width 0.3s ease;"></div>
-                            </div>
-                            <div style="font-size: 11px; color: ${theme.textMuted};" id="mt5-details-sync-detail">
-                                ${this.detailsProgress ? this.detailsProgress.detail : 'Fetching broker market watch & trade history...'}
-                            </div>
+                            <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};" id="mt5-details-sync-pct">${this.detailsProgress ? this.detailsProgress.pct : 25}%</span>
                         </div>
                     ` : ''}
 
-                    <!-- Subtabs Header -->
-                    <div style="display: flex; gap: 6px; border-bottom: 1px solid ${theme.border}; margin-top: 4px; overflow-x: auto;">
-                        <button class="mt5-subtab-btn" data-subtab="overview" style="
-                            background: transparent;
-                            border: none;
-                            border-bottom: 2px solid ${this.detailsSubTab === 'overview' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'overview' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 12px;
-                            font-size: 12px;
-                            font-weight: 600;
-                            cursor: pointer;
-                            display: inline-flex;
-                            align-items: center;
-                            gap: 5px;
-                            white-space: nowrap;
-                        ">
-                            <span>📊</span> Overview & Financials
-                        </button>
+                    <!-- Action Workspace Navigation Tabs -->
+                    <div style="display: flex; gap: 4px; border-bottom: 1px solid ${theme.border}; margin-top: 2px;">
                         <button class="mt5-subtab-btn" data-subtab="tickers" style="
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'tickers' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'tickers' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 12px;
-                            font-size: 12px;
+                            padding: 7px 14px;
+                            font-size: 12.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
@@ -1291,15 +1342,15 @@
                             gap: 5px;
                             white-space: nowrap;
                         ">
-                            <span>📈</span> Supported Tickers (${symbols.length})
+                            <span>📈</span> Market Watch & Tickers (${symbols.length})
                         </button>
                         <button class="mt5-subtab-btn" data-subtab="positions" style="
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'positions' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'positions' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 12px;
-                            font-size: 12px;
+                            padding: 7px 14px;
+                            font-size: 12.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
@@ -1314,8 +1365,8 @@
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'history' ? theme.primary : 'transparent'};
                             color: ${this.detailsSubTab === 'history' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 8px 12px;
-                            font-size: 12px;
+                            padding: 7px 14px;
+                            font-size: 12.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
@@ -1327,147 +1378,36 @@
                         </button>
                     </div>
 
-                    <!-- Subtab 1: Overview & Financials -->
-                    ${this.detailsSubTab === 'overview' ? `
-                        <div style="display: flex; flex-direction: column; gap: 14px;">
-                            <!-- KPI Financial Cards Grid -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Balance</div>
-                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.text};">$${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Currency: ${acc.currency || 'USD'}</div>
-                                </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Equity</div>
-                                    <div style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error};">$${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                    <div style="font-size: 10px; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 2px;">Floating: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</div>
-                                </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Free Margin</div>
-                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Margin Used: $${margin.toFixed(2)}</div>
-                                </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Leverage & Margin</div>
-                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.primary};">1:${acc.leverage || 100}</div>
-                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Level: ${marginLvl != null ? marginLvl.toFixed(1) + '%' : '100%'}</div>
-                                </div>
-                            </div>
-
-                            <!-- Account Specifications Table -->
-                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
-                                <div style="font-weight: 700; font-size: 12.5px; color: ${theme.text}; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>⚙️ Account Specifications & Parameters</span>
-                                    <span style="font-size: 11px; color: ${theme.textMuted}; font-weight: 400;">ID: ${acc.id}</span>
-                                </div>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 12px;">
-                                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Broker / Firm:</span>
-                                            <strong style="color: ${theme.text};">${acc.broker_name || (acc.server.includes('FivePercent') ? 'The5ers' : acc.server)}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Server Host:</span>
-                                            <strong style="color: ${theme.text};">${acc.server}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">MT5 Login ID:</span>
-                                            <strong style="color: ${theme.text};">${acc.login}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Base Currency:</span>
-                                            <strong style="color: ${theme.text};">${acc.currency || 'USD'}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; padding-bottom: 2px;">
-                                            <span style="color: ${theme.textMuted};">Lot Multiplier:</span>
-                                            <strong style="color: ${theme.text};">${acc.lot_multiplier || 1.0}x</strong>
-                                        </div>
-                                    </div>
-
-                                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Live Status:</span>
-                                            <strong style="color: ${isPaused ? '#ffa500' : theme.success};">${isPaused ? '⚪ Standby (Paused)' : '🟢 Online (Synchronized)'}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Bridge Ping:</span>
-                                            <strong style="color: ${theme.text};">${acc.ping_ms || (window.MT5API ? window.MT5API.pingMs : 0)} ms</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Last Traded Date:</span>
-                                            <strong style="color: ${theme.text};">${lastTradeFormatted}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
-                                            <span style="color: ${theme.textMuted};">Account Added:</span>
-                                            <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; padding-bottom: 2px;">
-                                            <span style="color: ${theme.textMuted};">Risk Sizing:</span>
-                                            <strong style="color: ${theme.text};">${acc.risk_percent || 1.0}%</strong>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Supported Asset Categories (Clickable) -->
-                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                    <div style="font-weight: 700; font-size: 12.5px; color: ${theme.text};">Supported Ticker Categories (${symbols.length} total)</div>
-                                    <div style="font-size: 11px; color: ${theme.textMuted};">Click a category to view tickers</div>
-                                </div>
-                                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                                    ${categoryList.map(cat => `
-                                        <button class="mt5-category-chip" data-cat="${cat}" style="
-                                            background: ${theme.isDark ? '#1e222d' : '#ffffff'};
-                                            border: 1px solid ${theme.border};
-                                            color: ${theme.text};
-                                            padding: 6px 12px;
-                                            border-radius: 6px;
-                                            font-size: 11.5px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 6px;
-                                            transition: all 0.15s ease;
-                                        ">
-                                            <span>${cat}</span>
-                                            <span style="background: rgba(41,98,255,0.15); color: ${theme.primary}; padding: 1px 6px; border-radius: 10px; font-size: 10px;">${categories[cat]}</span>
-                                        </button>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <!-- Subtab 2: Supported Tickers -->
+                    <!-- Tab 1: Market Watch & Tickers -->
                     ${this.detailsSubTab === 'tickers' ? `
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
                             <!-- Search & Category Filters -->
-                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
                                 <div style="position: relative;">
-                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery}" placeholder="Search symbol or name (e.g. XAUUSD, EUR, US500, AAPL, BTC)..." style="
+                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery}" placeholder="Search symbol or asset (e.g. XAUUSD, EUR, US500, AAPL, BTC)..." style="
                                         width: 100%;
-                                        padding: 8px 12px 8px 32px;
+                                        padding: 7px 12px 7px 30px;
                                         background: ${theme.inputBg};
                                         color: ${theme.inputText};
                                         border: 1px solid ${theme.inputBorder};
                                         border-radius: 6px;
-                                        font-size: 12.5px;
+                                        font-size: 12px;
                                         box-sizing: border-box;
+                                        pointer-events: auto;
+                                        user-select: text;
                                     ">
-                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 13px;">🔍</span>
+                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 12px;">🔍</span>
                                 </div>
 
                                 <!-- Category Pills Filter -->
-                                <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
+                                <div style="display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px;">
                                     <button class="mt5-cat-pill" data-cat="ALL" style="
                                         background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'transparent'};
                                         color: ${this.tickerCategoryFilter === 'ALL' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 14px;
-                                        font-size: 11px;
+                                        padding: 3px 9px;
+                                        border-radius: 12px;
+                                        font-size: 10.5px;
                                         font-weight: 600;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -1479,9 +1419,9 @@
                                             background: ${this.tickerCategoryFilter === cat ? theme.primary : 'transparent'};
                                             color: ${this.tickerCategoryFilter === cat ? '#ffffff' : theme.textMuted};
                                             border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : theme.border};
-                                            padding: 4px 10px;
-                                            border-radius: 14px;
-                                            font-size: 11px;
+                                            padding: 3px 9px;
+                                            border-radius: 12px;
+                                            font-size: 10.5px;
                                             font-weight: 600;
                                             cursor: pointer;
                                             white-space: nowrap;
@@ -1505,13 +1445,13 @@
                         </div>
                     ` : ''}
 
-                    <!-- Subtab 3: Active Positions -->
+                    <!-- Tab 2: Active Positions -->
                     ${this.detailsSubTab === 'positions' ? `
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                             ${positions.length === 0 ? `
-                                <div style="text-align: center; padding: 40px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
-                                    <div style="font-size: 26px; margin-bottom: 6px;">💼</div>
-                                    <div style="font-weight: 600; font-size: 13.5px; color: ${theme.text};">No Open Positions</div>
+                                <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
+                                    <div style="font-size: 24px; margin-bottom: 6px;">💼</div>
+                                    <div style="font-weight: 600; font-size: 13px; color: ${theme.text};">No Active Positions</div>
                                     <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">There are no active open trades on this account right now.</div>
                                 </div>
                             ` : `
@@ -1519,15 +1459,15 @@
                                     <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
                                         <thead>
                                             <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted};">
-                                                <th style="padding: 8px 10px;">Ticket</th>
-                                                <th style="padding: 8px 10px;">Symbol</th>
-                                                <th style="padding: 8px 10px;">Type</th>
-                                                <th style="padding: 8px 10px;">Lots</th>
-                                                <th style="padding: 8px 10px;">Open Price</th>
-                                                <th style="padding: 8px 10px;">Current</th>
-                                                <th style="padding: 8px 10px;">SL / TP</th>
-                                                <th style="padding: 8px 10px; text-align: right;">Profit ($)</th>
-                                                <th style="padding: 8px 10px; text-align: center;">Action</th>
+                                                <th style="padding: 7px 10px;">Ticket</th>
+                                                <th style="padding: 7px 10px;">Symbol</th>
+                                                <th style="padding: 7px 10px;">Type</th>
+                                                <th style="padding: 7px 10px;">Lots</th>
+                                                <th style="padding: 7px 10px;">Open Price</th>
+                                                <th style="padding: 7px 10px;">Current</th>
+                                                <th style="padding: 7px 10px;">SL / TP</th>
+                                                <th style="padding: 7px 10px; text-align: right;">Profit ($)</th>
+                                                <th style="padding: 7px 10px; text-align: center;">Action</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1538,15 +1478,15 @@
                                                 const profitColor = profit >= 0 ? theme.success : theme.error;
                                                 return `
                                                     <tr style="border-bottom: 1px solid ${theme.border};">
-                                                        <td style="padding: 8px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
-                                                        <td style="padding: 8px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
-                                                        <td style="padding: 8px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
-                                                        <td style="padding: 8px 10px;">${p.volume}</td>
-                                                        <td style="padding: 8px 10px;">${p.price_open}</td>
-                                                        <td style="padding: 8px 10px;">${p.price_current}</td>
-                                                        <td style="padding: 8px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
-                                                        <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: ${profitColor};">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
-                                                        <td style="padding: 8px 10px; text-align: center;">
+                                                        <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
+                                                        <td style="padding: 7px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
+                                                        <td style="padding: 7px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
+                                                        <td style="padding: 7px 10px;">${p.volume}</td>
+                                                        <td style="padding: 7px 10px;">${p.price_open}</td>
+                                                        <td style="padding: 7px 10px;">${p.price_current}</td>
+                                                        <td style="padding: 7px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
+                                                        <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
+                                                        <td style="padding: 7px 10px; text-align: center;">
                                                             <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${acc.server}" style="
                                                                 background: rgba(41,98,255,0.12);
                                                                 color: ${theme.primary};
@@ -1567,58 +1507,54 @@
                         </div>
                     ` : ''}
 
-                    <!-- Subtab 4: Order History with Full Sorting & Filtering -->
+                    <!-- Tab 3: Order History -->
                     ${this.detailsSubTab === 'history' ? `
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
                             <!-- Mini Performance KPI Cards -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px;">
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 6px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Closed Trades</div>
-                                    <div style="font-size: 14px; font-weight: 700; color: ${theme.text};">${history.length}</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${history.length}</div>
                                 </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Net Profit</div>
-                                    <div style="font-size: 14px; font-weight: 700; color: ${netHistoryProfit >= 0 ? theme.success : theme.error};">${netHistoryProfit >= 0 ? '+' : ''}$${netHistoryProfit.toFixed(2)}</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${netHistoryProfit >= 0 ? theme.success : theme.error};">${netHistoryProfit >= 0 ? '+' : ''}$${netHistoryProfit.toFixed(2)}</div>
                                 </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Win Rate</div>
-                                    <div style="font-size: 14px; font-weight: 700; color: ${Number(winRate) >= 50 ? theme.success : theme.text};">${winRate}%</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${Number(winRate) >= 50 ? theme.success : theme.text};">${winRate}%</div>
                                 </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Profit Factor</div>
-                                    <div style="font-size: 14px; font-weight: 700; color: ${theme.primary};">${profitFactor}</div>
-                                </div>
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px;">
-                                    <div style="font-size: 10px; color: ${theme.textMuted};">Best / Worst</div>
-                                    <div style="font-size: 11px; font-weight: 700; color: ${theme.text};">+$${bestWin} / -$${worstLoss}</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${theme.primary};">${profitFactor}</div>
                                 </div>
                             </div>
 
                             <!-- Filter & Controls Toolbar -->
-                            <div style="display: flex; flex-direction: column; gap: 8px;">
-                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                    <div style="position: relative; flex: 1; min-width: 180px;">
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <div style="position: relative; flex: 1; min-width: 170px;">
                                         <input type="text" id="mt5-history-search-in" value="${this.historySearchQuery}" placeholder="Filter by symbol, ticket, or notes..." style="
                                             width: 100%;
-                                            padding: 7px 10px 7px 28px;
+                                            padding: 6px 10px 6px 28px;
                                             background: ${theme.inputBg};
                                             color: ${theme.inputText};
                                             border: 1px solid ${theme.inputBorder};
                                             border-radius: 6px;
-                                            font-size: 12px;
+                                            font-size: 11.5px;
                                             box-sizing: border-box;
                                             pointer-events: auto;
                                             user-select: text;
                                         ">
-                                        <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 12px;">🔍</span>
+                                        <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 11px;">🔍</span>
                                     </div>
                                     <button id="mt5-btn-export-csv" type="button" style="
                                         background: ${theme.cardBg};
                                         border: 1px solid ${theme.border};
                                         color: ${theme.text};
-                                        padding: 6px 12px;
+                                        padding: 5px 10px;
                                         border-radius: 6px;
-                                        font-size: 11.5px;
+                                        font-size: 11px;
                                         font-weight: 600;
                                         cursor: pointer;
                                         display: inline-flex;
@@ -1631,23 +1567,23 @@
                                 </div>
 
                                 <!-- Filter Buttons Row -->
-                                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
-                                    <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
-                                        <span style="font-size: 11px; color: ${theme.textMuted}; margin-right: 2px;">Type:</span>
+                                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                                        <span style="font-size: 10.5px; color: ${theme.textMuted};">Type:</span>
                                         ${['ALL', 'BUY', 'SELL'].map(t => `
                                             <button class="mt5-hist-type-btn" data-type="${t}" style="
                                                 background: ${this.historyTypeFilter === t ? theme.primary : 'transparent'};
                                                 color: ${this.historyTypeFilter === t ? '#fff' : theme.textMuted};
                                                 border: 1px solid ${this.historyTypeFilter === t ? theme.primary : theme.border};
-                                                padding: 2px 8px;
+                                                padding: 2px 7px;
                                                 border-radius: 10px;
-                                                font-size: 10.5px;
+                                                font-size: 10px;
                                                 font-weight: 600;
                                                 cursor: pointer;
                                             ">${t}</button>
                                         `).join('')}
 
-                                        <span style="font-size: 11px; color: ${theme.textMuted}; margin-left: 6px; margin-right: 2px;">Outcome:</span>
+                                        <span style="font-size: 10.5px; color: ${theme.textMuted}; margin-left: 4px;">Outcome:</span>
                                         ${[
                                             { id: 'ALL', label: 'All' },
                                             { id: 'WIN', label: 'Wins' },
@@ -1657,24 +1593,24 @@
                                                 background: ${this.historyOutcomeFilter === o.id ? theme.primary : 'transparent'};
                                                 color: ${this.historyOutcomeFilter === o.id ? '#fff' : theme.textMuted};
                                                 border: 1px solid ${this.historyOutcomeFilter === o.id ? theme.primary : theme.border};
-                                                padding: 2px 8px;
+                                                padding: 2px 7px;
                                                 border-radius: 10px;
-                                                font-size: 10.5px;
+                                                font-size: 10px;
                                                 font-weight: 600;
                                                 cursor: pointer;
                                             ">${o.label}</button>
                                         `).join('')}
                                     </div>
 
-                                    <div style="display: flex; gap: 6px; align-items: center;">
-                                        <span style="font-size: 11px; color: ${theme.textMuted};">Period:</span>
+                                    <div style="display: flex; gap: 4px; align-items: center;">
+                                        <span style="font-size: 10.5px; color: ${theme.textMuted};">Period:</span>
                                         <select id="mt5-hist-date-select" style="
                                             background: ${theme.inputBg};
                                             color: ${theme.inputText};
                                             border: 1px solid ${theme.inputBorder};
-                                            border-radius: 5px;
-                                            padding: 3px 6px;
-                                            font-size: 11px;
+                                            border-radius: 4px;
+                                            padding: 2px 5px;
+                                            font-size: 10.5px;
                                             cursor: pointer;
                                         ">
                                             <option value="ALL" ${this.historyDateFilter === 'ALL' ? 'selected' : ''}>All Time</option>
