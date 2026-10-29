@@ -448,12 +448,16 @@ function getBarLimitCacheKey(symbolInfo, resolution) {
     const raw = symbolInfo.name || symbolInfo.ticker || '';
     const clean = raw.split(':').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Partition MT5 bar cache by active broker account ID so account switches never serve stale broker bars
+    // Partition MT5 bar cache by broker exchange & account ID so account switches never serve stale broker bars
     const isMt5 = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
                   (symbolInfo.exchange && symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX') ||
                   (window.MT5API && window.MT5API.isMt5Symbol(clean));
     if (isMt5 && window.MT5API) {
-        const acc = window.MT5API.getActiveAccount();
+        let acc = null;
+        if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API.accounts) {
+            acc = window.MT5API.accounts.find(a => window.MT5API.getCleanBrokerExchange(a) === symbolInfo.exchange);
+        }
+        if (!acc) acc = window.MT5API.getActiveAccount();
         const accId = acc ? acc.id : 'default';
         return `MT5_${accId}_${clean}_${resolution}`;
     }
@@ -815,8 +819,9 @@ const Datafeed = {
         const parts = actualName.split(':');
         const prefix = parts.length > 1 ? parts[0].toUpperCase().trim() : '';
         const cleanUpper = parts[parts.length - 1].toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const MT5_POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'AAPL', 'TSLA', 'NVDA', 'BTCUSD', 'ETHUSD'];
-        const isKnownBrokerPrefix = prefix === 'MT5' || (prefix && prefix !== 'NSE' && prefix !== 'BSE' && prefix !== 'MCX' && window.MT5API && window.MT5API.accounts && window.MT5API.accounts.some(a => (window.MT5API.getCleanBrokerExchange(a) === prefix) || (a.server && a.server.toUpperCase().includes(prefix))));
+        const MT5_POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'AAPL', 'TSLA', 'NVDA', 'BTCUSD', 'ETHUSD', 'WTI', 'BRENT', 'XTIUSD', 'XBRUSD', 'USOIL', 'UKOIL', 'NGAS', 'NAS100', 'SP500', 'GER40', 'DJ30'];
+        const KNOWN_BROKERS = ['THE 5%ERS', 'FUNDEDNEXT', 'FTMO', 'EXNESS', 'IC MARKETS', 'PEPPERSTONE', 'VANTAGE', 'METAQUOTES', 'OCTAFX', 'XM', 'FBS', 'HFM', 'AVATRADE', 'ROBOFOREX', 'TICKMILL', 'FXPRO', 'IG'];
+        const isKnownBrokerPrefix = prefix === 'MT5' || KNOWN_BROKERS.includes(prefix) || (prefix && prefix !== 'NSE' && prefix !== 'BSE' && prefix !== 'MCX' && window.MT5API && window.MT5API.accounts && window.MT5API.accounts.some(a => (window.MT5API.getCleanBrokerExchange(a) === prefix) || (a.server && a.server.toUpperCase().includes(prefix))));
         const isMt5 = isKnownBrokerPrefix ||
                       actualName.startsWith('MT5:') ||
                       (window.MT5API && window.MT5API.isMt5Symbol(actualName)) ||
@@ -825,9 +830,20 @@ const Datafeed = {
         if (isMt5) {
             const cleanSym = actualName.split(':').pop().toUpperCase().trim();
             const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
-            const brokerExchange = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function')
-                ? window.MT5API.getCleanBrokerExchange(acc)
-                : (acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5');
+            let brokerExchange = '';
+            if (prefix && prefix !== 'MT5' && prefix !== 'NSE' && prefix !== 'BSE' && prefix !== 'MCX') {
+                brokerExchange = prefix;
+                if (window.MT5API && window.MT5API.accounts) {
+                    const matchedAcc = window.MT5API.accounts.find(a => window.MT5API.getCleanBrokerExchange(a) === prefix);
+                    if (matchedAcc && String(matchedAcc.id) !== String(window.MT5API.activeAccountId)) {
+                        window.MT5API.setActiveAccount(matchedAcc.id);
+                    }
+                }
+            } else if (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') {
+                brokerExchange = window.MT5API.getCleanBrokerExchange(acc);
+            } else {
+                brokerExchange = acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5';
+            }
             const symInfo = window.MT5API ? window.MT5API.getSymbolInfo(cleanSym) : null;
 
             const proceedWithSymbol = (info) => {
@@ -1301,8 +1317,14 @@ const Datafeed = {
                 return;
             }
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
-            const accId = acc ? acc.id : 'default';
+            let targetAcc = null;
+            if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API && window.MT5API.accounts) {
+                targetAcc = window.MT5API.accounts.find(a => window.MT5API.getCleanBrokerExchange(a) === symbolInfo.exchange);
+            }
+            if (!targetAcc && window.MT5API && typeof window.MT5API.getActiveAccount === 'function') {
+                targetAcc = window.MT5API.getActiveAccount();
+            }
+            const accId = targetAcc ? targetAcc.id : 'default';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
             // Retrieve cached inception start time for this symbol (guarantees we know if data has ended)
@@ -1322,19 +1344,19 @@ const Datafeed = {
                     return;
                 }
 
-                let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
+                let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
 
                 // If fetchBars returned empty (e.g. server in middle of restart), quick retry once after 350ms
                 if ((!mt5Bars || mt5Bars.length === 0) && (firstDataRequest || (window.MT5API && window.MT5API.wasDisconnected))) {
                     await new Promise(r => setTimeout(r, 350));
-                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500);
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
                 }
 
                 // If still empty when scrolling back (not firstDataRequest), look back up to 4 days prior to bridge weekend gap
                 if ((!mt5Bars || mt5Bars.length === 0) && !firstDataRequest && rawTo > earliestTimeSec) {
                     const weekendLookback = 4 * 86400; // 4 days prior
                     const bridgeFrom = Math.max(earliestTimeSec, rawFrom - weekendLookback);
-                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, bridgeFrom, rawTo, countBack || 500);
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, bridgeFrom, rawTo, countBack || 500, accId);
                 }
 
                 if (mt5Bars && mt5Bars.length > 0) {
@@ -1596,7 +1618,9 @@ const Datafeed = {
             
             // 4. If DuckDB returned absolutely nothing for this range
             let isEnd = false;
-            if (!duckdbHit && window.FyersAPI && window.FyersAPI.token) {
+            const isIndianSymbol = symbolInfo.exchange === 'NSE' || symbolInfo.exchange === 'BSE' || symbolInfo.exchange === 'MCX';
+            const isNotMt5 = !fyersSymbol.includes('MT5') && !symbolInfo.name.startsWith('MT5:') && !(window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name));
+            if (!duckdbHit && isIndianSymbol && isNotMt5 && window.FyersAPI && window.FyersAPI.token) {
                 DFLog.info('getBars', `No Parquet data found for range. Falling back to Fyers Deep History.`);
                 let res = await window.FyersAPI.getDeepHistory(fyersSymbol, resolution, rawFrom, rawTo);
                 let deepBars = Array.isArray(res) ? res : (res.data || []);
