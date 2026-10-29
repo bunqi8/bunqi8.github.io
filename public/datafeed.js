@@ -1767,7 +1767,16 @@ const Datafeed = {
                 const activeKey = `MT5_${currentAccId}_${cleanSym}_${resolution}`;
 
                 if (!window._tvLastBar) window._tvLastBar = {};
-                let lastBar = window._tvLastBar[activeKey];
+                let lastBar = window._tvLastBar[activeKey] || window._tvLastBar[cacheKey];
+                if (!lastBar && window._barsCache) {
+                    const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
+                    const cached = window._barsCache[genKey];
+                    if (cached && cached.length > 0) {
+                        const l = cached[cached.length - 1];
+                        lastBar = { ...l };
+                        window._tvLastBar[activeKey] = lastBar;
+                    }
+                }
 
                 const tickTime = Number(tick.time) || Date.now();
                 let barTime;
@@ -1784,14 +1793,18 @@ const Datafeed = {
                 const chartRes = String(resolution || '').toUpperCase();
                 const isMatchingCandle = !!(tick.candle && (tickRes === chartRes || !tickRes));
 
+                // Authoritative candle time from broker tick if matching candle provided
+                const brokerCandleTime = (isMatchingCandle && tick.candle && tick.candle.time) ? alignTime(Number(tick.candle.time)) : null;
+                const effectiveBarTime = (brokerCandleTime && brokerCandleTime >= barTime) ? brokerCandleTime : barTime;
+
                 if (!lastBar) {
                     lastBar = {
-                        time: barTime,
-                        open: (isMatchingCandle && tick.candle.open) ? Number(tick.candle.open) : price,
-                        high: (isMatchingCandle && tick.candle.high) ? Math.max(Number(tick.candle.high), price) : price,
-                        low: (isMatchingCandle && tick.candle.low) ? Math.min(Number(tick.candle.low), price) : price,
+                        time: effectiveBarTime,
+                        open: (isMatchingCandle && tick.candle && tick.candle.open) ? Number(tick.candle.open) : price,
+                        high: (isMatchingCandle && tick.candle && tick.candle.high) ? Math.max(Number(tick.candle.high), price) : price,
+                        low: (isMatchingCandle && tick.candle && tick.candle.low) ? Math.min(Number(tick.candle.low), price) : price,
                         close: price,
-                        volume: (isMatchingCandle && tick.candle.volume) ? Number(tick.candle.volume) : 1
+                        volume: (isMatchingCandle && tick.candle && tick.candle.volume) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[activeKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
@@ -1799,7 +1812,7 @@ const Datafeed = {
                 }
 
                 // Transition to new candle if interval has moved forward
-                if (barTime > lastBar.time) {
+                if (effectiveBarTime > lastBar.time) {
                     if (window.BarLimitManager) {
                         const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
                         window.BarLimitManager.onLiveBarAdded(genKey);
@@ -1818,12 +1831,12 @@ const Datafeed = {
                     }
 
                     lastBar = {
-                        time: barTime,
-                        open: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Number(tick.candle.open) : price,
-                        high: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Math.max(Number(tick.candle.high), price) : price,
-                        low: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Math.min(Number(tick.candle.low), price) : price,
+                        time: effectiveBarTime,
+                        open: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Number(tick.candle.open) : price,
+                        high: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Math.max(Number(tick.candle.high), price) : price,
+                        low: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Math.min(Number(tick.candle.low), price) : price,
                         close: price,
-                        volume: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Number(tick.candle.volume) : 1
+                        volume: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[activeKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
@@ -1831,7 +1844,7 @@ const Datafeed = {
                 }
 
                 // Update active forming candle (never drop ticks!)
-                if (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === lastBar.time) {
+                if (isMatchingCandle && tick.candle && brokerCandleTime === lastBar.time) {
                     lastBar.open = Number(tick.candle.open) || lastBar.open;
                     lastBar.high = Math.max(lastBar.high, Number(tick.candle.high), price);
                     lastBar.low = Math.min(lastBar.low, Number(tick.candle.low), price);
