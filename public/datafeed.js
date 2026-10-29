@@ -181,14 +181,15 @@ window.getMarketStatus = function(symbol) {
     const isMetal = clean.includes('XAU') || clean.includes('XAG') || clean.includes('OIL');
     const isIndex = clean.includes('30') || clean.includes('100') || clean.includes('500') || clean.includes('DE40') || clean.includes('UK100');
 
-    // Differentiate MetaQuotes-Demo vs Real Live Brokers (FTMO, The5%ers, Funding Pips, IC Markets, Exness, etc.)
+    // Detect broker context: The 5%ers vs MetaQuotes-Demo vs FundedNext / FTMO / Standard Prop Firms
     const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
     const serverStr = (acc && acc.server) ? acc.server : '';
     const brokerStr = (acc && acc.broker_name) ? acc.broker_name : '';
-    const isMetaQuotesDemo = !acc || serverStr.toLowerCase().includes('metaquotes') || serverStr.toLowerCase().includes('demo') || brokerStr.toLowerCase().includes('metaquotes');
+    const cleanBroker = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') ? window.MT5API.getCleanBrokerExchange(acc) : '';
+    const is5ers = cleanBroker === 'THE 5%ERS' || serverStr.toLowerCase().includes('fivepercent');
 
     const defaultSession = isMetal 
-        ? (isMetaQuotesDemo ? '2300-1955:12345' : '2200-2100:12345') 
+        ? (is5ers ? '2205-2050:12345' : '2200-2100:12345') 
         : (isIndex ? '2300-2200:12345' : '2200-2200:12345');
 
     // Weekend Closure:
@@ -228,44 +229,28 @@ window.getMarketStatus = function(symbol) {
     // Daily Rollover Maintenance Breaks (Mon - Thu):
     // Metals (Gold/Silver):
     if (isMetal) {
-        if (isMetaQuotesDemo) {
-            // MetaQuotes-Demo extended break: 1:25 AM to 4:30 AM IST (19:55 to 23:00 UTC)
-            if (curMinsUtc >= (19 * 60 + 55) && curMinsUtc < (23 * 60)) {
+        if (is5ers) {
+            // The 5%ers Gold (XAUUSD) closes at 23:50 server time (02:20 IST / 20:50 UTC) and reopens at 01:05 server time (03:35 IST / 22:05 UTC)
+            if (curMinsUtc >= (20 * 60 + 50) && curMinsUtc < (22 * 60 + 5)) {
                 return {
                     isOpen: false,
                     session: defaultSession,
                     timezone: 'Etc/UTC',
                     market: 'METALS',
-                    reason: 'MetaQuotes-Demo Rollover Break (01:25 - 04:30 IST / Opens at 04:30 IST)'
+                    reason: 'The 5%ers Daily Break (02:20 - 03:35 IST / Opens at 03:35 IST)'
                 };
             }
         } else {
-            const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
-            const broker = window.MT5API ? window.MT5API.getCleanBrokerExchange(acc) : '';
-            const is5ers = broker === 'THE 5%ERS' || (acc && (acc.server || '').includes('FivePercent'));
-
-            if (is5ers) {
-                // The 5%ers Gold (XAUUSD) closes at 23:50 server time (02:20 IST / 20:50 UTC) and reopens at 01:05 server time (03:35 IST / 22:05 UTC)
-                if (curMinsUtc >= (20 * 60 + 50) && curMinsUtc < (22 * 60 + 5)) {
-                    return {
-                        isOpen: false,
-                        session: defaultSession,
-                        timezone: 'Etc/UTC',
-                        market: 'METALS',
-                        reason: 'The 5%ers Daily Break (02:20 - 03:35 IST / Opens at 03:35 IST)'
-                    };
-                }
-            } else {
-                // FundedNext / FTMO / Standard Prop Firms: 02:30 AM to 03:30 AM IST (21:00 to 22:00 UTC)
-                if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
-                    return {
-                        isOpen: false,
-                        session: defaultSession,
-                        timezone: 'Etc/UTC',
-                        market: 'METALS',
-                        reason: 'Daily Rollover Break (02:30 - 03:30 IST / Opens at 03:30 IST)'
-                    };
-                }
+            // MetaQuotes-Demo, FundedNext, FTMO, and standard brokers: 02:30 AM to 03:30 AM IST (21:00 to 22:00 UTC)
+            const brokerLabel = serverStr.toLowerCase().includes('metaquotes') ? 'MetaQuotes-Demo' : (cleanBroker || 'Broker');
+            if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
+                return {
+                    isOpen: false,
+                    session: defaultSession,
+                    timezone: 'Etc/UTC',
+                    market: 'METALS',
+                    reason: `${brokerLabel} Daily Break (02:30 - 03:30 IST / Opens at 03:30 IST)`
+                };
             }
         }
     }
