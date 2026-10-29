@@ -1450,9 +1450,39 @@
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                             ${positions.length === 0 ? `
                                 <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
-                                    <div style="font-size: 24px; margin-bottom: 6px;">💼</div>
-                                    <div style="font-weight: 600; font-size: 13px; color: ${theme.text};">No Active Positions</div>
-                                    <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">There are no active open trades on this account right now.</div>
+                                    <div style="font-size: 26px; margin-bottom: 6px;">💼</div>
+                                    <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text};">Live MT5 Stream Connected</div>
+                                    <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px; max-width: 420px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+                                        There are no active open positions on this account right now.<br>New trades opened via TradingView or your MT5 terminal will track here in real time.
+                                    </div>
+                                    <div style="margin-top: 14px; display: flex; justify-content: center; gap: 8px;">
+                                        <button class="mt5-subtab-btn" data-subtab="tickers" style="
+                                            background: ${theme.primary};
+                                            color: #fff;
+                                            border: none;
+                                            padding: 6px 14px;
+                                            border-radius: 6px;
+                                            font-size: 11.5px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        "><span>📈</span> Explore Market Watch</button>
+                                        <button class="mt5-subtab-btn" data-subtab="history" style="
+                                            background: rgba(41,98,255,0.1);
+                                            color: ${theme.primary};
+                                            border: 1px solid rgba(41,98,255,0.25);
+                                            padding: 6px 14px;
+                                            border-radius: 6px;
+                                            font-size: 11.5px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        "><span>📜</span> View Order History</button>
+                                    </div>
                                 </div>
                             ` : `
                                 <div style="overflow-x: auto; border: 1px solid ${theme.border}; border-radius: 8px;">
