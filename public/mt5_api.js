@@ -20,6 +20,9 @@
             this.tickListeners = new Set();
             this.accountListeners = new Set();
             this.positionListeners = new Set();
+            this.notificationListeners = new Set();
+            this._previousPositionsMap = new Map();
+            this._hasInitialPositionsSnapshot = false;
             this.isConnected = false;
             this.pingMs = 0;
 
@@ -558,38 +561,49 @@
 
             if (onProgress) onProgress(1, 'Connecting to MT5 Profile', `Checking #${acc.login} (${acc.server})...`, 25);
 
-            // 1. Fetch symbols for this account with 8s timeout
+            // 1. Fetch symbols for this account (with instant localStorage cache)
             let symbols = [];
             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
             if (this._accountSymbolsCache.has(accountId)) {
                 symbols = this._accountSymbolsCache.get(accountId);
             } else {
+                try {
+                    const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
+                    if (localSyms) {
+                        symbols = JSON.parse(localSyms);
+                        this._accountSymbolsCache.set(accountId, symbols);
+                    }
+                } catch (_) {}
+
                 if (onProgress) onProgress(2, 'Loading Supported Tickers', 'Querying broker symbols and market watch...', 50);
                 try {
                     const accParam = `?account_id=${encodeURIComponent(accountId)}`;
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 8000);
                     const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, {
-                        headers: this.getHeaders(),
-                        signal: controller.signal
+                        headers: this.getHeaders()
                     });
-                    clearTimeout(timeoutId);
                     if (res.ok) {
                         const data = await res.json();
-                        symbols = data.symbols || [];
-                        this._accountSymbolsCache.set(accountId, symbols);
+                        if (data.symbols && data.symbols.length > 0) {
+                            symbols = data.symbols;
+                            this._accountSymbolsCache.set(accountId, symbols);
+                            try {
+                                localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(symbols));
+                            } catch (_) {}
+                        }
                     }
                 } catch (e) {
-                    console.warn('[MT5API] Could not fetch symbols for account details:', e);
+                    // Suppress abort/network timeout logs
                 }
             }
 
-            // 2. Fetch active positions with 5s timeout
+            // 2. Fetch active positions
             if (onProgress) onProgress(3, 'Fetching Active Positions', 'Retrieving open trades and floating PnL...', 75);
             let positions = [];
             try {
                 positions = await this.fetchPositions(accountId);
-            } catch (_) {}
+            } catch (_) {
+                positions = acc.positions || [];
+            }
 
             // 3. Fetch order history
             if (onProgress) onProgress(4, 'Synchronizing Order History', 'Loading closed trade deals and performance metrics...', 90);
@@ -636,21 +650,29 @@
             const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
             let remoteHistory = [];
 
-            // If we already know the running bridge daemon does not support /api/history (v1.0), skip query to avoid 404 console logs
+            // Read from localStorage cache first for 0ms loading
+            try {
+                const cached = localStorage.getItem(`mt5_history_cache_${targetId}`);
+                if (cached) {
+                    remoteHistory = JSON.parse(cached);
+                }
+            } catch (_) {}
+
             if (this._historyEndpointSupported !== false) {
                 try {
                     const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 6000);
                     const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
-                        headers: this.getHeaders(),
-                        signal: controller.signal
+                        headers: this.getHeaders()
                     });
-                    clearTimeout(timeoutId);
                     if (res.ok) {
                         const data = await res.json();
-                        remoteHistory = data.history || [];
-                        this._historyEndpointSupported = true;
+                        if (data.history && data.history.length > 0) {
+                            remoteHistory = data.history;
+                            this._historyEndpointSupported = true;
+                            try {
+                                localStorage.setItem(`mt5_history_cache_${targetId}`, JSON.stringify(remoteHistory));
+                            } catch (_) {}
+                        }
                     } else if (res.status === 404) {
                         this._historyEndpointSupported = false;
                     }
@@ -1014,8 +1036,13 @@
                             });
                         } else if (msg.type === 'positions') {
                             // Real-time WebSocket streaming of active positions & floating PnL
-                            this.positions = msg.positions || [];
-                            this.notifyPositionListeners();
+                            const newPositions = msg.positions || [];
+                            const accId = msg.account_id || (this.getActiveAccount() ? this.getActiveAccount().id : null);
+                            this.processPositionDiff(accId, newPositions);
+                            if (!accId || (this.getActiveAccount() && this.getActiveAccount().id === accId)) {
+                                this.positions = newPositions;
+                                this.notifyPositionListeners();
+                            }
                         }
                     } catch (_) {}
                 };
@@ -1074,24 +1101,27 @@
 
         // --- Orders & Positions Execution ---
         async fetchPositions(accountId = null) {
+            const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
             try {
-                const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
                 const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}` : '';
                 const res = await fetch(`${this.endpoint}/api/positions${accParam}`, {
                     headers: this.getHeaders()
                 });
                 if (res.ok) {
                     const data = await res.json();
+                    const pos = data.positions || [];
+                    this.processPositionDiff(targetId, pos);
                     if (!accountId || (this.getActiveAccount() && this.getActiveAccount().id === accountId)) {
-                        this.positions = data.positions || [];
+                        this.positions = pos;
                         this.notifyPositionListeners();
                     }
-                    return data.positions || [];
+                    return pos;
                 }
             } catch (e) {
-                console.warn('[MT5API] fetchPositions error:', e);
+                // Graceful fallback without throwing unhandled error
             }
-            return [];
+            const acc = this.accounts.find(a => String(a.id) === String(targetId));
+            return (acc && acc.positions) ? acc.positions : [];
         }
 
         async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
@@ -1223,6 +1253,101 @@
         notifyPositionListeners() {
             this.positionListeners.forEach(cb => {
                 try { cb(this.positions); } catch (_) {}
+            });
+        }
+
+        onNotification(cb) {
+            this.notificationListeners.add(cb);
+        }
+
+        notifyNotificationListeners(notif) {
+            this.notificationListeners.forEach(cb => {
+                try { cb(notif); } catch (_) {}
+            });
+            if (window.MT5UI && typeof window.MT5UI.showNotification === 'function') {
+                try { window.MT5UI.showNotification(notif); } catch (_) {}
+            }
+        }
+
+        processPositionDiff(accountId, newPositions = []) {
+            const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
+            const accName = acc ? acc.nickname : `Account #${accountId || ''}`;
+
+            if (!this._hasInitialPositionsSnapshot) {
+                // Initial baseline snapshot: populate without triggering popups
+                this._previousPositionsMap.clear();
+                newPositions.forEach(p => {
+                    this._previousPositionsMap.set(String(p.ticket), p);
+                });
+                this._hasInitialPositionsSnapshot = true;
+                return;
+            }
+
+            const currentTickets = new Set();
+
+            // 1. Check for newly opened positions
+            newPositions.forEach(p => {
+                const ticketKey = String(p.ticket);
+                currentTickets.add(ticketKey);
+                if (!this._previousPositionsMap.has(ticketKey)) {
+                    // Position Opened!
+                    this.notifyNotificationListeners({
+                        type: 'opened',
+                        action: 'Position Opened',
+                        ticket: p.ticket,
+                        symbol: p.symbol,
+                        side: p.type,
+                        lots: p.lots,
+                        price: p.open_price,
+                        sl: p.sl,
+                        tp: p.tp,
+                        accountName: accName,
+                        time: Date.now()
+                    });
+                } else {
+                    // Check for SL/TP modification
+                    const oldP = this._previousPositionsMap.get(ticketKey);
+                    if (oldP && (Number(oldP.sl) !== Number(p.sl) || Number(oldP.tp) !== Number(p.tp))) {
+                        this.notifyNotificationListeners({
+                            type: 'modified',
+                            action: 'Order Modified',
+                            ticket: p.ticket,
+                            symbol: p.symbol,
+                            side: p.type,
+                            lots: p.lots,
+                            oldSl: oldP.sl,
+                            newSl: p.sl,
+                            oldTp: oldP.tp,
+                            newTp: p.tp,
+                            accountName: accName,
+                            time: Date.now()
+                        });
+                    }
+                }
+            });
+
+            // 2. Check for closed positions
+            this._previousPositionsMap.forEach((oldP, ticketKey) => {
+                if (!currentTickets.has(ticketKey)) {
+                    // Position Closed!
+                    this.notifyNotificationListeners({
+                        type: 'closed',
+                        action: 'Position Closed',
+                        ticket: oldP.ticket,
+                        symbol: oldP.symbol,
+                        side: oldP.type,
+                        lots: oldP.lots,
+                        profit: oldP.profit,
+                        accountName: accName,
+                        time: Date.now()
+                    });
+                }
+            });
+
+            // Refresh map
+            this._previousPositionsMap.clear();
+            newPositions.forEach(p => {
+                this._previousPositionsMap.set(String(p.ticket), p);
             });
         }
     }

@@ -40,17 +40,12 @@
         }
 
         init() {
-            // Isolate input fields from TradingView's global hotkey capture
-            ['keydown', 'keyup', 'keypress'].forEach(evt => {
-                window.addEventListener(evt, (e) => {
-                    const tag = e.target ? e.target.tagName : '';
-                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
-                        e.stopPropagation();
-                        if (typeof e.stopImmediatePropagation === 'function') {
-                            e.stopImmediatePropagation();
-                        }
-                    }
-                }, true);
+            // Ensure inputs inside modals and floating UI are cleanly isolated from parent hotkeys
+            document.addEventListener('keydown', (e) => {
+                const tag = e.target ? e.target.tagName : '';
+                if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') && e.target.closest('#mt5-fleet-modal')) {
+                    e.stopPropagation();
+                }
             });
 
             if (!document.getElementById('mt5-spin-style')) {
@@ -88,6 +83,13 @@
                 window.MT5API.onPositionUpdate((positions) => {
                     this.handleLivePositionUpdate(positions);
                 });
+
+                // Listen to real-time order & position notifications
+                if (typeof window.MT5API.onNotification === 'function') {
+                    window.MT5API.onNotification((notif) => {
+                        this.showNotification(notif);
+                    });
+                }
             }
         }
 
@@ -759,10 +761,23 @@
                 return;
             }
 
-            // Immediately pre-populate with known account info so user NEVER sees a blank screen!
+            // Immediately pre-populate with known account info, localStorage symbols & history so user NEVER waits!
             const existingAcc = window.MT5API ? (window.MT5API.accounts.find(a => String(a.id) === String(accountId)) || window.MT5API.getActiveAccount()) : null;
-            const cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
-            const storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
+            let cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
+            let storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
+
+            if (cachedSymbols.length === 0) {
+                try {
+                    const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
+                    if (localSyms) cachedSymbols = JSON.parse(localSyms);
+                } catch (_) {}
+            }
+            if (storedHistory.length === 0) {
+                try {
+                    const localHist = localStorage.getItem(`mt5_history_cache_${accountId}`);
+                    if (localHist) storedHistory = JSON.parse(localHist);
+                } catch (_) {}
+            }
 
             const initialCategories = {};
             cachedSymbols.forEach(s => {
@@ -774,17 +789,20 @@
             this.detailsData = {
                 account: existingAcc,
                 symbols: cachedSymbols,
-                positions: [],
+                positions: (existingAcc && existingAcc.positions) ? existingAcc.positions : [],
                 history: storedHistory,
                 categories: initialCategories,
-                lastTradeFormatted: (storedHistory && storedHistory.length > 0) ? new Date(storedHistory[0].time).toLocaleString() : (existingAcc && existingAcc.created_at ? `Account added: ${new Date(existingAcc.created_at * 1000).toLocaleDateString()}` : 'Syncing live...'),
+                lastTradeFormatted: (storedHistory && storedHistory.length > 0) ? new Date(storedHistory[0].time).toLocaleString() : (existingAcc && existingAcc.created_at ? `Account added: ${new Date(existingAcc.created_at * 1000).toLocaleDateString()}` : 'Ready'),
                 totalSymbols: cachedSymbols.length,
                 fetchedAt: Date.now()
             };
 
+            const hasInstantCache = cachedSymbols.length > 0;
             this.detailsLoading = false;
-            this.detailsSyncing = true;
-            this.detailsProgress = { step: 1, title: 'Connecting to MT5 Profile...', detail: `Checking account specs for #${existingAcc ? existingAcc.login : accountId}`, pct: 20 };
+            this.detailsSyncing = !hasInstantCache;
+            this.detailsProgress = hasInstantCache ? null : { step: 1, title: 'Connecting to MT5 Profile...', detail: `Checking account specs for #${existingAcc ? existingAcc.login : accountId}`, pct: 25 };
+            
+            // Render modal in 0ms!
             this.renderModal();
 
             const onProgress = (step, title, detail, pct) => {
@@ -805,7 +823,17 @@
             } finally {
                 this.detailsSyncing = false;
                 this.detailsProgress = null;
-                this.renderModal();
+                // If user is currently typing in search input, do NOT rebuild whole modal!
+                const activeEl = document.activeElement;
+                const isTyping = activeEl && (activeEl.id === 'mt5-ticker-search-in' || activeEl.id === 'mt5-history-search-in');
+                if (isTyping) {
+                    const theme = this.getTheme();
+                    const srv = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                    if (this.detailsSubTab === 'tickers') this.updateTickerListView(document.getElementById(this.modalId), theme, srv);
+                    if (this.detailsSubTab === 'history') this.updateHistoryListView(document.getElementById(this.modalId), theme);
+                } else {
+                    this.renderModal();
+                }
             }
         }
 
@@ -890,15 +918,26 @@
                 });
             }
 
-            // 2. Type Filter (ALL, TRADES, BUY, SELL, DEPOSIT)
-            if (this.historyTypeFilter && this.historyTypeFilter !== 'ALL') {
-                if (this.historyTypeFilter === 'TRADES') {
-                    list = list.filter(h => h.type === 'BUY' || h.type === 'SELL');
-                } else if (this.historyTypeFilter === 'DEPOSIT') {
-                    list = list.filter(h => h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
+            // 2. Type Filter (ALL/CLOSED, TRADES, BUY, SELL, DEPOSIT, ALL_LOGS)
+            const typeFilter = this.historyTypeFilter || 'ALL';
+            const hasOuts = list.some(h => h.entry === 'OUT');
+            if (typeFilter === 'ALL' || typeFilter === 'CLOSED') {
+                // By default: Show closed completed trades (entry === 'OUT') so each trade appears cleanly ONCE without duplication!
+                if (hasOuts) {
+                    list = list.filter(h => h.entry === 'OUT');
                 } else {
-                    list = list.filter(h => String(h.type).toUpperCase() === this.historyTypeFilter);
+                    list = list.filter(h => h.type === 'BUY' || h.type === 'SELL');
                 }
+            } else if (typeFilter === 'TRADES') {
+                list = list.filter(h => h.type === 'BUY' || h.type === 'SELL');
+            } else if (typeFilter === 'BUY') {
+                list = list.filter(h => h.type === 'BUY' && (!hasOuts || h.entry === 'OUT'));
+            } else if (typeFilter === 'SELL') {
+                list = list.filter(h => h.type === 'SELL' && (!hasOuts || h.entry === 'OUT'));
+            } else if (typeFilter === 'DEPOSIT') {
+                list = list.filter(h => h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
+            } else if (typeFilter === 'ALL_LOGS') {
+                // Keep raw full deal transactions
             }
 
             // 3. Outcome Filter (ALL, WIN, LOSS) - strictly market trades, NOT balance deposits!
@@ -1178,6 +1217,123 @@
             }
         }
 
+        showNotification(notif) {
+            if (!notif) return;
+            let container = document.getElementById('mt5-notifications-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'mt5-notifications-container';
+                container.style.cssText = `
+                    position: fixed;
+                    top: 65px;
+                    right: 20px;
+                    z-index: 9999999;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    max-width: 380px;
+                    pointer-events: none;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                `;
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                pointer-events: auto;
+                background: rgba(30, 34, 45, 0.96);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                padding: 10px 14px;
+                color: #ffffff;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                font-size: 12px;
+                transform: translateX(40px);
+                opacity: 0;
+                transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+            `;
+
+            let icon = '🔔';
+            let borderColor = '#2962ff';
+            let titleColor = '#2962ff';
+            const action = notif.action || 'Trade Update';
+            const type = notif.type || 'info';
+            const symbol = notif.symbol || '';
+            const side = notif.side || '';
+            const lots = notif.lots || 0;
+            const price = notif.price || 0;
+            const profit = notif.profit;
+            const accountName = notif.accountName || '';
+
+            if (type === 'opened') {
+                const isBuy = String(side).toUpperCase() === 'BUY';
+                icon = isBuy ? '🟢' : '🔴';
+                borderColor = isBuy ? '#089981' : '#f23645';
+                titleColor = borderColor;
+            } else if (type === 'closed') {
+                const isWin = Number(profit || 0) >= 0;
+                icon = isWin ? '🎉' : '📉';
+                borderColor = isWin ? '#089981' : '#f23645';
+                titleColor = borderColor;
+            } else if (type === 'modified') {
+                icon = '⚙️';
+                borderColor = '#ff9800';
+                titleColor = '#ff9800';
+            }
+
+            toast.style.borderLeft = `4px solid ${borderColor}`;
+
+            let detailHtml = '';
+            if (type === 'opened') {
+                detailHtml = `<strong style="color: ${titleColor};">${side} ${lots} ${symbol}</strong> @ <span>${price}</span>`;
+            } else if (type === 'closed') {
+                const profitNum = Number(profit || 0);
+                const pColor = profitNum >= 0 ? '#089981' : '#f23645';
+                detailHtml = `<span>${side} ${lots} ${symbol}</span> • PnL: <strong style="color: ${pColor};">${profitNum >= 0 ? '+' : ''}$${profitNum.toFixed(2)}</strong>`;
+            } else if (type === 'modified') {
+                detailHtml = `<span>${symbol}</span> • SL: ${notif.newSl || 'None'} | TP: ${notif.newTp || 'None'}`;
+            }
+
+            toast.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span>${icon}</span>
+                        <strong style="font-size: 11.5px; color: ${titleColor}; text-transform: uppercase;">${action}</strong>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${accountName ? `<span style="font-size: 9.5px; background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px; color: #787b86;">${accountName}</span>` : ''}
+                        <button class="mt5-toast-close" style="background: none; border: none; color: #787b86; cursor: pointer; font-size: 13px; line-height: 1; padding: 0;">✕</button>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #d1d4dc; margin-top: 1px;">
+                    ${detailHtml}
+                </div>
+            `;
+
+            const closeBtn = toast.querySelector('.mt5-toast-close');
+            let isRemoved = false;
+            const dismiss = () => {
+                if (isRemoved) return;
+                isRemoved = true;
+                toast.style.transform = 'translateX(40px)';
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 250);
+            };
+            if (closeBtn) closeBtn.onclick = dismiss;
+
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            });
+
+            setTimeout(dismiss, 5000);
+        }
+
         getPositionsTableHtml(positions, theme, server) {
             if (!positions || positions.length === 0) {
                 return `
@@ -1430,8 +1586,9 @@
                 });
             }
 
-            // History metrics - strictly separate real market trades from capital deposits
-            const tradeDeals = history.filter(h => h.type === 'BUY' || h.type === 'SELL');
+            // History metrics - strictly separate real closed market trades from capital deposits
+            const hasOutDeals = history.some(h => h.entry === 'OUT');
+            const tradeDeals = history.filter(h => (h.type === 'BUY' || h.type === 'SELL') && (!hasOutDeals || h.entry === 'OUT'));
             const depositDeals = history.filter(h => h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
             const initialDeposit = depositDeals.reduce((sum, h) => sum + Number(h.profit || 0), 0);
 
@@ -1767,13 +1924,14 @@
                                 <!-- Filter Buttons Row -->
                                 <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
                                     <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
-                                        <span style="font-size: 10.5px; color: ${theme.textMuted};">Type:</span>
+                                        <span style="font-size: 10.5px; color: ${theme.textMuted};">Filter:</span>
                                         ${[
-                                            { id: 'ALL', label: 'All' },
-                                            { id: 'TRADES', label: 'Trades' },
+                                            { id: 'ALL', label: 'Closed Trades' },
+                                            { id: 'TRADES', label: 'All Trades' },
                                             { id: 'BUY', label: 'Buys' },
                                             { id: 'SELL', label: 'Sells' },
-                                            { id: 'DEPOSIT', label: 'Deposits' }
+                                            { id: 'DEPOSIT', label: 'Deposits' },
+                                            { id: 'ALL_LOGS', label: 'Raw Logs' }
                                         ].map(t => `
                                             <button class="mt5-hist-type-btn" data-type="${t.id}" style="
                                                 background: ${this.historyTypeFilter === t.id ? theme.primary : 'transparent'};
@@ -1904,17 +2062,15 @@
                 };
             });
 
-            // Search input (Tickers tab) -> instant live filter with full keyboard isolation
+            // Search input (Tickers tab) -> instant live filter with smooth typing
             const searchIn = modal.querySelector('#mt5-ticker-search-in');
             if (searchIn) {
-                ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                ['keydown', 'keyup'].forEach(evt => {
                     searchIn.addEventListener(evt, (e) => {
                         e.stopPropagation();
-                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-                    }, true);
+                    });
                 });
                 searchIn.oninput = (e) => {
-                    e.stopPropagation();
                     this.tickerSearchQuery = e.target.value;
                     const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     this.updateTickerListView(modal, this.getTheme(), server);
@@ -1924,14 +2080,12 @@
             // Search input (Order History tab) -> filter with keyboard isolation
             const histSearchIn = modal.querySelector('#mt5-history-search-in');
             if (histSearchIn) {
-                ['keydown', 'keyup', 'keypress'].forEach(evt => {
+                ['keydown', 'keyup'].forEach(evt => {
                     histSearchIn.addEventListener(evt, (e) => {
                         e.stopPropagation();
-                        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-                    }, true);
+                    });
                 });
                 histSearchIn.oninput = (e) => {
-                    e.stopPropagation();
                     this.historySearchQuery = e.target.value;
                     this.updateHistoryListView(modal, this.getTheme());
                 };
