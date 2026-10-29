@@ -815,7 +815,7 @@
                     this.wasDisconnected = false;
                 };
 
-                this.ws.onmessage = (evt) => {
+                socket.onmessage = (evt) => {
                     try {
                         const msg = JSON.parse(evt.data);
                         if (msg.type === 'tick') {
@@ -826,16 +826,21 @@
                     } catch (_) {}
                 };
 
-                this.ws.onclose = () => {
-                    this.ws = null;
-                    this.wasDisconnected = true;
+                socket.onclose = () => {
+                    if (this.ws === socket) {
+                        this.ws = null;
+                    }
                     setTimeout(() => {
-                        if (this.tickListeners.size > 0) this.ensureWebSocket();
-                    }, 1500);
+                        if (this.tickListeners && this.tickListeners.size > 0 && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+                            this.ensureWebSocket();
+                        }
+                    }, 2500);
                 };
 
-                this.ws.onerror = () => {
-                    if (this.ws) this.ws.close();
+                socket.onerror = () => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        try { socket.close(); } catch (_) {}
+                    }
                 };
             } catch (err) {
                 console.warn('[MT5API] WebSocket init error:', err);
@@ -844,10 +849,31 @@
 
         reconnectWebSocket() {
             if (this.ws) {
-                this.ws.close();
+                if (this.ws.readyState === WebSocket.CONNECTING) {
+                    // Already establishing connection; do not abort
+                    return;
+                }
+                if (this.ws.readyState === WebSocket.OPEN) {
+                    // Already connected; update subscription without closing
+                    const acc = this.getActiveAccount();
+                    try {
+                        this.ws.send(JSON.stringify({
+                            action: 'subscribe',
+                            symbol: this.activeSymbol,
+                            resolution: this.activeResolution || '1',
+                            token: this.apiKey,
+                            account_id: acc ? acc.id : null
+                        }));
+                    } catch (_) {}
+                    return;
+                }
+                try {
+                    this.ws.onclose = null;
+                    this.ws.close();
+                } catch (_) {}
                 this.ws = null;
             }
-            if (this.tickListeners.size > 0) {
+            if (this.tickListeners && this.tickListeners.size > 0) {
                 this.ensureWebSocket();
             }
         }
