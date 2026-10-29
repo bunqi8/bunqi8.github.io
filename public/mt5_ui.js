@@ -76,8 +76,17 @@
                 window.MT5API.onAccountUpdate(() => {
                     this.updateButtonState();
                     if (this.isOpen && !this.switchingAccountId) {
-                        this.renderModal();
+                        if (this.viewMode === 'details') {
+                            this.updateLiveDetailsFinancials();
+                        } else {
+                            this.renderModal();
+                        }
                     }
+                });
+
+                // Listen to real-time WebSocket positions streaming
+                window.MT5API.onPositionUpdate((positions) => {
+                    this.handleLivePositionUpdate(positions);
                 });
             }
         }
@@ -349,18 +358,49 @@
         renderModal() {
             const modal = document.getElementById(this.modalId);
             if (!modal) return;
+
+            // Preserve active scroll positions across modal re-renders
+            const scrollMap = new Map();
+            const modalBody = modal.querySelector('.mt5-modal-body');
+            if (modalBody && modalBody.scrollTop > 0) scrollMap.set('modal-body', modalBody.scrollTop);
+            modal.querySelectorAll('#mt5-history-items-container, #mt5-ticker-items-container, #mt5-positions-items-container').forEach(el => {
+                if (el.id && el.scrollTop > 0) scrollMap.set(el.id, el.scrollTop);
+                const sub = el.querySelector('div[style*="overflow"]');
+                if (sub && sub.scrollTop > 0) scrollMap.set(el.id + '-inner', sub.scrollTop);
+            });
+
             const theme = this.getTheme();
             const accounts = window.MT5API ? window.MT5API.accounts : [];
             const activeAcc = window.MT5API ? window.MT5API.getActiveAccount() : null;
             const isConn = window.MT5API ? window.MT5API.isConnected : false;
 
             modal.innerHTML = `
+                <style>
+                    #mt5-fleet-modal *::-webkit-scrollbar {
+                        width: 6px;
+                        height: 6px;
+                    }
+                    #mt5-fleet-modal *::-webkit-scrollbar-track {
+                        background: transparent;
+                    }
+                    #mt5-fleet-modal *::-webkit-scrollbar-thumb {
+                        background: rgba(255, 255, 255, 0.2);
+                        border-radius: 4px;
+                    }
+                    #mt5-fleet-modal *::-webkit-scrollbar-thumb:hover {
+                        background: rgba(41, 98, 255, 0.6);
+                    }
+                    #mt5-fleet-modal * {
+                        scrollbar-width: thin;
+                        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+                    }
+                </style>
                 <div style="
                     background: ${theme.bg};
                     color: ${theme.text};
                     border: 1px solid ${theme.border};
                     border-radius: 12px;
-                    width: 700px;
+                    width: 720px;
                     max-width: 95vw;
                     max-height: 90vh;
                     display: flex;
@@ -426,13 +466,32 @@
                     </div>
 
                     <!-- Modal Body -->
-                    <div style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; flex: 1;">
+                    <div class="mt5-modal-body" style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; flex: 1;">
                         ${this.activeTab === 'fleet' ? this.getFleetHtml(theme, accounts, activeAcc) : this.getSettingsHtml(theme)}
                     </div>
                 </div>
             `;
 
             this.bindEvents(modal);
+
+            // Restore scroll positions smoothly
+            if (scrollMap.has('modal-body')) {
+                const newBody = modal.querySelector('.mt5-modal-body');
+                if (newBody) newBody.scrollTop = scrollMap.get('modal-body');
+            }
+            scrollMap.forEach((top, key) => {
+                if (key.endsWith('-inner')) {
+                    const parentId = key.replace('-inner', '');
+                    const parent = modal.querySelector(`#${parentId}`);
+                    if (parent) {
+                        const sub = parent.querySelector('div[style*="overflow"]');
+                        if (sub) sub.scrollTop = top;
+                    }
+                } else if (key !== 'modal-body') {
+                    const el = modal.querySelector(`#${key}`);
+                    if (el) el.scrollTop = top;
+                }
+            });
         }
 
         getFleetHtml(theme, accounts, activeAcc) {
@@ -818,27 +877,35 @@
             if (!this.detailsData || !this.detailsData.history) return [];
             let list = [...this.detailsData.history];
 
-            // 1. Text Search (symbol, ticket, comment)
+            // 1. Text Search (symbol, ticket, comment, or deposit)
             if (this.historySearchQuery) {
                 const q = this.historySearchQuery.toUpperCase().trim();
                 list = list.filter(h => {
+                    const isDep = (h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
                     const symMatch = h.symbol && h.symbol.toUpperCase().includes(q);
                     const ticketMatch = String(h.ticket).includes(q) || String(h.order).includes(q);
                     const commentMatch = h.comment && h.comment.toUpperCase().includes(q);
-                    return symMatch || ticketMatch || commentMatch;
+                    const depMatch = isDep && 'DEPOSIT BALANCE INITIAL FUNDING'.includes(q);
+                    return symMatch || ticketMatch || commentMatch || depMatch;
                 });
             }
 
-            // 2. Type Filter (ALL, BUY, SELL)
+            // 2. Type Filter (ALL, TRADES, BUY, SELL, DEPOSIT)
             if (this.historyTypeFilter && this.historyTypeFilter !== 'ALL') {
-                list = list.filter(h => String(h.type).toUpperCase() === this.historyTypeFilter);
+                if (this.historyTypeFilter === 'TRADES') {
+                    list = list.filter(h => h.type === 'BUY' || h.type === 'SELL');
+                } else if (this.historyTypeFilter === 'DEPOSIT') {
+                    list = list.filter(h => h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
+                } else {
+                    list = list.filter(h => String(h.type).toUpperCase() === this.historyTypeFilter);
+                }
             }
 
-            // 3. Outcome Filter (ALL, WIN, LOSS)
+            // 3. Outcome Filter (ALL, WIN, LOSS) - strictly market trades, NOT balance deposits!
             if (this.historyOutcomeFilter === 'WIN') {
-                list = list.filter(h => Number(h.profit || 0) >= 0);
+                list = list.filter(h => (h.type === 'BUY' || h.type === 'SELL') && Number(h.profit || 0) > 0);
             } else if (this.historyOutcomeFilter === 'LOSS') {
-                list = list.filter(h => Number(h.profit || 0) < 0);
+                list = list.filter(h => (h.type === 'BUY' || h.type === 'SELL') && Number(h.profit || 0) < 0);
             }
 
             // 4. Date Filter (ALL, TODAY, 7D, 30D)
@@ -898,19 +965,22 @@
             }
             const acc = this.detailsData && this.detailsData.account ? this.detailsData.account : { login: 'account' };
             const headers = ['Ticket', 'Order', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Swap', 'Commission', 'Time', 'Comment'];
-            const rows = list.map(h => [
-                h.ticket,
-                h.order,
-                h.symbol,
-                h.type,
-                h.volume,
-                h.price,
-                h.profit,
-                h.swap || 0,
-                h.commission || 0,
-                h.time_formatted || (h.time ? new Date(h.time).toISOString() : ''),
-                `"${(h.comment || '').replace(/"/g, '""')}"`
-            ]);
+            const rows = list.map(h => {
+                const isDeposit = (h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
+                return [
+                    h.ticket,
+                    h.order,
+                    isDeposit ? 'Account Deposit' : h.symbol,
+                    isDeposit ? 'DEPOSIT' : h.type,
+                    isDeposit ? '0' : h.volume,
+                    isDeposit ? '0' : h.price,
+                    h.profit,
+                    h.swap || 0,
+                    h.commission || 0,
+                    h.time_formatted || (h.time ? new Date(h.time).toISOString() : ''),
+                    `"${(h.comment || '').replace(/"/g, '""')}"`
+                ];
+            });
             const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement('a');
@@ -944,7 +1014,7 @@
             };
 
             return `
-                <div style="overflow-x: auto; border: 1px solid ${theme.border}; border-radius: 8px; max-height: 380px;">
+                <div style="overflow-x: auto; overflow-y: auto; border: 1px solid ${theme.border}; border-radius: 8px; max-height: min(380px, 48vh);">
                     <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
                         <thead>
                             <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted}; position: sticky; top: 0; z-index: 2;">
@@ -953,17 +1023,34 @@
                                 <th class="mt5-sort-header" data-sort="type" style="padding: 8px 10px; cursor: pointer; user-select: none;">Type ${arrow('type')}</th>
                                 <th class="mt5-sort-header" data-sort="volume" style="padding: 8px 10px; cursor: pointer; user-select: none;">Lots ${arrow('volume')}</th>
                                 <th style="padding: 8px 10px;">Price</th>
-                                <th class="mt5-sort-header" data-sort="profit" style="padding: 8px 10px; text-align: right; cursor: pointer; user-select: none;">Profit ($) ${arrow('profit')}</th>
+                                <th class="mt5-sort-header" data-sort="profit" style="padding: 8px 10px; text-align: right; cursor: pointer; user-select: none;">P&L ($) ${arrow('profit')}</th>
                                 <th class="mt5-sort-header" data-sort="time" style="padding: 8px 10px; cursor: pointer; user-select: none;">Close Time ${arrow('time')}</th>
                                 <th style="padding: 8px 10px; text-align: center;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${list.map(h => {
+                                const isDeposit = (h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
                                 const isBuy = String(h.type).toUpperCase() === 'BUY';
                                 const profit = Number(h.profit || 0);
-                                const profitColor = profit >= 0 ? theme.success : theme.error;
                                 const timeStr = h.time_formatted || (h.time ? new Date(h.time).toLocaleString() : 'N/A');
+
+                                if (isDeposit) {
+                                    return `
+                                        <tr style="border-bottom: 1px solid ${theme.border}; background: rgba(41, 98, 255, 0.04);">
+                                            <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${h.ticket}</td>
+                                            <td style="padding: 7px 10px; font-weight: 600; color: ${theme.primary}; font-family: monospace;">Account Deposit</td>
+                                            <td style="padding: 7px 10px;"><span style="background: rgba(41,98,255,0.15); color: ${theme.primary}; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 10px;">DEPOSIT</span></td>
+                                            <td style="padding: 7px 10px; color: ${theme.textMuted};">—</td>
+                                            <td style="padding: 7px 10px; color: ${theme.textMuted};">—</td>
+                                            <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${theme.primary}; font-family: monospace;">+$${profit.toFixed(2)}</td>
+                                            <td style="padding: 7px 10px; color: ${theme.textMuted}; white-space: nowrap;">${timeStr}</td>
+                                            <td style="padding: 7px 10px; text-align: center; color: ${theme.textMuted};">—</td>
+                                        </tr>
+                                    `;
+                                }
+
+                                const profitColor = profit >= 0 ? theme.success : theme.error;
                                 return `
                                     <tr style="border-bottom: 1px solid ${theme.border};">
                                         <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${h.ticket}</td>
@@ -1021,6 +1108,167 @@
                     this.updateHistoryListView(modal, theme);
                 };
             });
+        }
+
+        updateLiveDetailsFinancials() {
+            const modal = document.getElementById(this.modalId);
+            if (!modal || this.viewMode !== 'details' || !this.detailsAccountId) return;
+            const acc = window.MT5API ? window.MT5API.accounts.find(a => String(a.id) === String(this.detailsAccountId)) : null;
+            if (!acc) return;
+
+            const balEl = modal.querySelector('#mt5-cockpit-balance');
+            const eqEl = modal.querySelector('#mt5-cockpit-equity');
+            const freeEl = modal.querySelector('#mt5-cockpit-free-margin');
+            const usedEl = modal.querySelector('#mt5-cockpit-used-margin');
+            const barEl = modal.querySelector('#mt5-cockpit-margin-bar');
+
+            const bal = Number(acc.balance || 0);
+            const eq = Number(acc.equity || bal);
+            const pnl = eq - bal;
+            const pnlPct = bal > 0 ? ((pnl / bal) * 100).toFixed(2) : '0.00';
+            const margin = Number(acc.margin || 0);
+            const freeMargin = Number(acc.margin_free || (bal - margin));
+            const marginUsedPct = bal > 0 ? Math.min(100, Math.max(0, (margin / bal) * 100)).toFixed(1) : '0.0';
+            const freeMarginPct = Math.max(0, 100 - Number(marginUsedPct));
+
+            if (balEl) balEl.innerHTML = `$${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span style="font-size: 10px; color: ${this.getTheme().textMuted}; font-weight: 400; margin-left: 2px;">${acc.currency || 'USD'}</span>`;
+            if (eqEl) {
+                eqEl.innerHTML = `$${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span style="font-size: 10px; font-weight: 600; margin-left: 3px;">(${pnl >= 0 ? '+' : ''}${pnlPct}%)</span>`;
+                eqEl.style.color = pnl >= 0 ? this.getTheme().success : this.getTheme().error;
+            }
+            if (freeEl) freeEl.textContent = `$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            if (usedEl) usedEl.textContent = `Used: $${margin.toFixed(2)} (${marginUsedPct}%)`;
+            if (barEl) barEl.style.width = `${freeMarginPct}%`;
+        }
+
+        handleLivePositionUpdate(positions) {
+            const modal = document.getElementById(this.modalId);
+            if (!modal) return;
+
+            // Update badge on Active Positions tab
+            const posBadge = modal.querySelector('#mt5-tab-positions-count');
+            if (posBadge) {
+                posBadge.textContent = `Active Positions (${positions.length})`;
+            }
+
+            // If user is currently looking at Active Positions tab, update table live without rebuilding whole modal
+            if (this.viewMode === 'details' && this.detailsSubTab === 'positions') {
+                const container = modal.querySelector('#mt5-positions-items-container');
+                if (container && this.detailsData) {
+                    this.detailsData.positions = positions;
+                    const theme = this.getTheme();
+                    const srv = this.detailsData.account ? this.detailsData.account.server : '';
+                    
+                    // Preserve scroll position
+                    const innerBox = container.querySelector('div[style*="overflow"]');
+                    const prevScroll = innerBox ? innerBox.scrollTop : 0;
+                    container.innerHTML = this.getPositionsTableHtml(positions, theme, srv);
+                    const newInnerBox = container.querySelector('div[style*="overflow"]');
+                    if (newInnerBox) newInnerBox.scrollTop = prevScroll;
+
+                    // Re-bind chart buttons in positions container
+                    container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
+                        btn.onclick = (e) => {
+                            const sym = e.currentTarget.getAttribute('data-symbol');
+                            const server = e.currentTarget.getAttribute('data-server');
+                            this.loadSymbolOnChart(sym, server);
+                        };
+                    });
+                }
+            }
+        }
+
+        getPositionsTableHtml(positions, theme, server) {
+            if (!positions || positions.length === 0) {
+                return `
+                    <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
+                        <div style="font-size: 26px; margin-bottom: 6px;">💼</div>
+                        <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text};">Live MT5 Stream Connected</div>
+                        <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px; max-width: 420px; margin-left: auto; margin-right: auto; line-height: 1.4;">
+                            There are no active open positions on this account right now.<br>New trades opened via TradingView or your MT5 terminal will track here in real time.
+                        </div>
+                        <div style="margin-top: 14px; display: flex; justify-content: center; gap: 8px;">
+                            <button class="mt5-subtab-btn" data-subtab="tickers" style="
+                                background: ${theme.primary};
+                                color: #fff;
+                                border: none;
+                                padding: 6px 14px;
+                                border-radius: 6px;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                            "><span>📈</span> Explore Market Watch</button>
+                            <button class="mt5-subtab-btn" data-subtab="history" style="
+                                background: rgba(41,98,255,0.1);
+                                color: ${theme.primary};
+                                border: 1px solid rgba(41,98,255,0.25);
+                                padding: 6px 14px;
+                                border-radius: 6px;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                            "><span>📜</span> View Order History</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div style="overflow-x: auto; overflow-y: auto; border: 1px solid ${theme.border}; border-radius: 8px; max-height: min(380px, 48vh);">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
+                        <thead>
+                            <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted}; position: sticky; top: 0; z-index: 2;">
+                                <th style="padding: 7px 10px;">Ticket</th>
+                                <th style="padding: 7px 10px;">Symbol</th>
+                                <th style="padding: 7px 10px;">Type</th>
+                                <th style="padding: 7px 10px;">Lots</th>
+                                <th style="padding: 7px 10px;">Open Price</th>
+                                <th style="padding: 7px 10px;">Current</th>
+                                <th style="padding: 7px 10px;">SL / TP</th>
+                                <th style="padding: 7px 10px; text-align: right;">Floating P&L ($)</th>
+                                <th style="padding: 7px 10px; text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${positions.map(p => {
+                                const isBuy = (p.type === 0 || String(p.type).toUpperCase() === 'BUY');
+                                const typeColor = isBuy ? theme.success : theme.error;
+                                const profit = Number(p.profit || 0);
+                                const profitColor = profit >= 0 ? theme.success : theme.error;
+                                return `
+                                    <tr style="border-bottom: 1px solid ${theme.border};">
+                                        <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
+                                        <td style="padding: 7px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
+                                        <td style="padding: 7px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
+                                        <td style="padding: 7px 10px;">${p.volume}</td>
+                                        <td style="padding: 7px 10px;">${p.price_open}</td>
+                                        <td style="padding: 7px 10px;">${p.price_current}</td>
+                                        <td style="padding: 7px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
+                                        <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
+                                        <td style="padding: 7px 10px; text-align: center;">
+                                            <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${server || ''}" style="
+                                                background: rgba(41,98,255,0.12);
+                                                color: ${theme.primary};
+                                                border: 1px solid rgba(41,98,255,0.3);
+                                                padding: 3px 8px;
+                                                border-radius: 4px;
+                                                font-size: 10.5px;
+                                                cursor: pointer;
+                                            ">📈 Chart</button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
         }
 
         getTickerListHtml(symbols, theme, server) {
@@ -1182,12 +1430,16 @@
                 });
             }
 
-            // History metrics
-            const closedWins = history.filter(h => Number(h.profit || 0) > 0);
-            const closedLosses = history.filter(h => Number(h.profit || 0) < 0);
-            const totalClosed = closedWins.length + closedLosses.length;
-            const winRate = totalClosed > 0 ? ((closedWins.length / totalClosed) * 100).toFixed(1) : '0.0';
-            const netHistoryProfit = history.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+            // History metrics - strictly separate real market trades from capital deposits
+            const tradeDeals = history.filter(h => h.type === 'BUY' || h.type === 'SELL');
+            const depositDeals = history.filter(h => h.type === 'BALANCE' || h.type === 'CREDIT' || !h.symbol || h.symbol === 'BALANCE');
+            const initialDeposit = depositDeals.reduce((sum, h) => sum + Number(h.profit || 0), 0);
+
+            const closedWins = tradeDeals.filter(h => Number(h.profit || 0) > 0);
+            const closedLosses = tradeDeals.filter(h => Number(h.profit || 0) < 0);
+            const totalTradeCount = closedWins.length + closedLosses.length;
+            const winRate = totalTradeCount > 0 ? ((closedWins.length / totalTradeCount) * 100).toFixed(1) : '0.0';
+            const netTradeProfit = tradeDeals.reduce((sum, h) => sum + Number(h.profit || 0), 0);
             const grossProfit = closedWins.reduce((sum, h) => sum + Number(h.profit || 0), 0);
             const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
             const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
@@ -1256,7 +1508,7 @@
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: center;">
                             <div>
                                 <span style="font-size: 10.5px; color: ${theme.textMuted};">Account Balance</span>
-                                <div style="font-size: 16px; font-weight: 700; color: ${theme.text}; margin-top: 1px;">
+                                <div id="mt5-cockpit-balance" style="font-size: 16px; font-weight: 700; color: ${theme.text}; margin-top: 1px;">
                                     $${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                                     <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 400; margin-left: 2px;">${acc.currency || 'USD'}</span>
                                 </div>
@@ -1264,7 +1516,7 @@
 
                             <div>
                                 <span style="font-size: 10.5px; color: ${theme.textMuted};">Equity (Floating PnL)</span>
-                                <div style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 1px;">
+                                <div id="mt5-cockpit-equity" style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 1px;">
                                     $${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                                     <span style="font-size: 10px; font-weight: 600; margin-left: 3px;">(${pnl >= 0 ? '+' : ''}${pnlPct}%)</span>
                                 </div>
@@ -1273,12 +1525,12 @@
                             <div>
                                 <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
                                     <span style="color: ${theme.textMuted};">Free Margin:</span>
-                                    <strong style="color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                                    <strong id="mt5-cockpit-free-margin" style="color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
                                 </div>
                                 <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.2); border-radius: 3px; overflow: hidden;" title="Margin used: ${marginUsedPct}%">
-                                    <div style="width: ${freeMarginPct}%; height: 100%; background: ${theme.success}; border-radius: 3px;"></div>
+                                    <div id="mt5-cockpit-margin-bar" style="width: ${freeMarginPct}%; height: 100%; background: ${theme.success}; border-radius: 3px;"></div>
                                 </div>
-                                <div style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
+                                <div id="mt5-cockpit-used-margin" style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
                                     Used: $${margin.toFixed(2)} (${marginUsedPct}%)
                                 </div>
                             </div>
@@ -1358,7 +1610,7 @@
                             gap: 5px;
                             white-space: nowrap;
                         ">
-                            <span>💼</span> Active Positions (${positions.length})
+                            <span id="mt5-tab-positions-count">💼 Active Positions (${positions.length})</span>
                         </button>
                         <button class="mt5-subtab-btn" data-subtab="history" style="
                             background: transparent;
@@ -1374,7 +1626,7 @@
                             gap: 5px;
                             white-space: nowrap;
                         ">
-                            <span>📜</span> Order History (${history.length})
+                            <span>📜</span> Order History (${tradeDeals.length})
                         </button>
                     </div>
 
@@ -1447,108 +1699,24 @@
 
                     <!-- Tab 2: Active Positions -->
                     ${this.detailsSubTab === 'positions' ? `
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
-                            ${positions.length === 0 ? `
-                                <div style="text-align: center; padding: 36px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
-                                    <div style="font-size: 26px; margin-bottom: 6px;">💼</div>
-                                    <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text};">Live MT5 Stream Connected</div>
-                                    <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px; max-width: 420px; margin-left: auto; margin-right: auto; line-height: 1.4;">
-                                        There are no active open positions on this account right now.<br>New trades opened via TradingView or your MT5 terminal will track here in real time.
-                                    </div>
-                                    <div style="margin-top: 14px; display: flex; justify-content: center; gap: 8px;">
-                                        <button class="mt5-subtab-btn" data-subtab="tickers" style="
-                                            background: ${theme.primary};
-                                            color: #fff;
-                                            border: none;
-                                            padding: 6px 14px;
-                                            border-radius: 6px;
-                                            font-size: 11.5px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 6px;
-                                        "><span>📈</span> Explore Market Watch</button>
-                                        <button class="mt5-subtab-btn" data-subtab="history" style="
-                                            background: rgba(41,98,255,0.1);
-                                            color: ${theme.primary};
-                                            border: 1px solid rgba(41,98,255,0.25);
-                                            padding: 6px 14px;
-                                            border-radius: 6px;
-                                            font-size: 11.5px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 6px;
-                                        "><span>📜</span> View Order History</button>
-                                    </div>
-                                </div>
-                            ` : `
-                                <div style="overflow-x: auto; border: 1px solid ${theme.border}; border-radius: 8px;">
-                                    <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
-                                        <thead>
-                                            <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted};">
-                                                <th style="padding: 7px 10px;">Ticket</th>
-                                                <th style="padding: 7px 10px;">Symbol</th>
-                                                <th style="padding: 7px 10px;">Type</th>
-                                                <th style="padding: 7px 10px;">Lots</th>
-                                                <th style="padding: 7px 10px;">Open Price</th>
-                                                <th style="padding: 7px 10px;">Current</th>
-                                                <th style="padding: 7px 10px;">SL / TP</th>
-                                                <th style="padding: 7px 10px; text-align: right;">Profit ($)</th>
-                                                <th style="padding: 7px 10px; text-align: center;">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${positions.map(p => {
-                                                const isBuy = (p.type === 0 || String(p.type).toUpperCase() === 'BUY');
-                                                const typeColor = isBuy ? theme.success : theme.error;
-                                                const profit = Number(p.profit || 0);
-                                                const profitColor = profit >= 0 ? theme.success : theme.error;
-                                                return `
-                                                    <tr style="border-bottom: 1px solid ${theme.border};">
-                                                        <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
-                                                        <td style="padding: 7px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
-                                                        <td style="padding: 7px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
-                                                        <td style="padding: 7px 10px;">${p.volume}</td>
-                                                        <td style="padding: 7px 10px;">${p.price_open}</td>
-                                                        <td style="padding: 7px 10px;">${p.price_current}</td>
-                                                        <td style="padding: 7px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
-                                                        <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
-                                                        <td style="padding: 7px 10px; text-align: center;">
-                                                            <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${acc.server}" style="
-                                                                background: rgba(41,98,255,0.12);
-                                                                color: ${theme.primary};
-                                                                border: 1px solid rgba(41,98,255,0.3);
-                                                                padding: 3px 8px;
-                                                                border-radius: 4px;
-                                                                font-size: 10.5px;
-                                                                cursor: pointer;
-                                                            ">📈 Chart</button>
-                                                        </td>
-                                                    </tr>
-                                                `;
-                                            }).join('')}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            `}
+                        <div id="mt5-positions-items-container" style="display: flex; flex-direction: column; gap: 10px;">
+                            ${this.getPositionsTableHtml(positions, theme, acc.server)}
                         </div>
                     ` : ''}
 
                     <!-- Tab 3: Order History -->
                     ${this.detailsSubTab === 'history' ? `
                         <div style="display: flex; flex-direction: column; gap: 8px;">
-                            <!-- Mini Performance KPI Cards -->
+                            <!-- Mini Performance KPI Cards (True Market Performance, Separate from Deposit) -->
                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 6px;">
                                 <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Closed Trades</div>
-                                    <div style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${history.length}</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${totalTradeCount} Trades</div>
+                                    ${depositDeals.length > 0 ? `<div style="font-size: 9px; color: ${theme.primary}; margin-top: 1px;">+$${initialDeposit.toFixed(0)} deposit</div>` : ''}
                                 </div>
                                 <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
-                                    <div style="font-size: 10px; color: ${theme.textMuted};">Net Profit</div>
-                                    <div style="font-size: 13.5px; font-weight: 700; color: ${netHistoryProfit >= 0 ? theme.success : theme.error};">${netHistoryProfit >= 0 ? '+' : ''}$${netHistoryProfit.toFixed(2)}</div>
+                                    <div style="font-size: 10px; color: ${theme.textMuted};">Trading P&L</div>
+                                    <div style="font-size: 13.5px; font-weight: 700; color: ${netTradeProfit >= 0 ? theme.success : theme.error};">${netTradeProfit >= 0 ? '+' : ''}$${netTradeProfit.toFixed(2)}</div>
                                 </div>
                                 <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 10px;">
                                     <div style="font-size: 10px; color: ${theme.textMuted};">Win Rate</div>
@@ -1600,17 +1768,23 @@
                                 <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
                                     <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
                                         <span style="font-size: 10.5px; color: ${theme.textMuted};">Type:</span>
-                                        ${['ALL', 'BUY', 'SELL'].map(t => `
-                                            <button class="mt5-hist-type-btn" data-type="${t}" style="
-                                                background: ${this.historyTypeFilter === t ? theme.primary : 'transparent'};
-                                                color: ${this.historyTypeFilter === t ? '#fff' : theme.textMuted};
-                                                border: 1px solid ${this.historyTypeFilter === t ? theme.primary : theme.border};
+                                        ${[
+                                            { id: 'ALL', label: 'All' },
+                                            { id: 'TRADES', label: 'Trades' },
+                                            { id: 'BUY', label: 'Buys' },
+                                            { id: 'SELL', label: 'Sells' },
+                                            { id: 'DEPOSIT', label: 'Deposits' }
+                                        ].map(t => `
+                                            <button class="mt5-hist-type-btn" data-type="${t.id}" style="
+                                                background: ${this.historyTypeFilter === t.id ? theme.primary : 'transparent'};
+                                                color: ${this.historyTypeFilter === t.id ? '#fff' : theme.textMuted};
+                                                border: 1px solid ${this.historyTypeFilter === t.id ? theme.primary : theme.border};
                                                 padding: 2px 7px;
                                                 border-radius: 10px;
                                                 font-size: 10px;
                                                 font-weight: 600;
                                                 cursor: pointer;
-                                            ">${t}</button>
+                                            ">${t.label}</button>
                                         `).join('')}
 
                                         <span style="font-size: 10.5px; color: ${theme.textMuted}; margin-left: 4px;">Outcome:</span>

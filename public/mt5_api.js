@@ -1012,6 +1012,10 @@
                             this.tickListeners.forEach(cb => {
                                 try { cb(msg); } catch (_) {}
                             });
+                        } else if (msg.type === 'positions') {
+                            // Real-time WebSocket streaming of active positions & floating PnL
+                            this.positions = msg.positions || [];
+                            this.notifyPositionListeners();
                         }
                     } catch (_) {}
                 };
