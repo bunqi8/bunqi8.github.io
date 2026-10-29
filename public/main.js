@@ -312,6 +312,7 @@ function bootWidget() {
         datafeed: Datafeed,
         save_load_adapter: localSaveLoadAdapter,
         locale: 'en',
+        timezone: 'Asia/Kolkata',
         theme: 'Light',
         autosize: true,
         debug: false,
