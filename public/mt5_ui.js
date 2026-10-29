@@ -494,10 +494,19 @@
         }
 
         getSettingsHtml(theme) {
-            const endpoint = window.MT5API ? window.MT5API.endpoint : 'http://localhost:8000';
-            const apiKey = window.MT5API ? window.MT5API.apiKey : 'mt5_secret_key_2026';
+            const endpoint = window.MT5API ? window.MT5API.endpoint : '';
+            const apiKey = window.MT5API ? window.MT5API.apiKey : '';
             const isConn = window.MT5API ? window.MT5API.isConnected : false;
+            const isConfigured = !!endpoint;
             const ping = window.MT5API ? window.MT5API.pingMs : 0;
+            const statusMsg = isConn 
+                ? `🟢 Connected (Ping: ${ping}ms)` 
+                : (!isConfigured 
+                    ? '⚙️ Bridge Not Configured — enter your Bridge URL below' 
+                    : '⚠️ Not Connected — verify Bridge URL and API Key below');
+            const iconBg = isConn 
+                ? theme.success 
+                : (!isConfigured ? (theme.isDark ? '#434651' : '#b2b5be') : theme.warning);
 
             return `
                 <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -505,11 +514,11 @@
                     <div style="background: ${theme.cardBg}; border: 1px solid ${isConn ? 'rgba(8,153,129,0.3)' : theme.border}; border-radius: 8px; padding: 14px;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="width: 32px; height: 32px; border-radius: 8px; background: ${isConn ? theme.success : theme.warning}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">⚡</span>
+                                <span style="width: 32px; height: 32px; border-radius: 8px; background: ${iconBg}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;">⚡</span>
                                 <div>
                                     <strong style="font-size: 13.5px; color: ${theme.text};">MT5 Cloud Bridge Connection</strong>
                                     <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        ${isConn ? `🟢 Connected (Ping: ${ping}ms)` : '⚠️ Not Connected — verify Bridge URL and API Key below'}
+                                        ${statusMsg}
                                     </div>
                                 </div>
                             </div>
