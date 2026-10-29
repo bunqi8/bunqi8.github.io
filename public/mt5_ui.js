@@ -15,10 +15,25 @@
             this.activeTab = 'fleet'; // 'fleet' or 'settings'
             this.viewMode = 'list'; // 'list' or 'add'
             this.cachedIframeDoc = null;
+            this.isOpen = false;
+            this.switchingAccountId = null;
+            this.switchProgress = null;
             this.init();
         }
 
         init() {
+            if (!document.getElementById('mt5-spin-style')) {
+                const style = document.createElement('style');
+                style.id = 'mt5-spin-style';
+                style.textContent = `
+                    @keyframes mt5spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => this.mount());
             } else {
@@ -29,7 +44,7 @@
             if (window.MT5API) {
                 window.MT5API.onAccountUpdate(() => {
                     this.updateButtonState();
-                    if (this.isOpen) {
+                    if (this.isOpen && !this.switchingAccountId) {
                         this.renderModal();
                     }
                 });
@@ -208,7 +223,11 @@
             let avatarBg = '#787b86';
             let label = 'MT';
 
-            if (acc) {
+            if (this.switchingAccountId) {
+                dotColor = '#2962ff';
+                avatarBg = 'linear-gradient(135deg, #2962ff, #00b0ff)';
+                label = '⚡';
+            } else if (acc) {
                 dotColor = isConn ? '#089981' : '#ff9800';
                 avatarBg = isConn ? 'linear-gradient(135deg, #089981, #00796b)' : 'linear-gradient(135deg, #ff9800, #e65100)';
                 const srv = (acc.server || '').toLowerCase();
@@ -257,11 +276,14 @@
             </span>
             `;
 
-            const tooltipText = this.getTooltipText();
+            const tooltipText = this.switchingAccountId
+                ? `Switching MT5 Account (${this.switchProgress ? this.switchProgress.pct : 15}%): ${this.switchProgress ? this.switchProgress.title : 'in progress...'}`
+                : this.getTooltipText();
             btn.setAttribute('title', tooltipText);
         }
 
         openModal() {
+            this.isOpen = true;
             let modal = document.getElementById(this.modalId);
             if (!modal) {
                 modal = document.createElement('div');
@@ -288,6 +310,7 @@
         }
 
         closeModal() {
+            this.isOpen = false;
             const modal = document.getElementById(this.modalId);
             if (modal) modal.style.display = 'none';
         }
@@ -428,14 +451,49 @@
                 `;
             }
 
+            const progressBanner = (this.switchingAccountId && this.switchProgress) ? `
+                <div id="mt5-switch-progress-box" style="
+                    background: ${theme.isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)'};
+                    border: 1px solid rgba(41, 98, 255, 0.45);
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+                ">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="mt5-pulse-spin" style="display:inline-block; width:13px; height:13px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
+                            <strong style="color: ${theme.primary}; font-size: 13px;" id="mt5-progress-title">${this.switchProgress.title}</strong>
+                        </div>
+                        <span style="font-size: 11.5px; font-weight: 700; color: ${theme.primary};" id="mt5-progress-pct">${this.switchProgress.pct}%</span>
+                    </div>
+                    <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.15); border-radius: 4px; overflow: hidden;">
+                        <div id="mt5-progress-bar" style="width: ${this.switchProgress.pct}%; height: 100%; background: linear-gradient(90deg, #2962ff, #00b0ff); border-radius: 4px; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="font-size: 11.5px; color: ${theme.textMuted}; display: flex; align-items: center; justify-content: space-between;" id="mt5-progress-detail">
+                        <span>${this.switchProgress.detail}</span>
+                    </div>
+                </div>
+            ` : '';
+
             const cards = accounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
                 const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
                 const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
+                const isThisSwitching = (this.switchingAccountId === acc.id);
+                const isAnySwitching = !!this.switchingAccountId;
+
+                let cardBorder = isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border);
+                if (isThisSwitching) {
+                    cardBorder = '#2962ff';
+                }
+
                 return `
                     <div style="
                         background: ${theme.cardBg};
-                        border: 1px solid ${isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border)};
+                        border: 1px solid ${cardBorder};
                         border-radius: 8px;
                         padding: 14px;
                         margin-bottom: 10px;
@@ -444,10 +502,11 @@
                         gap: 10px;
                         opacity: ${isPaused ? '0.85' : '1'};
                         transition: all 0.2s ease;
+                        ${isThisSwitching ? 'box-shadow: 0 0 12px rgba(41, 98, 255, 0.25);' : ''}
                     ">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
+                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused || isAnySwitching ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${(isPaused || isAnySwitching) ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
                                 <div>
                                     <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
                                         <span>${acc.nickname}</span>
@@ -461,11 +520,18 @@
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 ${isPaused
-                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Resume account back to Online mode">▶️ Resume</button>`
-                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Pause account to put into Standby mode">⏸️ Pause</button>`
+                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Resume account back to Online mode">▶️ Resume</button>`
+                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Pause account to put into Standby mode">⏸️ Pause</button>`
                                 }
-                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Disconnect / remove account">✕</button>
+                                ${!isActive ? (
+                                    isThisSwitching
+                                        ? `<button class="mt5-btn-set-active" data-id="${acc.id}" disabled style="background: rgba(41,98,255,0.2); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.6); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: wait; display: flex; align-items: center; gap: 4px;"><span class="mt5-pulse-spin" style="display:inline-block; width:10px; height:10px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span> Switching... (${this.switchProgress ? this.switchProgress.pct : 15}%)</button>`
+                                        : (isAnySwitching
+                                            ? `<button class="mt5-btn-set-active" data-id="${acc.id}" disabled style="background: rgba(41,98,255,0.05); color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 9px; border-radius: 5px; font-size: 11px; opacity: 0.4; cursor: not-allowed;">Show Chart Feed</button>`
+                                            : `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>`
+                                        )
+                                ) : ''}
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;"`} title="Disconnect / remove account">✕</button>
                             </div>
                         </div>
 
@@ -504,6 +570,8 @@
                             <span>➕</span> Add MT5 Account
                         </button>
                     </div>
+
+                    ${progressBanner}
 
                     ${accounts.length === 0 ? `
                         <div style="text-align: center; padding: 30px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
@@ -639,6 +707,7 @@
             // Toggle Pause / Resume account standby mode
             modal.querySelectorAll('.mt5-btn-pause-acc, .mt5-btn-resume-acc').forEach(b => {
                 b.onclick = (e) => {
+                    if (this.switchingAccountId) return;
                     const id = e.currentTarget.getAttribute('data-id');
                     if (id && window.MT5API) {
                         window.MT5API.toggleAccountPause(id);
@@ -647,16 +716,63 @@
                 };
             });
 
-            // Switch active account
+            // Switch active account with live real-time progress updates
             modal.querySelectorAll('.mt5-btn-set-active').forEach(b => {
                 b.onclick = async (e) => {
-                    const id = e.target.getAttribute('data-id');
-                    if (id && window.MT5API) {
-                        b.innerText = 'Switching...';
-                        b.disabled = true;
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (id && window.MT5API && !this.switchingAccountId) {
+                        this.switchingAccountId = id;
+                        this.switchProgress = {
+                            step: 1,
+                            title: 'Initiating Switch...',
+                            detail: 'Sending switch request to MT5 bridge...',
+                            pct: 15
+                        };
+                        this.updateButtonState();
+                        this.renderModal();
+
+                        const onProgress = (step, title, detail, pct) => {
+                            this.switchProgress = { step, title, detail, pct };
+                            const isDone = (step === 5 || pct === 100);
+                            const isErr = (step === 0);
+
+                            // Update in-modal card if modal is open
+                            const activeModal = document.getElementById(this.modalId);
+                            if (activeModal) {
+                                const titleEl = activeModal.querySelector('#mt5-progress-title');
+                                const detailEl = activeModal.querySelector('#mt5-progress-detail');
+                                const barEl = activeModal.querySelector('#mt5-progress-bar');
+                                const pctEl = activeModal.querySelector('#mt5-progress-pct');
+                                if (titleEl) titleEl.innerText = title;
+                                if (detailEl) detailEl.innerHTML = `<span>${detail}</span>`;
+                                if (barEl) barEl.style.width = `${pct}%`;
+                                if (pctEl) pctEl.innerText = `${pct}%`;
+
+                                const btnEl = activeModal.querySelector(`.mt5-btn-set-active[data-id="${id}"]`);
+                                if (btnEl) {
+                                    if (isDone) {
+                                        btnEl.innerHTML = `✓ Switched!`;
+                                        btnEl.style.background = 'rgba(0, 200, 83, 0.2)';
+                                        btnEl.style.color = '#00c853';
+                                        btnEl.style.borderColor = 'rgba(0, 200, 83, 0.5)';
+                                    } else {
+                                        btnEl.innerHTML = `<span class="mt5-pulse-spin" style="display:inline-block; width:10px; height:10px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite; margin-right:4px;"></span> Switching... (${pct}%)`;
+                                    }
+                                }
+                            }
+
+                            // Also show floating toast on the chart in real-time
+                            this.showFloatingSwitchToast(title, detail, pct, isDone, isErr);
+                            this.updateButtonState();
+                        };
+
                         try {
-                            await window.MT5API.setActiveAccount(id);
+                            await window.MT5API.setActiveAccount(id, onProgress);
+                            await new Promise(r => setTimeout(r, 700));
                         } finally {
+                            this.switchingAccountId = null;
+                            this.switchProgress = null;
+                            this.updateButtonState();
                             this.renderModal();
                         }
                     }
@@ -666,6 +782,7 @@
             // Delete account
             modal.querySelectorAll('.mt5-btn-delete-acc').forEach(b => {
                 b.onclick = async (e) => {
+                    if (this.switchingAccountId) return;
                     const id = e.target.getAttribute('data-id');
                     if (id && confirm('Disconnect this MT5 account?')) {
                         await window.MT5API.deleteAccount(id);
@@ -715,6 +832,71 @@
                     }
                     this.renderModal();
                 };
+            }
+        }
+
+        showFloatingSwitchToast(title, detail, pct, isSuccess = false, isError = false) {
+            let toast = document.getElementById('mt5-floating-switch-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'mt5-floating-switch-toast';
+                toast.style.cssText = `
+                    position: fixed;
+                    top: 24px;
+                    left: 50%;
+                    transform: translateX(-50%) translateY(0);
+                    background: rgba(15, 23, 42, 0.94);
+                    color: #ffffff;
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(41, 98, 255, 0.4);
+                    border-radius: 10px;
+                    padding: 11px 18px;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.06);
+                    z-index: 999999;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    min-width: 320px;
+                    max-width: 440px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    pointer-events: auto;
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                `;
+                document.body.appendChild(toast);
+            }
+
+            const icon = isSuccess ? '✓' : (isError ? '✕' : '<span style="display:inline-block; width:12px; height:12px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>');
+            const iconBg = isSuccess ? '#00c853' : (isError ? '#f23645' : '#2962ff');
+
+            toast.style.borderColor = isSuccess ? 'rgba(0, 200, 83, 0.5)' : (isError ? 'rgba(242, 54, 69, 0.5)' : 'rgba(41, 98, 255, 0.4)');
+
+            toast.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:${iconBg}; color:#fff; font-size:11px; font-weight:700;">${icon}</span>
+                        <strong style="font-size:12.5px; color:#ffffff;">${title}</strong>
+                    </div>
+                    <span style="font-size:11px; font-weight:700; color:rgba(255,255,255,0.7);">${pct}%</span>
+                </div>
+                <div style="font-size:11px; color:rgba(255,255,255,0.75); line-height:1.3;">
+                    ${detail}
+                </div>
+                <div style="width:100%; height:3px; background:rgba(255,255,255,0.12); border-radius:2px; overflow:hidden; margin-top:2px;">
+                    <div style="width:${pct}%; height:100%; background:${isSuccess ? '#00c853' : (isError ? '#f23645' : 'linear-gradient(90deg, #2962ff, #00b0ff)')}; border-radius:2px; transition:width 0.25s ease;"></div>
+                </div>
+            `;
+
+            if (isSuccess || isError) {
+                if (window._mt5ToastDismissTimeout) clearTimeout(window._mt5ToastDismissTimeout);
+                window._mt5ToastDismissTimeout = setTimeout(() => {
+                    const t = document.getElementById('mt5-floating-switch-toast');
+                    if (t && t.parentNode) {
+                        t.style.opacity = '0';
+                        t.style.transform = 'translateX(-50%) translateY(-15px)';
+                        setTimeout(() => t.remove(), 300);
+                    }
+                }, 3500);
             }
         }
     }
