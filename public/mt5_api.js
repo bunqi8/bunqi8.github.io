@@ -122,7 +122,7 @@
             try {
                 const res = await fetch(`${this.endpoint}/health`, {
                     headers: this.getHeaders(),
-                    signal: AbortSignal.timeout(6000)
+                    signal: AbortSignal.timeout(12000)
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
