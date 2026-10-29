@@ -13,11 +13,21 @@
             this.wrapperId = 'header-toolbar-mt5-manager';
             this.modalId = 'mt5-fleet-manager-modal';
             this.activeTab = 'fleet'; // 'fleet' or 'settings'
-            this.viewMode = 'list'; // 'list' or 'add'
+            this.viewMode = 'list'; // 'list', 'add', or 'details'
             this.cachedIframeDoc = null;
             this.isOpen = false;
             this.switchingAccountId = null;
             this.switchProgress = null;
+
+            // Full account details state
+            this.detailsAccountId = null;
+            this.detailsData = null;
+            this.detailsLoading = false;
+            this.detailsSubTab = 'overview'; // 'overview', 'tickers', 'positions'
+            this.tickerSearchQuery = '';
+            this.tickerCategoryFilter = 'ALL';
+            this._accountDetailsCache = new Map();
+
             this.init();
         }
 
@@ -329,7 +339,7 @@
                     color: ${theme.text};
                     border: 1px solid ${theme.border};
                     border-radius: 12px;
-                    width: 660px;
+                    width: 700px;
                     max-width: 95vw;
                     max-height: 90vh;
                     display: flex;
@@ -405,6 +415,9 @@
         }
 
         getFleetHtml(theme, accounts, activeAcc) {
+            if (this.viewMode === 'details') {
+                return this.getAccountDetailsHtml(theme, accounts, activeAcc);
+            }
             if (this.viewMode === 'add') {
                 return `
                     <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -509,7 +522,7 @@
                                 <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused || isAnySwitching ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${(isPaused || isAnySwitching) ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
                                 <div>
                                     <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
-                                        <span>${acc.nickname}</span>
+                                        <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(41,98,255,0.4); text-underline-offset: 2px;" title="Click to view full account details">${acc.nickname}</span>
                                         ${isActive ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
                                         ${isPaused ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
                                     </div>
@@ -519,6 +532,7 @@
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
+                                <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View full account details, financial metrics, and supported tickers">📋 Details</button>
                                 ${isPaused
                                     ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Resume account back to Online mode">▶️ Resume</button>`
                                     : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" ${isAnySwitching ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : `style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;"`} title="Pause account to put into Standby mode">⏸️ Pause</button>`
@@ -644,8 +658,680 @@
             `;
         }
 
+
+        async openAccountDetails(accountId, forceRefresh = false) {
+            this.viewMode = 'details';
+            this.detailsAccountId = accountId;
+            this.tickerSearchQuery = '';
+            this.tickerCategoryFilter = 'ALL';
+            this.detailsSubTab = 'overview';
+
+            if (!forceRefresh && this._accountDetailsCache.has(accountId)) {
+                this.detailsData = this._accountDetailsCache.get(accountId);
+                this.detailsLoading = false;
+                this.renderModal();
+                return;
+            }
+
+            this.detailsLoading = true;
+            this.detailsData = null;
+            this.renderModal();
+
+            try {
+                if (window.MT5API) {
+                    const data = await window.MT5API.fetchAccountFullDetails(accountId);
+                    this.detailsData = data;
+                    if (data) {
+                        this._accountDetailsCache.set(accountId, data);
+                    }
+                }
+            } catch (err) {
+                console.error('[MT5UI] Failed to fetch account details:', err);
+            } finally {
+                this.detailsLoading = false;
+                this.renderModal();
+            }
+        }
+
+        async loadSymbolOnChart(symbol, brokerServer = null) {
+            if (!window.tvWidget) {
+                alert('Chart widget not yet initialized.');
+                return;
+            }
+            const chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
+            if (!chart) return;
+
+            let brokerExchange = '';
+            if (window.MT5API && typeof window.MT5API.getBrokerExchangeName === 'function') {
+                brokerExchange = window.MT5API.getBrokerExchangeName(brokerServer);
+            }
+            const cleanSym = String(symbol || '').trim();
+            const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanSym}` : cleanSym;
+
+            console.log(`[MT5UI] Loading symbol on chart: ${targetSymbol}`);
+
+            // Clear caches for this symbol so fresh bars are requested
+            if (window._barsCache) {
+                for (const k in window._barsCache) {
+                    if (k.toUpperCase().includes(cleanSym)) delete window._barsCache[k];
+                }
+            }
+            if (window._tvLastBar) {
+                for (const k in window._tvLastBar) {
+                    if (k.toUpperCase().includes(cleanSym)) delete window._tvLastBar[k];
+                }
+            }
+            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanSym];
+            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanSym];
+
+            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                try { window.tvWidget.resetCache(); } catch (_) {}
+            }
+
+            try {
+                if (typeof chart.setSymbol === 'function') {
+                    await chart.setSymbol(targetSymbol);
+                }
+                if (typeof chart.resetData === 'function') {
+                    chart.resetData();
+                }
+            } catch (e) {
+                console.warn('[MT5UI] chart.setSymbol error:', e);
+            }
+
+            this.closeModal();
+            this.showFloatingSwitchToast('Chart Loaded', `Opened ${targetSymbol} on chart`, 100, true);
+        }
+
+        getTickerListHtml(symbols, theme, server) {
+            if (!symbols || symbols.length === 0) {
+                return `
+                    <div style="text-align: center; padding: 32px 16px; color: ${theme.textMuted}; font-size: 12.5px;">
+                        No symbols match the current search or category filter.
+                    </div>
+                `;
+            }
+
+            return symbols.map(s => {
+                const cat = s.category || s.type || 'Other';
+                const digits = s.digits != null ? s.digits : 2;
+                const minLot = s.min_lot != null ? s.min_lot : 0.01;
+                const maxLot = s.max_lot != null ? s.max_lot : 100.0;
+                const stepLot = s.lot_step != null ? s.lot_step : 0.01;
+                const desc = (s.description && s.description !== s.name) ? s.description : '';
+
+                return `
+                    <div style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        padding: 8px 12px;
+                        background: ${theme.cardBg};
+                        border: 1px solid ${theme.border};
+                        border-radius: 6px;
+                        margin-bottom: 6px;
+                        gap: 10px;
+                        transition: background 0.15s ease;
+                    ">
+                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                            <strong style="font-size: 13px; color: ${theme.text}; font-family: monospace; letter-spacing: 0.3px;">${s.name}</strong>
+                            <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(41,98,255,0.12); color: ${theme.primary}; font-weight: 600; white-space: nowrap;">${cat}</span>
+                            ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+                            <div style="font-size: 11px; color: ${theme.textMuted}; text-align: right; white-space: nowrap;">
+                                <span>Lots: <strong>${minLot}</strong>-${maxLot}</span>
+                                <span style="margin-left: 5px; opacity: 0.75;">(${digits} dec)</span>
+                            </div>
+                            <button class="mt5-btn-chart-symbol" data-symbol="${s.name}" data-server="${server || ''}" style="
+                                background: rgba(41,98,255,0.12);
+                                color: ${theme.primary};
+                                border: 1px solid rgba(41,98,255,0.3);
+                                padding: 4px 9px;
+                                border-radius: 5px;
+                                font-size: 11px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                            " title="Open ${s.name} on TradingView Chart">
+                                <span>📈</span> Chart
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        updateTickerListView(modal, theme, server) {
+            const container = modal.querySelector('#mt5-ticker-items-container');
+            if (!container || !this.detailsData) return;
+
+            let symbols = this.detailsData.symbols || [];
+            if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
+                symbols = symbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
+            }
+            if (this.tickerSearchQuery) {
+                const q = this.tickerSearchQuery.toUpperCase().trim();
+                symbols = symbols.filter(s => {
+                    const nameMatch = s.name && s.name.toUpperCase().includes(q);
+                    const descMatch = s.description && s.description.toUpperCase().includes(q);
+                    const catMatch = (s.category || s.type || '').toUpperCase().includes(q);
+                    return nameMatch || descMatch || catMatch;
+                });
+            }
+
+            container.innerHTML = this.getTickerListHtml(symbols, theme, server);
+
+            // Re-bind chart buttons inside the updated ticker list
+            container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
+                btn.onclick = (e) => {
+                    const sym = e.currentTarget.getAttribute('data-symbol');
+                    const srv = e.currentTarget.getAttribute('data-server');
+                    this.loadSymbolOnChart(sym, srv);
+                };
+            });
+
+            // Update category pills active state
+            modal.querySelectorAll('.mt5-cat-pill').forEach(pill => {
+                const cat = pill.getAttribute('data-cat');
+                if (cat === this.tickerCategoryFilter) {
+                    pill.style.background = theme.primary;
+                    pill.style.color = '#ffffff';
+                    pill.style.borderColor = theme.primary;
+                } else {
+                    pill.style.background = 'transparent';
+                    pill.style.color = theme.textMuted;
+                    pill.style.borderColor = theme.border;
+                }
+            });
+        }
+
+        getAccountDetailsHtml(theme, accounts, activeAcc) {
+            if (this.detailsLoading) {
+                return `
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 14px;">
+                        <span class="mt5-pulse-spin" style="display:inline-block; width:34px; height:34px; border:3px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
+                        <div style="font-weight: 700; font-size: 14px; color: ${theme.text};">Loading Full Account Details & Tickers...</div>
+                        <div style="font-size: 12px; color: ${theme.textMuted};">Querying balance, live margin specs, and supported symbols from MT5 bridge...</div>
+                    </div>
+                `;
+            }
+
+            if (!this.detailsData || !this.detailsData.account) {
+                return `
+                    <div style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <button id="mt5-btn-back-fleet" type="button" style="background: transparent; border: none; color: ${theme.primary}; font-size: 12.5px; cursor: pointer; font-weight: 600;">← Back to Fleet</button>
+                        </div>
+                        <div style="text-align: center; padding: 30px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
+                            <div style="font-size: 24px; margin-bottom: 6px;">⚠️</div>
+                            <div style="font-weight: 600; font-size: 13px; color: ${theme.text};">Could not load account details</div>
+                            <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">Make sure the bridge server is running and connected.</div>
+                            <button id="mt5-btn-retry-details" style="margin-top: 12px; background: ${theme.primary}; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;">Retry</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const acc = this.detailsData.account;
+            const symbols = this.detailsData.symbols || [];
+            const positions = this.detailsData.positions || [];
+            const categories = this.detailsData.categories || {};
+            const lastTradeFormatted = this.detailsData.lastTradeFormatted || 'No active trades';
+            const isActive = activeAcc && activeAcc.id === acc.id;
+            const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
+
+            const bal = acc.balance != null ? Number(acc.balance) : 0;
+            const eq = acc.equity != null ? Number(acc.equity) : 0;
+            const freeMargin = acc.free_margin != null ? Number(acc.free_margin) : 0;
+            const margin = acc.margin != null ? Number(acc.margin) : 0;
+            const marginLvl = acc.margin_level != null ? Number(acc.margin_level) : null;
+            const pnl = eq - bal;
+
+            const categoryList = Object.keys(categories);
+
+            // Filter symbols for tickers tab view
+            let filteredSymbols = symbols;
+            if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
+                filteredSymbols = filteredSymbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
+            }
+            if (this.tickerSearchQuery) {
+                const q = this.tickerSearchQuery.toUpperCase().trim();
+                filteredSymbols = filteredSymbols.filter(s => {
+                    const nameMatch = s.name && s.name.toUpperCase().includes(q);
+                    const descMatch = s.description && s.description.toUpperCase().includes(q);
+                    const catMatch = (s.category || s.type || '').toUpperCase().includes(q);
+                    return nameMatch || descMatch || catMatch;
+                });
+            }
+
+            return `
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <!-- Top Breadcrumb & Controls -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button id="mt5-btn-back-fleet" type="button" style="
+                                background: ${theme.cardBg};
+                                border: 1px solid ${theme.border};
+                                color: ${theme.text};
+                                padding: 6px 12px;
+                                border-radius: 6px;
+                                font-size: 12px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                            ">
+                                <span>←</span> Fleet
+                            </button>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <strong style="font-size: 15px; color: ${theme.text};">${acc.nickname}</strong>
+                                ${isActive ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
+                                ${isPaused ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 11px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
+                            <button id="mt5-btn-refresh-details" data-id="${acc.id}" style="
+                                background: ${theme.cardBg};
+                                border: 1px solid ${theme.border};
+                                color: ${theme.textMuted};
+                                padding: 5px 10px;
+                                border-radius: 6px;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                            " title="Refresh live financials and tickers">
+                                <span>🔄</span> Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Subtabs Header -->
+                    <div style="display: flex; gap: 6px; border-bottom: 1px solid ${theme.border}; margin-top: 4px;">
+                        <button class="mt5-subtab-btn" data-subtab="overview" style="
+                            background: transparent;
+                            border: none;
+                            border-bottom: 2px solid ${this.detailsSubTab === 'overview' ? theme.primary : 'transparent'};
+                            color: ${this.detailsSubTab === 'overview' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
+                            padding: 8px 14px;
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                        ">
+                            <span>📊</span> Overview & Financials
+                        </button>
+                        <button class="mt5-subtab-btn" data-subtab="tickers" style="
+                            background: transparent;
+                            border: none;
+                            border-bottom: 2px solid ${this.detailsSubTab === 'tickers' ? theme.primary : 'transparent'};
+                            color: ${this.detailsSubTab === 'tickers' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
+                            padding: 8px 14px;
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                        ">
+                            <span>📈</span> Supported Tickers (${symbols.length})
+                        </button>
+                        <button class="mt5-subtab-btn" data-subtab="positions" style="
+                            background: transparent;
+                            border: none;
+                            border-bottom: 2px solid ${this.detailsSubTab === 'positions' ? theme.primary : 'transparent'};
+                            color: ${this.detailsSubTab === 'positions' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
+                            padding: 8px 14px;
+                            font-size: 12.5px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 5px;
+                        ">
+                            <span>💼</span> Active Positions (${positions.length})
+                        </button>
+                    </div>
+
+                    <!-- Subtab 1: Overview & Financials -->
+                    ${this.detailsSubTab === 'overview' ? `
+                        <div style="display: flex; flex-direction: column; gap: 14px;">
+                            <!-- KPI Financial Cards Grid -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Balance</div>
+                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.text};">$${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Currency: ${acc.currency || 'USD'}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Equity</div>
+                                    <div style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error};">$${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                    <div style="font-size: 10px; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 2px;">Floating: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Free Margin</div>
+                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Margin Used: $${margin.toFixed(2)}</div>
+                                </div>
+                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 4px;">Leverage & Margin</div>
+                                    <div style="font-size: 16px; font-weight: 700; color: ${theme.primary};">1:${acc.leverage || 100}</div>
+                                    <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">Level: ${marginLvl != null ? marginLvl.toFixed(1) + '%' : '100%'}</div>
+                                </div>
+                            </div>
+
+                            <!-- Account Specifications Table -->
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
+                                <div style="font-weight: 700; font-size: 12.5px; color: ${theme.text}; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span>⚙️ Account Specifications & Parameters</span>
+                                    <span style="font-size: 11px; color: ${theme.textMuted}; font-weight: 400;">ID: ${acc.id}</span>
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 12px;">
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Broker / Firm:</span>
+                                            <strong style="color: ${theme.text};">${acc.broker_name || (acc.server.includes('FivePercent') ? 'The5ers' : acc.server)}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Server Host:</span>
+                                            <strong style="color: ${theme.text};">${acc.server}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">MT5 Login ID:</span>
+                                            <strong style="color: ${theme.text};">${acc.login}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Base Currency:</span>
+                                            <strong style="color: ${theme.text};">${acc.currency || 'USD'}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; padding-bottom: 2px;">
+                                            <span style="color: ${theme.textMuted};">Lot Multiplier:</span>
+                                            <strong style="color: ${theme.text};">${acc.lot_multiplier || 1.0}x</strong>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Live Status:</span>
+                                            <strong style="color: ${isPaused ? '#ffa500' : theme.success};">${isPaused ? '⚪ Standby (Paused)' : '🟢 Online (Synchronized)'}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Bridge Ping:</span>
+                                            <strong style="color: ${theme.text};">${acc.ping_ms || (window.MT5API ? window.MT5API.pingMs : 0)} ms</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Last Traded Date:</span>
+                                            <strong style="color: ${theme.text};">${lastTradeFormatted}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${theme.border}; padding-bottom: 4px;">
+                                            <span style="color: ${theme.textMuted};">Account Added:</span>
+                                            <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; padding-bottom: 2px;">
+                                            <span style="color: ${theme.textMuted};">Risk Sizing:</span>
+                                            <strong style="color: ${theme.text};">${acc.risk_percent || 1.0}%</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Supported Asset Categories (Clickable) -->
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                    <div style="font-weight: 700; font-size: 12.5px; color: ${theme.text};">Supported Ticker Categories (${symbols.length} total)</div>
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">Click a category to view tickers</div>
+                                </div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                    ${categoryList.map(cat => `
+                                        <button class="mt5-category-chip" data-cat="${cat}" style="
+                                            background: ${theme.isDark ? '#1e222d' : '#ffffff'};
+                                            border: 1px solid ${theme.border};
+                                            color: ${theme.text};
+                                            padding: 6px 12px;
+                                            border-radius: 6px;
+                                            font-size: 11.5px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                            transition: all 0.15s ease;
+                                        ">
+                                            <span>${cat}</span>
+                                            <span style="background: rgba(41,98,255,0.15); color: ${theme.primary}; padding: 1px 6px; border-radius: 10px; font-size: 10px;">${categories[cat]}</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- Subtab 2: Supported Tickers -->
+                    ${this.detailsSubTab === 'tickers' ? `
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Search & Category Filters -->
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="position: relative;">
+                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery}" placeholder="Search symbol or name (e.g. XAUUSD, EUR, US500, AAPL, BTC)..." style="
+                                        width: 100%;
+                                        padding: 8px 12px 8px 32px;
+                                        background: ${theme.inputBg};
+                                        color: ${theme.inputText};
+                                        border: 1px solid ${theme.inputBorder};
+                                        border-radius: 6px;
+                                        font-size: 12.5px;
+                                        box-sizing: border-box;
+                                    ">
+                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 13px;">🔍</span>
+                                </div>
+
+                                <!-- Category Pills Filter -->
+                                <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
+                                    <button class="mt5-cat-pill" data-cat="ALL" style="
+                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'transparent'};
+                                        color: ${this.tickerCategoryFilter === 'ALL' ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.border};
+                                        padding: 4px 10px;
+                                        border-radius: 14px;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                        white-space: nowrap;
+                                    ">
+                                        ALL (${symbols.length})
+                                    </button>
+                                    ${categoryList.map(cat => `
+                                        <button class="mt5-cat-pill" data-cat="${cat}" style="
+                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : 'transparent'};
+                                            color: ${this.tickerCategoryFilter === cat ? '#ffffff' : theme.textMuted};
+                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : theme.border};
+                                            padding: 4px 10px;
+                                            border-radius: 14px;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            white-space: nowrap;
+                                        ">
+                                            ${cat} (${categories[cat]})
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <!-- Scrollable Symbols Container -->
+                            <div id="mt5-ticker-items-container" style="
+                                max-height: 400px;
+                                overflow-y: auto;
+                                padding-right: 4px;
+                                display: flex;
+                                flex-direction: column;
+                            ">
+                                ${this.getTickerListHtml(filteredSymbols, theme, acc.server)}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- Subtab 3: Active Positions -->
+                    ${this.detailsSubTab === 'positions' ? `
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            ${positions.length === 0 ? `
+                                <div style="text-align: center; padding: 40px 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
+                                    <div style="font-size: 26px; margin-bottom: 6px;">💼</div>
+                                    <div style="font-weight: 600; font-size: 13.5px; color: ${theme.text};">No Open Positions</div>
+                                    <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">There are no active open trades on this account right now.</div>
+                                </div>
+                            ` : `
+                                <div style="overflow-x: auto; border: 1px solid ${theme.border}; border-radius: 8px;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
+                                        <thead>
+                                            <tr style="background: ${theme.cardBg}; border-bottom: 1px solid ${theme.border}; color: ${theme.textMuted};">
+                                                <th style="padding: 8px 10px;">Ticket</th>
+                                                <th style="padding: 8px 10px;">Symbol</th>
+                                                <th style="padding: 8px 10px;">Type</th>
+                                                <th style="padding: 8px 10px;">Lots</th>
+                                                <th style="padding: 8px 10px;">Open Price</th>
+                                                <th style="padding: 8px 10px;">Current</th>
+                                                <th style="padding: 8px 10px;">SL / TP</th>
+                                                <th style="padding: 8px 10px; text-align: right;">Profit ($)</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${positions.map(p => {
+                                                const isBuy = (p.type === 0 || String(p.type).toUpperCase() === 'BUY');
+                                                const typeColor = isBuy ? theme.success : theme.error;
+                                                const profit = Number(p.profit || 0);
+                                                const profitColor = profit >= 0 ? theme.success : theme.error;
+                                                return `
+                                                    <tr style="border-bottom: 1px solid ${theme.border};">
+                                                        <td style="padding: 8px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
+                                                        <td style="padding: 8px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
+                                                        <td style="padding: 8px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
+                                                        <td style="padding: 8px 10px;">${p.volume}</td>
+                                                        <td style="padding: 8px 10px;">${p.price_open}</td>
+                                                        <td style="padding: 8px 10px;">${p.price_current}</td>
+                                                        <td style="padding: 8px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
+                                                        <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: ${profitColor};">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
+                                                        <td style="padding: 8px 10px; text-align: center;">
+                                                            <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${acc.server}" style="
+                                                                background: rgba(41,98,255,0.12);
+                                                                color: ${theme.primary};
+                                                                border: 1px solid rgba(41,98,255,0.3);
+                                                                padding: 3px 8px;
+                                                                border-radius: 4px;
+                                                                font-size: 10.5px;
+                                                                cursor: pointer;
+                                                            ">📈 Chart</button>
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
         bindEvents(modal) {
             const btnClose = modal.querySelector('#mt5-modal-btn-close');
+
+            // View Account Details (from button or clicking nickname)
+            modal.querySelectorAll('.mt5-btn-view-details, .mt5-link-details').forEach(el => {
+                el.onclick = (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (id) this.openAccountDetails(id);
+                };
+            });
+
+            // Back to Fleet from Details view
+            const btnBackFleet = modal.querySelector('#mt5-btn-back-fleet');
+            if (btnBackFleet) {
+                btnBackFleet.onclick = () => {
+                    this.viewMode = 'list';
+                    this.renderModal();
+                };
+            }
+
+            // Retry details fetch
+            const btnRetryDetails = modal.querySelector('#mt5-btn-retry-details');
+            if (btnRetryDetails) {
+                btnRetryDetails.onclick = () => {
+                    if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                };
+            }
+
+            // Refresh Account Details
+            const btnRefreshDetails = modal.querySelector('#mt5-btn-refresh-details');
+            if (btnRefreshDetails) {
+                btnRefreshDetails.onclick = (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (id) this.openAccountDetails(id, true);
+                };
+            }
+
+            // Subtab navigation in Details view
+            modal.querySelectorAll('.mt5-subtab-btn').forEach(b => {
+                b.onclick = (e) => {
+                    const subtab = e.currentTarget.getAttribute('data-subtab');
+                    if (subtab) {
+                        this.detailsSubTab = subtab;
+                        this.renderModal();
+                    }
+                };
+            });
+
+            // Category Chips (Overview tab) -> jump to Tickers tab with category filter
+            modal.querySelectorAll('.mt5-category-chip').forEach(chip => {
+                chip.onclick = (e) => {
+                    const cat = e.currentTarget.getAttribute('data-cat');
+                    this.detailsSubTab = 'tickers';
+                    this.tickerCategoryFilter = cat || 'ALL';
+                    this.renderModal();
+                };
+            });
+
+            // Category Pills (Tickers tab) -> filter tickers
+            modal.querySelectorAll('.mt5-cat-pill').forEach(pill => {
+                pill.onclick = (e) => {
+                    const cat = e.currentTarget.getAttribute('data-cat') || 'ALL';
+                    this.tickerCategoryFilter = cat;
+                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                    this.updateTickerListView(modal, this.getTheme(), server);
+                };
+            });
+
+            // Search input (Tickers tab) -> instant live filter without losing focus
+            const searchIn = modal.querySelector('#mt5-ticker-search-in');
+            if (searchIn) {
+                searchIn.oninput = (e) => {
+                    this.tickerSearchQuery = e.target.value;
+                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                    this.updateTickerListView(modal, this.getTheme(), server);
+                };
+            }
+
+            // Load Symbol on Chart (from tickers or positions)
+            modal.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
+                btn.onclick = (e) => {
+                    const sym = e.currentTarget.getAttribute('data-symbol');
+                    const server = e.currentTarget.getAttribute('data-server');
+                    this.loadSymbolOnChart(sym, server);
+                };
+            });
             if (btnClose) btnClose.onclick = () => this.closeModal();
 
             const tabFleet = modal.querySelector('#mt5-tab-fleet');

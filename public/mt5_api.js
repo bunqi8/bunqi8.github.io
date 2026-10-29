@@ -552,6 +552,66 @@
             return false;
         }
 
+        async fetchAccountFullDetails(accountId) {
+            const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
+            if (!acc) return null;
+
+            // 1. Fetch symbols for this account (using memory cache if already loaded)
+            let symbols = [];
+            if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
+            if (this._accountSymbolsCache.has(accountId)) {
+                symbols = this._accountSymbolsCache.get(accountId);
+            } else {
+                try {
+                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                    const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, {
+                        headers: this.getHeaders()
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        symbols = data.symbols || [];
+                        this._accountSymbolsCache.set(accountId, symbols);
+                    }
+                } catch (e) {
+                    console.warn('[MT5API] Could not fetch symbols for account details:', e);
+                }
+            }
+
+            // 2. Fetch active positions for this account
+            let positions = [];
+            try {
+                positions = await this.fetchPositions(accountId);
+            } catch (_) {}
+
+            // 3. Compute last traded date and activity
+            let lastTradeTime = null;
+            if (positions && positions.length > 0) {
+                const times = positions.map(p => Number(p.time || 0) * 1000).filter(t => t > 0);
+                if (times.length > 0) {
+                    lastTradeTime = Math.max(...times);
+                }
+            }
+
+            // 4. Categorize symbols
+            const categories = {};
+            symbols.forEach(s => {
+                const cat = s.category || s.type || 'Other';
+                if (!categories[cat]) categories[cat] = 0;
+                categories[cat]++;
+            });
+
+            return {
+                account: acc,
+                symbols: symbols,
+                positions: positions,
+                categories: categories,
+                lastTradeTime: lastTradeTime,
+                lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'No active trades'),
+                totalSymbols: symbols.length,
+                fetchedAt: Date.now()
+            };
+        }
+
         async addAccount(accountData) {
             try {
                 const res = await fetch(`${this.endpoint}/api/accounts/add`, {
@@ -923,18 +983,20 @@
         }
 
         // --- Orders & Positions Execution ---
-        async fetchPositions() {
+        async fetchPositions(accountId = null) {
             try {
-                const acc = this.getActiveAccount();
-                const accParam = acc ? `?account_id=${encodeURIComponent(acc.id)}` : '';
+                const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
+                const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}` : '';
                 const res = await fetch(`${this.endpoint}/api/positions${accParam}`, {
                     headers: this.getHeaders()
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    this.positions = data.positions || [];
-                    this.notifyPositionListeners();
-                    return this.positions;
+                    if (!accountId || (this.getActiveAccount() && this.getActiveAccount().id === accountId)) {
+                        this.positions = data.positions || [];
+                        this.notifyPositionListeners();
+                    }
+                    return data.positions || [];
                 }
             } catch (e) {
                 console.warn('[MT5API] fetchPositions error:', e);
