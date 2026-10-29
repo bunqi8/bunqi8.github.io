@@ -111,7 +111,8 @@
         initAutoSync() {
             this.syncAccounts();
             if (this.syncTimer) clearInterval(this.syncTimer);
-            this.syncTimer = setInterval(() => this.syncAccounts(), 5000);
+            // Continuous auto-connect heartbeat: checks every 2.5s so bridge is connected automatically
+            this.syncTimer = setInterval(() => this.syncAccounts(), 2500);
         }
 
         async testConnection() {
@@ -128,6 +129,7 @@
                 const data = await res.json();
                 this.pingMs = Math.round(performance.now() - start);
                 this.isConnected = true;
+                this.syncAccounts(true);
                 return { success: true, ping: this.pingMs, data };
             } catch (err) {
                 this.isConnected = false;
@@ -144,13 +146,23 @@
             try {
                 const res = await fetch(`${this.endpoint}/api/accounts`, {
                     headers: this.getHeaders(),
-                    signal: AbortSignal.timeout(5000)
+                    signal: AbortSignal.timeout(6000)
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
+                
+                const wasPreviouslyConnected = this.isConnected;
                 this.accounts = data.accounts || [];
                 this.activeAccountId = data.active_account_id;
                 this.isConnected = true;
+
+                // Auto-Connect & Auto-Refresh: When connection is established/restored, auto-sync open chart & quotes!
+                if (!wasPreviouslyConnected || this.wasDisconnected) {
+                    this.wasDisconnected = false;
+                    console.log('[MT5API] ✓ Bridge Connection established! Auto-syncing live chart & quotes...');
+                    this.reconnectWebSocket();
+                    this.refreshActiveChart();
+                }
 
                 // Preload full symbol catalog into memory once connected for 0ms instant search
                 if (!this._allSymbols && !this._loadingSymbolsPromise) {
@@ -165,8 +177,95 @@
                 this.notifyAccountListeners();
             } catch (e) {
                 if (force) console.warn('[MT5API] Accounts sync notice:', e.message);
+                if (this.isConnected) {
+                    this.wasDisconnected = true;
+                }
                 this.isConnected = false;
                 this.notifyAccountListeners();
+            }
+        }
+
+        async refreshActiveChart() {
+            let chart = null;
+            let currentSymbol = null;
+            if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                try {
+                    chart = window.tvWidget.activeChart();
+                    if (chart && typeof chart.symbol === 'function') {
+                        currentSymbol = chart.symbol();
+                    }
+                } catch (_) {}
+            }
+
+            if (!chart || !currentSymbol) return;
+
+            const cleanTicker = currentSymbol.split(':').pop().toUpperCase().trim();
+            const activeAcc = this.getActiveAccount();
+            const brokerExchange = this.getCleanBrokerExchange(activeAcc);
+            const isMt5 = this.isMt5Symbol(cleanTicker) || currentSymbol.startsWith('MT5:') || (brokerExchange && currentSymbol.includes(brokerExchange));
+
+            if (!isMt5) {
+                // If current chart is an Indian equity or Fyers asset, keep working chart intact
+                return;
+            }
+
+            const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanTicker}` : cleanTicker;
+            console.log(`[MT5API] Auto-refreshing chart for ${targetSymbol} with active broker candles...`);
+
+            // 1. Wipe stale caches for this ticker
+            if (window._barsCache) {
+                for (const k in window._barsCache) {
+                    if (k.toUpperCase().includes(cleanTicker)) delete window._barsCache[k];
+                }
+            }
+            if (window._tvLastBar) {
+                for (const k in window._tvLastBar) {
+                    if (k.toUpperCase().includes(cleanTicker)) delete window._tvLastBar[k];
+                }
+            }
+            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanTicker];
+            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanTicker];
+
+            // 2. Clear TradingView datafeed caches
+            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                try { window.tvWidget.resetCache(); } catch (_) {}
+            }
+            if (typeof window._tvResetCache === 'function') {
+                try { window._tvResetCache(); } catch (_) {}
+            }
+            if (window._mt5ResetCallbacks) {
+                window._mt5ResetCallbacks.forEach(cb => {
+                    if (typeof cb === 'function') {
+                        try { cb(); } catch (_) {}
+                    }
+                });
+            }
+
+            // 3. Force TradingView re-resolution and bar re-request
+            try {
+                const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
+                if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
+                    await chart.setSymbol(targetSymbol);
+                }
+                if (typeof chart.resetData === 'function') {
+                    chart.resetData();
+                }
+                const cw = chart._chartWidget;
+                if (cw && typeof cw.model === 'function') {
+                    const model = cw.model();
+                    const ms = model ? model.mainSeries() : null;
+                    if (ms) {
+                        ms._requestMoreDataAvailable = true;
+                        if (ms._lastCompleteFlags) {
+                            delete ms._lastCompleteFlags.data_completed;
+                        }
+                        if (typeof ms.rerequestData === 'function') {
+                            ms.rerequestData();
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[MT5API] Auto-refresh chart notice:', err);
             }
         }
 
