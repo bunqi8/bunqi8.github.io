@@ -67,14 +67,14 @@
                     ep = ep.replace('http://', 'https://');
                 }
                 this.endpoint = ep;
-                this.apiKey = cfg.apiKey || '';
+                this.apiKey = cfg.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY';
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
                 this.pausedAccountIds = new Set(cfg.pausedAccountIds || []);
             } catch (_) {
                 this.endpoint = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) 
                     ? 'http://localhost:8000' 
                     : '';
-                this.apiKey = '';
+                this.apiKey = 'CHANGE_THIS_BRIDGE_API_KEY';
                 this.multiAccountSelection = new Set();
                 this.pausedAccountIds = new Set();
             }
