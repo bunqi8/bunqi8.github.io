@@ -317,7 +317,7 @@
         getCleanBrokerExchange(acc = null) {
             const target = acc || this.getActiveAccount();
             if (!target) return 'MT5';
-            const raw = (target.server || target.broker_name || target.nickname || 'MT5').toUpperCase();
+            const raw = `${target.server || ''} ${target.broker_name || ''} ${target.nickname || ''}`.toUpperCase();
             if (raw.includes('EXNESS')) return 'EXNESS';
             if (raw.includes('FTMO')) return 'FTMO';
             if (raw.includes('METAQUOTES')) return 'METAQUOTES';
@@ -325,7 +325,7 @@
             if (raw.includes('PEPPERSTONE')) return 'PEPPERSTONE';
             if (raw.includes('VANTAGE')) return 'VANTAGE';
             if (raw.includes('FUNDEDNEXT')) return 'FUNDEDNEXT';
-            if (raw.includes('THE5ERS') || raw.includes('5ERS')) return 'THE 5%ERS';
+            if (raw.includes('FIVEPERCENT') || raw.includes('FIVE PERCENT') || raw.includes('THE5ERS') || raw.includes('5ERS')) return 'THE 5%ERS';
             if (raw.includes('OCTAFX') || raw.includes('OCTA')) return 'OCTAFX';
             if (raw.includes('XM')) return 'XM';
             if (raw.includes('FBS')) return 'FBS';
@@ -405,6 +405,7 @@
                 });
                 if (res.ok) {
                     this.activeAccountId = id;
+                    this.reconnectWebSocket();
                     this.fetchPositions();
                     this.notifyAccountListeners();
 
@@ -470,25 +471,26 @@
                                 });
                             }
 
-                            // 3. Force TradingView to switch symbol or rerequest series data smoothly
+                            // 3. Force TradingView to switch symbol or reset series data cleanly
                             try {
                                 const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
                                 if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
                                     await chart.setSymbol(targetSymbol);
-                                } else {
-                                    // If same symbol, rerequest data smoothly without wiping candles into a blank void
-                                    const cw = chart._chartWidget;
-                                    if (cw && typeof cw.model === 'function') {
-                                        const model = cw.model();
-                                        const ms = model ? model.mainSeries() : null;
-                                        if (ms) {
-                                            ms._requestMoreDataAvailable = true;
-                                            if (ms._lastCompleteFlags) {
-                                                delete ms._lastCompleteFlags.data_completed;
-                                            }
-                                            if (typeof ms.rerequestData === 'function') {
-                                                ms.rerequestData();
-                                            }
+                                }
+                                if (typeof chart.resetData === 'function') {
+                                    chart.resetData();
+                                }
+                                const cw = chart._chartWidget;
+                                if (cw && typeof cw.model === 'function') {
+                                    const model = cw.model();
+                                    const ms = model ? model.mainSeries() : null;
+                                    if (ms) {
+                                        ms._requestMoreDataAvailable = true;
+                                        if (ms._lastCompleteFlags) {
+                                            delete ms._lastCompleteFlags.data_completed;
+                                        }
+                                        if (typeof ms.rerequestData === 'function') {
+                                            ms.rerequestData();
                                         }
                                     }
                                 }

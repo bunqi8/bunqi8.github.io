@@ -682,10 +682,11 @@ const Datafeed = {
                     if (mt5Symbols && mt5Symbols.length > 0) {
                         const limit = query ? 50 : 25;
                         mt5Symbols.slice(0, limit).forEach(s => {
+                            const fullSym = brokerExchange ? `${brokerExchange}:${s.name}` : s.name;
                             results.push({
                                 symbol: s.name,
-                                ticker: s.name,
-                                full_name: `${brokerExchange}:${s.name}`,
+                                ticker: fullSym,
+                                full_name: fullSym,
                                 description: s.description || s.name,
                                 exchange: brokerExchange,
                                 type: s.type || 'forex'
@@ -863,10 +864,11 @@ const Datafeed = {
                 if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
                 window._symbolEarliestDate[cleanSym] = earliestDate;
 
+                const fullSymbolName = brokerExchange ? `${brokerExchange}:${cleanSym}` : cleanSym;
                 const symbolInfo = {
-                    name: cleanSym,
-                    ticker: cleanSym,
-                    full_name: `${brokerExchange}:${cleanSym}`,
+                    name: fullSymbolName,
+                    ticker: fullSymbolName,
+                    full_name: fullSymbolName,
                     isLive: true,
                     description: desc,
                     type: assetType,
@@ -1247,7 +1249,9 @@ const Datafeed = {
             }
 
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-            const cacheKey = `MT5_${cleanSym}_${resolution}`;
+            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+            const accId = acc ? acc.id : 'default';
+            const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
             if (!window._tvLastBar) window._tvLastBar = {};
             const last = cachedBars[cachedBars.length - 1];
             if (last) {
@@ -1286,7 +1290,9 @@ const Datafeed = {
 
         if (isMt5Exchange && window.MT5API) {
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-            const cacheKey = `MT5_${cleanSym}_${resolution}`;
+            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+            const accId = acc ? acc.id : 'default';
+            const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
             // Retrieve cached inception start time for this symbol (guarantees we know if data has ended)
             const earliestTimeMs = (window._symbolEarliestTime && window._symbolEarliestTime[cleanSym])
@@ -1670,7 +1676,9 @@ const Datafeed = {
 
         if (isMt5Sub && window.MT5API) {
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-            const cacheKey = `MT5_${cleanSym}_${resolution}`;
+            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+            const accId = acc ? acc.id : 'default';
+            const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
             if (!window._mt5ResetCallbacks) window._mt5ResetCallbacks = new Map();
             window._mt5ResetCallbacks.set(subscriberUID, onResetCacheNeededCallback);
@@ -1713,8 +1721,12 @@ const Datafeed = {
                     window.WatchlistUI.onLivePrice(cleanSym, price, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
                 }
 
+                const currentAcc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+                const currentAccId = currentAcc ? currentAcc.id : accId;
+                const activeKey = `MT5_${currentAccId}_${cleanSym}_${resolution}`;
+
                 if (!window._tvLastBar) window._tvLastBar = {};
-                let lastBar = window._tvLastBar[cacheKey];
+                let lastBar = window._tvLastBar[activeKey];
 
                 const tickTime = Number(tick.time) || Date.now();
                 let barTime;
@@ -1740,7 +1752,7 @@ const Datafeed = {
                         close: price,
                         volume: (isMatchingCandle && tick.candle.volume) ? Number(tick.candle.volume) : 1
                     };
-                    window._tvLastBar[cacheKey] = lastBar;
+                    window._tvLastBar[activeKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
@@ -1772,7 +1784,7 @@ const Datafeed = {
                         close: price,
                         volume: (isMatchingCandle && tick.candle && alignTime(Number(tick.candle.time)) === barTime) ? Number(tick.candle.volume) : 1
                     };
-                    window._tvLastBar[cacheKey] = lastBar;
+                    window._tvLastBar[activeKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
