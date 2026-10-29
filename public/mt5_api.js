@@ -204,6 +204,55 @@
             return firstWord || 'MT5';
         }
 
+        async isSymbolSupportedByAccount(ticker, accountId) {
+            if (!ticker) return false;
+            const q = ticker.toUpperCase().trim();
+
+            if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
+            let symbols = this._accountSymbolsCache.get(accountId);
+
+            if (!symbols) {
+                try {
+                    const accParam = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
+                    const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, { headers: this.getHeaders() });
+                    if (res.ok) {
+                        const data = await res.json();
+                        symbols = data.symbols || [];
+                        this._accountSymbolsCache.set(accountId, symbols);
+                    }
+                } catch (e) {
+                    console.warn('[MT5API] Could not fetch symbols for account check:', e);
+                }
+            }
+
+            if (!symbols || symbols.length === 0) {
+                return false;
+            }
+
+            // Cross-broker asset aliases (e.g. NAS100 <-> USTEC, XTIUSD <-> WTI)
+            const aliasMap = {
+                'NAS100': ['USTEC', 'US100', 'NQ'],
+                'USTEC': ['NAS100', 'US100', 'NQ'],
+                'SP500': ['US500', 'ES'],
+                'US500': ['SP500', 'ES'],
+                'US30': ['DJ30', 'YM', 'WS30'],
+                'DAX40': ['FDAX', 'GER40', 'DE40'],
+                'FDAX': ['DAX40', 'GER40', 'DE40'],
+                'XTIUSD': ['WTI', 'USOIL', 'CL'],
+                'WTI': ['XTIUSD', 'USOIL', 'CL'],
+                'XBRUSD': ['BRN', 'UKOIL'],
+                'BRN': ['XBRUSD', 'UKOIL']
+            };
+
+            const aliases = aliasMap[q] || [];
+            const searchTargets = [q, ...aliases];
+
+            return symbols.some(s => {
+                const sSym = (s.symbol || s.name || '').toUpperCase().trim();
+                return searchTargets.includes(sSym);
+            });
+        }
+
         async setActiveAccount(id) {
             try {
                 const res = await fetch(`${this.endpoint}/api/accounts/active`, {
@@ -216,16 +265,36 @@
                     this.fetchPositions();
                     this.notifyAccountListeners();
 
-                    // Invalidate last-bar memory and force active chart to reload data from the new active broker
-                    if (window._tvLastBar) window._tvLastBar = {};
+                    // Check if current chart symbol exists on the switched broker fleet
+                    let currentSymbol = null;
+                    let chart = null;
                     if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
                         try {
-                            const chart = window.tvWidget.activeChart();
-                            if (chart && typeof chart.resetData === 'function') {
-                                chart.resetData();
+                            chart = window.tvWidget.activeChart();
+                            if (chart && typeof chart.symbol === 'function') {
+                                currentSymbol = chart.symbol();
                             }
-                        } catch (chartErr) {
-                            console.warn('[MT5API] Could not reset chart data automatically:', chartErr);
+                        } catch (_) {}
+                    }
+
+                    if (chart && currentSymbol) {
+                        const cleanTicker = currentSymbol.split(':').pop().toUpperCase().trim();
+                        const isSupported = await this.isSymbolSupportedByAccount(cleanTicker, id);
+
+                        if (isSupported) {
+                            console.log(`[MT5API] Symbol ${cleanTicker} is available on switched account. Reloading chart data for new broker...`);
+                            if (window._tvLastBar) window._tvLastBar = {};
+                            try {
+                                if (typeof chart.setSymbol === 'function') {
+                                    chart.setSymbol(cleanTicker);
+                                } else if (typeof chart.resetData === 'function') {
+                                    chart.resetData();
+                                }
+                            } catch (chartErr) {
+                                console.warn('[MT5API] Chart reload notice:', chartErr);
+                            }
+                        } else {
+                            console.log(`[MT5API] Switched fleet to ${id}, but current chart symbol (${cleanTicker}) is not offered by this broker. Keeping working chart intact.`);
                         }
                     }
 
