@@ -152,6 +152,7 @@
                 const data = await res.json();
                 
                 const wasPreviouslyConnected = this.isConnected;
+                this._failedPolls = 0;
                 this.accounts = data.accounts || [];
                 this.activeAccountId = data.active_account_id;
                 this.isConnected = true;
@@ -177,11 +178,13 @@
                 this.notifyAccountListeners();
             } catch (e) {
                 if (force) console.warn('[MT5API] Accounts sync notice:', e.message);
-                if (this.isConnected) {
+                this._failedPolls = (this._failedPolls || 0) + 1;
+                // Require 2 consecutive failed polls before marking disconnected to prevent transient flicker
+                if (this._failedPolls >= 2 && this.isConnected) {
                     this.wasDisconnected = true;
+                    this.isConnected = false;
+                    this.notifyAccountListeners();
                 }
-                this.isConnected = false;
-                this.notifyAccountListeners();
             }
         }
 
@@ -366,10 +369,11 @@
                     this.fetchPositions();
                     this.notifyAccountListeners();
 
-                    // Invalidate in-memory symbol catalog for previous account
+                    // Invalidate and reload in-memory symbol catalog for newly switched account
                     this._allSymbols = null;
                     this._symbolMap = null;
                     this._loadingSymbolsPromise = null;
+                    this.loadAllSymbolsCache();
 
                     // Check if current chart symbol exists on the switched broker fleet
                     let currentSymbol = null;
