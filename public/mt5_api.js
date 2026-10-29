@@ -431,30 +431,25 @@
                                 });
                             }
 
-                            // 3. Force TradingView to switch symbol or reset series data
+                            // 3. Force TradingView to switch symbol or rerequest series data smoothly
                             try {
                                 const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
                                 if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
                                     await chart.setSymbol(targetSymbol);
-                                }
-
-                                // In all cases, call resetData to flush the series and trigger datafeed.getBars
-                                if (typeof chart.resetData === 'function') {
-                                    chart.resetData();
-                                }
-
-                                // Ensure TradingView main series flags are cleared so it rerequests full range
-                                const cw = chart._chartWidget;
-                                if (cw && typeof cw.model === 'function') {
-                                    const model = cw.model();
-                                    const ms = model ? model.mainSeries() : null;
-                                    if (ms) {
-                                        ms._requestMoreDataAvailable = true;
-                                        if (ms._lastCompleteFlags) {
-                                            delete ms._lastCompleteFlags.data_completed;
-                                        }
-                                        if (typeof ms.rerequestData === 'function') {
-                                            ms.rerequestData();
+                                } else {
+                                    // If same symbol, rerequest data smoothly without wiping candles into a blank void
+                                    const cw = chart._chartWidget;
+                                    if (cw && typeof cw.model === 'function') {
+                                        const model = cw.model();
+                                        const ms = model ? model.mainSeries() : null;
+                                        if (ms) {
+                                            ms._requestMoreDataAvailable = true;
+                                            if (ms._lastCompleteFlags) {
+                                                delete ms._lastCompleteFlags.data_completed;
+                                            }
+                                            if (typeof ms.rerequestData === 'function') {
+                                                ms.rerequestData();
+                                            }
                                         }
                                     }
                                 }
@@ -757,9 +752,11 @@
                 const host = this.endpoint.replace(/^https?:\/\//, '');
                 const wsUrl = `${wsProto}//${host}/ws/quotes`;
 
-                this.ws = new WebSocket(wsUrl);
+                const socket = new WebSocket(wsUrl);
+                this.ws = socket;
 
-                this.ws.onopen = () => {
+                socket.onopen = () => {
+                    if (socket.readyState !== WebSocket.OPEN) return;
                     const acc = this.getActiveAccount();
                     const handshake = {
                         action: 'subscribe',
@@ -768,7 +765,9 @@
                         token: this.apiKey,
                         account_id: acc ? acc.id : null
                     };
-                    this.ws.send(JSON.stringify(handshake));
+                    try {
+                        socket.send(JSON.stringify(handshake));
+                    } catch (_) {}
 
                     // On reconnect, resume real-time streaming seamlessly without unhooking the chart
                     if (this.wasDisconnected) {
