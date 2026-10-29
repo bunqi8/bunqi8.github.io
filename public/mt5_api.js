@@ -639,7 +639,7 @@
             // If we already know the running bridge daemon does not support /api/history (v1.0), skip query to avoid 404 console logs
             if (this._historyEndpointSupported !== false) {
                 try {
-                    const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=90&limit=500` : '?days=90&limit=500';
+                    const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 6000);
                     const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
