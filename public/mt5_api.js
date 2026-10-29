@@ -605,13 +605,6 @@
                 fetchedAt: Date.now()
             };
         }
-                categories: categories,
-                lastTradeTime: lastTradeTime,
-                lastTradeFormatted: lastTradeTime ? new Date(lastTradeTime).toLocaleString() : (acc.created_at ? `Account added: ${new Date(acc.created_at * 1000).toLocaleDateString()}` : 'No recent trades'),
-                totalSymbols: symbols.length,
-                fetchedAt: Date.now()
-            };
-        }
 
         async fetchOrderHistory(accountId = null) {
             const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
