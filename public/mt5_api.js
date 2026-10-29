@@ -392,22 +392,58 @@
             });
         }
 
-        async setActiveAccount(id) {
+        async setActiveAccount(id, onProgress = null) {
+            const report = (step, title, detail, pct) => {
+                if (typeof onProgress === 'function') {
+                    try { onProgress(step, title, detail, pct); } catch (_) {}
+                }
+            };
+
+            const targetAcc = this.accounts.find(a => String(a.id) === String(id));
+            const accName = targetAcc ? (targetAcc.nickname || targetAcc.login || id) : id;
+            const brokerName = targetAcc ? (targetAcc.broker_name || targetAcc.server || 'Broker') : 'Broker';
+
             try {
                 if (this.isAccountPaused(id)) {
                     this.pausedAccountIds.delete(String(id));
                     this.saveConfig();
                 }
-                const res = await fetch(`${this.endpoint}/api/accounts/active`, {
-                    method: 'POST',
-                    headers: this.getHeaders(),
-                    body: JSON.stringify({ account_id: id })
-                });
+
+                report(1, `Initiating Switch to ${accName}...`, `Sending switch command to MT5 bridge...`, 15);
+
+                let elapsedSec = 0;
+                const timer = setInterval(() => {
+                    elapsedSec += 1;
+                    let phaseDetail = `Connecting to ${brokerName} terminal on bridge server (${elapsedSec}s)...`;
+                    let pct = Math.min(65, 20 + elapsedSec * 3);
+                    if (elapsedSec > 2 && elapsedSec <= 6) {
+                        phaseDetail = `Launching MetaTrader 5 terminal executable for ${brokerName} (${elapsedSec}s)...`;
+                    } else if (elapsedSec > 6 && elapsedSec <= 12) {
+                        phaseDetail = `Authenticating login ${targetAcc ? targetAcc.login : ''} on trade server (${elapsedSec}s)...`;
+                    } else if (elapsedSec > 12) {
+                        phaseDetail = `Finalizing terminal connection & Market Watch (${elapsedSec}s)...`;
+                    }
+                    report(2, `Switching to ${accName} (${elapsedSec}s)...`, phaseDetail, pct);
+                }, 1000);
+
+                let res;
+                try {
+                    res = await fetch(`${this.endpoint}/api/accounts/active`, {
+                        method: 'POST',
+                        headers: this.getHeaders(),
+                        body: JSON.stringify({ account_id: id })
+                    });
+                } finally {
+                    clearInterval(timer);
+                }
+
                 if (res.ok) {
                     this.activeAccountId = id;
                     this.reconnectWebSocket();
                     this.fetchPositions();
                     this.notifyAccountListeners();
+
+                    report(3, `Terminal Connected!`, `Synchronizing symbol catalog & Market Watch for ${brokerName}...`, 75);
 
                     // Invalidate and reload in-memory symbol catalog for newly switched account
                     this._allSymbols = null;
@@ -429,6 +465,7 @@
 
                     if (chart && currentSymbol) {
                         const cleanTicker = currentSymbol.split(':').pop().toUpperCase().trim();
+                        report(3, `Verifying Symbol...`, `Checking if ${cleanTicker} is available on ${brokerName}...`, 80);
                         const isSupported = await this.isSymbolSupportedByAccount(cleanTicker, id);
 
                         if (isSupported) {
@@ -436,6 +473,7 @@
                             const brokerExchange = this.getCleanBrokerExchange(newAcc);
                             const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanTicker}` : cleanTicker;
 
+                            report(4, `Reloading Chart Candles...`, `Loading ${targetSymbol} candles from ${brokerName}...`, 90);
                             console.log(`[MT5API] Symbol ${cleanTicker} is available on switched account (${brokerExchange}). Reloading chart data for new broker...`);
 
                             // 1. Purge all in-memory bars and tick caches for this symbol
@@ -502,10 +540,14 @@
                         }
                     }
 
+                    report(5, `✓ Active Fleet Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
                     return true;
+                } else {
+                    report(0, `Switch Failed`, `Bridge server returned HTTP ${res.status}`, 0);
                 }
             } catch (e) {
                 console.error('[MT5API] Failed to set active account:', e);
+                report(0, `Switch Error`, e.message || 'Connection failed', 0);
             }
             return false;
         }
