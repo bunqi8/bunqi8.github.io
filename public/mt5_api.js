@@ -979,12 +979,22 @@
                 callback = resolution;
                 resolution = this.activeResolution || '1';
             }
-            this.activeSymbol = (symbol || 'EURUSD').split(':').pop();
-            if (resolution) {
-                this.activeResolution = resolution;
+            const clean = (symbol || '').split(':').pop().toUpperCase().trim();
+            // Guard: Only subscribe if this is a recognized MT5 symbol; prevent Indian equities (e.g. NIFTY50-INDEX) from hijacking MT5 feed
+            if (clean && !this.isMt5Symbol(clean)) {
+                return;
             }
-            this.tickListeners.add(callback);
+            if (clean) {
+                this.activeSymbol = clean;
+            }
+            if (resolution) {
+                this.activeResolution = String(resolution);
+            }
+            if (callback) {
+                this.tickListeners.add(callback);
+            }
             this.ensureWebSocket();
+            this.startFallbackTickPolling();
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 const acc = this.getActiveAccount();
                 this.ws.send(JSON.stringify({
@@ -998,6 +1008,36 @@
 
         unsubscribeQuotes(callback) {
             this.tickListeners.delete(callback);
+        }
+
+        startFallbackTickPolling() {
+            if (this._fallbackTickTimer) return;
+            this._fallbackTickTimer = setInterval(async () => {
+                if (!this.endpoint || !this.tickListeners || this.tickListeners.size === 0) return;
+                if (!this.activeSymbol || !this.isMt5Symbol(this.activeSymbol)) return;
+
+                // If WebSocket is actively streaming ticks (received within last 1800ms), no fallback HTTP poll needed
+                if (Date.now() - (this._lastTickReceivedTime || 0) < 1800) {
+                    return;
+                }
+
+                try {
+                    const acc = this.getActiveAccount();
+                    const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
+                    const url = `${this.endpoint}/api/tick?symbol=${encodeURIComponent(this.activeSymbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
+                    const res = await fetch(url, { headers: this.getHeaders() });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.success) {
+                            this._lastTickReceivedTime = Date.now();
+                            const tickMsg = { type: 'tick', ...data };
+                            this.tickListeners.forEach(cb => {
+                                try { cb(tickMsg); } catch (_) {}
+                            });
+                        }
+                    }
+                } catch (_) {}
+            }, 1000);
         }
 
         ensureWebSocket() {
@@ -1039,6 +1079,7 @@
                     try {
                         const msg = JSON.parse(evt.data);
                         if (msg.type === 'tick') {
+                            this._lastTickReceivedTime = Date.now();
                             this.tickListeners.forEach(cb => {
                                 try { cb(msg); } catch (_) {}
                             });

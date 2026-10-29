@@ -250,7 +250,7 @@
             }
 
             // Bind to live ticks from broker
-            if (window.MT5API) {
+            if (window.MT5API && window.MT5API.isMt5Symbol(this.currentSymbol)) {
                 window.MT5API.subscribeQuotes(this.currentSymbol, (tick) => {
                     if (tick && tick.bid && tick.ask) {
                         this.currentBid = Number(tick.bid);
@@ -402,6 +402,15 @@
                         const newSym = titleBtn.innerText.trim();
                         if (newSym && newSym !== this.currentSymbol) {
                             this.currentSymbol = newSym;
+                            if (window.MT5API && window.MT5API.isMt5Symbol(newSym)) {
+                                window.MT5API.subscribeQuotes(newSym, (tick) => {
+                                    if (tick && tick.bid && tick.ask) {
+                                        this.currentBid = Number(tick.bid);
+                                        this.currentAsk = Number(tick.ask);
+                                        this.updatePrices();
+                                    }
+                                });
+                            }
                             this.lastLiveCandlePrice = null; // Reset for new symbol so live datafeed populates it
                             this.clearAllNativeChartLines();
                             this.syncNativeChartLines();
