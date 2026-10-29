@@ -240,15 +240,32 @@ window.getMarketStatus = function(symbol) {
                 };
             }
         } else {
-            // Real Brokers (FTMO, The5%ers, Funding Pips, Exness, IC Markets): Standard CME rollover 2:30 AM to 3:30 AM IST (21:00 to 22:00 UTC)
-            if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
-                return {
-                    isOpen: false,
-                    session: defaultSession,
-                    timezone: 'Etc/UTC',
-                    market: 'METALS',
-                    reason: 'Daily Rollover Break (02:30 - 03:30 IST / Opens at 03:30 IST)'
-                };
+            const acc = window.MT5API ? window.MT5API.getActiveAccount() : null;
+            const broker = window.MT5API ? window.MT5API.getCleanBrokerExchange(acc) : '';
+            const is5ers = broker === 'THE 5%ERS' || (acc && (acc.server || '').includes('FivePercent'));
+
+            if (is5ers) {
+                // The 5%ers Gold (XAUUSD) closes at 23:50 server time (02:20 IST / 20:50 UTC) and reopens at 01:05 server time (03:35 IST / 22:05 UTC)
+                if (curMinsUtc >= (20 * 60 + 50) && curMinsUtc < (22 * 60 + 5)) {
+                    return {
+                        isOpen: false,
+                        session: defaultSession,
+                        timezone: 'Etc/UTC',
+                        market: 'METALS',
+                        reason: 'The 5%ers Daily Break (02:20 - 03:35 IST / Opens at 03:35 IST)'
+                    };
+                }
+            } else {
+                // FundedNext / FTMO / Standard Prop Firms: 02:30 AM to 03:30 AM IST (21:00 to 22:00 UTC)
+                if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
+                    return {
+                        isOpen: false,
+                        session: defaultSession,
+                        timezone: 'Etc/UTC',
+                        market: 'METALS',
+                        reason: 'Daily Rollover Break (02:30 - 03:30 IST / Opens at 03:30 IST)'
+                    };
+                }
             }
         }
     }
