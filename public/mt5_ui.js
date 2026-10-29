@@ -627,8 +627,6 @@
                         </button>
                     </div>
 
-                    ${progressBanner}
-
                     ${accounts.length === 0 ? `
                         <div style="text-align: center; padding: 30px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
                             <div style="font-size: 24px; margin-bottom: 6px;">💼</div>
