@@ -226,6 +226,8 @@
             }
 
             if (!symbols || symbols.length === 0) {
+                const UNIVERSAL = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
+                if (UNIVERSAL.includes(q)) return true;
                 return false;
             }
 
@@ -265,6 +267,11 @@
                     this.fetchPositions();
                     this.notifyAccountListeners();
 
+                    // Invalidate in-memory symbol catalog for previous account
+                    this._allSymbols = null;
+                    this._symbolMap = null;
+                    this._loadingSymbolsPromise = null;
+
                     // Check if current chart symbol exists on the switched broker fleet
                     let currentSymbol = null;
                     let chart = null;
@@ -282,13 +289,71 @@
                         const isSupported = await this.isSymbolSupportedByAccount(cleanTicker, id);
 
                         if (isSupported) {
-                            console.log(`[MT5API] Symbol ${cleanTicker} is available on switched account. Reloading chart data for new broker...`);
-                            if (window._tvLastBar) window._tvLastBar = {};
+                            const newAcc = this.getActiveAccount();
+                            const brokerExchange = this.getCleanBrokerExchange(newAcc);
+                            const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanTicker}` : cleanTicker;
+
+                            console.log(`[MT5API] Symbol ${cleanTicker} is available on switched account (${brokerExchange}). Reloading chart data for new broker...`);
+
+                            // 1. Purge all in-memory bars and tick caches for this symbol
+                            if (window._barsCache) {
+                                for (const k in window._barsCache) {
+                                    if (k.toUpperCase().includes(cleanTicker)) {
+                                        delete window._barsCache[k];
+                                    }
+                                }
+                            }
+                            if (window._tvLastBar) {
+                                for (const k in window._tvLastBar) {
+                                    if (k.toUpperCase().includes(cleanTicker)) {
+                                        delete window._tvLastBar[k];
+                                    }
+                                }
+                            }
+                            if (window._symbolEarliestTime) delete window._symbolEarliestTime[cleanTicker];
+                            if (window._symbolEarliestDate) delete window._symbolEarliestDate[cleanTicker];
+
+                            // 2. Fire TradingView datafeed reset caches
+                            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                                try { window.tvWidget.resetCache(); } catch (_) {}
+                            }
+                            if (typeof window._tvResetCache === 'function') {
+                                try { window._tvResetCache(); } catch (_) {}
+                            }
+                            if (window._mt5ResetCallbacks) {
+                                window._mt5ResetCallbacks.forEach(cb => {
+                                    if (typeof cb === 'function') {
+                                        try { cb(); } catch (_) {}
+                                    }
+                                });
+                            }
+
+                            // 3. Force TradingView to switch symbol or reset series data
                             try {
-                                if (typeof chart.setSymbol === 'function') {
-                                    chart.setSymbol(cleanTicker);
-                                } else if (typeof chart.resetData === 'function') {
+                                const curSym = (typeof chart.symbol === 'function') ? chart.symbol() : '';
+                                if (curSym !== targetSymbol && typeof chart.setSymbol === 'function') {
+                                    await chart.setSymbol(targetSymbol);
+                                }
+
+                                // In all cases, call resetData to flush the series and trigger datafeed.getBars
+                                if (typeof chart.resetData === 'function') {
                                     chart.resetData();
+                                }
+
+                                // Ensure TradingView main series flags are cleared so it rerequests full range
+                                const cw = chart._chartWidget;
+                                if (cw && typeof cw.model === 'function') {
+                                    const model = cw.model();
+                                    const ms = model ? model.mainSeries() : null;
+                                    if (ms) {
+                                        ms._requestMoreDataAvailable = true;
+                                        if (ms._lastCompleteFlags) {
+                                            delete ms._lastCompleteFlags.data_completed;
+                                        }
+                                        if (typeof ms.rerequestData === 'function') {
+                                            ms.rerequestData();
+                                        }
+                                    }
                                 }
                             } catch (chartErr) {
                                 console.warn('[MT5API] Chart reload notice:', chartErr);

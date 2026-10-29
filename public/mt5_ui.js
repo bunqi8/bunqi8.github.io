@@ -628,8 +628,13 @@
                 b.onclick = async (e) => {
                     const id = e.target.getAttribute('data-id');
                     if (id && window.MT5API) {
-                        await window.MT5API.setActiveAccount(id);
-                        this.renderModal();
+                        b.innerText = 'Switching...';
+                        b.disabled = true;
+                        try {
+                            await window.MT5API.setActiveAccount(id);
+                        } finally {
+                            this.renderModal();
+                        }
                     }
                 };
             });

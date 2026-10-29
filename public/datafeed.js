@@ -447,6 +447,17 @@ function getBarLimitCacheKey(symbolInfo, resolution) {
     if (!symbolInfo) return '';
     const raw = symbolInfo.name || symbolInfo.ticker || '';
     const clean = raw.split(':').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    // Partition MT5 bar cache by active broker account ID so account switches never serve stale broker bars
+    const isMt5 = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
+                  (symbolInfo.exchange && symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX') ||
+                  (window.MT5API && window.MT5API.isMt5Symbol(clean));
+    if (isMt5 && window.MT5API) {
+        const acc = window.MT5API.getActiveAccount();
+        const accId = acc ? acc.id : 'default';
+        return `MT5_${accId}_${clean}_${resolution}`;
+    }
+
     return `${clean}_${resolution}`;
 }
 
@@ -800,9 +811,13 @@ const Datafeed = {
         }
 
         // MT5 Forex, Commodity, Index & Stock Symbols Resolution
-        const cleanUpper = actualName.split(':').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const parts = actualName.split(':');
+        const prefix = parts.length > 1 ? parts[0].toUpperCase().trim() : '';
+        const cleanUpper = parts[parts.length - 1].toUpperCase().replace(/[^A-Z0-9]/g, '');
         const MT5_POPULAR = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'US30', 'USTEC', 'US500', 'DE40', 'UK100', 'AAPL', 'TSLA', 'NVDA', 'BTCUSD', 'ETHUSD'];
-        const isMt5 = actualName.startsWith('MT5:') ||
+        const isKnownBrokerPrefix = prefix === 'MT5' || (prefix && prefix !== 'NSE' && prefix !== 'BSE' && prefix !== 'MCX' && window.MT5API && window.MT5API.accounts && window.MT5API.accounts.some(a => (window.MT5API.getCleanBrokerExchange(a) === prefix) || (a.server && a.server.toUpperCase().includes(prefix))));
+        const isMt5 = isKnownBrokerPrefix ||
+                      actualName.startsWith('MT5:') ||
                       (window.MT5API && window.MT5API.isMt5Symbol(actualName)) ||
                       MT5_POPULAR.some(s => cleanUpper.startsWith(s));
 
@@ -1421,7 +1436,7 @@ const Datafeed = {
         }
 
         // 2. Live Options (No Parquet) for Indian Fyers
-        if (symbolInfo.isLive && window.FyersAPI && !symbolInfo.exchange.includes('MT5')) {
+        if (symbolInfo.isLive && window.FyersAPI && (symbolInfo.exchange === 'NSE' || symbolInfo.exchange === 'BSE' || symbolInfo.exchange === 'MCX')) {
             let fyersBars = await window.FyersAPI.getHistory(symbolInfo.name, resolution, rawFrom, rawTo);
             fyersBars = alignFyersDwmTime(fyersBars, resolution);
             if (fyersBars && fyersBars.length > 0) {
