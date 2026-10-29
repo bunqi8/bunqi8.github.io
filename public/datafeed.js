@@ -1392,8 +1392,8 @@ const Datafeed = {
                 }
 
                 // If no bars returned for requested range:
-                // Check whether requested rawTo is still above the confirmed symbol inception date:
-                if (rawTo > earliestTimeSec) {
+                // Only bridge via nextTime when scrolling backward into history (never on firstDataRequest)
+                if (!firstDataRequest && rawTo > earliestTimeSec) {
                     // DATA IS NOT ENDED! We are simply traversing a weekend, holiday, or broker quote pause.
                     // Supply nextTime so TradingView jumps across the gap and keeps scrolling back!
                     const gapHopSec = Math.max(earliestTimeSec, rawTo - (3 * 86400));
