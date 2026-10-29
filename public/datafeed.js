@@ -1286,9 +1286,20 @@ const Datafeed = {
         // 1. MT5 Live Feed - ALWAYS CHECK FIRST FOR ALL MT5 INSTRUMENTS
         const isMt5Exchange = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
                               symbolInfo.name.startsWith('MT5:') ||
-                              (symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX' && window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name));
+                              (symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX' && ((window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name)) || /USD|EUR|GBP|JPY|AUD|CAD|CHF|NZD|XAU|XAG|BTC|ETH|US30|USTEC|US500/.test(symbolInfo.name.toUpperCase())));
 
-        if (isMt5Exchange && window.MT5API) {
+        if (isMt5Exchange) {
+            if (!window.MT5API) {
+                for (let i = 0; i < 15; i++) {
+                    await new Promise(r => setTimeout(r, 100));
+                    if (window.MT5API) break;
+                }
+            }
+            if (!window.MT5API) {
+                console.warn('[datafeed] MT5API client not ready for MT5 symbol:', symbolInfo.name);
+                onHistoryCallback([], { noData: true });
+                return;
+            }
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
             const accId = acc ? acc.id : 'default';
@@ -1672,9 +1683,13 @@ const Datafeed = {
         // MT5 Live Real-Time Subscription Hook
         const isMt5Sub = (symbolInfo.exchange && symbolInfo.exchange.includes('MT5')) ||
                          symbolInfo.name.startsWith('MT5:') ||
-                         (symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX' && window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name));
+                         (symbolInfo.exchange !== 'NSE' && symbolInfo.exchange !== 'BSE' && symbolInfo.exchange !== 'MCX' && ((window.MT5API && window.MT5API.isMt5Symbol(symbolInfo.name)) || /USD|EUR|GBP|JPY|AUD|CAD|CHF|NZD|XAU|XAG|BTC|ETH|US30|USTEC|US500/.test(symbolInfo.name.toUpperCase())));
 
-        if (isMt5Sub && window.MT5API) {
+        if (isMt5Sub) {
+            if (!window.MT5API) {
+                console.warn('[datafeed] MT5API client not ready for subscription:', symbolInfo.name);
+                return;
+            }
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
             const accId = acc ? acc.id : 'default';
