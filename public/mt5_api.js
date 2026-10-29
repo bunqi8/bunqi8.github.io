@@ -69,12 +69,14 @@
                 this.endpoint = ep;
                 this.apiKey = cfg.apiKey || '';
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
+                this.pausedAccountIds = new Set(cfg.pausedAccountIds || []);
             } catch (_) {
                 this.endpoint = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) 
                     ? 'http://localhost:8000' 
                     : '';
                 this.apiKey = '';
                 this.multiAccountSelection = new Set();
+                this.pausedAccountIds = new Set();
             }
         }
 
@@ -83,12 +85,38 @@
                 const payload = {
                     endpoint: this.endpoint,
                     apiKey: this.apiKey,
-                    multiAccountSelection: Array.from(this.multiAccountSelection)
+                    multiAccountSelection: Array.from(this.multiAccountSelection),
+                    pausedAccountIds: Array.from(this.pausedAccountIds || [])
                 };
                 localStorage.setItem(this.configKey, JSON.stringify(payload));
             } catch (e) {
                 console.error('[MT5API] Failed to save config:', e);
             }
+        }
+
+        isAccountPaused(accountId) {
+            if (!this.pausedAccountIds) return false;
+            return this.pausedAccountIds.has(String(accountId));
+        }
+
+        toggleAccountPause(accountId) {
+            if (!this.pausedAccountIds) this.pausedAccountIds = new Set();
+            const idStr = String(accountId);
+            if (this.pausedAccountIds.has(idStr)) {
+                this.pausedAccountIds.delete(idStr);
+                console.log(`[MT5API] ✓ Account ${idStr} resumed to Online mode.`);
+            } else {
+                this.pausedAccountIds.add(idStr);
+                // Uncheck from multi-account trading when paused
+                if (this.multiAccountSelection) {
+                    this.multiAccountSelection.delete(idStr);
+                }
+                console.log(`[MT5API] ⏸️ Account ${idStr} paused (Standby mode).`);
+            }
+            this.saveConfig();
+            this.syncAccounts(true);
+            this.notifyAccountListeners();
+            return !this.pausedAccountIds.has(idStr);
         }
 
         setConnection(endpoint, apiKey) {
@@ -153,7 +181,14 @@
                 
                 const wasPreviouslyConnected = this.isConnected;
                 this._failedPolls = 0;
-                this.accounts = data.accounts || [];
+                this.accounts = (data.accounts || []).map(acc => {
+                    const isPaused = this.isAccountPaused(acc.id);
+                    return {
+                        ...acc,
+                        is_paused: isPaused,
+                        is_connected: !isPaused
+                    };
+                });
                 this.activeAccountId = data.active_account_id;
                 this.isConnected = true;
 
@@ -359,6 +394,10 @@
 
         async setActiveAccount(id) {
             try {
+                if (this.isAccountPaused(id)) {
+                    this.pausedAccountIds.delete(String(id));
+                    this.saveConfig();
+                }
                 const res = await fetch(`${this.endpoint}/api/accounts/active`, {
                     method: 'POST',
                     headers: this.getHeaders(),
@@ -836,6 +875,9 @@
         async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
             try {
                 const targetAcc = accountId || this.activeAccountId;
+                if (targetAcc && this.isAccountPaused(targetAcc)) {
+                    return { success: false, error: 'Cannot place order: This account is currently paused (Standby mode). Click Resume in MT5 Fleet first.' };
+                }
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
                 let effectiveType = type.toUpperCase();
                 if (orderType === 'limit') {
@@ -908,12 +950,16 @@
 
         async broadcastOrder({ accountIds, symbol, type, baseLots, sl = 0.0, tp = 0.0 }) {
             try {
+                const activeAccountIds = (accountIds || []).filter(id => !this.isAccountPaused(id));
+                if (activeAccountIds.length === 0) {
+                    return { success: false, error: 'No active accounts selected for order broadcast (selected accounts are paused in standby mode).' };
+                }
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
                 const res = await fetch(`${this.endpoint}/api/orders/broadcast`, {
                     method: 'POST',
                     headers: this.getHeaders(),
                     body: JSON.stringify({
-                        account_ids: accountIds,
+                        account_ids: activeAccountIds,
                         symbol: cleanSym,
                         type: type.toUpperCase(),
                         base_lots: Number(baseLots),
