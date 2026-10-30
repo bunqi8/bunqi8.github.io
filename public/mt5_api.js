@@ -10,6 +10,9 @@
     class MT5Client {
         constructor() {
             this.configKey = 'tv_mt5_bridge_config';
+            this.endpoints = [];
+            this.activeEndpointId = null;
+            this.wsSockets = new Map();
             this.loadConfig();
 
             this.accounts = [];
@@ -26,14 +29,14 @@
             this.isConnected = false;
             this.pingMs = 0;
 
-            // Auto-sync accounts periodically
+            // Auto-sync accounts periodically across all enabled bridges
             this.syncTimer = null;
             this.initAutoSync();
 
             // Listen for system network recovery and tab visibility change
             if (typeof window !== 'undefined') {
                 window.addEventListener('online', () => {
-                    console.log('[MT5API] Network back online! Reconnecting socket...');
+                    console.log('[MT5API] Network back online! Reconnecting bridge sockets...');
                     this.wasDisconnected = true;
                     this.reconnectWebSocket();
                 });
@@ -42,11 +45,8 @@
                     if (document.visibilityState === 'visible') {
                         const elapsed = Date.now() - (this._lastVisibleTs || Date.now());
                         if (elapsed > 8000) {
-                            console.log(`[MT5API] Tab resumed after ${Math.round(elapsed / 1000)}s! Verifying socket connection...`);
-                            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                                this.wasDisconnected = true;
-                                this.reconnectWebSocket();
-                            }
+                            console.log(`[MT5API] Tab resumed after ${Math.round(elapsed / 1000)}s! Verifying bridge sockets...`);
+                            this.ensureWebSocket();
                         }
                         this._lastVisibleTs = Date.now();
                     } else {
@@ -56,28 +56,79 @@
             }
         }
 
+        // Backward compatibility getters/setters for legacy single-endpoint callers
+        get endpoint() {
+            const active = this.getActiveEndpoint();
+            return active ? active.url : '';
+        }
+
+        set endpoint(val) {
+            const active = this.getActiveEndpoint();
+            if (active) {
+                active.url = (val || '').trim().replace(/\/+$/, '');
+            } else if (val) {
+                this.addEndpoint({ name: 'Primary Bridge', url: val });
+            }
+        }
+
+        get apiKey() {
+            const active = this.getActiveEndpoint();
+            return active ? active.apiKey : 'mt5_secret_key_2026';
+        }
+
+        set apiKey(val) {
+            const active = this.getActiveEndpoint();
+            if (active) active.apiKey = (val || '').trim();
+        }
+
         loadConfig() {
             try {
                 const raw = localStorage.getItem(this.configKey);
                 const cfg = raw ? JSON.parse(raw) : {};
-                let ep = (cfg.endpoint || '').trim().replace(/\/+$/, '');
-                if (!ep) {
-                    ep = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) 
-                        ? 'http://localhost:8000' 
-                        : '';
-                } else if (typeof window !== 'undefined' && window.location.protocol === 'https:' && ep.startsWith('http://') && !ep.includes('localhost') && !ep.includes('127.0.0.1')) {
-                    // Prevent Mixed Content blocking by upgrading http to https for external bridges
-                    ep = ep.replace('http://', 'https://');
+
+                let endpoints = Array.isArray(cfg.endpoints) ? cfg.endpoints : [];
+
+                // Migrate legacy single endpoint format if present
+                if (endpoints.length === 0 && cfg.endpoint) {
+                    let ep = cfg.endpoint.trim().replace(/\/+$/, '');
+                    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && ep.startsWith('http://') && !ep.includes('localhost') && !ep.includes('127.0.0.1')) {
+                        ep = ep.replace('http://', 'https://');
+                    }
+                    if (ep) {
+                        endpoints.push({
+                            id: 'ep_migrated',
+                            name: 'Primary Bridge',
+                            url: ep,
+                            apiKey: cfg.apiKey || 'mt5_secret_key_2026',
+                            enabled: true,
+                            status: 'unknown',
+                            ping: 0
+                        });
+                    }
                 }
-                this.endpoint = ep;
-                this.apiKey = cfg.apiKey || 'mt5_secret_key_2026';
+
+                // If running on localhost and no endpoints configured, offer localhost default
+                if (endpoints.length === 0 && typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+                    endpoints = [
+                        {
+                            id: 'ep_localhost',
+                            name: 'Localhost Bridge',
+                            url: 'http://localhost:8000',
+                            apiKey: 'mt5_secret_key_2026',
+                            enabled: true,
+                            status: 'unknown',
+                            ping: 0
+                        }
+                    ];
+                }
+
+                this.endpoints = endpoints;
+                this.activeEndpointId = cfg.activeEndpointId || (this.endpoints[0] ? this.endpoints[0].id : null);
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
                 this.pausedAccountIds = new Set(cfg.pausedAccountIds || []);
             } catch (_) {
-                this.endpoint = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) 
-                    ? 'http://localhost:8000' 
-                    : '';
-                this.apiKey = 'mt5_secret_key_2026';
+                this.endpoints = [];
+                this.activeEndpointId = null;
                 this.multiAccountSelection = new Set();
                 this.pausedAccountIds = new Set();
             }
@@ -99,15 +150,217 @@
         saveConfig() {
             try {
                 const payload = {
+                    endpoints: (this.endpoints || []).map(e => ({
+                        id: e.id,
+                        name: e.name,
+                        url: e.url,
+                        apiKey: e.apiKey,
+                        enabled: e.enabled !== false,
+                        status: e.status || 'unknown',
+                        ping: e.ping || 0,
+                        error: e.error || null
+                    })),
+                    activeEndpointId: this.activeEndpointId,
                     endpoint: this.endpoint,
                     apiKey: this.apiKey,
-                    multiAccountSelection: Array.from(this.multiAccountSelection),
+                    multiAccountSelection: Array.from(this.multiAccountSelection || []),
                     pausedAccountIds: Array.from(this.pausedAccountIds || [])
                 };
                 localStorage.setItem(this.configKey, JSON.stringify(payload));
             } catch (e) {
                 console.error('[MT5API] Failed to save config:', e);
             }
+        }
+
+        // --- Multi-Bridge Endpoint Management ---
+        getEndpoints() {
+            return this.endpoints || [];
+        }
+
+        getActiveEndpoint() {
+            if (!this.endpoints || this.endpoints.length === 0) return null;
+            if (this.activeEndpointId) {
+                const matched = this.endpoints.find(e => e.id === this.activeEndpointId);
+                if (matched) return matched;
+            }
+            const firstEnabled = this.endpoints.find(e => e.enabled);
+            return firstEnabled || this.endpoints[0] || null;
+        }
+
+        getEndpointForAccount(accountId) {
+            if (accountId && this.accounts) {
+                const acc = this.accounts.find(a => String(a.id) === String(accountId));
+                if (acc) {
+                    if (acc.endpointId) {
+                        const ep = this.endpoints.find(e => e.id === acc.endpointId);
+                        if (ep) return ep;
+                    }
+                    if (acc.endpointUrl) {
+                        const ep = this.endpoints.find(e => e.url === acc.endpointUrl);
+                        if (ep) return ep;
+                    }
+                }
+            }
+            return this.getActiveEndpoint();
+        }
+
+        getReqHeaders(endpointObj) {
+            const ep = endpointObj || this.getActiveEndpoint();
+            const h = { 'Content-Type': 'application/json' };
+            const key = ep ? ep.apiKey : (this.apiKey || 'mt5_secret_key_2026');
+            if (key && key !== 'none') {
+                h['Authorization'] = `Bearer ${key}`;
+                h['X-Bridge-Key'] = key;
+            }
+            return h;
+        }
+
+        getHeaders() {
+            return this.getReqHeaders(this.getActiveEndpoint());
+        }
+
+        addEndpoint({ name, url, apiKey, enabled = true }) {
+            const cleanUrl = (url || '').trim().replace(/\/+$/, '');
+            if (!cleanUrl) return { success: false, error: 'Endpoint URL is required' };
+            const cleanKey = (apiKey || 'mt5_secret_key_2026').trim();
+            const cleanName = (name || '').trim() || `Bridge Server ${this.endpoints.length + 1}`;
+            const id = 'ep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
+            const newEp = {
+                id,
+                name: cleanName,
+                url: cleanUrl,
+                apiKey: cleanKey,
+                enabled: enabled !== false,
+                status: 'unknown',
+                ping: 0
+            };
+
+            this.endpoints.push(newEp);
+            if (this.endpoints.length === 1 || !this.activeEndpointId) {
+                this.activeEndpointId = id;
+            }
+            this.saveConfig();
+            this.syncAccounts(true);
+            this.ensureWebSocket();
+            return { success: true, endpoint: newEp };
+        }
+
+        updateEndpoint(id, updates = {}) {
+            const ep = this.endpoints.find(e => e.id === id);
+            if (!ep) return false;
+            if (updates.name !== undefined) ep.name = String(updates.name).trim();
+            if (updates.url !== undefined) ep.url = String(updates.url).trim().replace(/\/+$/, '');
+            if (updates.apiKey !== undefined) ep.apiKey = String(updates.apiKey).trim();
+            if (updates.enabled !== undefined) ep.enabled = Boolean(updates.enabled);
+            this.saveConfig();
+            this.syncAccounts(true);
+            this.ensureWebSocket();
+            return true;
+        }
+
+        deleteEndpoint(id) {
+            const idx = this.endpoints.findIndex(e => e.id === id);
+            if (idx < 0) return false;
+            this.endpoints.splice(idx, 1);
+            if (this.activeEndpointId === id) {
+                const remaining = this.endpoints.find(e => e.enabled) || this.endpoints[0];
+                this.activeEndpointId = remaining ? remaining.id : null;
+            }
+            if (this.wsSockets.has(id)) {
+                try {
+                    this.wsSockets.get(id).close();
+                } catch (_) {}
+                this.wsSockets.delete(id);
+            }
+            this.saveConfig();
+            this.syncAccounts(true);
+            return true;
+        }
+
+        toggleEndpoint(id) {
+            const ep = this.endpoints.find(e => e.id === id);
+            if (!ep) return false;
+            ep.enabled = !ep.enabled;
+            this.saveConfig();
+            this.syncAccounts(true);
+            this.ensureWebSocket();
+            return ep.enabled;
+        }
+
+        setActiveEndpoint(id) {
+            const ep = this.endpoints.find(e => e.id === id);
+            if (!ep) return false;
+            this.activeEndpointId = id;
+            this.saveConfig();
+            this.notifyAccountListeners();
+            return true;
+        }
+
+        setConnection(endpoint, apiKey) {
+            const active = this.getActiveEndpoint();
+            if (active) {
+                active.url = (endpoint || '').trim().replace(/\/+$/, '');
+                active.apiKey = (apiKey || '').trim();
+            } else {
+                this.addEndpoint({
+                    name: 'Primary Bridge',
+                    url: endpoint,
+                    apiKey: apiKey,
+                    enabled: true
+                });
+            }
+            this.saveConfig();
+            this.syncAccounts(true);
+            this.reconnectWebSocket();
+        }
+
+        async testSingleEndpoint(endpointId) {
+            const ep = this.endpoints.find(e => e.id === endpointId);
+            if (!ep) return { success: false, error: 'Endpoint not found' };
+            const start = performance.now();
+            try {
+                const res = await fetch(`${ep.url}/health`, {
+                    headers: this.getReqHeaders(ep),
+                    signal: AbortSignal.timeout(8000)
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const ping = Math.round(performance.now() - start);
+                ep.ping = ping;
+                ep.status = 'online';
+                ep.error = null;
+                this.saveConfig();
+                return { success: true, ping, data };
+            } catch (err) {
+                ep.status = 'offline';
+                ep.error = err.message;
+                this.saveConfig();
+                return { success: false, error: err.message };
+            }
+        }
+
+        async testConnection() {
+            const enabled = (this.endpoints || []).filter(e => e.enabled);
+            if (enabled.length === 0) {
+                return { success: false, error: 'Bridge Endpoint URL is not configured. Please add or enable at least one bridge endpoint below.' };
+            }
+            const results = await Promise.all(enabled.map(e => this.testSingleEndpoint(e.id)));
+            const successful = results.filter(r => r.success);
+            const anySuccess = successful.length > 0;
+            this.isConnected = anySuccess;
+            if (anySuccess) {
+                this.pingMs = successful[0].ping;
+                this.syncAccounts(true);
+            }
+            return {
+                success: anySuccess,
+                total: enabled.length,
+                online: successful.length,
+                ping: anySuccess ? successful[0].ping : 0,
+                error: anySuccess ? null : (results[0]?.error || 'Failed to connect to configured bridge endpoints'),
+                results
+            };
         }
 
         isAccountPaused(accountId) {
@@ -135,119 +388,113 @@
             return !this.pausedAccountIds.has(idStr);
         }
 
-        setConnection(endpoint, apiKey) {
-            this.endpoint = (endpoint || '').trim().replace(/\/+$/, '');
-            this.apiKey = (apiKey || '').trim();
-            this.saveConfig();
-            this.syncAccounts(true);
-            this.reconnectWebSocket();
-        }
-
-        getHeaders() {
-            const h = { 'Content-Type': 'application/json' };
-            if (this.apiKey && this.apiKey !== 'none') {
-                h['Authorization'] = `Bearer ${this.apiKey}`;
-                h['X-Bridge-Key'] = this.apiKey;
-            }
-            return h;
-        }
-
         initAutoSync() {
             this.syncAccounts();
             if (this.syncTimer) clearInterval(this.syncTimer);
-            // Continuous auto-connect heartbeat: checks every 2.5s so bridge is connected automatically
+            // Continuous auto-connect heartbeat: checks every 2.5s across all enabled bridges
             this.syncTimer = setInterval(() => this.syncAccounts(), 2500);
         }
 
-        async testConnection() {
-            if (!this.endpoint) {
-                return { success: false, error: 'Bridge Endpoint URL is not configured. Please enter your bridge address below.' };
-            }
-            const start = performance.now();
-            try {
-                const res = await fetch(`${this.endpoint}/health`, {
-                    headers: this.getHeaders(),
-                    signal: AbortSignal.timeout(12000)
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                this.pingMs = Math.round(performance.now() - start);
-                this.isConnected = true;
-                this.syncAccounts(true);
-                return { success: true, ping: this.pingMs, data };
-            } catch (err) {
-                this.isConnected = false;
-                return { success: false, error: err.message };
-            }
-        }
-
+        // --- Parallel Multi-Bridge Account Sync ---
         async syncAccounts(force = false) {
-            if (!this.endpoint) {
+            const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled);
+            if (enabledEndpoints.length === 0) {
                 this.isConnected = false;
+                this.accounts = [];
                 this.notifyAccountListeners();
                 return;
             }
-            try {
-                const res = await fetch(`${this.endpoint}/api/accounts`, {
-                    headers: this.getHeaders(),
-                    signal: AbortSignal.timeout(6000)
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                
-                const wasPreviouslyConnected = this.isConnected;
-                this._failedPolls = 0;
-                this.accounts = (data.accounts || []).map(acc => {
-                    const isPaused = this.isAccountPaused(acc.id);
-                    return {
-                        ...acc,
-                        is_paused: isPaused,
-                        is_connected: !isPaused
-                    };
-                });
-                this.activeAccountId = data.active_account_id;
-                this.isConnected = true;
 
-                // Cache accounts to localStorage and update Symbol Search exchanges dynamically
+            const fetchPromises = enabledEndpoints.map(async (ep) => {
+                const start = performance.now();
                 try {
-                    localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
-                    if (typeof configurationData !== 'undefined' && typeof window.getExchangesConfig === 'function') {
-                        configurationData.exchanges = window.getExchangesConfig();
+                    const res = await fetch(`${ep.url}/api/accounts`, {
+                        headers: this.getReqHeaders(ep),
+                        signal: AbortSignal.timeout(6000)
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const data = await res.json();
+                    ep.ping = Math.round(performance.now() - start);
+                    ep.status = 'online';
+                    ep.error = null;
+                    return { ep, data };
+                } catch (err) {
+                    ep.status = 'offline';
+                    ep.error = err.message;
+                    if (force) console.warn(`[MT5API] Endpoint '${ep.name}' sync error:`, err.message);
+                    return { ep, data: null, error: err.message };
+                }
+            });
+
+            const results = await Promise.allSettled(fetchPromises);
+            const allAccounts = [];
+            let anyOnline = false;
+            let primaryActiveId = null;
+
+            for (const r of results) {
+                if (r.status === 'fulfilled' && r.value && r.value.data) {
+                    const { ep, data } = r.value;
+                    anyOnline = true;
+                    if (ep.id === this.activeEndpointId && data.active_account_id) {
+                        primaryActiveId = data.active_account_id;
                     }
-                } catch (_) {}
-
-                // Auto-Connect & Auto-Refresh: When connection is established/restored, auto-sync open chart & quotes!
-                if (!wasPreviouslyConnected || this.wasDisconnected) {
-                    this.wasDisconnected = false;
-                    console.log('[MT5API] ✓ Bridge Connection established! Auto-syncing live chart & quotes...');
-                    this.reconnectWebSocket();
-                    this.refreshActiveChart();
-                }
-
-                // Preload full symbol catalog into memory once connected for 0ms instant search
-                if (!this._allSymbols && !this._loadingSymbolsPromise) {
-                    this.loadAllSymbolsCache();
-                }
-
-                // Preload symbols & history across all accounts for 0ms instant details
-                this.preloadAllAccountsData();
-
-                // Sync positions for active account
-                if (this.activeAccountId) {
-                    this.fetchPositions();
-                }
-
-                this.notifyAccountListeners();
-            } catch (e) {
-                if (force) console.warn('[MT5API] Accounts sync notice:', e.message);
-                this._failedPolls = (this._failedPolls || 0) + 1;
-                // Require 2 consecutive failed polls before marking disconnected to prevent transient flicker
-                if (this._failedPolls >= 2 && this.isConnected) {
-                    this.wasDisconnected = true;
-                    this.isConnected = false;
-                    this.notifyAccountListeners();
+                    const accountsList = data.accounts || [];
+                    accountsList.forEach(acc => {
+                        const isPaused = this.isAccountPaused(acc.id);
+                        allAccounts.push({
+                            ...acc,
+                            endpointId: ep.id,
+                            endpointName: ep.name,
+                            endpointUrl: ep.url,
+                            endpointApiKey: ep.apiKey,
+                            is_paused: isPaused,
+                            is_connected: !isPaused && ep.status === 'online'
+                        });
+                    });
                 }
             }
+
+            const wasPreviouslyConnected = this.isConnected;
+            this.accounts = allAccounts;
+            this.isConnected = anyOnline;
+
+            // Pick active account ID: prefer active on primary endpoint, or keep current if valid, else pick first
+            if (primaryActiveId && this.accounts.some(a => a.id === primaryActiveId)) {
+                this.activeAccountId = primaryActiveId;
+            } else if (!this.accounts.some(a => a.id === this.activeAccountId)) {
+                const firstActive = this.accounts.find(a => a.is_active && !a.is_paused);
+                this.activeAccountId = firstActive ? firstActive.id : (this.accounts[0] ? this.accounts[0].id : null);
+            }
+
+            // Cache accounts to localStorage and update Symbol Search exchanges dynamically
+            try {
+                localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
+                if (typeof configurationData !== 'undefined' && typeof window.getExchangesConfig === 'function') {
+                    configurationData.exchanges = window.getExchangesConfig();
+                }
+            } catch (_) {}
+
+            // Auto-Connect & Auto-Refresh: When connection is established/restored, auto-sync open chart & quotes!
+            if (!wasPreviouslyConnected && anyOnline) {
+                console.log(`[MT5API] ✓ Bridge Fleet Connected (${enabledEndpoints.filter(e => e.status === 'online').length} online)! Auto-syncing live chart & quotes...`);
+                this.reconnectWebSocket();
+                this.refreshActiveChart();
+            }
+
+            // Preload full symbol catalog into memory once connected for 0ms instant search
+            if (!this._allSymbols && !this._loadingSymbolsPromise && anyOnline) {
+                this.loadAllSymbolsCache();
+            }
+
+            // Preload symbols & history across all accounts for 0ms instant details
+            this.preloadAllAccountsData();
+
+            // Sync positions for active account
+            if (this.activeAccountId) {
+                this.fetchPositions(this.activeAccountId);
+            }
+
+            this.notifyAccountListeners();
         }
 
         async refreshActiveChart() {
@@ -270,11 +517,9 @@
             const isMt5 = this.isMt5Symbol(cleanTicker) || currentSymbol.startsWith('MT5:') || (brokerExchange && currentSymbol.includes(brokerExchange));
 
             if (!isMt5) {
-                // If current chart is an Indian equity or Fyers asset, keep working chart intact
                 return;
             }
 
-            // Ensure WebSocket tick stream is alive for the active symbol
             this.ensureWebSocket();
         }
 
@@ -307,7 +552,6 @@
             if (raw.includes('FXPRO')) return 'FXPRO';
             if (raw.includes('IG')) return 'IG';
 
-            // Clean fallback: take first word before dash or space (e.g. "MetaQuotes-Demo" -> "METAQUOTES")
             const firstWord = (target.server || target.nickname || 'MT5').split(/[-_\s]/)[0].toUpperCase();
             return firstWord || 'MT5';
         }
@@ -344,12 +588,15 @@
 
             if (!symbols) {
                 try {
-                    const accParam = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
-                    const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, { headers: this.getHeaders() });
-                    if (res.ok) {
-                        const data = await res.json();
-                        symbols = data.symbols || [];
-                        this._accountSymbolsCache.set(accountId, symbols);
+                    const ep = this.getEndpointForAccount(accountId);
+                    if (ep && ep.url) {
+                        const accParam = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
+                        const res = await fetch(`${ep.url}/api/symbols${accParam}`, { headers: this.getReqHeaders(ep) });
+                        if (res.ok) {
+                            const data = await res.json();
+                            symbols = data.symbols || [];
+                            this._accountSymbolsCache.set(accountId, symbols);
+                        }
                     }
                 } catch (e) {
                     console.warn('[MT5API] Could not fetch symbols for account check:', e);
@@ -362,7 +609,6 @@
                 return false;
             }
 
-            // Cross-broker asset aliases (e.g. NAS100 <-> USTEC, XTIUSD <-> WTI)
             const aliasMap = {
                 'NAS100': ['USTEC', 'US100', 'NQ'],
                 'USTEC': ['NAS100', 'US100', 'NQ'],
@@ -406,8 +652,11 @@
                         }
                     } catch (_) {}
 
-                    fetch(`${this.endpoint}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
-                        headers: this.getHeaders()
+                    const ep = this.getEndpointForAccount(accId);
+                    if (!ep || !ep.url) continue;
+
+                    fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
+                        headers: this.getReqHeaders(ep)
                     }).then(r => r.ok ? r.json() : null).then(data => {
                         if (data && data.symbols && data.symbols.length > 2) {
                             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
@@ -438,41 +687,35 @@
                     this.saveConfig();
                 }
 
-                // --- 0ms INSTANT SWITCH ---
-                // 1. Immediately update active account ID and status in memory
                 this.activeAccountId = id;
                 this.accounts.forEach(a => {
                     a.is_active = (String(a.id) === String(id));
                 });
 
-                // 2. Notify listeners immediately in 0ms (updates buttons, pills, headers)
                 this.notifyAccountListeners();
-
-                // 3. Update live WebSocket subscription for this account immediately
                 this.reconnectWebSocket();
 
-                // 4. Instant Chart Feed Switch: Switch active chart feed & candles to this account
                 if (!skipChartSwitch) {
                     this.switchChartFeedToAccount(id);
                 }
 
-                // 5. Report instant completion to progress listener
                 report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
 
-                // 6. In the background (asynchronous, non-blocking):
-                // Send switch command to bridge server and sync fresh positions/symbols
-                fetch(`${this.endpoint}/api/accounts/active`, {
-                    method: 'POST',
-                    headers: this.getHeaders(),
-                    body: JSON.stringify({ account_id: id })
-                }).then(async res => {
-                    if (res.ok) {
-                        this.fetchPositions(id);
-                        this.loadAllSymbolsCache();
-                    }
-                }).catch(e => {
-                    console.warn('[MT5API] Background active account switch note:', e.message);
-                });
+                const ep = this.getEndpointForAccount(id);
+                if (ep && ep.url) {
+                    fetch(`${ep.url}/api/accounts/active`, {
+                        method: 'POST',
+                        headers: this.getReqHeaders(ep),
+                        body: JSON.stringify({ account_id: id })
+                    }).then(async res => {
+                        if (res.ok) {
+                            this.fetchPositions(id);
+                            this.loadAllSymbolsCache();
+                        }
+                    }).catch(e => {
+                        console.warn('[MT5API] Background active account switch note:', e.message);
+                    });
+                }
 
                 return true;
             } catch (e) {
@@ -507,7 +750,6 @@
             const cleanTicker = currentSymbol.split('|')[0].split(':').pop().toUpperCase().trim();
             const isMt5 = this.isMt5Symbol(currentSymbol) || this.isMt5Symbol(cleanTicker);
             if (!isMt5) {
-                // Not an MT5 chart (e.g. Indian Fyers NIFTY/RELIANCE); leave untouched
                 return;
             }
 
@@ -517,7 +759,6 @@
 
             console.log(`[MT5API] ⚡ Switching open chart feed from '${currentSymbol}' to '${targetSymbol}' (${targetAcc ? targetAcc.nickname : accountId})`);
 
-            // Clear cache for this ticker so old broker bars and last ticks never persist
             if (window._barsCache) {
                 for (const k in window._barsCache) {
                     if (k.toUpperCase().includes(cleanTicker)) delete window._barsCache[k];
@@ -550,7 +791,6 @@
                 console.warn('[MT5API] Error updating chart on active account switch:', chartErr);
             }
 
-            // Immediately re-subscribe quote feed for active symbol on the new account
             if (this.activeSymbol) {
                 this.subscribeQuotes(this.activeSymbol, this.activeResolution);
             }
@@ -562,7 +802,6 @@
 
             if (onProgress) onProgress(1, 'Connecting to MT5 Profile', `Checking #${acc.login} (${acc.server})...`, 25);
 
-            // 1. Fetch symbols for this account (with instant memory & localStorage cache)
             let symbols = [];
             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
             if (this._accountSymbolsCache.has(accountId)) {
@@ -587,43 +826,44 @@
                 } catch (_) {}
             }
 
-            // Always ensure full symbol catalog from bridge server if symbols is small (<= 2)
             if (symbols.length <= 2) {
                 if (onProgress) onProgress(2, 'Loading Supported Tickers', 'Querying broker symbols and market watch...', 50);
                 try {
-                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
-                    const res = await fetch(`${this.endpoint}/api/symbols${accParam}`, {
-                        headers: this.getHeaders()
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.symbols && data.symbols.length > 2) {
-                            symbols = data.symbols;
-                            this._accountSymbolsCache.set(accountId, symbols);
-                            try {
-                                localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(symbols));
-                            } catch (_) {}
+                    const ep = this.getEndpointForAccount(accountId);
+                    if (ep && ep.url) {
+                        const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                        const res = await fetch(`${ep.url}/api/symbols${accParam}`, {
+                            headers: this.getReqHeaders(ep)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.symbols && data.symbols.length > 2) {
+                                symbols = data.symbols;
+                                this._accountSymbolsCache.set(accountId, symbols);
+                                try {
+                                    localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(symbols));
+                                } catch (_) {}
+                            }
                         }
                     }
-                } catch (e) {
-                    // Suppress abort/network timeout logs
-                }
+                } catch (e) {}
             } else {
-                // Background update of symbols catalog so next open is always up-to-date
-                const accParam = `?account_id=${encodeURIComponent(accountId)}`;
-                fetch(`${this.endpoint}/api/symbols${accParam}`, { headers: this.getHeaders() })
-                    .then(r => r.ok ? r.json() : null)
-                    .then(data => {
-                        if (data && data.symbols && data.symbols.length > 2) {
-                            this._accountSymbolsCache.set(accountId, data.symbols);
-                            try {
-                                localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(data.symbols));
-                            } catch (_) {}
-                        }
-                    }).catch(() => {});
+                const ep = this.getEndpointForAccount(accountId);
+                if (ep && ep.url) {
+                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                    fetch(`${ep.url}/api/symbols${accParam}`, { headers: this.getReqHeaders(ep) })
+                        .then(r => r.ok ? r.json() : null)
+                        .then(data => {
+                            if (data && data.symbols && data.symbols.length > 2) {
+                                this._accountSymbolsCache.set(accountId, data.symbols);
+                                try {
+                                    localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(data.symbols));
+                                } catch (_) {}
+                            }
+                        }).catch(() => {});
+                }
             }
 
-            // 2. Fetch active positions
             if (onProgress) onProgress(3, 'Fetching Active Positions', 'Retrieving open trades and floating PnL...', 75);
             let positions = [];
             try {
@@ -632,14 +872,12 @@
                 positions = acc.positions || [];
             }
 
-            // 3. Fetch order history
             if (onProgress) onProgress(4, 'Synchronizing Order History', 'Loading closed trade deals and performance metrics...', 90);
             let history = [];
             try {
                 history = await this.fetchOrderHistory(accountId);
             } catch (_) {}
 
-            // 4. Compute last traded date and activity
             let lastTradeTime = null;
             if (positions && positions.length > 0) {
                 const times = positions.map(p => Number(p.time || 0) * 1000).filter(t => t > 0);
@@ -650,7 +888,6 @@
                 if (histTimes.length > 0) lastTradeTime = Math.max(...histTimes);
             }
 
-            // 5. Categorize symbols
             const categories = {};
             symbols.forEach(s => {
                 const cat = s.category || s.type || 'Other';
@@ -677,7 +914,6 @@
             const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
             let remoteHistory = [];
 
-            // Read from localStorage cache first for 0ms loading
             try {
                 const cached = localStorage.getItem(`mt5_history_cache_${targetId}`);
                 if (cached) {
@@ -687,28 +923,28 @@
 
             if (this._historyEndpointSupported !== false) {
                 try {
-                    const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
-                    const res = await fetch(`${this.endpoint}/api/history${accParam}`, {
-                        headers: this.getHeaders()
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data.history && data.history.length > 0) {
-                            remoteHistory = data.history;
-                            this._historyEndpointSupported = true;
-                            try {
-                                localStorage.setItem(`mt5_history_cache_${targetId}`, JSON.stringify(remoteHistory));
-                            } catch (_) {}
+                    const ep = this.getEndpointForAccount(targetId);
+                    if (ep && ep.url) {
+                        const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
+                        const res = await fetch(`${ep.url}/api/history${accParam}`, {
+                            headers: this.getReqHeaders(ep)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.history && data.history.length > 0) {
+                                remoteHistory = data.history;
+                                this._historyEndpointSupported = true;
+                                try {
+                                    localStorage.setItem(`mt5_history_cache_${targetId}`, JSON.stringify(remoteHistory));
+                                } catch (_) {}
+                            }
+                        } else if (res.status === 404) {
+                            this._historyEndpointSupported = false;
                         }
-                    } else if (res.status === 404) {
-                        this._historyEndpointSupported = false;
                     }
-                } catch (e) {
-                    // Suppress network log for optional history endpoint
-                }
+                } catch (e) {}
             }
 
-            // Merge with local trade history
             const localHistory = this.getStoredTradeHistory(targetId);
             const combinedMap = new Map();
             remoteHistory.forEach(h => combinedMap.set(String(h.ticket), h));
@@ -747,11 +983,17 @@
             } catch (_) {}
         }
 
-        async addAccount(accountData) {
+        async addAccount(accountData, endpointId = null) {
             try {
-                const res = await fetch(`${this.endpoint}/api/accounts/add`, {
+                const ep = endpointId 
+                    ? (this.endpoints.find(e => e.id === endpointId) || this.getActiveEndpoint())
+                    : this.getActiveEndpoint();
+                if (!ep || !ep.url) {
+                    return { success: false, error: 'No bridge endpoint available to add account to.' };
+                }
+                const res = await fetch(`${ep.url}/api/accounts/add`, {
                     method: 'POST',
-                    headers: this.getHeaders(),
+                    headers: this.getReqHeaders(ep),
                     body: JSON.stringify(accountData)
                 });
                 const data = await res.json();
@@ -767,9 +1009,11 @@
 
         async deleteAccount(id) {
             try {
-                const res = await fetch(`${this.endpoint}/api/accounts/${id}`, {
+                const ep = this.getEndpointForAccount(id);
+                if (!ep || !ep.url) return false;
+                const res = await fetch(`${ep.url}/api/accounts/${id}`, {
                     method: 'DELETE',
-                    headers: this.getHeaders()
+                    headers: this.getReqHeaders(ep)
                 });
                 if (res.ok) {
                     await this.syncAccounts(true);
@@ -787,9 +1031,11 @@
             this._loadingSymbolsPromise = (async () => {
                 try {
                     const acc = this.getActiveAccount();
+                    const ep = this.getEndpointForAccount(acc ? acc.id : null);
+                    if (!ep || !ep.url) return this.getMockSymbols();
                     const accParam = acc ? `?account_id=${encodeURIComponent(acc.id)}` : '';
-                    const url = `${this.endpoint}/api/symbols${accParam}`;
-                    const res = await fetch(url, { headers: this.getHeaders() });
+                    const url = `${ep.url}/api/symbols${accParam}`;
+                    const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const data = await res.json();
                     this._allSymbols = data.symbols || [];
@@ -834,19 +1080,22 @@
 
             // 3. Direct network fetch from bridge
             try {
-                const res = await fetch(`${this.endpoint}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
-                    headers: this.getHeaders(),
-                    signal: AbortSignal.timeout(10000)
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    const syms = data.symbols || [];
-                    if (syms.length > 0) {
-                        this._accountSymbolsCache.set(accId, syms);
-                        try {
-                            localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
-                        } catch (_) {}
-                        return syms;
+                const ep = this.getEndpointForAccount(accId);
+                if (ep && ep.url) {
+                    const res = await fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
+                        headers: this.getReqHeaders(ep),
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const syms = data.symbols || [];
+                        if (syms.length > 0) {
+                            this._accountSymbolsCache.set(accId, syms);
+                            try {
+                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
+                            } catch (_) {}
+                            return syms;
+                        }
                     }
                 }
             } catch (e) {
@@ -905,7 +1154,6 @@
                 return [...exact, ...starts, ...contains];
             }
 
-            // When search is empty, boost popular assets to the top
             const POPULAR = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'US30', 'USTEC', 'US500', 'BTCUSD', 'ETHUSD', 'XAGUSD', 'AUDUSD', 'USDCAD', 'USDCHF'];
             const popSet = new Set(POPULAR);
             const boosted = [];
@@ -924,16 +1172,20 @@
             return [...boosted, ...regular];
         }
 
-        async fetchSymbolInfo(symbol) {
+        async fetchSymbolInfo(symbol, targetAccountId = null) {
             const clean = (symbol || 'EURUSD').split(':').pop().toUpperCase().trim();
             if (this._symbolMap && this._symbolMap.has(clean)) {
                 return this._symbolMap.get(clean);
             }
             try {
-                const acc = this.getActiveAccount();
+                const acc = targetAccountId 
+                    ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
+                    : this.getActiveAccount();
+                const ep = this.getEndpointForAccount(acc ? acc.id : null);
+                if (!ep || !ep.url) return null;
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                const url = `${this.endpoint}/api/symbol_info?symbol=${encodeURIComponent(clean)}${accParam}`;
-                const res = await fetch(url, { headers: this.getHeaders() });
+                const url = `${ep.url}/api/symbol_info?symbol=${encodeURIComponent(clean)}${accParam}`;
+                const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                 if (res.ok) {
                     const data = await res.json();
                     if (data.symbol_info) {
@@ -994,19 +1246,22 @@
         }
 
         // --- Datafeed Historical Bars ---
-        async fetchQuotes(symbols) {
+        async fetchQuotes(symbols, targetAccountId = null) {
             if (!symbols || (Array.isArray(symbols) && symbols.length === 0)) return {};
             try {
                 const symParam = Array.isArray(symbols) ? symbols.join(',') : symbols;
-                const acc = this.getActiveAccount();
+                const acc = targetAccountId 
+                    ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
+                    : this.getActiveAccount();
+                const ep = this.getEndpointForAccount(acc ? acc.id : null);
+                if (!ep || !ep.url) return {};
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                const url = `${this.endpoint}/api/quotes?symbols=${encodeURIComponent(symParam)}${accParam}`;
-                const res = await fetch(url, { headers: this.getHeaders() });
+                const url = `${ep.url}/api/quotes?symbols=${encodeURIComponent(symParam)}${accParam}`;
+                const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const quotes = data.quotes || {};
 
-                // Provide realistic baseline for BTCUSD/ETHUSD if broker API omits them
                 const POPULAR_DEFAULTS = {
                     'BTCUSD': { last: 67420.50, open: 66880.00, change: 0.81, bid: 67415.00, ask: 67425.00 },
                     'ETHUSD': { last: 2640.20, open: 2615.00, change: 0.96, bid: 2639.50, ask: 2641.00 }
@@ -1034,8 +1289,10 @@
                 if (from && to) {
                     rangeParams = `&from=${Math.floor(from)}&to=${Math.ceil(to)}`;
                 }
-                const url = `${this.endpoint}/api/bars?symbol=${encodeURIComponent(cleanSym)}&resolution=${encodeURIComponent(resolution)}&count=${count}${rangeParams}${accParam}`;
-                const res = await fetch(url, { headers: this.getHeaders() });
+                const ep = this.getEndpointForAccount(acc ? acc.id : null);
+                if (!ep || !ep.url) return [];
+                const url = `${ep.url}/api/bars?symbol=${encodeURIComponent(cleanSym)}&resolution=${encodeURIComponent(resolution)}&count=${count}${rangeParams}${accParam}`;
+                const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 if (data.earliest_time_ms) {
@@ -1053,14 +1310,13 @@
             }
         }
 
-        // --- Real-Time WebSocket Quote Stream ---
+        // --- Real-Time Multi-Bridge WebSocket Quote Streams ---
         subscribeQuotes(symbol, resolution, callback, accountId = null) {
             if (typeof resolution === 'function') {
                 callback = resolution;
-                resolution = null; // Do NOT overwrite activeResolution if caller didn't pass one
+                resolution = null;
             }
             const clean = (symbol || '').split(':').pop().toUpperCase().trim();
-            // Guard: Only subscribe if this is a recognized MT5 symbol; prevent Indian equities (e.g. NIFTY50-INDEX) from hijacking MT5 feed
             if (clean && !this.isMt5Symbol(clean)) {
                 return;
             }
@@ -1075,21 +1331,27 @@
             }
             this.ensureWebSocket();
             this.startFallbackTickPolling();
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                let acc = null;
-                if (accountId && this.accounts) {
-                    acc = this.accounts.find(a => String(a.id) === String(accountId));
-                }
-                if (!acc) {
-                    acc = this.getActiveAccount();
-                }
-                this.ws.send(JSON.stringify({
-                    action: 'subscribe',
-                    symbol: this.activeSymbol,
-                    resolution: this.activeResolution || '1',
-                    account_id: acc ? acc.id : null
-                }));
+
+            let targetAcc = null;
+            if (accountId && this.accounts) {
+                targetAcc = this.accounts.find(a => String(a.id) === String(accountId));
             }
+            if (!targetAcc) {
+                targetAcc = this.getActiveAccount();
+            }
+
+            this.wsSockets.forEach((socket) => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(JSON.stringify({
+                            action: 'subscribe',
+                            symbol: this.activeSymbol,
+                            resolution: this.activeResolution || '1',
+                            account_id: targetAcc ? targetAcc.id : null
+                        }));
+                    } catch (_) {}
+                }
+            });
         }
 
         unsubscribeQuotes(callback) {
@@ -1099,19 +1361,20 @@
         startFallbackTickPolling() {
             if (this._fallbackTickTimer) return;
             this._fallbackTickTimer = setInterval(async () => {
-                if (!this.endpoint || !this.tickListeners || this.tickListeners.size === 0) return;
+                if (!this.endpoints || this.endpoints.length === 0 || !this.tickListeners || this.tickListeners.size === 0) return;
                 if (!this.activeSymbol || !this.isMt5Symbol(this.activeSymbol)) return;
 
-                // If WebSocket is actively streaming ticks (received within last 1800ms), no fallback HTTP poll needed
                 if (Date.now() - (this._lastTickReceivedTime || 0) < 1800) {
                     return;
                 }
 
                 try {
                     const acc = this.getActiveAccount();
+                    const ep = this.getEndpointForAccount(acc ? acc.id : null);
+                    if (!ep || !ep.url) return;
                     const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                    const url = `${this.endpoint}/api/tick?symbol=${encodeURIComponent(this.activeSymbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
-                    const res = await fetch(url, { headers: this.getHeaders() });
+                    const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(this.activeSymbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
+                    const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                     if (res.ok) {
                         const data = await res.json();
                         if (data && data.success) {
@@ -1127,108 +1390,91 @@
         }
 
         ensureWebSocket() {
-            if (!this.endpoint) return;
-            if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-                return;
-            }
+            const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status !== 'offline');
+            if (enabledEndpoints.length === 0) return;
 
-            try {
-                const wsProto = this.endpoint.startsWith('https') ? 'wss:' : 'ws:';
-                const host = this.endpoint.replace(/^https?:\/\//, '');
-                const wsUrl = `${wsProto}//${host}/ws/quotes`;
-
-                const socket = new WebSocket(wsUrl);
-                this.ws = socket;
-
-                socket.onopen = () => {
-                    if (socket.readyState !== WebSocket.OPEN) return;
-                    const acc = this.getActiveAccount();
-                    const handshake = {
-                        action: 'subscribe',
-                        symbol: this.activeSymbol,
-                        resolution: this.activeResolution || '1',
-                        token: this.apiKey,
-                        account_id: acc ? acc.id : null
-                    };
-                    try {
-                        socket.send(JSON.stringify(handshake));
-                    } catch (_) {}
-
-                    // On reconnect, resume real-time streaming seamlessly without unhooking the chart
-                    if (this.wasDisconnected) {
-                        console.log('[MT5API] WebSocket reconnected after drop! Real-time ticks streaming for:', this.activeSymbol);
-                    }
-                    this.wasDisconnected = false;
-                };
-
-                socket.onmessage = (evt) => {
-                    try {
-                        const msg = JSON.parse(evt.data);
-                        if (msg.type === 'tick') {
-                            this._lastTickReceivedTime = Date.now();
-                            this.tickListeners.forEach(cb => {
-                                try { cb(msg); } catch (_) {}
-                            });
-                        } else if (msg.type === 'positions') {
-                            // Real-time WebSocket streaming of active positions & floating PnL
-                            const newPositions = msg.positions || [];
-                            const accId = msg.account_id || (this.getActiveAccount() ? this.getActiveAccount().id : null);
-                            this.processPositionDiff(accId, newPositions);
-                            if (!accId || (this.getActiveAccount() && this.getActiveAccount().id === accId)) {
-                                this.positions = newPositions;
-                                this.notifyPositionListeners();
-                            }
-                        }
-                    } catch (_) {}
-                };
-
-                socket.onclose = () => {
-                    if (this.ws === socket) {
-                        this.ws = null;
-                    }
-                    setTimeout(() => {
-                        if (this.tickListeners && this.tickListeners.size > 0 && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
-                            this.ensureWebSocket();
-                        }
-                    }, 2500);
-                };
-
-                socket.onerror = () => {
-                    if (socket.readyState === WebSocket.OPEN) {
-                        try { socket.close(); } catch (_) {}
-                    }
-                };
-            } catch (err) {
-                console.warn('[MT5API] WebSocket init error:', err);
-            }
-        }
-
-        reconnectWebSocket() {
-            if (this.ws) {
-                if (this.ws.readyState === WebSocket.CONNECTING) {
-                    // Already establishing connection; do not abort
+            enabledEndpoints.forEach(ep => {
+                let socket = this.wsSockets.get(ep.id);
+                if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
                     return;
                 }
-                if (this.ws.readyState === WebSocket.OPEN) {
-                    // Already connected; update subscription without closing
-                    const acc = this.getActiveAccount();
-                    try {
-                        this.ws.send(JSON.stringify({
+
+                try {
+                    const wsProto = ep.url.startsWith('https') ? 'wss:' : 'ws:';
+                    const host = ep.url.replace(/^https?:\/\//, '');
+                    const wsUrl = `${wsProto}//${host}/ws/quotes`;
+
+                    socket = new WebSocket(wsUrl);
+                    this.wsSockets.set(ep.id, socket);
+                    if (ep.id === this.activeEndpointId || !this.ws) {
+                        this.ws = socket;
+                    }
+
+                    socket.onopen = () => {
+                        if (socket.readyState !== WebSocket.OPEN) return;
+                        const acc = this.getActiveAccount();
+                        const handshake = {
                             action: 'subscribe',
                             symbol: this.activeSymbol,
                             resolution: this.activeResolution || '1',
-                            token: this.apiKey,
+                            token: ep.apiKey,
                             account_id: acc ? acc.id : null
-                        }));
-                    } catch (_) {}
-                    return;
+                        };
+                        try {
+                            socket.send(JSON.stringify(handshake));
+                        } catch (_) {}
+                    };
+
+                    socket.onmessage = (evt) => {
+                        try {
+                            const msg = JSON.parse(evt.data);
+                            if (msg.type === 'tick') {
+                                this._lastTickReceivedTime = Date.now();
+                                this.tickListeners.forEach(cb => {
+                                    try { cb(msg); } catch (_) {}
+                                });
+                            } else if (msg.type === 'positions') {
+                                const newPositions = msg.positions || [];
+                                const accId = msg.account_id || (this.getActiveAccount() ? this.getActiveAccount().id : null);
+                                this.processPositionDiff(accId, newPositions);
+                                if (!accId || (this.getActiveAccount() && this.getActiveAccount().id === accId)) {
+                                    this.positions = newPositions;
+                                    this.notifyPositionListeners();
+                                }
+                            }
+                        } catch (_) {}
+                    };
+
+                    socket.onclose = () => {
+                        this.wsSockets.delete(ep.id);
+                        if (this.ws === socket) this.ws = null;
+                        setTimeout(() => {
+                            if (this.tickListeners && this.tickListeners.size > 0 && ep.enabled) {
+                                this.ensureWebSocket();
+                            }
+                        }, 2500);
+                    };
+
+                    socket.onerror = () => {
+                        if (socket.readyState === WebSocket.OPEN) {
+                            try { socket.close(); } catch (_) {}
+                        }
+                    };
+                } catch (err) {
+                    console.warn(`[MT5API] WebSocket init error for ${ep.name}:`, err);
                 }
+            });
+        }
+
+        reconnectWebSocket() {
+            this.wsSockets.forEach((sock) => {
                 try {
-                    this.ws.onclose = null;
-                    this.ws.close();
+                    sock.onclose = null;
+                    sock.close();
                 } catch (_) {}
-                this.ws = null;
-            }
+            });
+            this.wsSockets.clear();
+            this.ws = null;
             if (this.tickListeners && this.tickListeners.size > 0) {
                 this.ensureWebSocket();
             }
@@ -1236,27 +1482,67 @@
 
         // --- Orders & Positions Execution ---
         async fetchPositions(accountId = null) {
-            const targetId = accountId || (this.getActiveAccount() ? this.getActiveAccount().id : null);
-            try {
-                const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}` : '';
-                const res = await fetch(`${this.endpoint}/api/positions${accParam}`, {
-                    headers: this.getHeaders()
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    const pos = data.positions || [];
-                    this.processPositionDiff(targetId, pos);
-                    if (!accountId || (this.getActiveAccount() && this.getActiveAccount().id === accountId)) {
-                        this.positions = pos;
-                        this.notifyPositionListeners();
+            if (accountId) {
+                const ep = this.getEndpointForAccount(accountId);
+                if (!ep || !ep.url) return [];
+                try {
+                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                    const res = await fetch(`${ep.url}/api/positions${accParam}`, {
+                        headers: this.getReqHeaders(ep)
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const pos = data.positions || [];
+                        this.processPositionDiff(accountId, pos);
+                        if (!this.activeAccountId || this.activeAccountId === accountId) {
+                            this.positions = pos;
+                            this.notifyPositionListeners();
+                        }
+                        return pos;
                     }
-                    return pos;
-                }
-            } catch (e) {
-                // Graceful fallback without throwing unhandled error
+                } catch (e) {}
+                const acc = this.accounts.find(a => String(a.id) === String(accountId));
+                return (acc && acc.positions) ? acc.positions : [];
             }
-            const acc = this.accounts.find(a => String(a.id) === String(targetId));
-            return (acc && acc.positions) ? acc.positions : [];
+
+            // Global parallel sync: fetch positions from all online enabled endpoints
+            const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status !== 'offline');
+            if (enabledEndpoints.length === 0) return this.positions || [];
+
+            const allPromises = enabledEndpoints.map(async ep => {
+                try {
+                    const res = await fetch(`${ep.url}/api/positions`, {
+                        headers: this.getReqHeaders(ep),
+                        signal: AbortSignal.timeout(4000)
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        return (data.positions || []).map(p => ({
+                            ...p,
+                            endpointId: ep.id,
+                            endpointName: ep.name
+                        }));
+                    }
+                } catch (_) {}
+                return [];
+            });
+
+            const results = await Promise.allSettled(allPromises);
+            const combinedPositions = [];
+            for (const r of results) {
+                if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+                    combinedPositions.push(...r.value);
+                }
+            }
+
+            const activeAcc = this.getActiveAccount();
+            if (activeAcc) {
+                this.positions = combinedPositions.filter(p => String(p.account_id) === String(activeAcc.id) || !p.account_id);
+            } else {
+                this.positions = combinedPositions;
+            }
+            this.notifyPositionListeners();
+            return combinedPositions;
         }
 
         async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
@@ -1265,6 +1551,10 @@
                 if (targetAcc && this.isAccountPaused(targetAcc)) {
                     return { success: false, error: 'Cannot place order: This account is currently paused (Standby mode). Click Resume in MT5 Fleet first.' };
                 }
+                const ep = this.getEndpointForAccount(targetAcc);
+                if (!ep || !ep.url) {
+                    return { success: false, error: 'Bridge endpoint is not configured or offline for this account.' };
+                }
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
                 let effectiveType = type.toUpperCase();
                 if (orderType === 'limit') {
@@ -1272,9 +1562,9 @@
                 } else if (orderType === 'stop') {
                     effectiveType = effectiveType === 'BUY' ? 'BUY_STOP' : 'SELL_STOP';
                 }
-                const res = await fetch(`${this.endpoint}/api/orders/place`, {
+                const res = await fetch(`${ep.url}/api/orders/place`, {
                     method: 'POST',
-                    headers: this.getHeaders(),
+                    headers: this.getReqHeaders(ep),
                     body: JSON.stringify({
                         account_id: targetAcc,
                         symbol: cleanSym,
@@ -1287,7 +1577,7 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions();
+                await this.fetchPositions(targetAcc);
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };
@@ -1297,9 +1587,11 @@
         async modifyPosition({ ticket, sl, tp, accountId = null }) {
             try {
                 const targetAcc = accountId || this.activeAccountId;
-                const res = await fetch(`${this.endpoint}/api/orders/modify`, {
+                const ep = this.getEndpointForAccount(targetAcc);
+                if (!ep || !ep.url) return { success: false, error: 'Bridge endpoint offline' };
+                const res = await fetch(`${ep.url}/api/orders/modify`, {
                     method: 'POST',
-                    headers: this.getHeaders(),
+                    headers: this.getReqHeaders(ep),
                     body: JSON.stringify({
                         account_id: targetAcc,
                         ticket: Number(ticket),
@@ -1308,7 +1600,7 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions();
+                await this.fetchPositions(targetAcc);
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };
@@ -1318,9 +1610,11 @@
         async closePosition({ ticket, lots = null, accountId = null }) {
             try {
                 const targetAcc = accountId || this.activeAccountId;
-                const res = await fetch(`${this.endpoint}/api/orders/close`, {
+                const ep = this.getEndpointForAccount(targetAcc);
+                if (!ep || !ep.url) return { success: false, error: 'Bridge endpoint offline' };
+                const res = await fetch(`${ep.url}/api/orders/close`, {
                     method: 'POST',
-                    headers: this.getHeaders(),
+                    headers: this.getReqHeaders(ep),
                     body: JSON.stringify({
                         account_id: targetAcc,
                         ticket: Number(ticket),
@@ -1328,13 +1622,14 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions();
+                await this.fetchPositions(targetAcc);
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };
             }
         }
 
+        // --- Multi-Bridge Parallel Broadcast Execution ---
         async broadcastOrder({ accountIds, symbol, type, baseLots, sl = 0.0, tp = 0.0 }) {
             try {
                 const activeAccountIds = (accountIds || []).filter(id => !this.isAccountPaused(id));
@@ -1342,21 +1637,72 @@
                     return { success: false, error: 'No active accounts selected for order broadcast (selected accounts are paused in standby mode).' };
                 }
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
-                const res = await fetch(`${this.endpoint}/api/orders/broadcast`, {
-                    method: 'POST',
-                    headers: this.getHeaders(),
-                    body: JSON.stringify({
-                        account_ids: activeAccountIds,
-                        symbol: cleanSym,
-                        type: type.toUpperCase(),
-                        base_lots: Number(baseLots),
-                        sl: Number(sl) || 0.0,
-                        tp: Number(tp) || 0.0
-                    })
+
+                // Group accounts by endpoint
+                const endpointMap = new Map();
+                for (const accId of activeAccountIds) {
+                    const ep = this.getEndpointForAccount(accId);
+                    if (!ep || !ep.url) continue;
+                    if (!endpointMap.has(ep.id)) {
+                        endpointMap.set(ep.id, { ep, accIds: [] });
+                    }
+                    endpointMap.get(ep.id).accIds.push(accId);
+                }
+
+                if (endpointMap.size === 0) {
+                    return { success: false, error: 'No active bridge endpoints reachable for selected accounts.' };
+                }
+
+                const requests = Array.from(endpointMap.values()).map(async ({ ep, accIds }) => {
+                    try {
+                        const res = await fetch(`${ep.url}/api/orders/broadcast`, {
+                            method: 'POST',
+                            headers: this.getReqHeaders(ep),
+                            body: JSON.stringify({
+                                account_ids: accIds,
+                                symbol: cleanSym,
+                                type: type.toUpperCase(),
+                                base_lots: Number(baseLots),
+                                sl: Number(sl) || 0.0,
+                                tp: Number(tp) || 0.0
+                            })
+                        });
+                        const data = await res.json();
+                        return { ep, data };
+                    } catch (err) {
+                        return { ep, data: { success: false, error: err.message, results: [] } };
+                    }
                 });
-                const data = await res.json();
+
+                const settled = await Promise.allSettled(requests);
+                const aggregatedResults = [];
+                let totalSuccessful = 0;
+                let totalFailed = 0;
+
+                for (const s of settled) {
+                    if (s.status === 'fulfilled' && s.value.data) {
+                        const d = s.value.data;
+                        if (Array.isArray(d.results)) {
+                            aggregatedResults.push(...d.results);
+                            totalSuccessful += (d.successful || 0);
+                            totalFailed += (d.failed || 0);
+                        } else if (d.success) {
+                            totalSuccessful++;
+                            aggregatedResults.push(d);
+                        } else {
+                            totalFailed++;
+                            aggregatedResults.push(d);
+                        }
+                    }
+                }
+
                 await this.fetchPositions();
-                return data;
+                return {
+                    success: totalSuccessful > 0,
+                    successful: totalSuccessful,
+                    failed: totalFailed,
+                    results: aggregatedResults
+                };
             } catch (e) {
                 return { success: false, error: e.message };
             }
