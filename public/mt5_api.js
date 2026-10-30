@@ -1004,7 +1004,98 @@
             } catch (_) {}
         }
 
-        saveAccountToClientVault(accountData, endpointTarget) {
+        // Master Client Vault Cryptographic Subsystem (AES-GCM-256 via Web Crypto API)
+        async getVaultCryptoKey() {
+            if (this._vaultCryptoKey) return this._vaultCryptoKey;
+            if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
+                return null;
+            }
+            try {
+                let token = localStorage.getItem('mt5_vault_device_token');
+                if (!token) {
+                    const raw = new Uint8Array(32);
+                    window.crypto.getRandomValues(raw);
+                    token = btoa(String.fromCharCode(...raw));
+                    localStorage.setItem('mt5_vault_device_token', token);
+                }
+                const rawKey = Uint8Array.from(atob(token), c => c.charCodeAt(0));
+                this._vaultCryptoKey = await window.crypto.subtle.importKey(
+                    'raw',
+                    rawKey,
+                    { name: 'AES-GCM' },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+                return this._vaultCryptoKey;
+            } catch (e) {
+                console.warn('[MT5API] Could not initialize vault key:', e);
+                return null;
+            }
+        }
+
+        async encryptVaultSecret(plaintext) {
+            if (!plaintext) return '';
+            if (typeof plaintext === 'string' && (plaintext.startsWith('enc:v1:') || plaintext.startsWith('b64:v1:'))) {
+                return plaintext;
+            }
+            try {
+                const key = await this.getVaultCryptoKey();
+                if (!key) {
+                    return 'b64:v1:' + btoa(unescape(encodeURIComponent(plaintext)));
+                }
+                const iv = new Uint8Array(12);
+                window.crypto.getRandomValues(iv);
+                const encoded = new TextEncoder().encode(plaintext);
+                const ciphertext = await window.crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    encoded
+                );
+                const ivB64 = btoa(String.fromCharCode(...iv));
+                const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+                return `enc:v1:${ivB64}:${ctB64}`;
+            } catch (e) {
+                console.warn('[MT5API] Vault encryption fallback:', e);
+                return 'b64:v1:' + btoa(unescape(encodeURIComponent(plaintext)));
+            }
+        }
+
+        async decryptVaultSecret(encryptedStr) {
+            if (!encryptedStr) return '';
+            if (typeof encryptedStr !== 'string') return String(encryptedStr);
+
+            if (!encryptedStr.startsWith('enc:v1:') && !encryptedStr.startsWith('b64:v1:')) {
+                return encryptedStr;
+            }
+
+            try {
+                if (encryptedStr.startsWith('b64:v1:')) {
+                    return decodeURIComponent(escape(atob(encryptedStr.slice(7))));
+                }
+
+                const parts = encryptedStr.split(':');
+                if (parts.length !== 4) return '';
+                const ivB64 = parts[2];
+                const ctB64 = parts[3];
+                const iv = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
+                const ct = Uint8Array.from(atob(ctB64), c => c.charCodeAt(0));
+
+                const key = await this.getVaultCryptoKey();
+                if (!key) return '';
+
+                const decrypted = await window.crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    ct
+                );
+                return new TextDecoder().decode(decrypted);
+            } catch (e) {
+                console.warn('[MT5API] Failed to decrypt vault secret:', e);
+                return '';
+            }
+        }
+
+        async saveAccountToClientVault(accountData, endpointTarget) {
             try {
                 const raw = localStorage.getItem('mt5_client_vault');
                 const vault = raw ? JSON.parse(raw) : [];
@@ -1029,11 +1120,20 @@
                     targets = [existing.endpointId];
                 }
 
+                let encryptedPassword = '';
+                if (accountData.password) {
+                    encryptedPassword = await this.encryptVaultSecret(accountData.password);
+                } else if (existing && existing.password) {
+                    encryptedPassword = existing.password.startsWith('enc:v1:')
+                        ? existing.password
+                        : await this.encryptVaultSecret(existing.password);
+                }
+
                 const item = {
                     nickname: accountData.nickname || (existing ? existing.nickname : ''),
                     server: accountData.server || (existing ? existing.server : ''),
                     login: accountData.login || (existing ? existing.login : ''),
-                    password: accountData.password || (existing ? existing.password : ''),
+                    password: encryptedPassword,
                     lot_multiplier: accountData.lot_multiplier !== undefined ? accountData.lot_multiplier : (existing ? existing.lot_multiplier : 1.0),
                     risk_percent: accountData.risk_percent !== undefined ? accountData.risk_percent : (existing ? existing.risk_percent : 1.0),
                     targetEndpoints: targets,
@@ -1049,6 +1149,21 @@
             } catch (e) {
                 console.error('[MT5API] Failed to save to client vault:', e);
             }
+        }
+
+        async getAccountPasswordFromVault(login, server) {
+            const vault = this.getClientVault();
+            const targetLogin = String(login || '').trim();
+            const targetServer = (server || '').trim().toLowerCase();
+
+            const entry = vault.find(a => {
+                const aLogin = String(a.login || '').trim();
+                const aServer = (a.server || '').trim().toLowerCase();
+                return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+            });
+
+            if (!entry || !entry.password) return '';
+            return await this.decryptVaultSecret(entry.password);
         }
 
         getClientVault() {
@@ -1104,7 +1219,7 @@
 
                 if (successfulTargets.length > 0) {
                     // Master Client Vault: Persist securely in browser's local storage bounded to these bridges
-                    this.saveAccountToClientVault(accountData, successfulTargets);
+                    await this.saveAccountToClientVault(accountData, successfulTargets);
                     await this.syncAccounts(true);
                     return { success: true, account: lastSuccessAccount, targets: successfulTargets };
                 }
@@ -1115,19 +1230,72 @@
             }
         }
 
+        async syncWorkingPasswordFromConnectedBridges(login, server) {
+            const targetLogin = String(login || '').trim();
+            const targetServer = (server || '').trim().toLowerCase();
+
+            // Find all matching instances across connected accounts
+            const matchingInstances = (this.accounts || []).filter(a => {
+                const aLogin = String(a.login || '').trim();
+                const aServer = (a.server || '').trim().toLowerCase();
+                return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+            });
+
+            // Gather candidate endpoints: first from existing instances, then any online endpoint
+            const candidateEndpoints = [];
+            for (const inst of matchingInstances) {
+                const ep = this.endpoints.find(e => e.id === inst.endpointId && e.enabled && e.status === 'online');
+                if (ep && !candidateEndpoints.some(c => c.ep.id === ep.id)) {
+                    candidateEndpoints.push({ ep, accountId: inst.id });
+                }
+            }
+            for (const ep of this.endpoints) {
+                if (ep.enabled && ep.status === 'online' && !candidateEndpoints.some(c => c.ep.id === ep.id)) {
+                    candidateEndpoints.push({ ep, accountId: targetLogin });
+                }
+            }
+
+            for (const { ep, accountId } of candidateEndpoints) {
+                try {
+                    const res = await fetch(`${ep.url}/api/accounts/${accountId}/credentials`, {
+                        headers: this.getReqHeaders(ep),
+                        signal: AbortSignal.timeout(4000)
+                    });
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    if (data && data.success && data.verified_working && data.password) {
+                        // Found verified working credentials! Save into local vault encrypted
+                        await this.saveAccountToClientVault({
+                            login: data.login || targetLogin,
+                            server: data.server || targetServer,
+                            nickname: data.nickname,
+                            lot_multiplier: data.lot_multiplier,
+                            risk_percent: data.risk_percent,
+                            password: data.password
+                        });
+                        console.log(`[MT5API] ✓ Successfully synced verified working password for account #${targetLogin} from bridge '${ep.name}'.`);
+                        return {
+                            success: true,
+                            verified_working: true,
+                            password: data.password,
+                            sourceBridge: ep.name
+                        };
+                    }
+                } catch (e) {
+                    // Try next endpoint
+                }
+            }
+
+            return {
+                success: false,
+                error: `No connected bridge currently has a verified active MT5 session for account #${targetLogin}.`
+            };
+        }
+
         async updateAccountBridgeRouting(login, server, newEndpointIds, manualPassword = '') {
             try {
-                const raw = localStorage.getItem('mt5_client_vault');
-                const vault = raw ? JSON.parse(raw) : [];
                 const targetLogin = String(login || '').trim();
                 const targetServer = (server || '').trim().toLowerCase();
-
-                const idx = vault.findIndex(a => {
-                    const aLogin = String(a.login || '').trim();
-                    const aServer = (a.server || '').trim().toLowerCase();
-                    return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
-                });
-                const vaultItem = idx >= 0 ? vault[idx] : null;
 
                 const currentInstances = (this.accounts || []).filter(a => {
                     const aLogin = String(a.login || '').trim();
@@ -1142,8 +1310,22 @@
                 const errors = [];
                 const added = [];
                 const removed = [];
+                let syncedFromBridge = null;
 
-                const password = (manualPassword || '').trim() || (vaultItem ? vaultItem.password : '');
+                // 1. Resolve password from manual input or local encrypted vault
+                let password = (manualPassword || '').trim();
+                if (!password) {
+                    password = await this.getAccountPasswordFromVault(targetLogin, targetServer);
+                }
+
+                // 2. If adding new bridge and still no password in vault, attempt auto-sync from existing connected bridge!
+                if (toAdd.length > 0 && !password) {
+                    const syncRes = await this.syncWorkingPasswordFromConnectedBridges(targetLogin, targetServer);
+                    if (syncRes.success && syncRes.password) {
+                        password = syncRes.password;
+                        syncedFromBridge = syncRes.sourceBridge;
+                    }
+                }
 
                 if (toAdd.length > 0 && !password) {
                     return {
@@ -1151,6 +1333,15 @@
                         error: 'Account password required to deploy credentials to newly authorized bridge server(s).'
                     };
                 }
+
+                const raw = localStorage.getItem('mt5_client_vault');
+                const vault = raw ? JSON.parse(raw) : [];
+                const idx = vault.findIndex(a => {
+                    const aLogin = String(a.login || '').trim();
+                    const aServer = (a.server || '').trim().toLowerCase();
+                    return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+                });
+                const vaultItem = idx >= 0 ? vault[idx] : null;
 
                 // Deploy to newly authorized bridge servers
                 if (toAdd.length > 0) {
@@ -1208,26 +1399,16 @@
                     }
                 }
 
-                // Update client vault targetEndpoints
-                if (vaultItem) {
-                    vaultItem.targetEndpoints = newEndpointIds;
-                    vaultItem.endpointId = newEndpointIds[0] || null;
-                    if (password) vaultItem.password = password;
-                    vaultItem.saved_at = Date.now();
-                } else {
-                    vault.push({
-                        nickname: currentInstances[0]?.nickname || `MT5 ${login}`,
-                        server,
-                        login: Number(login),
-                        password: password || '',
-                        lot_multiplier: 1.0,
-                        risk_percent: 1.0,
-                        targetEndpoints: newEndpointIds,
-                        endpointId: newEndpointIds[0] || null,
-                        saved_at: Date.now()
-                    });
-                }
-                localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+                // Update master client vault (encrypts password into AES-GCM before saving)
+                await this.saveAccountToClientVault({
+                    nickname: vaultItem?.nickname || currentInstances[0]?.nickname || `MT5 ${login}`,
+                    server,
+                    login: Number(login),
+                    password: password || '',
+                    lot_multiplier: vaultItem?.lot_multiplier ?? currentInstances[0]?.lot_multiplier ?? 1.0,
+                    risk_percent: vaultItem?.risk_percent ?? currentInstances[0]?.risk_percent ?? 1.0,
+                    targetEndpoints: newEndpointIds
+                }, newEndpointIds);
 
                 await this.syncAccounts(true);
 
@@ -1235,6 +1416,7 @@
                     success: errors.length === 0,
                     added,
                     removed,
+                    syncedFromBridge,
                     errors
                 };
             } catch (e) {
