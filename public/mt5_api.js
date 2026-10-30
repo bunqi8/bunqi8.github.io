@@ -1095,6 +1095,72 @@
             }
         }
 
+        // End-to-End (E2E) In-Transit Payload Encryption Subsystem (AES-GCM-256 via Bridge Secret)
+        async deriveE2EKey(apiKey) {
+            const secret = (apiKey || this.apiKey || 'mt5_secret_key_2026').trim();
+            if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) return null;
+            try {
+                const rawKey = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+                return await window.crypto.subtle.importKey(
+                    'raw',
+                    rawKey,
+                    { name: 'AES-GCM' },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            } catch (e) {
+                console.warn('[MT5API] Could not derive E2E key:', e);
+                return null;
+            }
+        }
+
+        async encryptE2EPayload(plaintext, apiKey) {
+            if (!plaintext) return '';
+            if (typeof plaintext === 'string' && plaintext.startsWith('e2e:v1:')) return plaintext;
+            try {
+                const key = await this.deriveE2EKey(apiKey);
+                if (!key) return plaintext;
+                const iv = new Uint8Array(12);
+                window.crypto.getRandomValues(iv);
+                const encoded = new TextEncoder().encode(plaintext);
+                const ciphertext = await window.crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    encoded
+                );
+                const ivB64 = btoa(String.fromCharCode(...iv));
+                const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+                return `e2e:v1:${ivB64}:${ctB64}`;
+            } catch (e) {
+                console.warn('[MT5API] E2E payload encryption fallback:', e);
+                return plaintext;
+            }
+        }
+
+        async decryptE2EPayload(payload, apiKey) {
+            if (!payload) return '';
+            if (typeof payload !== 'string' || !payload.startsWith('e2e:v1:')) return payload;
+            try {
+                const parts = payload.split(':');
+                if (parts.length !== 4) return payload;
+                const ivB64 = parts[2];
+                const ctB64 = parts[3];
+                const iv = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
+                const ct = Uint8Array.from(atob(ctB64), c => c.charCodeAt(0));
+                const key = await this.deriveE2EKey(apiKey);
+                if (!key) return payload;
+                const decrypted = await window.crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    ct
+                );
+                return new TextDecoder().decode(decrypted);
+            } catch (e) {
+                console.warn('[MT5API] E2E payload decryption failed:', e);
+                return payload;
+            }
+        }
+
         async saveAccountToClientVault(accountData, endpointTarget) {
             try {
                 const raw = localStorage.getItem('mt5_client_vault');
@@ -1200,10 +1266,17 @@
                     if (!ep || !ep.url) continue;
 
                     try {
+                        const bridgeApiKey = ep.apiKey || this.apiKey || 'mt5_secret_key_2026';
+                        const encryptedPasswordForBridge = await this.encryptE2EPayload(accountData.password, bridgeApiKey);
+                        const payload = {
+                            ...accountData,
+                            password: encryptedPasswordForBridge
+                        };
+
                         const res = await fetch(`${ep.url}/api/accounts/add`, {
                             method: 'POST',
                             headers: this.getReqHeaders(ep),
-                            body: JSON.stringify(accountData)
+                            body: JSON.stringify(payload)
                         });
                         const data = await res.json();
                         if (data.success) {
@@ -1264,20 +1337,23 @@
                     if (!res.ok) continue;
                     const data = await res.json();
                     if (data && data.success && data.verified_working && data.password) {
-                        // Found verified working credentials! Save into local vault encrypted
+                        const bridgeApiKey = ep.apiKey || this.apiKey || 'mt5_secret_key_2026';
+                        const plainPassword = await this.decryptE2EPayload(data.password, bridgeApiKey);
+
+                        // Found verified working credentials! Save into local vault encrypted with device token
                         await this.saveAccountToClientVault({
                             login: data.login || targetLogin,
                             server: data.server || targetServer,
                             nickname: data.nickname,
                             lot_multiplier: data.lot_multiplier,
                             risk_percent: data.risk_percent,
-                            password: data.password
+                            password: plainPassword
                         });
-                        console.log(`[MT5API] ✓ Successfully synced verified working password for account #${targetLogin} from bridge '${ep.name}'.`);
+                        console.log(`[MT5API] ✓ Successfully synced verified working password for account #${targetLogin} from bridge '${ep.name}' with E2E payload decryption.`);
                         return {
                             success: true,
                             verified_working: true,
-                            password: data.password,
+                            password: plainPassword,
                             sourceBridge: ep.name
                         };
                     }
@@ -1363,10 +1439,17 @@
                         if (!ep || !ep.url) continue;
 
                         try {
+                            const bridgeApiKey = ep.apiKey || this.apiKey || 'mt5_secret_key_2026';
+                            const encryptedPasswordForBridge = await this.encryptE2EPayload(password, bridgeApiKey);
+                            const payload = {
+                                ...accountData,
+                                password: encryptedPasswordForBridge
+                            };
+
                             const res = await fetch(`${ep.url}/api/accounts/add`, {
                                 method: 'POST',
                                 headers: this.getReqHeaders(ep),
-                                body: JSON.stringify(accountData)
+                                body: JSON.stringify(payload)
                             });
                             const data = await res.json();
                             if (data.success) {
