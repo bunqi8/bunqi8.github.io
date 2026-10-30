@@ -1008,7 +1008,14 @@
             try {
                 const raw = localStorage.getItem('mt5_client_vault');
                 const vault = raw ? JSON.parse(raw) : [];
-                const idx = vault.findIndex(a => String(a.login) === String(accountData.login) && a.server === accountData.server);
+                const targetLogin = String(accountData.login || '').trim();
+                const targetServer = (accountData.server || '').trim().toLowerCase();
+
+                const idx = vault.findIndex(a => {
+                    const aLogin = String(a.login || '').trim();
+                    const aServer = (a.server || '').trim().toLowerCase();
+                    return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+                });
                 const existing = idx >= 0 ? vault[idx] : null;
 
                 let targets = [];
@@ -1112,10 +1119,21 @@
             try {
                 const raw = localStorage.getItem('mt5_client_vault');
                 const vault = raw ? JSON.parse(raw) : [];
-                const idx = vault.findIndex(a => String(a.login) === String(login) && a.server === server);
+                const targetLogin = String(login || '').trim();
+                const targetServer = (server || '').trim().toLowerCase();
+
+                const idx = vault.findIndex(a => {
+                    const aLogin = String(a.login || '').trim();
+                    const aServer = (a.server || '').trim().toLowerCase();
+                    return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+                });
                 const vaultItem = idx >= 0 ? vault[idx] : null;
 
-                const currentInstances = (this.accounts || []).filter(a => String(a.login) === String(login) && a.server === server);
+                const currentInstances = (this.accounts || []).filter(a => {
+                    const aLogin = String(a.login || '').trim();
+                    const aServer = (a.server || '').trim().toLowerCase();
+                    return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
+                });
                 const currentEndpointIds = currentInstances.map(a => a.endpointId);
 
                 const toAdd = newEndpointIds.filter(id => !currentEndpointIds.includes(id));

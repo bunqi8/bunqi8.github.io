@@ -936,10 +936,28 @@
 
             const endpoints = window.MT5API ? window.MT5API.getEndpoints().filter(e => e.enabled !== false) : [];
             const vault = window.MT5API ? window.MT5API.getClientVault() : [];
-            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
+            const accLogin = String(acc.login || '').trim();
+            const accServer = (acc.server || '').trim().toLowerCase();
+            const accId = String(acc.id || '').trim();
+
+            const vaultEntry = vault.find(v => {
+                if (!v) return false;
+                if (accId && String(v.id || '').trim() === accId) return true;
+                const vLogin = String(v.login || '').trim();
+                const vServer = (v.server || '').trim().toLowerCase();
+                if (accLogin && vLogin === accLogin) {
+                    if (!accServer || !vServer) return true;
+                    if (accServer === vServer || accServer.includes(vServer) || vServer.includes(accServer)) return true;
+                }
+                return false;
+            });
 
             // Get current active instances for this account
-            const instances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
+            const instances = (window.MT5API?.accounts || []).filter(a => {
+                const aLogin = String(a.login || '').trim();
+                const aServer = (a.server || '').trim().toLowerCase();
+                return aLogin === accLogin && (aServer === accServer || aServer.includes(accServer) || accServer.includes(aServer));
+            });
             const connectedEndpointIds = new Set(instances.map(a => a.endpointId));
 
             // Get allowed endpoint IDs from vault (or fallback to connected instances or acc.endpointId)
@@ -982,8 +1000,8 @@
                             </div>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 10.5px; padding: 3px 8px; border-radius: 6px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;">
-                                🔐 ${hasStoredPassword ? 'Credentials in Browser Vault' : 'No Password Cached in Vault'}
+                            <span style="font-size: 10.5px; padding: 3px 8px; border-radius: 6px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.3); font-weight: 600;">
+                                🟢 Active on Connected Bridge
                             </span>
                         </div>
                     </div>
@@ -1022,7 +1040,7 @@
                                         cursor: pointer; transition: all 0.15s ease;
                                     ">
                                         <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
-                                            <input type="checkbox" class="mt5-check-routing-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 17px; height: 17px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
+                                            <input type="checkbox" class="mt5-check-routing-bridge" value="${ep.id}" data-connected="${isConnected ? 'true' : 'false'}" ${isChecked ? 'checked' : ''} style="width: 17px; height: 17px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
                                             <span style="font-size: 20px; flex-shrink: 0;">${icon}</span>
                                             <div style="min-width: 0;">
                                                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -1050,32 +1068,41 @@
                         </div>
                     </div>
 
-                    ${!hasStoredPassword ? `
-                        <div style="background: rgba(255,165,0,0.08); border: 1px solid rgba(255,165,0,0.3); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px;">
-                            <label style="font-size: 11.5px; font-weight: 700; color: #ffa500;">
-                                ⚠️ Enter Password to Authorize New Bridge Server(s):
-                            </label>
-                            <input type="password" id="mt5-in-routing-password" placeholder="MT5 Trading Password" style="
-                                width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg};
-                                color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;
-                            ">
-                            <span style="font-size: 10.5px; color: ${theme.textMuted};">Password will be stored only in your private browser vault and sent exclusively to authorized bridges.</span>
-                        </div>
-                    ` : ''}
+                    <!-- Dynamic Password & Status Area (No prompt when already connected!) -->
+                    <div id="mt5-routing-status-banner" style="background: rgba(8,153,129,0.08); border: 1px solid rgba(8,153,129,0.25); border-radius: 8px; padding: 10px 14px; font-size: 11.5px; color: ${theme.text}; display: flex; align-items: center; gap: 8px;">
+                        <span>🟢</span>
+                        <span>Account is already authenticated on its host bridge(s). No password re-entry needed.</span>
+                    </div>
+
+                    <div id="mt5-routing-password-box" style="display: none; background: rgba(41,98,255,0.08); border: 1px solid rgba(41,98,255,0.3); border-radius: 8px; padding: 12px; flex-direction: column; gap: 6px;">
+                        <label style="font-size: 11.5px; font-weight: 700; color: ${theme.primary};">
+                            🔑 Enter Password to Deploy to New Bridge Server:
+                        </label>
+                        <input type="password" id="mt5-in-routing-password" placeholder="MT5 Trading Password" style="
+                            width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg};
+                            color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;
+                        ">
+                        <span style="font-size: 10.5px; color: ${theme.textMuted};">Password will be stored in your private browser vault and sent over encrypted TLS only to newly authorized bridges.</span>
+                    </div>
 
                     <!-- Action buttons -->
-                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 6px;">
-                        <button id="mt5-btn-cancel-routing" type="button" style="
-                            background: transparent; border: 1px solid ${theme.border}; color: ${theme.textMuted};
-                            padding: 8px 16px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
-                        ">Cancel</button>
-                        <button id="mt5-btn-save-bridge-routing" type="button" style="
-                            background: ${theme.primary}; color: #fff; border: none;
-                            padding: 8px 18px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
-                            display: inline-flex; align-items: center; gap: 6px;
-                        ">
-                            <span>💾</span> Save Bridge Routing
-                        </button>
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 6px;">
+                        <span style="font-size: 11px; color: ${theme.textMuted};">
+                            Changes take effect immediately on bridge daemons.
+                        </span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button id="mt5-btn-cancel-routing" type="button" style="
+                                background: transparent; border: 1px solid ${theme.border}; color: ${theme.textMuted};
+                                padding: 8px 16px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                            ">Cancel</button>
+                            <button id="mt5-btn-save-bridge-routing" type="button" style="
+                                background: ${theme.primary}; color: #fff; border: none;
+                                padding: 8px 18px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 6px;
+                            ">
+                                <span>💾</span> Save Bridge Routing
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -2768,6 +2795,31 @@
                     this.renderModal();
                 };
             }
+
+            // Dynamically show password box ONLY if user checks a bridge that is NOT currently connected
+            const updateRoutingPasswordPrompt = () => {
+                const checkedBoxes = modal.querySelectorAll('.mt5-check-routing-bridge:checked');
+                const selectedUnconnected = Array.from(checkedBoxes).some(cb => cb.getAttribute('data-connected') !== 'true');
+                const pwdBox = modal.querySelector('#mt5-routing-password-box');
+                const statusBanner = modal.querySelector('#mt5-routing-status-banner');
+
+                const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+                const acc = this.routingAccount;
+                const accLogin = String(acc?.login || '').trim();
+                const accServer = (acc?.server || '').trim().toLowerCase();
+                const vEntry = vault.find(v => String(v.login || '').trim() === accLogin && (v.server || '').trim().toLowerCase().includes(accServer));
+                const hasVaultPwd = Boolean(vEntry && vEntry.password);
+
+                if (pwdBox) {
+                    pwdBox.style.display = (selectedUnconnected && !hasVaultPwd) ? 'flex' : 'none';
+                }
+                if (statusBanner) {
+                    statusBanner.style.display = (selectedUnconnected && !hasVaultPwd) ? 'none' : 'flex';
+                }
+            };
+            modal.querySelectorAll('.mt5-check-routing-bridge').forEach(cb => {
+                cb.onchange = updateRoutingPasswordPrompt;
+            });
 
             // Save Bridge Routing
             const btnSaveRouting = modal.querySelector('#mt5-btn-save-bridge-routing');
