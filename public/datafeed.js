@@ -6,9 +6,7 @@
 window.getExchangesConfig = function() {
     const defaultExchanges = [
         { value: '', name: 'All Exchanges', desc: 'All connected markets' },
-        { value: 'FUNDEDNEXT', name: 'FundedNext', desc: 'FundedNext-Server 3 (#12345678)' },
-        { value: 'THE 5%ERS', name: 'The 5%ers', desc: 'FivePercentOnline-Real (#12345679)' },
-        { value: 'METAQUOTES', name: 'MetaQuotes', desc: 'MetaQuotes-Demo (#12345680)' },
+        { value: 'MT5', name: 'MetaTrader 5', desc: 'MetaTrader 5 Multi-Broker Fleet' },
         { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
         { value: 'BSE', name: 'BSE', desc: 'Bombay Stock Exchange' },
         { value: 'MCX', name: 'MCX', desc: 'Multi Commodity Exchange' }
@@ -41,23 +39,11 @@ window.getExchangesConfig = function() {
                     else if (exVal === 'FTMO') displayName = 'FTMO';
                     else if (exVal === 'EXNESS') displayName = 'Exness';
                     
-                    const desc = `${acc.server || exVal}${acc.login ? ` (#${acc.login})` : ''}`;
+                    const desc = `${acc.server || exVal}`;
                     list.push({ value: exVal, name: displayName, desc: desc });
                 }
             });
         }
-
-        const preseeded = [
-            { value: 'FUNDEDNEXT', name: 'FundedNext', desc: 'FundedNext-Server 3 (#12345678)' },
-            { value: 'THE 5%ERS', name: 'The 5%ers', desc: 'FivePercentOnline-Real (#12345679)' },
-            { value: 'METAQUOTES', name: 'MetaQuotes', desc: 'MetaQuotes-Demo (#12345680)' }
-        ];
-        preseeded.forEach(p => {
-            if (!seen.has(p.value)) {
-                seen.add(p.value);
-                list.push(p);
-            }
-        });
 
         list.push(
             { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
