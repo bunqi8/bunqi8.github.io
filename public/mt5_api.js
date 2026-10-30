@@ -983,6 +983,41 @@
             } catch (_) {}
         }
 
+        saveAccountToClientVault(accountData, endpointId) {
+            try {
+                const raw = localStorage.getItem('mt5_client_vault');
+                const vault = raw ? JSON.parse(raw) : [];
+                const idx = vault.findIndex(a => String(a.login) === String(accountData.login) && a.server === accountData.server);
+                const item = {
+                    nickname: accountData.nickname,
+                    server: accountData.server,
+                    login: accountData.login,
+                    password: accountData.password,
+                    lot_multiplier: accountData.lot_multiplier || 1.0,
+                    risk_percent: accountData.risk_percent || 1.0,
+                    endpointId: endpointId,
+                    saved_at: Date.now()
+                };
+                if (idx >= 0) {
+                    vault[idx] = item;
+                } else {
+                    vault.push(item);
+                }
+                localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+            } catch (e) {
+                console.error('[MT5API] Failed to save to client vault:', e);
+            }
+        }
+
+        getClientVault() {
+            try {
+                const raw = localStorage.getItem('mt5_client_vault');
+                return raw ? JSON.parse(raw) : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
         async addAccount(accountData, endpointId = null) {
             try {
                 const ep = endpointId 
@@ -998,6 +1033,8 @@
                 });
                 const data = await res.json();
                 if (data.success) {
+                    // Master Client Vault: Persist securely in browser's local storage
+                    this.saveAccountToClientVault(accountData, ep.id);
                     await this.syncAccounts(true);
                     return { success: true, account: data.account };
                 }
@@ -1010,15 +1047,23 @@
         async deleteAccount(id) {
             try {
                 const ep = this.getEndpointForAccount(id);
-                if (!ep || !ep.url) return false;
-                const res = await fetch(`${ep.url}/api/accounts/${id}`, {
-                    method: 'DELETE',
-                    headers: this.getReqHeaders(ep)
-                });
-                if (res.ok) {
-                    await this.syncAccounts(true);
-                    return true;
+                if (ep && ep.url) {
+                    await fetch(`${ep.url}/api/accounts/${id}`, {
+                        method: 'DELETE',
+                        headers: this.getReqHeaders(ep)
+                    });
                 }
+                // Also clean from client vault
+                try {
+                    const raw = localStorage.getItem('mt5_client_vault');
+                    if (raw) {
+                        const vault = JSON.parse(raw);
+                        const filtered = vault.filter(a => String(a.id) !== String(id) && String(a.login) !== String(id));
+                        localStorage.setItem('mt5_client_vault', JSON.stringify(filtered));
+                    }
+                } catch (_) {}
+                await this.syncAccounts(true);
+                return true;
             } catch (e) {
                 console.error('[MT5API] Failed to delete account:', e);
             }
