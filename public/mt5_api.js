@@ -514,21 +514,17 @@
 
             try {
                 if (chart.symbol() !== targetSymbol && typeof chart.setSymbol === 'function') {
-                    chart.setSymbol(targetSymbol, () => {
-                        if (typeof chart.resetData === 'function') {
-                            try { chart.resetData(); } catch (_) {}
-                        }
-                    });
-                    setTimeout(() => {
-                        if (typeof chart.resetData === 'function') {
-                            try { chart.resetData(); } catch (_) {}
-                        }
-                    }, 150);
+                    chart.setSymbol(targetSymbol);
                 } else if (typeof chart.resetData === 'function') {
                     chart.resetData();
                 }
             } catch (chartErr) {
                 console.warn('[MT5API] Error updating chart on active account switch:', chartErr);
+            }
+
+            // Immediately re-subscribe quote feed for active symbol on the new account
+            if (this.activeSymbol) {
+                this.subscribeQuotes(this.activeSymbol, this.activeResolution);
             }
         }
 
@@ -977,7 +973,7 @@
         subscribeQuotes(symbol, resolution, callback) {
             if (typeof resolution === 'function') {
                 callback = resolution;
-                resolution = this.activeResolution || '1';
+                resolution = null; // Do NOT overwrite activeResolution if caller didn't pass one
             }
             const clean = (symbol || '').split(':').pop().toUpperCase().trim();
             // Guard: Only subscribe if this is a recognized MT5 symbol; prevent Indian equities (e.g. NIFTY50-INDEX) from hijacking MT5 feed
@@ -1000,7 +996,7 @@
                 this.ws.send(JSON.stringify({
                     action: 'subscribe',
                     symbol: this.activeSymbol,
-                    resolution: this.activeResolution,
+                    resolution: this.activeResolution || '1',
                     account_id: acc ? acc.id : null
                 }));
             }

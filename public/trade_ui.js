@@ -250,14 +250,15 @@
             }
 
             // Bind to live ticks from broker
+            this._mt5TickHandler = (tick) => {
+                if (tick && tick.bid && tick.ask) {
+                    this.currentBid = Number(tick.bid);
+                    this.currentAsk = Number(tick.ask);
+                    this.updatePrices();
+                }
+            };
             if (window.MT5API && window.MT5API.isMt5Symbol(this.currentSymbol)) {
-                window.MT5API.subscribeQuotes(this.currentSymbol, (tick) => {
-                    if (tick && tick.bid && tick.ask) {
-                        this.currentBid = Number(tick.bid);
-                        this.currentAsk = Number(tick.ask);
-                        this.updatePrices();
-                    }
-                });
+                window.MT5API.subscribeQuotes(this.currentSymbol, this._mt5TickHandler);
             }
 
             // Periodic sync interval (prices, symbol, toolbar button, chart lines, launcher)
@@ -403,13 +404,7 @@
                         if (newSym && newSym !== this.currentSymbol) {
                             this.currentSymbol = newSym;
                             if (window.MT5API && window.MT5API.isMt5Symbol(newSym)) {
-                                window.MT5API.subscribeQuotes(newSym, (tick) => {
-                                    if (tick && tick.bid && tick.ask) {
-                                        this.currentBid = Number(tick.bid);
-                                        this.currentAsk = Number(tick.ask);
-                                        this.updatePrices();
-                                    }
-                                });
+                                window.MT5API.subscribeQuotes(newSym, this._mt5TickHandler);
                             }
                             this.lastLiveCandlePrice = null; // Reset for new symbol so live datafeed populates it
                             this.clearAllNativeChartLines();
