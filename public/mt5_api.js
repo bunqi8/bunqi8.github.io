@@ -511,6 +511,11 @@
             if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
                 try { window.tvWidget.resetCache(); } catch (_) {}
             }
+            if (window._mt5ResetCallbacks) {
+                window._mt5ResetCallbacks.forEach(cb => {
+                    try { if (typeof cb === 'function') cb(); } catch (_) {}
+                });
+            }
 
             try {
                 if (chart.symbol() !== targetSymbol && typeof chart.setSymbol === 'function') {

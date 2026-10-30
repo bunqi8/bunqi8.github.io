@@ -1254,10 +1254,12 @@ const Datafeed = {
         // FAST PATH: If firstDataRequest and we already have cached bars in memory (e.g. after limit expansion or reset)
         if (firstDataRequest && window._barsCache[generalCacheKey] && window._barsCache[generalCacheKey].length > 0) {
             let cachedBars = window._barsCache[generalCacheKey];
+            const maxAllowedTime = Date.now() + 300000;
+            cachedBars = cachedBars.filter(b => b.time && b.time <= maxAllowedTime && !isNaN(b.close));
             if (cachedBars.length > maxBarsLimit) {
                 cachedBars = cachedBars.slice(cachedBars.length - maxBarsLimit);
-                window._barsCache[generalCacheKey] = cachedBars;
             }
+            window._barsCache[generalCacheKey] = cachedBars;
 
             if (window.BarLimitManager) {
                 window.BarLimitManager.setBarCount(generalCacheKey, cachedBars.length);
@@ -1754,13 +1756,21 @@ const Datafeed = {
             // Retrieve or recover authoritative lastBar for this subscription
             if (!window._tvLastBar) window._tvLastBar = {};
             let lastBar = window._tvLastBar[unifiedKey] || window._tvLastBar[cacheKey];
+            if (lastBar && lastBar.time > (Date.now() + 300000)) {
+                lastBar = null;
+                delete window._tvLastBar[unifiedKey];
+                delete window._tvLastBar[cacheKey];
+            }
             if (!lastBar && window._barsCache) {
                 for (const k in window._barsCache) {
                     if (k.includes(cleanSym) && k.endsWith(`_${resolution}`)) {
                         const bList = window._barsCache[k];
                         if (bList && bList.length > 0) {
-                            lastBar = { ...bList[bList.length - 1] };
-                            break;
+                            const cand = bList[bList.length - 1];
+                            if (cand && cand.time <= (Date.now() + 300000)) {
+                                lastBar = { ...cand };
+                                break;
+                            }
                         }
                     }
                 }
@@ -1791,6 +1801,31 @@ const Datafeed = {
                         window.WatchlistUI.onLivePrice(cleanSym, price, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
                     }
                 } catch (_) {}
+
+                // Always dynamically retrieve the authoritative lastBar from global cache
+                if (!window._tvLastBar) window._tvLastBar = {};
+                let lastBar = window._tvLastBar[unifiedKey] || window._tvLastBar[cacheKey];
+                if (lastBar && lastBar.time > (Date.now() + 300000)) {
+                    lastBar = null;
+                    delete window._tvLastBar[unifiedKey];
+                    delete window._tvLastBar[cacheKey];
+                }
+                if (!lastBar && window._barsCache) {
+                    for (const k in window._barsCache) {
+                        if (k.includes(cleanSym) && k.endsWith(`_${resolution}`)) {
+                            const bList = window._barsCache[k];
+                            if (bList && bList.length > 0) {
+                                const cand = bList[bList.length - 1];
+                                if (cand && cand.time <= (Date.now() + 300000)) {
+                                    lastBar = { ...cand };
+                                    window._tvLastBar[unifiedKey] = lastBar;
+                                    window._tvLastBar[cacheKey] = lastBar;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
 
                 const tickTime = Number(tick.time) || Date.now();
                 let barTime;
@@ -1823,11 +1858,30 @@ const Datafeed = {
                     return;
                 }
 
-                // Determine target forward bar time
-                const targetBarTime = (brokerCandleTime && brokerCandleTime > lastBar.time) ? brokerCandleTime : barTime;
+                // Target bar time determination:
+                // If brokerCandleTime exists and matches resolution, that is the single source of truth for candle timing!
+                // If brokerCandleTime is strictly newer than lastBar.time, advance to that new candle.
+                // If brokerCandleTime is not available, calculate whether tickTime has crossed the resolution boundary.
+                let isNewBar = false;
+                let targetBarTime = lastBar.time;
 
-                // Advance forward to new candle when interval has moved forward
-                if (targetBarTime > lastBar.time) {
+                if (brokerCandleTime) {
+                    if (brokerCandleTime > lastBar.time) {
+                        isNewBar = true;
+                        targetBarTime = brokerCandleTime;
+                    }
+                } else {
+                    const nextBarTime = isDwm 
+                        ? (lastBar.time + 86400 * 1000) 
+                        : (lastBar.time + tfMs);
+                    if (tickTime >= nextBarTime) {
+                        isNewBar = true;
+                        targetBarTime = barTime >= nextBarTime ? barTime : nextBarTime;
+                    }
+                }
+
+                // Advance forward to new candle
+                if (isNewBar && targetBarTime > lastBar.time) {
                     if (window.BarLimitManager) {
                         const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
                         window.BarLimitManager.onLiveBarAdded(genKey);
@@ -1859,7 +1913,7 @@ const Datafeed = {
                     return;
                 }
 
-                // Update active forming candle (ALWAYS preserves lastBar.time so TradingView never gets time violation)
+                // Update active forming candle (STRICTLY preserves lastBar.time so TradingView never gets time violation)
                 if (isMatchingCandle && tick.candle && brokerCandleTime === lastBar.time) {
                     lastBar.open = Number(tick.candle.open) || lastBar.open;
                     lastBar.high = Math.max(lastBar.high, Number(tick.candle.high), price);
