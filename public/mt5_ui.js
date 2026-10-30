@@ -526,16 +526,48 @@
                             <button id="mt5-btn-cancel-add" type="button" style="background: transparent; border: none; color: ${theme.primary}; font-size: 12px; cursor: pointer; font-weight: 600;">← Back to Fleet</button>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 10px;">
-                            ${endpoints.length > 1 ? `
-                            <div>
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Host on Bridge Server *</label>
-                                <select id="mt5-in-target-endpoint" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
-                                    ${endpoints.map(e => `
-                                        <option value="${e.id}" ${e.id === activeEpId ? 'selected' : ''}>${e.name} (${e.url})</option>
-                                    `).join('')}
-                                </select>
+                            <!-- Target Bridge Server Selection -->
+                            <div style="background: rgba(120, 120, 120, 0.05); border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px; box-sizing: border-box;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 4px;">
+                                    <label style="display: block; font-size: 11.5px; font-weight: 700; color: ${theme.text};">
+                                        🔗 Tie Account to Bridge Servers *
+                                    </label>
+                                    <span style="font-size: 10px; color: ${theme.textMuted};">Only selected bridges receive these credentials</span>
+                                </div>
+                                ${endpoints.length === 0 ? `
+                                    <div style="padding: 10px; border-radius: 6px; background: rgba(242,54,69,0.1); border: 1px solid rgba(242,54,69,0.3); color: ${theme.error}; font-size: 11.5px;">
+                                        ⚠️ No active bridge servers configured. Please add and enable a bridge server in the <strong>Cloud Bridge Settings</strong> tab first.
+                                    </div>
+                                ` : `
+                                    <div style="display: flex; flex-direction: column; gap: 6px;" id="mt5-target-bridges-list">
+                                        ${endpoints.map((ep) => {
+                                            const isOnline = ep.status === 'online';
+                                            const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
+                                            const isChecked = ep.id === activeEpId || endpoints.length === 1;
+                                            return `
+                                                <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 6px; background: ${theme.cardBg}; border: 1px solid ${isChecked ? 'rgba(41,98,255,0.45)' : theme.border}; cursor: pointer; transition: all 0.15s ease;">
+                                                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                                                        <input type="checkbox" class="mt5-check-target-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
+                                                        <span style="font-size: 16px; flex-shrink: 0;">${icon}</span>
+                                                        <div style="min-width: 0;">
+                                                            <strong style="font-size: 12.5px; color: ${theme.text}; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</strong>
+                                                            <div style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.url}</div>
+                                                        </div>
+                                                    </div>
+                                                    <span style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: ${isOnline ? 'rgba(8,153,129,0.15)' : 'rgba(242,54,69,0.15)'}; color: ${isOnline ? theme.success : theme.error}; flex-shrink: 0; margin-left: 8px;">
+                                                        ${isOnline ? '🟢 Online' : '🔴 Offline'}
+                                                    </span>
+                                                </label>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                    ${endpoints.length === 1 ? `
+                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 8px; display: flex; align-items: center; gap: 5px;">
+                                            <span>💡</span> Tied to your configured bridge. Add more bridges in <strong>Cloud Bridge Settings</strong> to distribute accounts across multiple clouds or VMs.
+                                        </div>
+                                    ` : ''}
+                                `}
                             </div>
-                            ` : ''}
                             <div>
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Account Nickname (e.g. The5ers $100K, Goat $50K) *</label>
                                 <input type="text" id="mt5-in-nickname" placeholder="e.g. The5ers High Stakes" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
@@ -2306,21 +2338,28 @@
                 const password = modal.querySelector('#mt5-in-password').value;
                 const multiplier = parseFloat(modal.querySelector('#mt5-in-mult').value) || 1.0;
                 const risk = parseFloat(modal.querySelector('#mt5-in-risk').value) || 1.0;
-                const targetEndpointSelect = modal.querySelector('#mt5-in-target-endpoint');
-                const targetEndpointId = targetEndpointSelect ? targetEndpointSelect.value : null;
+                
+                // Collect all selected target bridge IDs
+                const checkedBoxes = modal.querySelectorAll('.mt5-check-target-bridge:checked');
+                const selectedBridgeIds = Array.from(checkedBoxes).map(cb => cb.value);
 
                 if (!nickname || !server || !login || !password) {
                     alert('Please fill in all required fields (Nickname, Server, Login, Password).');
                     return;
                 }
 
+                if (selectedBridgeIds.length === 0) {
+                    alert('Please select at least one Bridge Server to host and receive this account.');
+                    return;
+                }
+
                 btnSaveAcc.disabled = true;
-                btnSaveAcc.innerText = 'Connecting...';
+                btnSaveAcc.innerText = 'Connecting to selected bridge(s)...';
                 const res = await window.MT5API.addAccount({
                     nickname, server, login, password,
                     lot_multiplier: multiplier,
                     risk_percent: risk
-                }, targetEndpointId);
+                }, selectedBridgeIds);
                 if (res.success) {
                     this.viewMode = 'list';
                     this.renderModal();
