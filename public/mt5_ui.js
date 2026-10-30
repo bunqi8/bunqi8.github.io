@@ -1071,7 +1071,7 @@
                     <!-- Dynamic Password & Status Area (No prompt when already connected!) -->
                     <div id="mt5-routing-status-banner" style="background: rgba(8,153,129,0.08); border: 1px solid rgba(8,153,129,0.25); border-radius: 8px; padding: 10px 14px; font-size: 11.5px; color: ${theme.text}; display: flex; align-items: center; gap: 8px;">
                         <span>🟢</span>
-                        <span>Account is already authenticated on its host bridge(s). No password re-entry needed.</span>
+                        <span id="mt5-routing-status-banner-text">Account is already authenticated on its host bridge(s). No password re-entry needed.</span>
                     </div>
 
                     <div id="mt5-routing-password-box" style="display: none; background: rgba(41,98,255,0.08); border: 1px solid rgba(41,98,255,0.3); border-radius: 8px; padding: 12px; flex-direction: column; gap: 6px;">
@@ -2797,11 +2797,12 @@
             }
 
             // Dynamically show password box ONLY if user checks a bridge that is NOT currently connected
-            const updateRoutingPasswordPrompt = () => {
+            const updateRoutingPasswordPrompt = async () => {
                 const checkedBoxes = modal.querySelectorAll('.mt5-check-routing-bridge:checked');
                 const selectedUnconnected = Array.from(checkedBoxes).some(cb => cb.getAttribute('data-connected') !== 'true');
                 const pwdBox = modal.querySelector('#mt5-routing-password-box');
                 const statusBanner = modal.querySelector('#mt5-routing-status-banner');
+                const bannerText = modal.querySelector('#mt5-routing-status-banner-text');
 
                 const vault = window.MT5API ? window.MT5API.getClientVault() : [];
                 const acc = this.routingAccount;
@@ -2810,12 +2811,38 @@
                 const vEntry = vault.find(v => String(v.login || '').trim() === accLogin && (v.server || '').trim().toLowerCase().includes(accServer));
                 const hasVaultPwd = Boolean(vEntry && vEntry.password);
 
-                if (pwdBox) {
-                    pwdBox.style.display = (selectedUnconnected && !hasVaultPwd) ? 'flex' : 'none';
+                if (!selectedUnconnected) {
+                    if (pwdBox) pwdBox.style.display = 'none';
+                    if (statusBanner) statusBanner.style.display = 'flex';
+                    if (bannerText) bannerText.innerText = 'Account is already authenticated on its host bridge(s). No password re-entry needed.';
+                    return;
                 }
-                if (statusBanner) {
-                    statusBanner.style.display = (selectedUnconnected && !hasVaultPwd) ? 'none' : 'flex';
+
+                if (hasVaultPwd) {
+                    if (pwdBox) pwdBox.style.display = 'none';
+                    if (statusBanner) statusBanner.style.display = 'flex';
+                    if (bannerText) bannerText.innerText = '🔒 Account credentials saved in encrypted browser vault. Password will deploy automatically.';
+                    return;
                 }
+
+                // Check if a connected bridge has verified working credentials to sync from
+                if (window.MT5API && window.MT5API.syncWorkingPasswordFromConnectedBridges) {
+                    if (bannerText) bannerText.innerText = '🔍 Checking connected bridges for verified working session...';
+                    if (statusBanner) statusBanner.style.display = 'flex';
+                    if (pwdBox) pwdBox.style.display = 'none';
+
+                    const probe = await window.MT5API.syncWorkingPasswordFromConnectedBridges(accLogin, accServer);
+                    if (probe && probe.success && probe.sourceBridge) {
+                        if (pwdBox) pwdBox.style.display = 'none';
+                        if (statusBanner) statusBanner.style.display = 'flex';
+                        if (bannerText) bannerText.innerText = `🟢 Verified working session active on ${probe.sourceBridge}! Password will sync automatically.`;
+                        return;
+                    }
+                }
+
+                // No password in vault and no connected bridge has it -> prompt user
+                if (pwdBox) pwdBox.style.display = 'flex';
+                if (statusBanner) statusBanner.style.display = 'none';
             };
             modal.querySelectorAll('.mt5-check-routing-bridge').forEach(cb => {
                 cb.onchange = updateRoutingPasswordPrompt;
@@ -2851,7 +2878,8 @@
                     if (res && res.success) {
                         this.viewMode = 'list';
                         this.renderModal();
-                        this.showFloatingSwitchToast('🔗 Bridge Routing Updated', `Allowed bridges updated for ${this.routingAccount.nickname || this.routingAccount.login}!`, 100, true);
+                        const syncNote = res.syncedFromBridge ? ` (Synced from ${res.syncedFromBridge})` : '';
+                        this.showFloatingSwitchToast('🔗 Bridge Routing Updated', `Allowed bridges updated for ${this.routingAccount.nickname || this.routingAccount.login}${syncNote}!`, 100, true);
                     } else {
                         btnSaveRouting.disabled = false;
                         btnSaveRouting.innerText = 'Save Bridge Routing';
