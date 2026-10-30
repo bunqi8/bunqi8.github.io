@@ -328,6 +328,23 @@
             btn.setAttribute('title', tooltipText);
         }
 
+        isLocalVmBridge(ep) {
+            if (window.MT5API && typeof window.MT5API.isLocalVmBridge === 'function') {
+                return window.MT5API.isLocalVmBridge(ep);
+            }
+            if (!ep) return false;
+            const name = (ep.name || '').toLowerCase();
+            const url = (ep.url || '').toLowerCase();
+            const isVmKeyword = name.includes('local') || name.includes('vmware') || 
+                                name.includes('desktop') || name.includes('lan') || 
+                                name.includes('home') || name.includes('workstation');
+            const hasVmNotCloud = name.includes('vm') && !name.includes('cloud') && !name.includes('oracle') && !name.includes('aws') && !name.includes('vps');
+            const isPrivateIp = url.includes('127.0.0.1') || url.includes('localhost') ||
+                                url.includes('192.168.') || url.includes('10.') ||
+                                /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+            return Boolean(isVmKeyword || hasVmNotCloud || isPrivateIp);
+        }
+
         openModal() {
             this.isOpen = true;
             let modal = document.getElementById(this.modalId);
@@ -512,12 +529,18 @@
         }
 
         getFleetHtml(theme, accounts, activeAcc) {
+            if (this.viewMode === 'routing') {
+                return this.getBridgeRoutingHtml(theme);
+            }
             if (this.viewMode === 'details') {
                 return this.getAccountDetailsHtml(theme, accounts, activeAcc);
             }
             if (this.viewMode === 'add') {
                 const endpoints = window.MT5API ? window.MT5API.getEndpoints().filter(e => e.enabled) : [];
-                const activeEpId = window.MT5API ? window.MT5API.activeEndpointId : (endpoints[0]?.id || '');
+                const localVmEndpoints = endpoints.filter(ep => this.isLocalVmBridge(ep));
+                const defaultTargetIds = localVmEndpoints.length > 0 
+                    ? localVmEndpoints.map(ep => ep.id) 
+                    : [window.MT5API?.activeEndpointId || endpoints[0]?.id];
 
                 return `
                     <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -532,7 +555,7 @@
                                     <label style="display: block; font-size: 11.5px; font-weight: 700; color: ${theme.text};">
                                         🔗 Tie Account to Bridge Servers *
                                     </label>
-                                    <span style="font-size: 10px; color: ${theme.textMuted};">Only selected bridges receive these credentials</span>
+                                    <span style="font-size: 10px; color: ${theme.textMuted};">Local VM bridges are selected by default. Check any additional bridges as needed.</span>
                                 </div>
                                 ${endpoints.length === 0 ? `
                                     <div style="padding: 10px; border-radius: 6px; background: rgba(242,54,69,0.1); border: 1px solid rgba(242,54,69,0.3); color: ${theme.error}; font-size: 11.5px;">
@@ -542,15 +565,23 @@
                                     <div style="display: flex; flex-direction: column; gap: 6px;" id="mt5-target-bridges-list">
                                         ${endpoints.map((ep) => {
                                             const isOnline = ep.status === 'online';
-                                            const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
-                                            const isChecked = ep.id === activeEpId || endpoints.length === 1;
+                                            const isLocal = this.isLocalVmBridge(ep);
+                                            const icon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+                                            const isChecked = defaultTargetIds.includes(ep.id);
+                                            const typeBadge = isLocal 
+                                                ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(0,200,83,0.15); color: #089981; font-weight: 700; border: 1px solid rgba(0,200,83,0.3);">💻 Local VM (Default)</span>`
+                                                : `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(41,98,255,0.12); color: #2962ff; font-weight: 600; border: 1px solid rgba(41,98,255,0.25);">☁️ Cloud VPS</span>`;
+
                                             return `
                                                 <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 6px; background: ${theme.cardBg}; border: 1px solid ${isChecked ? 'rgba(41,98,255,0.45)' : theme.border}; cursor: pointer; transition: all 0.15s ease;">
                                                     <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
                                                         <input type="checkbox" class="mt5-check-target-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
                                                         <span style="font-size: 16px; flex-shrink: 0;">${icon}</span>
                                                         <div style="min-width: 0;">
-                                                            <strong style="font-size: 12.5px; color: ${theme.text}; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</strong>
+                                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                                <strong style="font-size: 12.5px; color: ${theme.text};">${ep.name}</strong>
+                                                                ${typeBadge}
+                                                            </div>
                                                             <div style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.url}</div>
                                                         </div>
                                                     </div>
@@ -606,16 +637,53 @@
                 `;
             }
 
+            const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+            const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
+
             const cards = accounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
                 const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
                 const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
 
                 let cardBorder = isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border);
-                const epIcon = (acc.endpointName || '').toLowerCase().includes('oracle') ? '☁️' : ((acc.endpointName || '').toLowerCase().includes('vmware') ? '💻' : '⚡');
+                const hostEp = allEndpoints.find(e => e.id === acc.endpointId) || { name: acc.endpointName, url: acc.endpointUrl };
+                const isLocalHost = this.isLocalVmBridge(hostEp);
+                const epIcon = isLocalHost ? '💻' : ((acc.endpointName || '').toLowerCase().includes('oracle') ? '☁️' : '⚡');
                 const originBadge = acc.endpointName
                     ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;" title="Hosted on ${acc.endpointUrl || acc.endpointName}">${epIcon} ${acc.endpointName}</span>`
                     : '';
+
+                // Bridge routing badges for this account
+                const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
+                let allowedEpIds = [];
+                if (vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0) {
+                    allowedEpIds = vaultEntry.targetEndpoints;
+                } else if (vaultEntry && vaultEntry.endpointId) {
+                    allowedEpIds = [vaultEntry.endpointId];
+                } else if (acc.endpointId) {
+                    allowedEpIds = [acc.endpointId];
+                }
+
+                const activeInstances = accounts.filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
+                const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
+
+                const allowedBridgeBadges = allowedEpIds.map(epId => {
+                    const ep = allEndpoints.find(e => e.id === epId);
+                    if (!ep) return '';
+                    const isConn = activeEpIds.has(ep.id);
+                    const isOnline = ep.status === 'online';
+                    const isLocal = this.isLocalVmBridge(ep);
+                    const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+
+                    const badgeColor = isConn && isOnline ? '#089981' : (isOnline ? '#2962ff' : '#f23645');
+                    const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.12)' : (isOnline ? 'rgba(41,98,255,0.1)' : 'rgba(242,54,69,0.1)');
+                    const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.3)' : (isOnline ? 'rgba(41,98,255,0.25)' : 'rgba(242,54,69,0.25)');
+                    const statusText = isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline');
+
+                    return `<span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                        ${bIcon} ${ep.name} (${statusText})
+                    </span>`;
+                }).filter(Boolean).join('');
 
                 return `
                     <div class="mt5-account-card" data-id="${acc.id}" style="
@@ -645,8 +713,9 @@
                                     </div>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 6px; align-items: center;">
+                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                                 <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View full account details, financial metrics, and supported tickers">📋 Details</button>
+                                <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Configure allowed bridge servers for this account">🔗 Bridges (${allowedEpIds.length})</button>
                                 ${isPaused
                                     ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Resume account back to Online mode">▶️ Resume</button>`
                                     : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Pause account to put into Standby mode">⏸️ Pause</button>`
@@ -675,6 +744,21 @@
                                     ${isPaused ? '⚪ Standby (Paused)' : '🟢 Online'}
                                 </strong>
                             </div>
+                        </div>
+
+                        <!-- Bridge Routing Row -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11px;">
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
+                                <span style="color: ${theme.textMuted}; font-weight: 600; font-size: 10.5px;">Allowed Bridges:</span>
+                                ${allowedBridgeBadges || `<span style="color: ${theme.textMuted}; font-size: 10.5px;">${acc.endpointName || 'Bridge Server'}</span>`}
+                            </div>
+                            <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
+                                background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
+                                padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 3px;
+                            " title="Configure which bridges this account is allowed to connect to">
+                                <span>🔗</span> Configure
+                            </button>
                         </div>
                     </div>
                 `;
@@ -827,6 +911,171 @@
                                 <span>➕</span> Add Bridge Server
                             </button>
                         </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        openBridgeRouting(accountId) {
+            let acc = window.MT5API ? window.MT5API.accounts.find(a => String(a.id) === String(accountId)) : null;
+            if (!acc && window.MT5API) {
+                acc = window.MT5API.getActiveAccount();
+            }
+            if (!acc) return;
+            this.routingAccount = acc;
+            this.viewMode = 'routing';
+            this.renderModal();
+        }
+
+        getBridgeRoutingHtml(theme) {
+            const acc = this.routingAccount || (window.MT5API ? window.MT5API.getActiveAccount() : null);
+            if (!acc) {
+                this.viewMode = 'list';
+                return this.getFleetHtml(theme, window.MT5API?.accounts || [], window.MT5API?.getActiveAccount());
+            }
+
+            const endpoints = window.MT5API ? window.MT5API.getEndpoints().filter(e => e.enabled !== false) : [];
+            const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
+
+            // Get current active instances for this account
+            const instances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
+            const connectedEndpointIds = new Set(instances.map(a => a.endpointId));
+
+            // Get allowed endpoint IDs from vault (or fallback to connected instances or acc.endpointId)
+            let allowedEndpointIds = new Set();
+            if (vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0) {
+                vaultEntry.targetEndpoints.forEach(id => allowedEndpointIds.add(id));
+            } else if (vaultEntry && vaultEntry.endpointId) {
+                allowedEndpointIds.add(vaultEntry.endpointId);
+            }
+            connectedEndpointIds.forEach(id => allowedEndpointIds.add(id));
+            if (acc.endpointId) allowedEndpointIds.add(acc.endpointId);
+
+            const hasStoredPassword = Boolean(vaultEntry && vaultEntry.password);
+
+            return `
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <!-- Top Navigation Bar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="mt5-btn-back-from-routing" type="button" style="
+                                background: ${theme.cardBg}; border: 1px solid ${theme.border}; color: ${theme.text};
+                                padding: 5px 11px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px;
+                            ">
+                                <span>←</span> Back to Fleet
+                            </button>
+                            <strong style="font-size: 14px; color: ${theme.text};">Bridge Routing & Permissions</strong>
+                        </div>
+                        <div style="font-size: 11px; color: ${theme.textMuted}; font-family: monospace;">
+                            Login: <strong>${acc.login}</strong> • Server: <strong>${acc.server}</strong>
+                        </div>
+                    </div>
+
+                    <!-- Target Account Summary Card -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text};">${acc.nickname || acc.login}</div>
+                            <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
+                                Broker: <strong>${acc.broker_name || acc.server}</strong> • Server: <strong>${acc.server}</strong>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 10.5px; padding: 3px 8px; border-radius: 6px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;">
+                                🔐 ${hasStoredPassword ? 'Credentials in Browser Vault' : 'No Password Cached in Vault'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Zero-Credential & RAM Security Notice -->
+                    <div style="background: rgba(41,98,255,0.06); border: 1px solid rgba(41,98,255,0.2); border-radius: 8px; padding: 12px 14px; font-size: 11.5px; color: ${theme.text}; line-height: 1.5;">
+                        <div style="font-weight: 700; color: ${theme.primary}; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                            <span>🛡️</span> Zero-Credential RAM Security Policy
+                        </div>
+                        Only bridge servers checked below are authorized to receive credentials for this account.
+                        When saved, credentials from your browser vault are deployed directly into volatile memory (RAM + DPAPI).
+                        Unchecked bridges immediately have this account deleted and flushed from runtime memory.
+                    </div>
+
+                    <!-- Configured Bridge List -->
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <label style="font-size: 12px; font-weight: 700; color: ${theme.text};">
+                                Authorized Bridge Servers (${endpoints.length} available):
+                            </label>
+                            <span style="font-size: 10.5px; color: ${theme.textMuted};">Check bridges to authorize; uncheck to revoke</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;" id="mt5-routing-bridges-list">
+                            ${endpoints.map(ep => {
+                                const isChecked = allowedEndpointIds.has(ep.id);
+                                const isConnected = connectedEndpointIds.has(ep.id);
+                                const isOnline = ep.status === 'online';
+                                const isLocal = this.isLocalVmBridge(ep);
+                                const icon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+
+                                return `
+                                    <label style="
+                                        display: flex; align-items: center; justify-content: space-between;
+                                        padding: 10px 14px; border-radius: 8px; background: ${theme.cardBg};
+                                        border: 1px solid ${isChecked ? 'rgba(41,98,255,0.45)' : theme.border};
+                                        cursor: pointer; transition: all 0.15s ease;
+                                    ">
+                                        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                                            <input type="checkbox" class="mt5-check-routing-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 17px; height: 17px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
+                                            <span style="font-size: 20px; flex-shrink: 0;">${icon}</span>
+                                            <div style="min-width: 0;">
+                                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                    <strong style="font-size: 13px; color: ${theme.text};">${ep.name}</strong>
+                                                    ${isLocal
+                                                        ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(0,200,83,0.15); color: #089981; font-weight: 700; border: 1px solid rgba(0,200,83,0.3);">💻 Local VM</span>`
+                                                        : `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(41,98,255,0.12); color: #2962ff; font-weight: 600; border: 1px solid rgba(41,98,255,0.25);">☁️ Cloud VPS</span>`}
+                                                    ${isConnected
+                                                        ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(8,153,129,0.12); color: #089981; font-weight: 700; border: 1px solid rgba(8,153,129,0.3);">🟢 Currently Connected</span>`
+                                                        : ''}
+                                                </div>
+                                                <div style="font-size: 11px; color: ${theme.textMuted}; font-family: monospace; margin-top: 2px;">
+                                                    ${ep.url}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                                            <span style="font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: ${isOnline ? 'rgba(8,153,129,0.15)' : 'rgba(242,54,69,0.15)'}; color: ${isOnline ? theme.success : theme.error};">
+                                                ${isOnline ? '🟢 Online (' + (ep.ping || 0) + 'ms)' : '🔴 Offline'}
+                                            </span>
+                                        </div>
+                                    </label>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    ${!hasStoredPassword ? `
+                        <div style="background: rgba(255,165,0,0.08); border: 1px solid rgba(255,165,0,0.3); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px;">
+                            <label style="font-size: 11.5px; font-weight: 700; color: #ffa500;">
+                                ⚠️ Enter Password to Authorize New Bridge Server(s):
+                            </label>
+                            <input type="password" id="mt5-in-routing-password" placeholder="MT5 Trading Password" style="
+                                width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg};
+                                color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;
+                            ">
+                            <span style="font-size: 10.5px; color: ${theme.textMuted};">Password will be stored only in your private browser vault and sent exclusively to authorized bridges.</span>
+                        </div>
+                    ` : ''}
+
+                    <!-- Action buttons -->
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+                        <button id="mt5-btn-cancel-routing" type="button" style="
+                            background: transparent; border: 1px solid ${theme.border}; color: ${theme.textMuted};
+                            padding: 8px 16px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                        ">Cancel</button>
+                        <button id="mt5-btn-save-bridge-routing" type="button" style="
+                            background: ${theme.primary}; color: #fff; border: none;
+                            padding: 8px 18px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                            display: inline-flex; align-items: center; gap: 6px;
+                        ">
+                            <span>💾</span> Save Bridge Routing
+                        </button>
                     </div>
                 </div>
             `;
@@ -1744,6 +1993,40 @@
             const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
             const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
 
+            const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
+            const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
+
+            let allowedEpIds = [];
+            if (vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0) {
+                allowedEpIds = vaultEntry.targetEndpoints;
+            } else if (vaultEntry && vaultEntry.endpointId) {
+                allowedEpIds = [vaultEntry.endpointId];
+            } else if (acc.endpointId) {
+                allowedEpIds = [acc.endpointId];
+            }
+
+            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
+            const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
+
+            const detailsBridgeBadges = allowedEpIds.map(epId => {
+                const ep = allEndpoints.find(e => e.id === epId);
+                if (!ep) return '';
+                const isConn = activeEpIds.has(ep.id);
+                const isOnline = ep.status === 'online';
+                const isLocal = this.isLocalVmBridge(ep);
+                const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+
+                const badgeColor = isConn && isOnline ? '#089981' : (isOnline ? '#2962ff' : '#f23645');
+                const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.12)' : (isOnline ? 'rgba(41,98,255,0.1)' : 'rgba(242,54,69,0.1)');
+                const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.3)' : (isOnline ? 'rgba(41,98,255,0.25)' : 'rgba(242,54,69,0.25)');
+                const statusText = isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline');
+
+                return `<span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                    ${bIcon} ${ep.name} (${statusText})
+                </span>`;
+            }).filter(Boolean).join('') || `<span style="font-size: 10.5px; color: ${theme.textMuted};">${acc.endpointName || 'Bridge Server'}</span>`;
+
             return `
                 <div style="display: flex; flex-direction: column; gap: 12px;">
                     <!-- Top Navigation Bar -->
@@ -1774,7 +2057,14 @@
                             </div>
                         </div>
 
-                        <div style="display: flex; align-items: center; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
+                                background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
+                                padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px;
+                            " title="Configure which bridges this account is allowed to connect to">
+                                <span>🔗</span> Allowed Bridges (${allowedEpIds.length})
+                            </button>
                             ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
                             <button id="mt5-btn-refresh-details" data-id="${acc.id}" style="
                                 background: ${theme.cardBg};
@@ -1856,6 +2146,21 @@
                             <span>•</span>
                             <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
                         </div>
+                    </div>
+
+                    <!-- Bridge Routing & Permissions Row -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;">
+                            <span style="font-size: 11px; font-weight: 700; color: ${theme.text};">🔗 Bridge Routing:</span>
+                            ${detailsBridgeBadges}
+                        </div>
+                        <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
+                            background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
+                            padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+                            display: inline-flex; align-items: center; gap: 4px;
+                        ">
+                            <span>⚙️</span> Edit Allowed Bridges
+                        </button>
                     </div>
 
                     ${this.detailsSyncing ? `
@@ -2424,6 +2729,84 @@
                     window.MT5API.saveConfig();
                 };
             });
+
+            // Open Bridge Routing view for an account
+            modal.querySelectorAll('.mt5-btn-config-bridges').forEach(b => {
+                b.onclick = (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const login = e.currentTarget.getAttribute('data-login');
+                    const server = e.currentTarget.getAttribute('data-server');
+                    let targetAcc = window.MT5API ? window.MT5API.accounts.find(a => String(a.id) === String(id)) : null;
+                    if (!targetAcc && window.MT5API) {
+                        targetAcc = window.MT5API.accounts.find(a => String(a.login) === String(login) && a.server === server);
+                    }
+                    if (!targetAcc) {
+                        const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+                        targetAcc = vault.find(v => String(v.login) === String(login) && v.server === server);
+                    }
+                    if (targetAcc) {
+                        this.routingAccount = targetAcc;
+                        this.viewMode = 'routing';
+                        this.renderModal();
+                    }
+                };
+            });
+
+            // Back from Bridge Routing
+            const btnBackRouting = modal.querySelector('#mt5-btn-back-from-routing');
+            if (btnBackRouting) {
+                btnBackRouting.onclick = () => {
+                    this.viewMode = 'list';
+                    this.renderModal();
+                };
+            }
+
+            const btnCancelRouting = modal.querySelector('#mt5-btn-cancel-routing');
+            if (btnCancelRouting) {
+                btnCancelRouting.onclick = () => {
+                    this.viewMode = 'list';
+                    this.renderModal();
+                };
+            }
+
+            // Save Bridge Routing
+            const btnSaveRouting = modal.querySelector('#mt5-btn-save-bridge-routing');
+            if (btnSaveRouting) {
+                btnSaveRouting.onclick = async () => {
+                    if (!this.routingAccount) return;
+                    const checkedBoxes = modal.querySelectorAll('.mt5-check-routing-bridge:checked');
+                    const selectedBridgeIds = Array.from(checkedBoxes).map(cb => cb.value);
+
+                    if (selectedBridgeIds.length === 0) {
+                        if (!confirm('No bridge servers selected. This will disconnect and remove this account from all bridge servers. Proceed?')) {
+                            return;
+                        }
+                    }
+
+                    const pwdInput = modal.querySelector('#mt5-in-routing-password');
+                    const manualPassword = pwdInput ? pwdInput.value.trim() : '';
+
+                    btnSaveRouting.disabled = true;
+                    btnSaveRouting.innerText = 'Saving Bridge Routing...';
+
+                    const res = await window.MT5API.updateAccountBridgeRouting(
+                        this.routingAccount.login,
+                        this.routingAccount.server,
+                        selectedBridgeIds,
+                        manualPassword
+                    );
+
+                    if (res && res.success) {
+                        this.viewMode = 'list';
+                        this.renderModal();
+                        this.showFloatingSwitchToast('🔗 Bridge Routing Updated', `Allowed bridges updated for ${this.routingAccount.nickname || this.routingAccount.login}!`, 100, true);
+                    } else {
+                        btnSaveRouting.disabled = false;
+                        btnSaveRouting.innerText = 'Save Bridge Routing';
+                        alert(`Failed to update bridge routing: ${(res && (res.error || (res.errors && res.errors.join('; ')))) || 'Unknown error'}`);
+                    }
+                };
+            }
 
             // Add Bridge Endpoint
             const btnAddEp = modal.querySelector('#mt5-btn-add-endpoint');

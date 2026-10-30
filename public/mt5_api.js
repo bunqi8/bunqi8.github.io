@@ -204,6 +204,27 @@
             return this.getActiveEndpoint();
         }
 
+        isLocalVmBridge(ep) {
+            if (!ep) return false;
+            const name = (ep.name || '').toLowerCase();
+            const url = (ep.url || '').toLowerCase();
+
+            // 1. Explicit local / vmware / lan keywords in name or url
+            const isVmKeyword = name.includes('local') || name.includes('vmware') || 
+                                name.includes('desktop') || name.includes('lan') || 
+                                name.includes('home') || name.includes('workstation');
+            
+            // 2. Contains 'vm' but is NOT cloud-hosted (e.g. Oracle VM is cloud, not local)
+            const hasVmNotCloud = name.includes('vm') && !name.includes('cloud') && !name.includes('oracle') && !name.includes('aws') && !name.includes('vps') && !name.includes('azure');
+
+            // 3. Private RFC1918 IPv4 ranges or localhost
+            const isPrivateIp = url.includes('127.0.0.1') || url.includes('localhost') ||
+                                url.includes('192.168.') || url.includes('10.') ||
+                                /172\.(1[6-9]|2[0-9]|3[0-1])\./.test(url);
+
+            return Boolean(isVmKeyword || hasVmNotCloud || isPrivateIp);
+        }
+
         getReqHeaders(endpointObj) {
             const ep = endpointObj || this.getActiveEndpoint();
             const h = { 'Content-Type': 'application/json' };
@@ -983,19 +1004,33 @@
             } catch (_) {}
         }
 
-        saveAccountToClientVault(accountData, endpointId) {
+        saveAccountToClientVault(accountData, endpointTarget) {
             try {
                 const raw = localStorage.getItem('mt5_client_vault');
                 const vault = raw ? JSON.parse(raw) : [];
                 const idx = vault.findIndex(a => String(a.login) === String(accountData.login) && a.server === accountData.server);
+                const existing = idx >= 0 ? vault[idx] : null;
+
+                let targets = [];
+                if (Array.isArray(endpointTarget)) {
+                    targets = endpointTarget;
+                } else if (endpointTarget) {
+                    targets = [endpointTarget];
+                } else if (existing && Array.isArray(existing.targetEndpoints)) {
+                    targets = existing.targetEndpoints;
+                } else if (existing && existing.endpointId) {
+                    targets = [existing.endpointId];
+                }
+
                 const item = {
-                    nickname: accountData.nickname,
-                    server: accountData.server,
-                    login: accountData.login,
-                    password: accountData.password,
-                    lot_multiplier: accountData.lot_multiplier || 1.0,
-                    risk_percent: accountData.risk_percent || 1.0,
-                    endpointId: endpointId,
+                    nickname: accountData.nickname || (existing ? existing.nickname : ''),
+                    server: accountData.server || (existing ? existing.server : ''),
+                    login: accountData.login || (existing ? existing.login : ''),
+                    password: accountData.password || (existing ? existing.password : ''),
+                    lot_multiplier: accountData.lot_multiplier !== undefined ? accountData.lot_multiplier : (existing ? existing.lot_multiplier : 1.0),
+                    risk_percent: accountData.risk_percent !== undefined ? accountData.risk_percent : (existing ? existing.risk_percent : 1.0),
+                    targetEndpoints: targets,
+                    endpointId: targets[0] || (existing ? existing.endpointId : null),
                     saved_at: Date.now()
                 };
                 if (idx >= 0) {
@@ -1018,27 +1053,172 @@
             }
         }
 
-        async addAccount(accountData, endpointId = null) {
+        async addAccount(accountData, endpointTarget = null) {
             try {
-                const ep = endpointId 
-                    ? (this.endpoints.find(e => e.id === endpointId) || this.getActiveEndpoint())
-                    : this.getActiveEndpoint();
-                if (!ep || !ep.url) {
+                let targets = [];
+                if (Array.isArray(endpointTarget)) {
+                    targets = endpointTarget;
+                } else if (endpointTarget) {
+                    targets = [endpointTarget];
+                } else {
+                    const active = this.getActiveEndpoint();
+                    if (active) targets = [active.id];
+                }
+
+                if (targets.length === 0) {
                     return { success: false, error: 'No bridge endpoint available to add account to.' };
                 }
-                const res = await fetch(`${ep.url}/api/accounts/add`, {
-                    method: 'POST',
-                    headers: this.getReqHeaders(ep),
-                    body: JSON.stringify(accountData)
-                });
-                const data = await res.json();
-                if (data.success) {
-                    // Master Client Vault: Persist securely in browser's local storage
-                    this.saveAccountToClientVault(accountData, ep.id);
-                    await this.syncAccounts(true);
-                    return { success: true, account: data.account };
+
+                let lastSuccessAccount = null;
+                const errors = [];
+                const successfulTargets = [];
+
+                for (const epId of targets) {
+                    const ep = this.endpoints.find(e => e.id === epId);
+                    if (!ep || !ep.url) continue;
+
+                    try {
+                        const res = await fetch(`${ep.url}/api/accounts/add`, {
+                            method: 'POST',
+                            headers: this.getReqHeaders(ep),
+                            body: JSON.stringify(accountData)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            lastSuccessAccount = data.account;
+                            successfulTargets.push(ep.id);
+                        } else {
+                            errors.push(`${ep.name}: ${data.error || 'Failed'}`);
+                        }
+                    } catch (err) {
+                        errors.push(`${ep.name}: ${err.message}`);
+                    }
                 }
-                return { success: false, error: data.error || 'Failed to add account' };
+
+                if (successfulTargets.length > 0) {
+                    // Master Client Vault: Persist securely in browser's local storage bounded to these bridges
+                    this.saveAccountToClientVault(accountData, successfulTargets);
+                    await this.syncAccounts(true);
+                    return { success: true, account: lastSuccessAccount, targets: successfulTargets };
+                }
+
+                return { success: false, error: errors.join('; ') || 'Failed to add account' };
+            } catch (e) {
+                return { success: false, error: e.message };
+            }
+        }
+
+        async updateAccountBridgeRouting(login, server, newEndpointIds, manualPassword = '') {
+            try {
+                const raw = localStorage.getItem('mt5_client_vault');
+                const vault = raw ? JSON.parse(raw) : [];
+                const idx = vault.findIndex(a => String(a.login) === String(login) && a.server === server);
+                const vaultItem = idx >= 0 ? vault[idx] : null;
+
+                const currentInstances = (this.accounts || []).filter(a => String(a.login) === String(login) && a.server === server);
+                const currentEndpointIds = currentInstances.map(a => a.endpointId);
+
+                const toAdd = newEndpointIds.filter(id => !currentEndpointIds.includes(id));
+                const toRemove = currentEndpointIds.filter(id => !newEndpointIds.includes(id));
+
+                const errors = [];
+                const added = [];
+                const removed = [];
+
+                const password = (manualPassword || '').trim() || (vaultItem ? vaultItem.password : '');
+
+                if (toAdd.length > 0 && !password) {
+                    return {
+                        success: false,
+                        error: 'Account password required to deploy credentials to newly authorized bridge server(s).'
+                    };
+                }
+
+                // Deploy to newly authorized bridge servers
+                if (toAdd.length > 0) {
+                    const nickname = vaultItem?.nickname || currentInstances[0]?.nickname || `MT5 ${login}`;
+                    const lotMultiplier = vaultItem?.lot_multiplier ?? currentInstances[0]?.lot_multiplier ?? 1.0;
+                    const riskPercent = vaultItem?.risk_percent ?? currentInstances[0]?.risk_percent ?? 1.0;
+
+                    const accountData = {
+                        nickname,
+                        server,
+                        login: Number(login),
+                        password,
+                        lot_multiplier: lotMultiplier,
+                        risk_percent: riskPercent
+                    };
+
+                    for (const epId of toAdd) {
+                        const ep = this.endpoints.find(e => e.id === epId);
+                        if (!ep || !ep.url) continue;
+
+                        try {
+                            const res = await fetch(`${ep.url}/api/accounts/add`, {
+                                method: 'POST',
+                                headers: this.getReqHeaders(ep),
+                                body: JSON.stringify(accountData)
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                added.push(ep.name);
+                            } else {
+                                errors.push(`${ep.name}: ${data.error || 'Failed to add'}`);
+                            }
+                        } catch (err) {
+                            errors.push(`${ep.name}: ${err.message}`);
+                        }
+                    }
+                }
+
+                // Revoke from unchecked bridge servers
+                for (const epId of toRemove) {
+                    const ep = this.endpoints.find(e => e.id === epId);
+                    if (!ep || !ep.url) continue;
+
+                    const inst = currentInstances.find(a => a.endpointId === epId);
+                    if (inst && inst.id) {
+                        try {
+                            await fetch(`${ep.url}/api/accounts/${inst.id}`, {
+                                method: 'DELETE',
+                                headers: this.getReqHeaders(ep)
+                            });
+                            removed.push(ep.name);
+                        } catch (err) {
+                            console.warn(`[MT5API] Could not delete account from ${ep.name}:`, err);
+                        }
+                    }
+                }
+
+                // Update client vault targetEndpoints
+                if (vaultItem) {
+                    vaultItem.targetEndpoints = newEndpointIds;
+                    vaultItem.endpointId = newEndpointIds[0] || null;
+                    if (password) vaultItem.password = password;
+                    vaultItem.saved_at = Date.now();
+                } else {
+                    vault.push({
+                        nickname: currentInstances[0]?.nickname || `MT5 ${login}`,
+                        server,
+                        login: Number(login),
+                        password: password || '',
+                        lot_multiplier: 1.0,
+                        risk_percent: 1.0,
+                        targetEndpoints: newEndpointIds,
+                        endpointId: newEndpointIds[0] || null,
+                        saved_at: Date.now()
+                    });
+                }
+                localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+
+                await this.syncAccounts(true);
+
+                return {
+                    success: errors.length === 0,
+                    added,
+                    removed,
+                    errors
+                };
             } catch (e) {
                 return { success: false, error: e.message };
             }
