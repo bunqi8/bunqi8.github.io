@@ -1270,10 +1270,11 @@ const Datafeed = {
             const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
             const accId = acc ? acc.id : 'default';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
+            const unifiedKey = `${cleanSym}_${resolution}`;
             if (!window._tvLastBar) window._tvLastBar = {};
             const last = cachedBars[cachedBars.length - 1];
             if (last) {
-                window._tvLastBar[cacheKey] = {
+                const lastBarObj = {
                     time: last.time,
                     open: Number(last.open),
                     high: Number(last.high),
@@ -1281,6 +1282,8 @@ const Datafeed = {
                     close: Number(last.close),
                     volume: Number(last.volume)
                 };
+                window._tvLastBar[cacheKey] = lastBarObj;
+                window._tvLastBar[unifiedKey] = lastBarObj;
             }
 
             console.log(`[datafeed] Fast cache hit for ${generalCacheKey}: returning ${cachedBars.length} bars directly.`);
@@ -1425,7 +1428,7 @@ const Datafeed = {
                         const last = returnBars[returnBars.length - 1];
                         const currLast = window._tvLastBar[cacheKey];
                         if (firstDataRequest || !currLast || last.time >= currLast.time) {
-                            window._tvLastBar[cacheKey] = {
+                            const lastBarObj = {
                                 time: last.time,
                                 open: Number(last.open),
                                 high: Number(last.high),
@@ -1433,6 +1436,9 @@ const Datafeed = {
                                 close: Number(last.close),
                                 volume: Number(last.volume)
                             };
+                            window._tvLastBar[cacheKey] = lastBarObj;
+                            const unifiedKey = `${cleanSym}_${resolution}`;
+                            window._tvLastBar[unifiedKey] = lastBarObj;
                         }
 
                         if (hitLimit && window.BarLimitManager) {
@@ -1717,6 +1723,7 @@ const Datafeed = {
                 return;
             }
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
+            const unifiedKey = `${cleanSym}_${resolution}`;
             const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
             const accId = acc ? acc.id : 'default';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
@@ -1744,6 +1751,25 @@ const Datafeed = {
                 return d.getTime();
             };
 
+            // Retrieve or recover authoritative lastBar for this subscription
+            if (!window._tvLastBar) window._tvLastBar = {};
+            let lastBar = window._tvLastBar[unifiedKey] || window._tvLastBar[cacheKey];
+            if (!lastBar && window._barsCache) {
+                for (const k in window._barsCache) {
+                    if (k.includes(cleanSym) && k.endsWith(`_${resolution}`)) {
+                        const bList = window._barsCache[k];
+                        if (bList && bList.length > 0) {
+                            lastBar = { ...bList[bList.length - 1] };
+                            break;
+                        }
+                    }
+                }
+            }
+            if (lastBar) {
+                window._tvLastBar[unifiedKey] = lastBar;
+                window._tvLastBar[cacheKey] = lastBar;
+            }
+
             const mt5Cb = (tick) => {
                 if (!tick) return;
                 // Only process ticks for this exact symbol
@@ -1753,30 +1779,18 @@ const Datafeed = {
                 const price = Number(tick.last && tick.last > 0 ? tick.last : tick.bid);
                 if (!price || isNaN(price)) return;
 
-                // Stream real-time bid/ask to trade ticket and floating badges
-                if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
-                    window.TradeUIInstance.onLivePriceUpdate(price, symbolInfo.name, tick.bid, tick.ask);
-                }
-
-                if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
-                    window.WatchlistUI.onLivePrice(cleanSym, price, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
-                }
-
-                const currentAcc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
-                const currentAccId = currentAcc ? currentAcc.id : accId;
-                const activeKey = `MT5_${currentAccId}_${cleanSym}_${resolution}`;
-
-                if (!window._tvLastBar) window._tvLastBar = {};
-                let lastBar = window._tvLastBar[activeKey] || window._tvLastBar[cacheKey];
-                if (!lastBar && window._barsCache) {
-                    const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
-                    const cached = window._barsCache[genKey];
-                    if (cached && cached.length > 0) {
-                        const l = cached[cached.length - 1];
-                        lastBar = { ...l };
-                        window._tvLastBar[activeKey] = lastBar;
+                // Safely update TradeUI and Watchlist without disrupting chart streaming
+                try {
+                    if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
+                        window.TradeUIInstance.onLivePriceUpdate(price, symbolInfo.name, tick.bid, tick.ask);
                     }
-                }
+                } catch (_) {}
+
+                try {
+                    if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
+                        window.WatchlistUI.onLivePrice(cleanSym, price, tick.daily_open || null, tick.daily_change !== undefined ? tick.daily_change : null);
+                    }
+                } catch (_) {}
 
                 const tickTime = Number(tick.time) || Date.now();
                 let barTime;
@@ -1788,31 +1802,32 @@ const Datafeed = {
                     barTime = Math.floor(tickTime / tfMs) * tfMs;
                 }
 
-                // Check if tick includes matching candle data from MT5 terminal for THIS exact resolution
+                // Check broker-reported candle data
                 const tickRes = String(tick.resolution || '').toUpperCase();
                 const chartRes = String(resolution || '').toUpperCase();
                 const isMatchingCandle = !!(tick.candle && (tickRes === chartRes || !tickRes));
-
-                // Authoritative candle time from broker tick if matching candle provided
                 const brokerCandleTime = (isMatchingCandle && tick.candle && tick.candle.time) ? alignTime(Number(tick.candle.time)) : null;
-                const effectiveBarTime = (brokerCandleTime && brokerCandleTime >= barTime) ? brokerCandleTime : barTime;
 
                 if (!lastBar) {
                     lastBar = {
-                        time: effectiveBarTime,
+                        time: brokerCandleTime || barTime,
                         open: (isMatchingCandle && tick.candle && tick.candle.open) ? Number(tick.candle.open) : price,
                         high: (isMatchingCandle && tick.candle && tick.candle.high) ? Math.max(Number(tick.candle.high), price) : price,
                         low: (isMatchingCandle && tick.candle && tick.candle.low) ? Math.min(Number(tick.candle.low), price) : price,
                         close: price,
                         volume: (isMatchingCandle && tick.candle && tick.candle.volume) ? Number(tick.candle.volume) : 1
                     };
-                    window._tvLastBar[activeKey] = lastBar;
+                    window._tvLastBar[unifiedKey] = lastBar;
+                    window._tvLastBar[cacheKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
 
-                // Transition to new candle if interval has moved forward
-                if (effectiveBarTime > lastBar.time) {
+                // Determine target forward bar time
+                const targetBarTime = (brokerCandleTime && brokerCandleTime > lastBar.time) ? brokerCandleTime : barTime;
+
+                // Advance forward to new candle when interval has moved forward
+                if (targetBarTime > lastBar.time) {
                     if (window.BarLimitManager) {
                         const genKey = `${(symbolInfo.ticker || symbolInfo.name || '').replace(/[^A-Za-z0-9_]/g, '')}_${resolution}`;
                         window.BarLimitManager.onLiveBarAdded(genKey);
@@ -1831,19 +1846,20 @@ const Datafeed = {
                     }
 
                     lastBar = {
-                        time: effectiveBarTime,
-                        open: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Number(tick.candle.open) : price,
-                        high: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Math.max(Number(tick.candle.high), price) : price,
-                        low: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Math.min(Number(tick.candle.low), price) : price,
+                        time: targetBarTime,
+                        open: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Number(tick.candle.open) : price,
+                        high: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Math.max(Number(tick.candle.high), price) : price,
+                        low: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Math.min(Number(tick.candle.low), price) : price,
                         close: price,
-                        volume: (isMatchingCandle && tick.candle && brokerCandleTime === effectiveBarTime) ? Number(tick.candle.volume) : 1
+                        volume: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Number(tick.candle.volume) : 1
                     };
-                    window._tvLastBar[activeKey] = lastBar;
+                    window._tvLastBar[unifiedKey] = lastBar;
+                    window._tvLastBar[cacheKey] = lastBar;
                     onRealtimeCallback({ ...lastBar });
                     return;
                 }
 
-                // Update active forming candle (never drop ticks!)
+                // Update active forming candle (ALWAYS preserves lastBar.time so TradingView never gets time violation)
                 if (isMatchingCandle && tick.candle && brokerCandleTime === lastBar.time) {
                     lastBar.open = Number(tick.candle.open) || lastBar.open;
                     lastBar.high = Math.max(lastBar.high, Number(tick.candle.high), price);
@@ -1857,6 +1873,8 @@ const Datafeed = {
                     lastBar.volume = (lastBar.volume || 0) + (tick.volume || 1);
                 }
 
+                window._tvLastBar[unifiedKey] = lastBar;
+                window._tvLastBar[cacheKey] = lastBar;
                 onRealtimeCallback({ ...lastBar });
             };
 
