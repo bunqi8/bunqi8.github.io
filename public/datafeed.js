@@ -188,9 +188,7 @@ window.getMarketStatus = function(symbol) {
     const cleanBroker = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') ? window.MT5API.getCleanBrokerExchange(acc) : '';
     const is5ers = cleanBroker === 'THE 5%ERS' || serverStr.toLowerCase().includes('fivepercent');
 
-    const defaultSession = isMetal 
-        ? (is5ers ? '2205-2050:12345' : '2200-2100:12345') 
-        : (isIndex ? '2300-2200:12345' : '2200-2200:12345');
+    const defaultSession = '24x7';
 
     // Weekend Closure:
     // Closes Friday 22:00 UTC
@@ -870,7 +868,7 @@ const Datafeed = {
                 }
 
                 const desc = info && info.description ? info.description : cleanSym;
-                const sessionStr = (info && info.session) ? info.session : (mkt ? mkt.session : (assetType === 'crypto' ? '24x7' : '2200-2200:12345'));
+                const sessionStr = '24x7';
                 const tzStr = (info && info.timezone) ? info.timezone : (mkt ? mkt.timezone : 'Etc/UTC');
 
                 const earliestSec = (info && info.earliest_time) ? info.earliest_time : 1086912000;
