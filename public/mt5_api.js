@@ -81,6 +81,19 @@
                 this.multiAccountSelection = new Set();
                 this.pausedAccountIds = new Set();
             }
+
+            // Instantly restore cached accounts on page load for 0ms exchange rendering
+            try {
+                const rawAccs = localStorage.getItem('mt5_accounts_cache');
+                if (rawAccs) {
+                    const parsed = JSON.parse(rawAccs);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        this.accounts = parsed;
+                        const active = parsed.find(a => a.is_active);
+                        if (active && !this.activeAccountId) this.activeAccountId = active.id;
+                    }
+                }
+            } catch (_) {}
         }
 
         saveConfig() {
@@ -194,6 +207,14 @@
                 });
                 this.activeAccountId = data.active_account_id;
                 this.isConnected = true;
+
+                // Cache accounts to localStorage and update Symbol Search exchanges dynamically
+                try {
+                    localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
+                    if (typeof configurationData !== 'undefined' && typeof window.getExchangesConfig === 'function') {
+                        configurationData.exchanges = window.getExchangesConfig();
+                    }
+                } catch (_) {}
 
                 // Auto-Connect & Auto-Refresh: When connection is established/restored, auto-sync open chart & quotes!
                 if (!wasPreviouslyConnected || this.wasDisconnected) {
@@ -400,7 +421,7 @@
             }
         }
 
-        async setActiveAccount(id, onProgress = null) {
+        async setActiveAccount(id, onProgress = null, skipChartSwitch = false) {
             const report = (step, title, detail, pct) => {
                 if (typeof onProgress === 'function') {
                     try { onProgress(step, title, detail, pct); } catch (_) {}
@@ -431,7 +452,9 @@
                 this.reconnectWebSocket();
 
                 // 4. Instant Chart Feed Switch: Switch active chart feed & candles to this account
-                this.switchChartFeedToAccount(id);
+                if (!skipChartSwitch) {
+                    this.switchChartFeedToAccount(id);
+                }
 
                 // 5. Report instant completion to progress listener
                 report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
@@ -786,12 +809,68 @@
             return this._loadingSymbolsPromise;
         }
 
-        async fetchSymbols(search = '', category = '') {
-            if (!this._allSymbols || this._allSymbols.length === 0) {
-                await this.loadAllSymbolsCache();
+        async getSymbolsForAccount(accountId) {
+            if (!accountId) return this._allSymbols || [];
+            const accId = String(accountId);
+            if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
+
+            // 1. In-memory cache hit
+            if (this._accountSymbolsCache.has(accId)) {
+                const mem = this._accountSymbolsCache.get(accId);
+                if (Array.isArray(mem) && mem.length > 0) return mem;
             }
 
-            const all = (this._allSymbols && this._allSymbols.length > 0) ? this._allSymbols : this.getMockSymbols();
+            // 2. localStorage cache hit
+            try {
+                const local = localStorage.getItem(`mt5_symbols_${accId}`);
+                if (local) {
+                    const parsed = JSON.parse(local);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        this._accountSymbolsCache.set(accId, parsed);
+                        return parsed;
+                    }
+                }
+            } catch (_) {}
+
+            // 3. Direct network fetch from bridge
+            try {
+                const res = await fetch(`${this.endpoint}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
+                    headers: this.getHeaders(),
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const syms = data.symbols || [];
+                    if (syms.length > 0) {
+                        this._accountSymbolsCache.set(accId, syms);
+                        try {
+                            localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
+                        } catch (_) {}
+                        return syms;
+                    }
+                }
+            } catch (e) {
+                console.warn(`[MT5API] Failed to fetch symbols for account ${accId}:`, e.message);
+            }
+
+            return this._allSymbols || this.getMockSymbols();
+        }
+
+        async fetchSymbols(search = '', category = '', targetAccountId = null) {
+            let all = null;
+            if (targetAccountId) {
+                all = await this.getSymbolsForAccount(targetAccountId);
+            } else {
+                if (!this._allSymbols || this._allSymbols.length === 0) {
+                    await this.loadAllSymbolsCache();
+                }
+                all = (this._allSymbols && this._allSymbols.length > 0) ? this._allSymbols : this.getMockSymbols();
+            }
+
+            if (!Array.isArray(all) || all.length === 0) {
+                all = this.getMockSymbols();
+            }
+
             let filtered = all;
 
             if (category) {
@@ -975,7 +1054,7 @@
         }
 
         // --- Real-Time WebSocket Quote Stream ---
-        subscribeQuotes(symbol, resolution, callback) {
+        subscribeQuotes(symbol, resolution, callback, accountId = null) {
             if (typeof resolution === 'function') {
                 callback = resolution;
                 resolution = null; // Do NOT overwrite activeResolution if caller didn't pass one
@@ -997,7 +1076,13 @@
             this.ensureWebSocket();
             this.startFallbackTickPolling();
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                const acc = this.getActiveAccount();
+                let acc = null;
+                if (accountId && this.accounts) {
+                    acc = this.accounts.find(a => String(a.id) === String(accountId));
+                }
+                if (!acc) {
+                    acc = this.getActiveAccount();
+                }
                 this.ws.send(JSON.stringify({
                     action: 'subscribe',
                     symbol: this.activeSymbol,

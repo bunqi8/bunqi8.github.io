@@ -3,6 +3,74 @@
 // DuckDB-WASM Parquet Datafeed with in-memory ArrayBuffer caching
 // -----------------------------------------------------------------------
 
+window.getExchangesConfig = function() {
+    const defaultExchanges = [
+        { value: '', name: 'All Exchanges', desc: 'All connected markets' },
+        { value: 'FUNDEDNEXT', name: 'FundedNext', desc: 'FundedNext-Server 3 (#12345678)' },
+        { value: 'THE 5%ERS', name: 'The 5%ers', desc: 'FivePercentOnline-Real (#12345679)' },
+        { value: 'METAQUOTES', name: 'MetaQuotes', desc: 'MetaQuotes-Demo (#12345680)' },
+        { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
+        { value: 'BSE', name: 'BSE', desc: 'Bombay Stock Exchange' },
+        { value: 'MCX', name: 'MCX', desc: 'Multi Commodity Exchange' }
+    ];
+
+    try {
+        let accounts = [];
+        if (window.MT5API && Array.isArray(window.MT5API.accounts) && window.MT5API.accounts.length > 0) {
+            accounts = window.MT5API.accounts;
+        } else {
+            const raw = localStorage.getItem('mt5_accounts_cache');
+            if (raw) accounts = JSON.parse(raw);
+        }
+
+        const list = [{ value: '', name: 'All Exchanges', desc: 'All connected markets' }];
+        const seen = new Set(['']);
+
+        if (Array.isArray(accounts) && accounts.length > 0) {
+            accounts.forEach(acc => {
+                const exVal = window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function'
+                    ? window.MT5API.getCleanBrokerExchange(acc)
+                    : (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase();
+                
+                if (exVal && !seen.has(exVal)) {
+                    seen.add(exVal);
+                    let displayName = acc.nickname || exVal;
+                    if (exVal === 'FUNDEDNEXT') displayName = 'FundedNext';
+                    else if (exVal === 'THE 5%ERS') displayName = 'The 5%ers';
+                    else if (exVal === 'METAQUOTES') displayName = 'MetaQuotes';
+                    else if (exVal === 'FTMO') displayName = 'FTMO';
+                    else if (exVal === 'EXNESS') displayName = 'Exness';
+                    
+                    const desc = `${acc.server || exVal}${acc.login ? ` (#${acc.login})` : ''}`;
+                    list.push({ value: exVal, name: displayName, desc: desc });
+                }
+            });
+        }
+
+        const preseeded = [
+            { value: 'FUNDEDNEXT', name: 'FundedNext', desc: 'FundedNext-Server 3 (#12345678)' },
+            { value: 'THE 5%ERS', name: 'The 5%ers', desc: 'FivePercentOnline-Real (#12345679)' },
+            { value: 'METAQUOTES', name: 'MetaQuotes', desc: 'MetaQuotes-Demo (#12345680)' }
+        ];
+        preseeded.forEach(p => {
+            if (!seen.has(p.value)) {
+                seen.add(p.value);
+                list.push(p);
+            }
+        });
+
+        list.push(
+            { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
+            { value: 'BSE', name: 'BSE', desc: 'Bombay Stock Exchange' },
+            { value: 'MCX', name: 'MCX', desc: 'Multi Commodity Exchange' }
+        );
+
+        return list;
+    } catch (_) {
+        return defaultExchanges;
+    }
+};
+
 const configurationData = {
     supported_resolutions: [
         // Seconds
@@ -17,13 +85,7 @@ const configurationData = {
     supports_marks: false,
     supports_timescale_marks: false,
     supports_time: true,
-    exchanges: [
-        { value: '', name: 'All Exchanges', desc: 'All connected markets' },
-        { value: 'MT5', name: 'MetaTrader 5', desc: 'MT5 Broker Fleet' },
-        { value: 'NSE', name: 'NSE', desc: 'National Stock Exchange of India' },
-        { value: 'BSE', name: 'BSE', desc: 'Bombay Stock Exchange' },
-        { value: 'MCX', name: 'MCX', desc: 'Multi Commodity Exchange' }
-    ],
+    exchanges: window.getExchangesConfig(),
     symbols_types: [
         { value: '', name: 'All' },
         { value: 'commodity', name: 'Commodities' },
@@ -661,6 +723,9 @@ window.triggerTvCacheReset = (symbol) => {
 // -----------------------------------------------------------------------
 const Datafeed = {
     onReady: (callback) => {
+        if (typeof window.getExchangesConfig === 'function') {
+            configurationData.exchanges = window.getExchangesConfig();
+        }
         setTimeout(() => callback(configurationData));
     },
 
@@ -670,33 +735,62 @@ const Datafeed = {
         const popMap = { 'XAUUSD':1, 'EURUSD':2, 'GBPUSD':3, 'USDJPY':4, 'US30':5, 'USTEC':6, 'US500':7, 'BTCUSD':8, 'NIFTY50-INDEX':9, 'BANKNIFTY-INDEX':10, 'SENSEX-INDEX':11, 'FINNIFTY-INDEX':12, 'MIDCPNIFTY-INDEX':13 };
 
         try {
-            // Check exchange filter from TradingView dropdown
-            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
-            const brokerExchange = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function')
-                ? window.MT5API.getCleanBrokerExchange(acc)
-                : (acc ? (acc.server || 'MT5').split(/[-_\s]/)[0].toUpperCase() : 'MT5');
-
-            const isMt5Allowed = !exchange || exchange === 'MT5' || exchange === brokerExchange || exchange.includes('MT5');
+            const isIndianOnly = exchange === 'NSE' || exchange === 'BSE' || exchange === 'MCX';
+            const isMt5Allowed = !isIndianOnly;
             const isIndianAllowed = !exchange || exchange === 'NSE' || exchange === 'BSE' || exchange === 'MCX';
 
-            // 1. Instant MT5 In-Memory Search (< 1ms)
-            if (isMt5Allowed && window.MT5API && window.MT5API.isConnected) {
+            // 1. MT5 Symbols Search Across All Matching Broker Fleet Accounts
+            if (isMt5Allowed && window.MT5API) {
                 try {
-                    const mt5Symbols = await window.MT5API.fetchSymbols(query, symbolType || '');
-                    if (mt5Symbols && mt5Symbols.length > 0) {
-                        const limit = query ? 50 : 25;
-                        mt5Symbols.slice(0, limit).forEach(s => {
-                            const fullSym = brokerExchange ? `${brokerExchange}:${s.name}` : s.name;
-                            results.push({
-                                symbol: s.name,
-                                ticker: fullSym,
-                                full_name: fullSym,
-                                description: s.description || s.name,
-                                exchange: brokerExchange,
-                                type: s.type || 'forex'
-                            });
+                    let targetAccounts = [];
+                    const allAccounts = (window.MT5API.accounts && window.MT5API.accounts.length > 0)
+                        ? window.MT5API.accounts
+                        : [];
+
+                    if (exchange && exchange !== 'MT5') {
+                        // Specific broker exchange selected in dropdown (e.g. 'FUNDEDNEXT', 'THE 5%ERS', 'METAQUOTES')
+                        targetAccounts = allAccounts.filter(a => {
+                            const cleanEx = window.MT5API.getCleanBrokerExchange(a);
+                            return cleanEx === exchange || 
+                                   (a.server && a.server.toUpperCase().includes(exchange)) ||
+                                   (a.nickname && a.nickname.toUpperCase().includes(exchange));
                         });
+                    } else {
+                        // 'All sources' or generic 'MT5' selected -> include all connected fleet accounts
+                        targetAccounts = allAccounts;
                     }
+
+                    // Fallback to active account if targetAccounts is empty
+                    if (targetAccounts.length === 0) {
+                        const active = window.MT5API.getActiveAccount();
+                        if (active) targetAccounts = [active];
+                    }
+
+                    const limitPerAccount = exchange ? 120 : (query ? 40 : 20);
+
+                    // Fetch symbols for each target account concurrently
+                    await Promise.all(targetAccounts.map(async (acc) => {
+                        try {
+                            const cleanEx = window.MT5API.getCleanBrokerExchange(acc);
+                            const syms = await window.MT5API.fetchSymbols(query, symbolType || '', acc.id);
+                            if (syms && syms.length > 0) {
+                                syms.slice(0, limitPerAccount).forEach(s => {
+                                    const symName = s.symbol || s.name;
+                                    const fullSym = `${cleanEx}:${symName}`;
+                                    results.push({
+                                        symbol: symName,
+                                        ticker: fullSym,
+                                        full_name: fullSym,
+                                        description: s.description || `${cleanEx} ${symName}`,
+                                        exchange: cleanEx,
+                                        type: s.type || s.category || 'forex'
+                                    });
+                                });
+                            }
+                        } catch (accErr) {
+                            console.warn('[datafeed] Error searching account:', acc.id, accErr);
+                        }
+                    }));
                 } catch (mt5Err) {
                     console.warn('[datafeed] MT5 searchSymbols notice:', mt5Err);
                 }
@@ -761,11 +855,11 @@ const Datafeed = {
             console.error("Search error", e);
         }
 
-        // Deduplicate symbols
+        // Deduplicate symbols by unique full_name (broker:symbol) so every broker's ticker is preserved!
         const unique = [];
         const seen = new Set();
         for (let r of results) {
-            const k = r.symbol.toUpperCase();
+            const k = (r.full_name || r.ticker || `${r.exchange}:${r.symbol}`).toUpperCase();
             if (!seen.has(k)) {
                 seen.add(k);
                 unique.push(r);
@@ -774,17 +868,29 @@ const Datafeed = {
 
         // Intelligent Ranking:
         // Rank 1: Exact symbol match (e.g. XAUUSD)
-        // Rank 2: Symbol starts with query
-        // Rank 3: Description contains query
-        // Rank 4: Popularity priority booster
+        // Rank 2: Active broker's exact symbol match gets precedence
+        // Rank 3: Symbol starts with query
+        // Rank 4: Description contains query
+        // Rank 5: Popularity priority booster
         if (query) {
+            const activeAcc = window.MT5API ? window.MT5API.getActiveAccount() : null;
+            const activeBroker = activeAcc && window.MT5API ? window.MT5API.getCleanBrokerExchange(activeAcc) : '';
+
             unique.sort((a, b) => {
                 const aSym = a.symbol.toUpperCase();
                 const bSym = b.symbol.toUpperCase();
 
                 // 1. Exact match always wins
-                if (aSym === query && bSym !== query) return -1;
-                if (bSym === query && aSym !== query) return 1;
+                const aIsExact = (aSym === query);
+                const bIsExact = (bSym === query);
+                if (aIsExact && !bIsExact) return -1;
+                if (bIsExact && !aIsExact) return 1;
+
+                // If both exact match, active broker's ticker ranks first
+                if (aIsExact && bIsExact && activeBroker) {
+                    if (a.exchange === activeBroker && b.exchange !== activeBroker) return -1;
+                    if (b.exchange === activeBroker && a.exchange !== activeBroker) return 1;
+                }
 
                 // 2. Starts with query
                 const aStarts = aSym.startsWith(query);
@@ -797,11 +903,11 @@ const Datafeed = {
                 const bPop = popMap[bSym] || 99;
                 if (aPop !== bPop) return aPop - bPop;
 
-                return aSym.localeCompare(bSym);
+                return (a.full_name || aSym).localeCompare(b.full_name || bSym);
             });
         }
 
-        onResultReadyCallback(unique.slice(0, 60));
+        onResultReadyCallback(unique.slice(0, 120));
     },
 
     resolveSymbol: (symbolName, onSymbolResolvedCallback, onResolveErrorCallback) => {
@@ -834,9 +940,17 @@ const Datafeed = {
             if (prefix && prefix !== 'MT5' && prefix !== 'NSE' && prefix !== 'BSE' && prefix !== 'MCX') {
                 brokerExchange = prefix;
                 if (window.MT5API && window.MT5API.accounts) {
-                    const matchedAcc = window.MT5API.accounts.find(a => window.MT5API.getCleanBrokerExchange(a) === prefix);
-                    if (matchedAcc && String(matchedAcc.id) !== String(window.MT5API.activeAccountId)) {
-                        window.MT5API.setActiveAccount(matchedAcc.id);
+                    const matchedAcc = window.MT5API.accounts.find(a => {
+                        const cleanEx = window.MT5API.getCleanBrokerExchange(a);
+                        return cleanEx === prefix || 
+                               (a.server && a.server.toUpperCase().includes(prefix)) ||
+                               (a.nickname && a.nickname.toUpperCase().includes(prefix));
+                    });
+                    if (matchedAcc) {
+                        brokerExchange = window.MT5API.getCleanBrokerExchange(matchedAcc);
+                        if (String(matchedAcc.id) !== String(window.MT5API.activeAccountId)) {
+                            window.MT5API.setActiveAccount(matchedAcc.id, null, true);
+                        }
                     }
                 }
             } else if (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') {
@@ -1324,7 +1438,12 @@ const Datafeed = {
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             let targetAcc = null;
             if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API && window.MT5API.accounts) {
-                targetAcc = window.MT5API.accounts.find(a => window.MT5API.getCleanBrokerExchange(a) === symbolInfo.exchange);
+                targetAcc = window.MT5API.accounts.find(a => {
+                    const cleanEx = window.MT5API.getCleanBrokerExchange(a);
+                    return cleanEx === symbolInfo.exchange || 
+                           (a.server && a.server.toUpperCase().includes(symbolInfo.exchange)) ||
+                           (a.nickname && a.nickname.toUpperCase().includes(symbolInfo.exchange));
+                });
             }
             if (!targetAcc && window.MT5API && typeof window.MT5API.getActiveAccount === 'function') {
                 targetAcc = window.MT5API.getActiveAccount();
@@ -1724,7 +1843,18 @@ const Datafeed = {
             }
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             const unifiedKey = `${cleanSym}_${resolution}`;
-            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+            let acc = null;
+            if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API && window.MT5API.accounts) {
+                acc = window.MT5API.accounts.find(a => {
+                    const cleanEx = window.MT5API.getCleanBrokerExchange(a);
+                    return cleanEx === symbolInfo.exchange || 
+                           (a.server && a.server.toUpperCase().includes(symbolInfo.exchange)) ||
+                           (a.nickname && a.nickname.toUpperCase().includes(symbolInfo.exchange));
+                });
+            }
+            if (!acc && (window.MT5API && typeof window.MT5API.getActiveAccount === 'function')) {
+                acc = window.MT5API.getActiveAccount();
+            }
             const accId = acc ? acc.id : 'default';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
@@ -1930,7 +2060,7 @@ const Datafeed = {
                 onRealtimeCallback({ ...lastBar });
             };
 
-            window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb);
+            window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb, accId);
             if (!window._mt5Subscribers) window._mt5Subscribers = new Map();
             window._mt5Subscribers.set(subscriberUID, { symbol: cleanSym, cb: mt5Cb });
             return;
