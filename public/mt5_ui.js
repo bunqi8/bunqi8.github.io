@@ -382,6 +382,17 @@
 
             modal.innerHTML = `
                 <style>
+                    #mt5-fleet-modal,
+                    #mt5-fleet-modal *,
+                    #mt5-fleet-modal *::before,
+                    #mt5-fleet-modal *::after {
+                        box-sizing: border-box !important;
+                    }
+                    #mt5-fleet-modal input,
+                    #mt5-fleet-modal select,
+                    #mt5-fleet-modal button {
+                        box-sizing: border-box !important;
+                    }
                     #mt5-fleet-modal *::-webkit-scrollbar {
                         width: 6px;
                         height: 6px;
@@ -472,7 +483,7 @@
                     </div>
 
                     <!-- Modal Body -->
-                    <div class="mt5-modal-body" style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; flex: 1;">
+                    <div class="mt5-modal-body" style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; overflow-x: hidden; flex: 1; box-sizing: border-box; width: 100%;">
                         ${this.activeTab === 'fleet' ? this.getFleetHtml(theme, accounts, activeAcc) : this.getSettingsHtml(theme)}
                     </div>
                 </div>
@@ -533,24 +544,24 @@
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Broker MT5 Server Name *</label>
                                 <input type="text" id="mt5-in-server" placeholder="e.g. TheFivePercenters-Live or GoatFundedTrader-Server" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
-                                <div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; width: 100%;">
+                                <div style="min-width: 0;">
                                     <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">MT5 Login ID *</label>
-                                    <input type="number" id="mt5-in-login" placeholder="e.g. 1058492" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                    <input type="number" id="mt5-in-login" placeholder="e.g. 1058492" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                                 </div>
-                                <div>
+                                <div style="min-width: 0;">
                                     <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">MT5 Password *</label>
-                                    <input type="password" id="mt5-in-password" placeholder="Trading password" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                    <input type="password" id="mt5-in-password" placeholder="Trading password" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                                 </div>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
-                                <div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; width: 100%;">
+                                <div style="min-width: 0;">
                                     <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Lot Scaling Multiplier</label>
-                                    <input type="number" step="0.1" id="mt5-in-mult" value="1.0" placeholder="1.0" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                    <input type="number" step="0.1" id="mt5-in-mult" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                                 </div>
-                                <div>
+                                <div style="min-width: 0;">
                                     <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Risk Sizing %</label>
-                                    <input type="number" step="0.1" id="mt5-in-risk" value="1.0" placeholder="1.0" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                    <input type="number" step="0.1" id="mt5-in-risk" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                                 </div>
                             </div>
                             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
@@ -697,24 +708,26 @@
                         display: flex;
                         flex-direction: column;
                         gap: 10px;
+                        box-sizing: border-box;
+                        width: 100%;
                         opacity: ${isEnabled ? '1' : '0.75'};
                     ">
-                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">${icon}</span>
-                                <div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 260px;">
+                                <span style="font-size: 18px; flex-shrink: 0;">${icon}</span>
+                                <div style="min-width: 0;">
                                     <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                         <span>${ep.name}</span>
                                         ${isPrimary ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">PRIMARY BRIDGE</span>` : ''}
                                         ${statusBadge}
                                     </div>
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; font-family: monospace; margin-top: 2px;">
+                                    <div style="font-size: 11px; color: ${theme.textMuted}; font-family: monospace; margin-top: 2px; word-break: break-all;">
                                         ${ep.url} • ${hostedAccs.length} account${hostedAccs.length === 1 ? '' : 's'} online
                                     </div>
                                 </div>
                             </div>
 
-                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
                                 <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
                                 ${!isPrimary ? `<button type="button" class="mt5-btn-set-primary-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Set as primary default bridge">★ Set Primary</button>` : ''}
                                 <button type="button" class="mt5-btn-toggle-endpoint" data-id="${ep.id}" style="background: ${isEnabled ? 'rgba(255,165,0,0.12)' : 'rgba(0,200,83,0.12)'}; color: ${isEnabled ? '#ffa500' : theme.success}; border: 1px solid ${isEnabled ? 'rgba(255,165,0,0.3)' : 'rgba(0,200,83,0.3)'}; padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="${isEnabled ? 'Disable polling this endpoint' : 'Enable polling this endpoint'}">${isEnabled ? '⏸️ Disable' : '▶️ Enable'}</button>
@@ -761,21 +774,21 @@
                     </div>
 
                     <!-- Add Bridge Endpoint Form -->
-                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; width: 100%; overflow: hidden;">
                         <strong style="font-size: 12.5px; color: ${theme.text};">Connect Bridge Endpoint</strong>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
-                            <div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                            <div style="min-width: 0;">
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Server Friendly Name *</label>
-                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM, Tokyo VPS" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM, Tokyo VPS" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                             </div>
-                            <div>
+                            <div style="min-width: 0;">
                                 <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Bridge Endpoint URL *</label>
-                                <input type="text" id="mt5-in-new-url" placeholder="https://your-bridge-domain.com:8000 or http://localhost:8000" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                <input type="text" id="mt5-in-new-url" placeholder="e.g. https://domain.com:8000 or http://127.0.0.1:8000" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
                             </div>
                         </div>
-                        <div>
+                        <div style="min-width: 0; width: 100%;">
                             <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Bearer API Secret Key</label>
-                            <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="Secret key on bridge server" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
+                            <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="Secret key on bridge server" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
                         </div>
                         <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
                             <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
