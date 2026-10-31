@@ -113,18 +113,29 @@
                            window.matchMedia('(prefers-color-scheme: dark)').matches || true;
             return {
                 isDark,
-                bg: isDark ? '#1e222d' : '#ffffff',
-                cardBg: isDark ? '#131722' : '#f0f3fa',
-                border: isDark ? '#2a2e39' : '#e0e3eb',
-                text: isDark ? '#d1d4dc' : '#131722',
-                textMuted: isDark ? '#787b86' : '#5d606b',
-                primary: '#2962ff',
-                success: '#089981',
-                error: '#f23645',
-                warning: '#ff9800',
-                inputBg: isDark ? '#1e222d' : '#ffffff',
-                inputBorder: isDark ? '#363c4e' : '#d1d4dc',
-                inputText: isDark ? '#d1d4dc' : '#131722',
+                bg: isDark ? '#0d1117' : '#ffffff',
+                cardBg: isDark ? '#161b22' : '#f6f8fa',
+                cardSurface: isDark ? '#1c212c' : '#ffffff',
+                border: isDark ? 'rgba(255, 255, 255, 0.08)' : '#d0d7de',
+                borderSubtle: isDark ? 'rgba(255, 255, 255, 0.05)' : '#eaeef2',
+                text: isDark ? '#f0f6fc' : '#1f2328',
+                textMuted: isDark ? '#8b949e' : '#656d76',
+                textDim: isDark ? '#6e7681' : '#8c959f',
+                primary: '#3b82f6',
+                primarySoft: 'rgba(59, 130, 246, 0.12)',
+                primaryBorder: 'rgba(59, 130, 246, 0.25)',
+                success: '#10b981',
+                successSoft: 'rgba(16, 185, 129, 0.12)',
+                successBorder: 'rgba(16, 185, 129, 0.25)',
+                error: '#f43f5e',
+                errorSoft: 'rgba(244, 63, 94, 0.12)',
+                errorBorder: 'rgba(244, 63, 94, 0.25)',
+                warning: '#f59e0b',
+                warningSoft: 'rgba(245, 158, 11, 0.12)',
+                warningBorder: 'rgba(245, 158, 11, 0.25)',
+                inputBg: isDark ? '#0b0e14' : '#ffffff',
+                inputBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#d0d7de',
+                inputText: isDark ? '#f0f6fc' : '#1f2328',
             };
         }
 
@@ -449,11 +460,47 @@
                         border-radius: 4px;
                     }
                     #mt5-fleet-modal *::-webkit-scrollbar-thumb:hover {
-                        background: rgba(41, 98, 255, 0.7);
+                        background: rgba(59, 130, 246, 0.7);
                     }
                     #mt5-fleet-modal * {
                         scrollbar-width: thin;
                         scrollbar-color: rgba(120, 120, 120, 0.35) transparent;
+                    }
+                    .mt5-ghost-btn {
+                        background: rgba(255, 255, 255, 0.04) !important;
+                        color: ${theme.textMuted} !important;
+                        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                        transition: all 0.14s ease !important;
+                    }
+                    .mt5-ghost-btn:hover {
+                        background: rgba(255, 255, 255, 0.08) !important;
+                        color: #ffffff !important;
+                        border-color: rgba(255, 255, 255, 0.16) !important;
+                    }
+                    .mt5-btn-chart-symbol {
+                        background: rgba(255, 255, 255, 0.035) !important;
+                        color: #cbd5e1 !important;
+                        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+                        transition: all 0.14s ease !important;
+                    }
+                    .mt5-btn-chart-symbol:hover {
+                        background: rgba(59, 130, 246, 0.16) !important;
+                        color: #60a5fa !important;
+                        border-color: rgba(59, 130, 246, 0.35) !important;
+                    }
+                    .mt5-ticker-row {
+                        transition: background 0.12s ease !important;
+                    }
+                    .mt5-ticker-row:hover {
+                        background: rgba(255, 255, 255, 0.035) !important;
+                        border-color: rgba(255, 255, 255, 0.1) !important;
+                    }
+                    .mt5-cat-pill {
+                        transition: all 0.12s ease !important;
+                    }
+                    .mt5-cat-pill:hover:not([style*="rgb(59, 130, 246)"]) {
+                        background: rgba(255, 255, 255, 0.06) !important;
+                        color: #ffffff !important;
                     }
                 </style>
                 <div style="
@@ -718,9 +765,9 @@
                     const isLocal = this.isLocalVmBridge(ep);
                     const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
 
-                    const badgeColor = isConn && isOnline ? '#089981' : (isOnline ? '#2962ff' : '#f23645');
-                    const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.1)' : (isOnline ? 'rgba(41,98,255,0.08)' : 'rgba(242,54,69,0.08)');
-                    const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.25)' : (isOnline ? 'rgba(41,98,255,0.2)' : 'rgba(242,54,69,0.2)');
+                    const badgeColor = isConn && isOnline ? theme.success : (isOnline ? theme.primary : theme.error);
+                    const badgeBg = isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft);
+                    const badgeBorder = isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder);
 
                     return `<span style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;" title="${ep.name}: ${isConn && isOnline ? 'Connected' : (isOnline ? 'Standby' : 'Offline')}">
                         ${bIcon} ${ep.name} (${isConn && isOnline ? '🟢' : (isOnline ? '⚪' : '🔴')})
@@ -749,19 +796,19 @@
                                 <span style="font-size: 10px;">${isPaused ? '⚪' : '🟢'}</span>
                                 <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
-                                ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(255,165,0,0.15); color: #ffa500; font-weight: 700;">PAUSED</span>` : ''}
+                                ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace;">#${acc.login} • ${acc.server}</span>
                             </div>
 
                             <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
-                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.06); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.2); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Show this account on chart">⚡ Feed</button>` : ''}
-                                <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="background: rgba(41,98,255,0.06); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.2); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Configure bridges">🔗 Bridges (${allowedEpIds.length})</button>
+                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: ${theme.primarySoft}; color: #60a5fa; border: 1px solid ${theme.primaryBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Show this account on chart">⚡ Feed</button>` : ''}
+                                <button class="mt5-btn-config-bridges mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Configure bridges">🔗 Bridges (${allowedEpIds.length})</button>
                                 ${isPaused
-                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.08); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.22); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">▶️ Resume</button>`
-                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.08); color: #ffa500; border: 1px solid rgba(255,165,0,0.22); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">⏸️ Pause</button>`
+                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: ${theme.successSoft}; color: ${theme.success}; border: 1px solid ${theme.successBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">▶️ Resume</button>`
+                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: ${theme.warningSoft}; color: ${theme.warning}; border: 1px solid ${theme.warningBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">⏸️ Pause</button>`
                                 }
-                                <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="View financial details">📋 Details</button>
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.22); padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Delete account">✕</button>
+                                <button class="mt5-btn-view-details mt5-ghost-btn" data-id="${acc.id}" style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="View financial details">📋 Details</button>
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid ${theme.errorBorder}; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Delete account">✕</button>
                             </div>
                         </div>
 
@@ -1608,9 +1655,6 @@
                                         <td style="padding: 7px 10px; color: ${theme.textMuted}; white-space: nowrap;">${timeStr}</td>
                                         <td style="padding: 7px 10px; text-align: center;">
                                             <button class="mt5-btn-chart-symbol" data-symbol="${h.symbol}" data-server="${server || ''}" style="
-                                                background: rgba(41,98,255,0.12);
-                                                color: ${theme.primary};
-                                                border: 1px solid rgba(41,98,255,0.3);
                                                 padding: 2px 7px;
                                                 border-radius: 4px;
                                                 font-size: 10px;
@@ -1928,12 +1972,10 @@
                                         <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
                                         <td style="padding: 7px 10px; text-align: center;">
                                             <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${server || ''}" style="
-                                                background: rgba(41,98,255,0.12);
-                                                color: ${theme.primary};
-                                                border: 1px solid rgba(41,98,255,0.3);
-                                                padding: 3px 8px;
+                                                padding: 2px 7px;
                                                 border-radius: 4px;
-                                                font-size: 10.5px;
+                                                font-size: 10px;
+                                                font-weight: 600;
                                                 cursor: pointer;
                                             ">📈 Chart</button>
                                         </td>
@@ -1964,40 +2006,36 @@
                 const desc = (s.description && s.description !== s.name) ? s.description : '';
 
                 return `
-                    <div style="
+                    <div class="mt5-ticker-row" style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
-                        padding: 8px 12px;
-                        background: ${theme.cardBg};
-                        border: 1px solid ${theme.border};
-                        border-radius: 6px;
-                        margin-bottom: 6px;
-                        gap: 10px;
-                        transition: background 0.15s ease;
+                        padding: 5px 10px;
+                        background: rgba(255, 255, 255, 0.015);
+                        border: 1px solid rgba(255, 255, 255, 0.05);
+                        border-radius: 4px;
+                        margin-bottom: 3px;
+                        gap: 8px;
                     ">
-                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                            <strong style="font-size: 13px; color: ${theme.text}; font-family: monospace; letter-spacing: 0.3px;">${s.name}</strong>
-                            <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(41,98,255,0.12); color: ${theme.primary}; font-weight: 600; white-space: nowrap;">${cat}</span>
-                            ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;">
+                            <strong style="font-size: 12px; color: ${theme.text}; font-family: 'SF Mono', Monaco, Consolas, monospace; letter-spacing: 0.2px;">${s.name}</strong>
+                            <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.04); color: ${theme.textMuted}; border: 1px solid rgba(255, 255, 255, 0.07); font-weight: 500; white-space: nowrap;">${cat}</span>
+                            ${desc ? `<span style="font-size: 10.5px; color: ${theme.textDim}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
                         </div>
-                        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
-                            <div style="font-size: 11px; color: ${theme.textMuted}; text-align: right; white-space: nowrap;">
+                        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                            <div style="font-size: 10px; color: ${theme.textMuted}; text-align: right; white-space: nowrap; font-family: monospace;">
                                 <span>Lots: <strong>${minLot}</strong>-${maxLot}</span>
-                                <span style="margin-left: 5px; opacity: 0.75;">(${digits} dec)</span>
+                                <span style="margin-left: 4px; opacity: 0.65;">(${digits}d)</span>
                             </div>
                             <button class="mt5-btn-chart-symbol" data-symbol="${s.name}" data-server="${server || ''}" style="
-                                background: rgba(41,98,255,0.12);
-                                color: ${theme.primary};
-                                border: 1px solid rgba(41,98,255,0.3);
-                                padding: 4px 9px;
-                                border-radius: 5px;
-                                font-size: 11px;
+                                padding: 2px 8px;
+                                border-radius: 4px;
+                                font-size: 10px;
                                 font-weight: 600;
                                 cursor: pointer;
                                 display: inline-flex;
                                 align-items: center;
-                                gap: 4px;
+                                gap: 3px;
                             " title="Open ${s.name} on TradingView Chart">
                                 <span>📈</span> Chart
                             </button>
@@ -2044,9 +2082,9 @@
                     pill.style.color = '#ffffff';
                     pill.style.borderColor = theme.primary;
                 } else {
-                    pill.style.background = 'transparent';
+                    pill.style.background = 'rgba(255, 255, 255, 0.03)';
                     pill.style.color = theme.textMuted;
-                    pill.style.borderColor = theme.border;
+                    pill.style.borderColor = 'rgba(255, 255, 255, 0.08)';
                 }
             });
         }
@@ -2144,146 +2182,126 @@
                 const isLocal = this.isLocalVmBridge(ep);
                 const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
 
-                const badgeColor = isConn && isOnline ? '#089981' : (isOnline ? '#2962ff' : '#f23645');
-                const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.12)' : (isOnline ? 'rgba(41,98,255,0.1)' : 'rgba(242,54,69,0.1)');
-                const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.3)' : (isOnline ? 'rgba(41,98,255,0.25)' : 'rgba(242,54,69,0.25)');
+                const badgeColor = isConn && isOnline ? theme.success : (isOnline ? theme.primary : theme.error);
+                const badgeBg = isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft);
+                const badgeBorder = isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder);
                 const statusText = isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline');
 
-                return `<span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                return `<span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
                     ${bIcon} ${ep.name} (${statusText})
                 </span>`;
-            }).filter(Boolean).join('') || `<span style="font-size: 10.5px; color: ${theme.textMuted};">${acc.endpointName || 'Bridge Server'}</span>`;
+            }).filter(Boolean).join('') || `<span style="font-size: 10px; color: ${theme.textMuted};">${acc.endpointName || 'Bridge Server'}</span>`;
 
             return `
-                <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
                     <!-- Top Navigation Bar -->
                     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <button id="mt5-btn-back-fleet" type="button" style="
-                                background: ${theme.cardBg};
-                                border: 1px solid ${theme.border};
-                                color: ${theme.text};
-                                padding: 5px 11px;
-                                border-radius: 6px;
-                                font-size: 11.5px;
-                                font-weight: 600;
-                                cursor: pointer;
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 4px;
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="mt5-btn-back-fleet" type="button" class="mt5-ghost-btn" style="
+                                padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px;
                             ">
                                 <span>←</span> Fleet
                             </button>
-                            <div style="display: flex; align-items: center; gap: 7px;">
-                                <strong style="font-size: 15px; color: ${theme.text};">${acc.nickname}</strong>
-                                <span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; font-weight: 700; border: 1px solid rgba(41,98,255,0.25);">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <strong style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${acc.nickname}</strong>
+                                <span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: ${theme.textMuted}; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.08);">
                                     ${acc.broker_name || (acc.server.includes('FivePercent') ? 'The5ers' : acc.server)}
                                 </span>
-                                ${isActive ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
-                                ${isPaused ? `<span style="font-size: 9.5px; padding: 2px 7px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
+                                ${isActive ? `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; background: ${theme.primarySoft}; color: ${theme.primary}; border: 1px solid ${theme.primaryBorder}; font-weight: 700;">ACTIVE FEED</span>` : ''}
+                                ${isPaused ? `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; background: ${theme.warningSoft}; color: ${theme.warning}; border: 1px solid ${theme.warningBorder}; font-weight: 700;">PAUSED</span>` : ''}
                             </div>
                         </div>
 
-                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                            <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
-                                background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
-                                padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
+                            <button class="mt5-btn-config-bridges mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
+                                padding: 4px 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
                                 display: inline-flex; align-items: center; gap: 4px;
                             " title="Configure which bridges this account is allowed to connect to">
                                 <span>🔗</span> Allowed Bridges (${allowedEpIds.length})
                             </button>
-                            ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
-                            <button id="mt5-btn-refresh-details" data-id="${acc.id}" style="
-                                background: ${theme.cardBg};
-                                border: 1px solid ${theme.border};
-                                color: ${theme.textMuted};
-                                padding: 5px 9px;
-                                border-radius: 6px;
-                                font-size: 11px;
-                                font-weight: 600;
-                                cursor: pointer;
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 4px;
+                            ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: ${theme.primarySoft}; color: #60a5fa; border: 1px solid ${theme.primaryBorder}; padding: 4px 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Show Chart Feed</button>` : ''}
+                            <button id="mt5-btn-refresh-details" class="mt5-ghost-btn" data-id="${acc.id}" style="
+                                padding: 4px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px;
                             " title="Refresh live financials and tickers">
                                 <span>🔄</span> Refresh
                             </button>
                         </div>
                     </div>
 
-                    <!-- Sleek Executive Financial Cockpit (High Utility, No Repetition) -->
+                    <!-- Sleek Executive Financial Cockpit -->
                     <div style="
                         background: ${theme.cardBg};
                         border: 1px solid ${theme.border};
-                        border-radius: 8px;
-                        padding: 12px 14px;
+                        border-radius: 6px;
+                        padding: 10px 14px;
                         display: flex;
                         flex-direction: column;
-                        gap: 10px;
+                        gap: 8px;
                     ">
                         <!-- Row 1: Real-time Balance, Equity, and Margin Meter -->
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: center;">
                             <div>
-                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Account Balance</span>
-                                <div id="mt5-cockpit-balance" style="font-size: 16px; font-weight: 700; color: ${theme.text}; margin-top: 1px;">
+                                <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">Account Balance</span>
+                                <div id="mt5-cockpit-balance" style="font-size: 15px; font-weight: 700; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', Inter, sans-serif; letter-spacing: -0.2px; margin-top: 2px;">
                                     $${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                    <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 400; margin-left: 2px;">${acc.currency || 'USD'}</span>
+                                    <span style="font-size: 9.5px; color: ${theme.textDim}; font-weight: 500; margin-left: 2px;">${acc.currency || 'USD'}</span>
                                 </div>
                             </div>
 
                             <div>
-                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Equity (Floating PnL)</span>
-                                <div id="mt5-cockpit-equity" style="font-size: 16px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error}; margin-top: 1px;">
+                                <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">Equity (Floating PnL)</span>
+                                <div id="mt5-cockpit-equity" style="font-size: 15px; font-weight: 700; color: ${pnl >= 0 ? theme.success : theme.error}; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', Inter, sans-serif; letter-spacing: -0.2px; margin-top: 2px;">
                                     $${eq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                    <span style="font-size: 10px; font-weight: 600; margin-left: 3px;">(${pnl >= 0 ? '+' : ''}${pnlPct}%)</span>
+                                    <span style="font-size: 10px; font-weight: 600; margin-left: 3px; opacity: 0.9;">(${pnl >= 0 ? '+' : ''}${pnlPct}%)</span>
                                 </div>
                             </div>
 
                             <div>
-                                <div style="display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 3px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;">
                                     <span style="color: ${theme.textMuted};">Free Margin:</span>
-                                    <strong id="mt5-cockpit-free-margin" style="color: ${theme.text};">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                                    <strong id="mt5-cockpit-free-margin" style="color: ${theme.text}; font-family: monospace;">$${freeMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
                                 </div>
-                                <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.2); border-radius: 3px; overflow: hidden;" title="Margin used: ${marginUsedPct}%">
-                                    <div id="mt5-cockpit-margin-bar" style="width: ${freeMarginPct}%; height: 100%; background: ${theme.success}; border-radius: 3px;"></div>
+                                <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;" title="Margin used: ${marginUsedPct}%">
+                                    <div id="mt5-cockpit-margin-bar" style="width: ${freeMarginPct}%; height: 100%; background: ${theme.success}; border-radius: 2px;"></div>
                                 </div>
-                                <div id="mt5-cockpit-used-margin" style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
+                                <div id="mt5-cockpit-used-margin" style="font-size: 9px; color: ${theme.textDim}; margin-top: 2px;">
                                     Used: $${margin.toFixed(2)} (${marginUsedPct}%)
                                 </div>
                             </div>
 
                             <div>
-                                <span style="font-size: 10.5px; color: ${theme.textMuted};">Leverage & Sizing</span>
-                                <div style="font-size: 13.5px; font-weight: 700; color: ${theme.primary}; margin-top: 2px;">
+                                <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">Leverage & Sizing</span>
+                                <div style="font-size: 12.5px; font-weight: 700; color: ${theme.text}; margin-top: 2px;">
                                     1:${acc.leverage || 100}
-                                    <span style="font-size: 10.5px; color: ${theme.textMuted}; font-weight: 500; margin-left: 3px;">(${acc.lot_multiplier || 1.0}x mult / ${acc.risk_percent || 1.0}% risk)</span>
+                                    <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500; margin-left: 3px;">(${acc.lot_multiplier || 1.0}x mult / ${acc.risk_percent || 1.0}% risk)</span>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Row 2: Concise Parameter Chips (One Single Row) -->
-                        <div style="display: flex; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11px; color: ${theme.textMuted};">
+                        <!-- Row 2: Parameter Chips -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px; border-top: 1px solid ${theme.border}; font-size: 10.5px; color: ${theme.textMuted};">
                             <span>Server: <strong style="color: ${theme.text};">${acc.server}</strong></span>
                             <span>•</span>
-                            <span>Login: <strong style="color: ${theme.text};">#${acc.login}</strong></span>
+                            <span>Login: <strong style="color: ${theme.text}; font-family: monospace;">#${acc.login}</strong></span>
                             <span>•</span>
                             <span>Ping: <strong style="color: ${theme.text};">${acc.ping_ms || (window.MT5API ? window.MT5API.pingMs : 0)}ms</strong></span>
                             <span>•</span>
-                            <span>Status: <strong style="color: ${isPaused ? '#ffa500' : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
+                            <span>Status: <strong style="color: ${isPaused ? theme.warning : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
                             <span>•</span>
                             <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
                         </div>
                     </div>
 
                     <!-- Bridge Routing & Permissions Row -->
-                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;">
-                            <span style="font-size: 11px; font-weight: 700; color: ${theme.text};">🔗 Bridge Routing:</span>
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
+                            <span style="font-size: 10.5px; font-weight: 600; color: ${theme.textMuted};">🔗 Bridge Routing:</span>
                             ${detailsBridgeBadges}
                         </div>
-                        <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
-                            background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
-                            padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        <button class="mt5-btn-config-bridges mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
+                            padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;
                             display: inline-flex; align-items: center; gap: 4px;
                         ">
                             <span>⚙️</span> Edit Allowed Bridges
@@ -2292,39 +2310,40 @@
 
                     ${this.detailsSyncing ? `
                         <div id="mt5-details-sync-progress-box" style="
-                            background: ${theme.isDark ? 'rgba(41, 98, 255, 0.12)' : 'rgba(41, 98, 255, 0.08)'};
-                            border: 1px solid rgba(41, 98, 255, 0.45);
-                            border-radius: 6px;
-                            padding: 8px 12px;
+                            background: ${theme.primarySoft};
+                            border: 1px solid ${theme.primaryBorder};
+                            border-radius: 5px;
+                            padding: 6px 10px;
                             display: flex;
                             align-items: center;
                             justify-content: space-between;
                             gap: 8px;
                         ">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span class="mt5-pulse-spin" style="display:inline-block; width:11px; height:11px; border:2px solid #2962ff; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
-                                <span style="color: ${theme.primary}; font-size: 11.5px; font-weight: 600;" id="mt5-details-sync-title">${this.detailsProgress ? this.detailsProgress.title : 'Syncing Live MT5 Specs...'}</span>
-                                <span style="color: ${theme.textMuted}; font-size: 11px;" id="mt5-details-sync-detail">(${this.detailsProgress ? this.detailsProgress.detail : 'Loading'})</span>
+                            <div style="display: flex; align-items: center; gap: 7px;">
+                                <span class="mt5-pulse-spin" style="display:inline-block; width:10px; height:10px; border:2px solid ${theme.primary}; border-top-color:transparent; border-radius:50%; animation:mt5spin 0.8s linear infinite;"></span>
+                                <span style="color: ${theme.primary}; font-size: 11px; font-weight: 600;" id="mt5-details-sync-title">${this.detailsProgress ? this.detailsProgress.title : 'Syncing Live MT5 Specs...'}</span>
+                                <span style="color: ${theme.textMuted}; font-size: 10.5px;" id="mt5-details-sync-detail">(${this.detailsProgress ? this.detailsProgress.detail : 'Loading'})</span>
                             </div>
-                            <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};" id="mt5-details-sync-pct">${this.detailsProgress ? this.detailsProgress.pct : 25}%</span>
+                            <span style="font-size: 10.5px; font-weight: 700; color: ${theme.primary};" id="mt5-details-sync-pct">${this.detailsProgress ? this.detailsProgress.pct : 25}%</span>
                         </div>
                     ` : ''}
 
                     <!-- Action Workspace Navigation Tabs -->
-                    <div style="display: flex; gap: 4px; border-bottom: 1px solid ${theme.border}; margin-top: 2px;">
+                    <div style="display: flex; gap: 6px; border-bottom: 1px solid ${theme.border}; margin-top: 2px;">
                         <button class="mt5-subtab-btn" data-subtab="tickers" style="
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'tickers' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'tickers' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 7px 14px;
-                            font-size: 12.5px;
+                            color: ${this.detailsSubTab === 'tickers' ? '#ffffff' : theme.textMuted};
+                            padding: 6px 12px;
+                            font-size: 11.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
                             white-space: nowrap;
+                            transition: all 0.12s ease;
                         ">
                             <span>📈</span> Market Watch & Tickers (${symbols.length})
                         </button>
@@ -2332,15 +2351,16 @@
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'positions' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'positions' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 7px 14px;
-                            font-size: 12.5px;
+                            color: ${this.detailsSubTab === 'positions' ? '#ffffff' : theme.textMuted};
+                            padding: 6px 12px;
+                            font-size: 11.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
                             white-space: nowrap;
+                            transition: all 0.12s ease;
                         ">
                             <span id="mt5-tab-positions-count">💼 Active Positions (${positions.length})</span>
                         </button>
@@ -2348,15 +2368,16 @@
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'history' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'history' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 7px 14px;
-                            font-size: 12.5px;
+                            color: ${this.detailsSubTab === 'history' ? '#ffffff' : theme.textMuted};
+                            padding: 6px 12px;
+                            font-size: 11.5px;
                             font-weight: 600;
                             cursor: pointer;
                             display: inline-flex;
                             align-items: center;
                             gap: 5px;
                             white-space: nowrap;
+                            transition: all 0.12s ease;
                         ">
                             <span>📜</span> Order History (${tradeDeals.length})
                         </button>
@@ -2364,34 +2385,34 @@
 
                     <!-- Tab 1: Market Watch & Tickers -->
                     ${this.detailsSubTab === 'tickers' ? `
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
                             <!-- Search & Category Filters -->
-                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
                                 <div style="position: relative;">
                                     <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery}" placeholder="Search symbol or asset (e.g. XAUUSD, EUR, US500, AAPL, BTC)..." style="
                                         width: 100%;
-                                        padding: 7px 12px 7px 30px;
+                                        padding: 6px 10px 6px 28px;
                                         background: ${theme.inputBg};
                                         color: ${theme.inputText};
                                         border: 1px solid ${theme.inputBorder};
-                                        border-radius: 6px;
-                                        font-size: 12px;
+                                        border-radius: 5px;
+                                        font-size: 11.5px;
                                         box-sizing: border-box;
                                         pointer-events: auto;
                                         user-select: text;
                                     ">
-                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: ${theme.textMuted}; font-size: 12px;">🔍</span>
+                                    <span style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: ${theme.textDim}; font-size: 11px;">🔍</span>
                                 </div>
 
                                 <!-- Category Pills Filter -->
-                                <div style="display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px;">
+                                <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
                                     <button class="mt5-cat-pill" data-cat="ALL" style="
-                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'transparent'};
+                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'rgba(255,255,255,0.03)'};
                                         color: ${this.tickerCategoryFilter === 'ALL' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.border};
-                                        padding: 3px 9px;
-                                        border-radius: 12px;
-                                        font-size: 10.5px;
+                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'rgba(255,255,255,0.08)'};
+                                        padding: 2px 8px;
+                                        border-radius: 4px;
+                                        font-size: 10px;
                                         font-weight: 600;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -2400,12 +2421,12 @@
                                     </button>
                                     ${categoryList.map(cat => `
                                         <button class="mt5-cat-pill" data-cat="${cat}" style="
-                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : 'transparent'};
+                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : 'rgba(255,255,255,0.03)'};
                                             color: ${this.tickerCategoryFilter === cat ? '#ffffff' : theme.textMuted};
-                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : theme.border};
-                                            padding: 3px 9px;
-                                            border-radius: 12px;
-                                            font-size: 10.5px;
+                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : 'rgba(255,255,255,0.08)'};
+                                            padding: 2px 8px;
+                                            border-radius: 4px;
+                                            font-size: 10px;
                                             font-weight: 600;
                                             cursor: pointer;
                                             white-space: nowrap;
