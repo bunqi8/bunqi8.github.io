@@ -947,20 +947,29 @@
             `;
         }
 
+        morphGistId(id) {
+            if (!id || typeof id !== 'string') return '';
+            const clean = id.trim();
+            if (clean.length <= 8) return '••••' + clean.slice(-4);
+            return clean.slice(0, 4) + '••••••••••••' + clean.slice(-4);
+        }
+
         getSettingsHtml(theme) {
             const endpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const activeEp = window.MT5API ? window.MT5API.getActiveEndpoint() : null;
             const activeEpId = activeEp ? activeEp.id : null;
             const enabledEndpoints = endpoints.filter(e => e.enabled);
             const onlineEndpoints = endpoints.filter(e => e.enabled && e.status === 'online');
-            const isAnyConn = onlineEndpoints.length > 0;
+            const hasMasterToken = window.MT5API ? window.MT5API.hasMasterGistToken() : false;
 
             const cards = endpoints.map((ep) => {
                 const isPrimary = ep.id === activeEpId;
                 const isOnline = ep.status === 'online';
                 const isOffline = ep.status === 'offline';
                 const isEnabled = ep.enabled !== false;
-                const hasGist = Boolean(ep.gistId && ep.gistToken);
+                const bridgeToken = ep.gistToken || '';
+                const effectiveToken = window.MT5API ? window.MT5API.getEndpointGistToken(ep.id) : bridgeToken;
+                const hasGist = Boolean(ep.gistId && effectiveToken);
 
                 let statusBadge = '';
                 if (!isEnabled) {
@@ -1013,51 +1022,75 @@
                         <!-- Bottom Line: Endpoint URL & Sync Origin -->
                         <div style="display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 10.5px; color: ${theme.textMuted}; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
                             <span style="color: ${theme.text}; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${ep.url}</span>
-                            ${hasGist ? `<span style="color:${theme.primary}; font-weight: 600; flex-shrink: 0;" title="Auto-Discovery Gist configured">• 🔄 Gist: ${ep.gistId.slice(0, 8)}...</span>` : `<span style="color: ${theme.textMuted}; flex-shrink: 0;">• Direct / Static</span>`}
+                            ${ep.gistId ? `
+                                <span style="color:${theme.primary}; font-weight: 600; flex-shrink: 0;" title="Auto-Discovery Gist configured">
+                                    • 🔄 Gist: ${this.morphGistId(ep.gistId)} ${bridgeToken ? '(Custom PAT)' : (hasMasterToken ? '(Master PAT)' : '(No PAT)')}
+                                </span>
+                            ` : `<span style="color: ${theme.textMuted}; flex-shrink: 0;">• Direct / Static</span>`}
                             <span style="color: ${theme.textMuted}; flex-shrink: 0;">• Key: ${ep.apiKey ? '••••' : 'None'}</span>
                         </div>
 
                         ${isEditing ? `
-                            <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 4px; padding-top: 8px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 6px;">
+                            <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 6px; padding-top: 8px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: 100%;">
                                 <div style="display: flex; align-items: center; justify-content: space-between;">
-                                    <span style="font-size: 10.5px; font-weight: 700; color: ${theme.primary};">✏️ EDIT BRIDGE CONNECTION & AUTO-DISCOVERY</span>
+                                    <span style="font-size: 11px; font-weight: 700; color: ${theme.primary}; letter-spacing: 0.2px;">✏️ EDIT BRIDGE CONNECTION & AUTO-DISCOVERY</span>
+                                    <span style="font-size: 9.5px; color: ${theme.textMuted};">Credentials stored encrypted in browser localStorage</span>
                                 </div>
-                                <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
+
+                                <!-- Row 1: Bridge Name, Endpoint URL, API Key -->
+                                <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Bridge Name *</label>
-                                        <input type="text" class="mt5-in-edit-name" value="${ep.name || ''}" placeholder="e.g. Oracle Cloud VPS" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
-                                    </div>
-                                    <div style="min-width: 0;">
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                                            <label style="font-size: 10px; font-weight: 600; color: ${theme.text};">Endpoint URL *</label>
-                                            <button type="button" class="mt5-btn-edit-sync-gist" data-id="${ep.id}" style="background: transparent; border: none; color: ${theme.primary}; font-size: 10px; font-weight: 600; cursor: pointer; text-decoration: underline;" title="Fetch latest rotated URL from this server's Gist">⚡ Fetch from Gist</button>
+                                        <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                            <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Bridge Name *</label>
                                         </div>
-                                        <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                        <input type="text" class="mt5-in-edit-name" value="${ep.name || ''}" placeholder="e.g. VMware VM, Oracle VPS" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                     </div>
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">API Key (Password)</label>
-                                        <div style="position: relative; display: flex; align-items: center;">
-                                            <input type="password" class="mt5-in-edit-key" value="${ep.apiKey || ''}" placeholder="Secret Key" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
-                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
+                                        <div style="height: 18px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                            <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Endpoint URL *</label>
+                                            <button type="button" class="mt5-btn-edit-sync-gist" data-id="${ep.id}" style="background: transparent; border: none; color: ${theme.primary}; font-size: 10px; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; line-height: 1;" title="Fetch latest rotated URL from this server's Gist">⚡ Fetch from Gist</button>
                                         </div>
-                                    </div>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
-                                    <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
-                                        <input type="text" class="mt5-in-edit-gist-id" value="${ep.gistId || ''}" placeholder="Paste Gist ID generated by this server" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                        <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
                                     </div>
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">GitHub PAT Token (stored in localStorage only)</label>
-                                        <div style="position: relative; display: flex; align-items: center;">
-                                            <input type="password" class="mt5-in-edit-gist-token" value="${ep.gistToken || ''}" placeholder="ghp_... (local only)" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
-                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
+                                        <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                            <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">API Key (Password)</label>
+                                        </div>
+                                        <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                            <input type="password" class="mt5-in-edit-key" value="${ep.apiKey || ''}" placeholder="Secret Key" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Row 2: Morphed Gist ID, Masked GitHub PAT Token -->
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
+                                    <div style="min-width: 0;">
+                                        <div style="height: 18px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px;">
+                                            <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
+                                            <span style="font-size: 9px; color: ${theme.textMuted}; font-family: monospace;">Morphed for security</span>
+                                        </div>
+                                        <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                            <input type="text" class="mt5-in-edit-gist-id" data-raw="${ep.gistId || ''}" value="${this.morphGistId(ep.gistId)}" placeholder="Paste 32-char Gist ID generated by this server" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-gist-morph" data-id="${ep.id}" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Reveal / Morph Gist ID">👁️</button>
+                                        </div>
+                                    </div>
+                                    <div style="min-width: 0;">
+                                        <div style="height: 18px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px;">
+                                            <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">GitHub PAT Token (Encrypted locally)</label>
+                                            ${bridgeToken ? `<span style="font-size: 9px; color: ${theme.primary}; font-weight: 600;">Custom Token Set</span>` : (hasMasterToken ? `<span style="font-size: 9px; color: ${theme.success}; font-weight: 600;">✓ Inheriting Master PAT</span>` : `<span style="font-size: 9px; color: ${theme.textMuted};">Optional if Master PAT set</span>`)}
+                                        </div>
+                                        <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                            <input type="password" class="mt5-in-edit-gist-token" value="" autocomplete="new-password" placeholder="${bridgeToken ? '•••••••••••••••• (Configured — leave blank to keep)' : (hasMasterToken ? 'Inherited from Master Token (leave blank)' : 'ghp_... (or set Master Token above)')}" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide typed characters">👁️</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Row 3: Action Buttons -->
                                 <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
-                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
-                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
+                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
                                 </div>
                             </div>
                         ` : ''}
@@ -1086,6 +1119,31 @@
                         </div>
                     </div>
 
+                    <!-- Global Master GitHub Gist Token Bar -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; box-sizing: border-box;">
+                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                            <span style="font-size: 13px; flex-shrink: 0;">🔑</span>
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                <strong style="font-size: 11px; color: ${theme.text};">Global Master GitHub Gist Token:</strong>
+                                ${hasMasterToken ? `
+                                    <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.12); color: ${theme.success}; border: 1px solid rgba(8,153,129,0.25); font-weight: 600;">✓ Active (Shared across all bridges)</span>
+                                ` : `
+                                    <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(255,152,0,0.12); color: ${theme.warning}; border: 1px solid rgba(255,152,0,0.25); font-weight: 600;">Not Set (Paste once to share across all bridges)</span>
+                                `}
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                            <div style="position: relative; display: flex; align-items: center; height: 24px;">
+                                <input type="password" id="mt5-in-master-gist-token" autocomplete="new-password" value="" placeholder="${hasMasterToken ? '•••••••••••••••• (Active)' : 'Paste ghp_... token'}" style="width: 175px; height: 24px; padding: 2px 24px 2px 8px; font-size: 10.5px; font-family: monospace; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; box-sizing: border-box;">
+                                <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 3px; background: transparent; border: none; cursor: pointer; font-size: 10px; opacity: 0.7; height: 20px; width: 20px; display: flex; align-items: center; justify-content: center;" title="Show/Hide typed characters">👁️</button>
+                            </div>
+                            <button id="mt5-btn-save-master-token" type="button" style="background: ${theme.primary}; color: #fff; border: none; height: 24px; padding: 0 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Save PAT</button>
+                            ${hasMasterToken ? `
+                                <button id="mt5-btn-clear-master-token" type="button" style="background: transparent; color: ${theme.error}; border: 1px solid ${theme.errorBorder}; height: 24px; padding: 0 6px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Clear Master Token">✕ Clear</button>
+                            ` : ''}
+                        </div>
+                    </div>
+
                     <!-- Bridge Endpoints List -->
                     <div style="display: flex; flex-direction: column; gap: 5px;">
                         ${endpoints.length === 0 ? `
@@ -1099,44 +1157,57 @@
 
                     <!-- Add Bridge Endpoint Form (Collapsible) -->
                     ${(this.showAddBridgeForm || endpoints.length === 0) ? `
-                    <div style="background: ${theme.cardBg}; border: 1px solid rgba(41,98,255,0.4); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; width: 100%;">
+                    <div style="background: ${theme.cardBg}; border: 1px solid rgba(41,98,255,0.4); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: 100%;">
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <strong style="font-size: 11px; font-weight: 700; color: ${theme.primary}; letter-spacing: 0.2px;">➕ CONNECT NEW BRIDGE SERVER</strong>
                             <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; font-size: 11px; cursor: pointer;">✕</button>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
+                        <!-- Row 1: Server Name, Bridge Endpoint URL, API Key -->
+                        <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Server Name *</label>
-                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
+                                <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                    <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Server Name *</label>
+                                </div>
+                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                             </div>
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Bridge Endpoint URL *</label>
-                                <input type="text" id="mt5-in-new-url" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                    <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Bridge Endpoint URL *</label>
+                                </div>
+                                <input type="text" id="mt5-in-new-url" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
                             </div>
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">API Key (Password)</label>
-                                <div style="position: relative; display: flex; align-items: center;">
-                                    <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="API Key" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
-                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
+                                <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                    <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">API Key (Password)</label>
+                                </div>
+                                <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                    <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="API Key" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                                 </div>
                             </div>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
+                        <!-- Row 2: Gist ID, GitHub PAT Token -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Auto-Discovery Gist ID (Optional, from BRIDGE_INFO.txt)</label>
-                                <input type="text" id="mt5-in-new-gist-id" placeholder="Optional: Gist ID generated on server" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                    <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
+                                </div>
+                                <input type="text" id="mt5-in-new-gist-id" placeholder="Optional: 32-char Gist ID generated on server" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
                             </div>
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">GitHub PAT Token (Optional, stored only in localStorage)</label>
-                                <div style="position: relative; display: flex; align-items: center;">
-                                    <input type="password" id="mt5-in-new-gist-token" placeholder="Optional: ghp_... (browser-only)" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
-                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
+                                <div style="height: 18px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px;">
+                                    <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">GitHub PAT Token (Encrypted locally)</label>
+                                    ${hasMasterToken ? `<span style="font-size: 9px; color: ${theme.success}; font-weight: 600;">✓ Master PAT Active (Leave blank)</span>` : `<span style="font-size: 9px; color: ${theme.textMuted};">Optional if Master PAT set</span>`}
+                                </div>
+                                <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                    <input type="password" id="mt5-in-new-gist-token" autocomplete="new-password" value="" placeholder="${hasMasterToken ? 'Inherited from Master Token (leave blank)' : 'ghp_... (or configure Master Token above)'}" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                                 </div>
                             </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
-                            <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
-                            <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                            <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                            <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
                                 <span>➕</span> Add Bridge Server
                             </button>
                         </div>
@@ -3150,9 +3221,11 @@
                     const apiKey = (modal.querySelector('#mt5-in-new-key').value || 'mt5_secret_key_2026').trim();
                     const gistId = (modal.querySelector('#mt5-in-new-gist-id')?.value || '').trim();
                     const gistToken = (modal.querySelector('#mt5-in-new-gist-token')?.value || '').trim();
+                    const masterToken = window.MT5API ? window.MT5API.getMasterGistToken() : '';
+                    const effectiveToken = gistToken || masterToken;
 
-                    if (!url && (!gistId || !gistToken)) {
-                        alert('Please enter a valid Endpoint URL or provide both Gist ID and GitHub PAT for Auto-Discovery.');
+                    if (!url && (!gistId || !effectiveToken)) {
+                        alert('Please enter a valid Endpoint URL or provide Gist ID (with individual or Master GitHub PAT configured).');
                         return;
                     }
 
@@ -3167,7 +3240,7 @@
                         });
                         if (res.success) {
                             this.showAddBridgeForm = false;
-                            if (gistId && gistToken) {
+                            if (gistId && effectiveToken) {
                                 await window.MT5API.syncEndpointFromGist(res.endpoint.id, true);
                             }
                             await window.MT5API.testSingleEndpoint(res.endpoint.id);
@@ -3270,6 +3343,56 @@
                 };
             });
 
+            // Toggle Gist ID between morphed display and raw value
+            modal.querySelectorAll('.mt5-btn-toggle-gist-morph').forEach(btn => {
+                btn.onclick = (e) => {
+                    const parent = e.currentTarget.parentElement;
+                    const input = parent ? parent.querySelector('.mt5-in-edit-gist-id') : null;
+                    if (input) {
+                        const raw = input.getAttribute('data-raw') || '';
+                        const morphed = this.morphGistId(raw);
+                        if (input.value === morphed) {
+                            input.value = raw;
+                            btn.innerText = '🔒';
+                            btn.title = 'Morph Gist ID for privacy';
+                        } else {
+                            input.value = morphed;
+                            btn.innerText = '👁️';
+                            btn.title = 'Reveal full Gist ID';
+                        }
+                    }
+                };
+            });
+
+            // Save Global Master GitHub PAT
+            const btnSaveMaster = modal.querySelector('#mt5-btn-save-master-token');
+            if (btnSaveMaster && window.MT5API) {
+                btnSaveMaster.onclick = async () => {
+                    const inMaster = modal.querySelector('#mt5-in-master-gist-token');
+                    const token = inMaster ? inMaster.value.trim() : '';
+                    if (!token) {
+                        alert('Please paste a valid GitHub PAT token (ghp_...).');
+                        return;
+                    }
+                    btnSaveMaster.innerText = 'Saving...';
+                    btnSaveMaster.disabled = true;
+                    await window.MT5API.setMasterGistToken(token);
+                    alert('✓ Global Master GitHub PAT saved encrypted in localStorage!\nAll bridges with Auto-Discovery Gists will now automatically share this token.');
+                    this.renderModal();
+                };
+            }
+
+            // Clear Global Master GitHub PAT
+            const btnClearMaster = modal.querySelector('#mt5-btn-clear-master-token');
+            if (btnClearMaster && window.MT5API) {
+                btnClearMaster.onclick = async () => {
+                    if (confirm('Clear Global Master GitHub Gist Token?')) {
+                        await window.MT5API.clearMasterGistToken();
+                        this.renderModal();
+                    }
+                };
+            }
+
             // Fetch from Gist inside Edit mode
             modal.querySelectorAll('.mt5-btn-edit-sync-gist').forEach(btn => {
                 btn.onclick = async (e) => {
@@ -3282,14 +3405,26 @@
                     const inUrl = card.querySelector('.mt5-in-edit-url');
                     const inKey = card.querySelector('.mt5-in-edit-key');
 
-                    const gistId = inGistId ? inGistId.value.trim() : '';
-                    const gistToken = inGistToken ? inGistToken.value.trim() : '';
-                    const apiKey = inKey ? inKey.value.trim() : '';
+                    const existingEp = window.MT5API.endpoints.find(x => x.id === id);
+                    let gistId = inGistId ? inGistId.value.trim() : '';
+                    if (gistId.includes('••••') || (existingEp && gistId === this.morphGistId(existingEp.gistId))) {
+                        gistId = inGistId.getAttribute('data-raw') || (existingEp ? existingEp.gistId : '');
+                    }
 
-                    if (!gistId || !gistToken) {
-                        alert('Please fill both Auto-Discovery Gist ID and GitHub PAT below first.');
+                    let gistToken = inGistToken ? inGistToken.value.trim() : '';
+                    if (!gistToken && existingEp && existingEp.gistToken) {
+                        gistToken = existingEp.gistToken;
+                    }
+
+                    const masterToken = window.MT5API.getMasterGistToken();
+                    const effectiveToken = gistToken || masterToken;
+
+                    if (!gistId || !effectiveToken) {
+                        alert('Please fill the Auto-Discovery Gist ID and ensure either a Bridge PAT or Master PAT Token is configured.');
                         return;
                     }
+
+                    const apiKey = inKey ? inKey.value.trim() : '';
 
                     // Save settings onto endpoint before calling sync
                     window.MT5API.updateEndpoint(id, { gistId, gistToken, apiKey });
@@ -3332,8 +3467,18 @@
                     const name = inName ? inName.value.trim() : '';
                     const url = inUrl ? inUrl.value.trim() : '';
                     const apiKey = inKey ? inKey.value.trim() : '';
-                    const gistId = inGistId ? inGistId.value.trim() : '';
-                    const gistToken = inGistToken ? inGistToken.value.trim() : '';
+                    
+                    const existingEp = window.MT5API.endpoints.find(x => x.id === id);
+                    let gistId = inGistId ? inGistId.value.trim() : '';
+                    if (gistId.includes('••••') || (existingEp && gistId === this.morphGistId(existingEp.gistId))) {
+                        gistId = inGistId.getAttribute('data-raw') || (existingEp ? existingEp.gistId : '');
+                    }
+
+                    // Token should never show: if left blank, keep existing token!
+                    let gistToken = inGistToken ? inGistToken.value.trim() : '';
+                    if (!gistToken && existingEp && existingEp.gistToken) {
+                        gistToken = existingEp.gistToken;
+                    }
 
                     if (!url) {
                         alert('Bridge Endpoint URL cannot be empty.');
