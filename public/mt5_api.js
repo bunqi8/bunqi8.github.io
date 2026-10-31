@@ -23,7 +23,7 @@
             this.positions = [];
             this.ws = null;
             this.activeSymbol = 'EURUSD';
-            this.tickListeners = new Set();
+            this.tickListeners = new Map();
             this.accountListeners = new Set();
             this.positionListeners = new Set();
             this.notificationListeners = new Set();
@@ -2104,11 +2104,6 @@
             if (resolution) {
                 this.activeResolution = String(resolution);
             }
-            if (callback) {
-                this.tickListeners.add(callback);
-            }
-            this.ensureWebSocket();
-            this.startFallbackTickPolling();
 
             let targetAcc = null;
             if (accountId && this.accounts) {
@@ -2118,10 +2113,25 @@
                 targetAcc = this.getActiveAccount();
             }
 
-            this.wsSockets.forEach((socket) => {
-                if (socket && socket.readyState === WebSocket.OPEN) {
+            const targetEp = this.getEndpointForAccount(targetAcc ? targetAcc.id : null);
+            const targetEpId = targetEp ? targetEp.id : null;
+
+            if (callback) {
+                this.tickListeners.set(callback, {
+                    endpointId: targetEpId,
+                    accountId: targetAcc ? targetAcc.id : null,
+                    symbol: clean
+                });
+            }
+            this.ensureWebSocket();
+            this.startFallbackTickPolling();
+
+            // Direct subscription strictly to the specific bridge endpoint hosting this account
+            if (targetEp) {
+                const targetSocket = this.wsSockets.get(targetEp.id);
+                if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
                     try {
-                        socket.send(JSON.stringify({
+                        targetSocket.send(JSON.stringify({
                             action: 'subscribe',
                             symbol: this.activeSymbol,
                             resolution: this.activeResolution || '1',
@@ -2129,7 +2139,20 @@
                         }));
                     } catch (_) {}
                 }
-            });
+            } else {
+                this.wsSockets.forEach((socket) => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        try {
+                            socket.send(JSON.stringify({
+                                action: 'subscribe',
+                                symbol: this.activeSymbol,
+                                resolution: this.activeResolution || '1',
+                                account_id: targetAcc ? targetAcc.id : null
+                            }));
+                        } catch (_) {}
+                    }
+                });
+            }
         }
 
         unsubscribeQuotes(callback) {
@@ -2157,8 +2180,14 @@
                         const data = await res.json();
                         if (data && data.success) {
                             this._lastTickReceivedTime = Date.now();
-                            const tickMsg = { type: 'tick', ...data };
-                            this.tickListeners.forEach(cb => {
+                            const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
+                            this.tickListeners.forEach((info, cb) => {
+                                if (info && info.endpointId && ep && info.endpointId !== ep.id) {
+                                    return;
+                                }
+                                if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) {
+                                    return;
+                                }
                                 try { cb(tickMsg); } catch (_) {}
                             });
                         }
@@ -2200,12 +2229,14 @@
                     socket.onopen = () => {
                         if (socket.readyState !== WebSocket.OPEN) return;
                         const acc = this.getActiveAccount();
+                        const accEp = this.getEndpointForAccount(acc ? acc.id : null);
+                        const handshakeAid = (acc && accEp && accEp.id === ep.id) ? acc.id : null;
                         const handshake = {
                             action: 'subscribe',
                             symbol: this.activeSymbol,
                             resolution: this.activeResolution || '1',
                             token: ep.apiKey,
-                            account_id: acc ? acc.id : null
+                            account_id: handshakeAid
                         };
                         try {
                             socket.send(JSON.stringify(handshake));
@@ -2230,7 +2261,16 @@
                                 this.notifyPingListeners(ep.id, livePing);
                             } else if (msg.type === 'tick') {
                                 this._lastTickReceivedTime = Date.now();
-                                this.tickListeners.forEach(cb => {
+                                msg.endpointId = ep.id;
+                                this.tickListeners.forEach((info, cb) => {
+                                    if (info && info.endpointId && info.endpointId !== ep.id) {
+                                        // Ignore ticks from other bridges to avoid price crosstalk
+                                        return;
+                                    }
+                                    if (msg.account_id && info && info.accountId && String(msg.account_id) !== String(info.accountId)) {
+                                        // Ignore ticks from other accounts on the same bridge
+                                        return;
+                                    }
                                     try { cb(msg); } catch (_) {}
                                 });
                             } else if (msg.type === 'positions') {
