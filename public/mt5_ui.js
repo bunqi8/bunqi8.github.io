@@ -18,6 +18,7 @@
             this.isOpen = false;
             this.switchingAccountId = null;
             this.switchProgress = null;
+            this.editingEndpointId = null; // Endpoint currently open in edit mode
 
             // Full account details state & history
             this.detailsAccountId = null;
@@ -814,11 +815,12 @@
 
                 const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
                 const hostedAccs = (window.MT5API && window.MT5API.accounts) ? window.MT5API.accounts.filter(a => a.endpointId === ep.id) : [];
+                const isEditing = this.editingEndpointId === ep.id;
 
                 return `
                     <div class="mt5-endpoint-card" data-id="${ep.id}" style="
                         background: ${theme.cardBg};
-                        border: 1px solid ${isPrimary ? 'rgba(41,98,255,0.6)' : theme.border};
+                        border: 1px solid ${isPrimary ? 'rgba(41,98,255,0.6)' : (isEditing ? 'rgba(41,98,255,0.4)' : theme.border)};
                         border-radius: 8px;
                         padding: 12px 14px;
                         display: flex;
@@ -845,11 +847,41 @@
 
                             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
                                 <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
+                                <button type="button" class="mt5-btn-edit-endpoint" data-id="${ep.id}" style="background: ${isEditing ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.08)'}; color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Edit Bridge Server URL and API Key">${isEditing ? '✕ Close' : '✏️ Edit'}</button>
                                 ${!isPrimary ? `<button type="button" class="mt5-btn-set-primary-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Set as primary default bridge">★ Set Primary</button>` : ''}
                                 <button type="button" class="mt5-btn-toggle-endpoint" data-id="${ep.id}" style="background: ${isEnabled ? 'rgba(255,165,0,0.12)' : 'rgba(0,200,83,0.12)'}; color: ${isEnabled ? '#ffa500' : theme.success}; border: 1px solid ${isEnabled ? 'rgba(255,165,0,0.3)' : 'rgba(0,200,83,0.3)'}; padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="${isEnabled ? 'Disable polling this endpoint' : 'Enable polling this endpoint'}">${isEnabled ? '⏸️ Disable' : '▶️ Enable'}</button>
                                 ${endpoints.length > 1 ? `<button type="button" class="mt5-btn-delete-endpoint" data-id="${ep.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Remove this endpoint">✕</button>` : ''}
                             </div>
                         </div>
+
+                        ${isEditing ? `
+                            <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 6px; padding-top: 12px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 10px;">
+                                <div style="font-size: 11.5px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; gap: 6px;">
+                                    <span>✏️</span> Edit Bridge Connection
+                                </div>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                                    <div style="min-width: 0;">
+                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge Name *</label>
+                                        <input type="text" class="mt5-in-edit-name" value="${ep.name || ''}" placeholder="e.g. Oracle Cloud VPS" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px;">
+                                    </div>
+                                    <div style="min-width: 0;">
+                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge API Key (Secret Password)</label>
+                                        <div style="position: relative; display: flex; align-items: center;">
+                                            <input type="password" class="mt5-in-edit-key" value="${ep.apiKey || ''}" placeholder="API Key" style="width: 100%; box-sizing: border-box; padding: 7px 32px 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 6px; background: transparent; border: none; cursor: pointer; font-size: 13px; opacity: 0.7;" title="Show/Hide API Key">👁️</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="min-width: 0; width: 100%;">
+                                    <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge Endpoint URL *</label>
+                                    <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="e.g. https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                </div>
+                                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 6px 15px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;">💾 Save & Test Connection</button>
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
@@ -904,7 +936,10 @@
                         </div>
                         <div style="min-width: 0; width: 100%;">
                             <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Bearer API Secret Key</label>
-                            <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="Secret key on bridge server" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
+                            <div style="position: relative; display: flex; align-items: center;">
+                                <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="Secret key on bridge server" style="width: 100%; box-sizing: border-box; padding: 8px 34px 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
+                                <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 8px; background: transparent; border: none; cursor: pointer; font-size: 14px; opacity: 0.7;" title="Show/Hide API Key">👁️</button>
+                            </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
                             <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
@@ -2958,6 +2993,71 @@
                             window.MT5API.deleteEndpoint(id);
                             this.renderModal();
                         }
+                    }
+                };
+            });
+
+            // Toggle API Key password visibility
+            modal.querySelectorAll('.mt5-btn-toggle-key-eye').forEach(btn => {
+                btn.onclick = (e) => {
+                    const parent = e.currentTarget.parentElement;
+                    const input = parent ? parent.querySelector('input') : null;
+                    if (input) {
+                        input.type = input.type === 'password' ? 'text' : 'password';
+                        btn.innerText = input.type === 'password' ? '👁️' : '🔒';
+                    }
+                };
+            });
+
+            // Edit Endpoint (Toggle inline edit form)
+            modal.querySelectorAll('.mt5-btn-edit-endpoint').forEach(btn => {
+                btn.onclick = (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    this.editingEndpointId = (this.editingEndpointId === id) ? null : id;
+                    this.renderModal();
+                };
+            });
+
+            // Cancel Edit Endpoint
+            modal.querySelectorAll('.mt5-btn-cancel-edit-ep').forEach(btn => {
+                btn.onclick = () => {
+                    this.editingEndpointId = null;
+                    this.renderModal();
+                };
+            });
+
+            // Save Edit Endpoint
+            modal.querySelectorAll('.mt5-btn-save-edit-ep').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const card = e.currentTarget.closest('.mt5-endpoint-card');
+                    if (!id || !card || !window.MT5API) return;
+
+                    const inName = card.querySelector('.mt5-in-edit-name');
+                    const inUrl = card.querySelector('.mt5-in-edit-url');
+                    const inKey = card.querySelector('.mt5-in-edit-key');
+
+                    const name = inName ? inName.value.trim() : '';
+                    const url = inUrl ? inUrl.value.trim() : '';
+                    const apiKey = inKey ? inKey.value.trim() : '';
+
+                    if (!url) {
+                        alert('Bridge Endpoint URL cannot be empty.');
+                        return;
+                    }
+
+                    btn.innerText = 'Connecting...';
+                    btn.disabled = true;
+
+                    window.MT5API.updateEndpoint(id, { name, url, apiKey });
+                    const res = await window.MT5API.testSingleEndpoint(id);
+                    this.editingEndpointId = null;
+                    this.renderModal();
+
+                    if (res.success) {
+                        alert(`✓ Bridge Updated Successfully!\nServer is Online (${res.ping}ms ping)`);
+                    } else {
+                        alert(`⚠️ Bridge Updated, but connection failed: ${res.error}\nPlease double check the URL and API key.`);
                     }
                 };
             });
