@@ -421,6 +421,7 @@
             const theme = this.getTheme();
             const accounts = window.MT5API ? window.MT5API.accounts : [];
             const activeAcc = window.MT5API ? window.MT5API.getActiveAccount() : null;
+            const endpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const isConn = window.MT5API ? window.MT5API.isConnected : false;
 
             modal.innerHTML = `
