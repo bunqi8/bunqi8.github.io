@@ -24,6 +24,7 @@
             this.accountListeners = new Set();
             this.positionListeners = new Set();
             this.notificationListeners = new Set();
+            this.pingListeners = new Set();
             this._previousPositionsMap = new Map();
             this._hasInitialPositionsSnapshot = false;
             this.isConnected = false;
@@ -1940,6 +1941,15 @@
                         this.ws = socket;
                     }
 
+                    let pingTimer = null;
+                    const sendLivePing = () => {
+                        if (socket.readyState === WebSocket.OPEN) {
+                            try {
+                                socket.send(JSON.stringify({ action: 'ping', t: performance.now() }));
+                            } catch (_) {}
+                        }
+                    };
+
                     socket.onopen = () => {
                         if (socket.readyState !== WebSocket.OPEN) return;
                         const acc = this.getActiveAccount();
@@ -1953,12 +1963,25 @@
                         try {
                             socket.send(JSON.stringify(handshake));
                         } catch (_) {}
+
+                        // Send instant ping and schedule continuous 2.5s live ping heartbeat
+                        sendLivePing();
+                        if (pingTimer) clearInterval(pingTimer);
+                        pingTimer = setInterval(sendLivePing, 2500);
                     };
 
                     socket.onmessage = (evt) => {
                         try {
                             const msg = JSON.parse(evt.data);
-                            if (msg.type === 'tick') {
+                            if (msg.type === 'pong' && msg.t) {
+                                const livePing = Math.round(performance.now() - Number(msg.t));
+                                ep.ping = livePing;
+                                ep.status = 'online';
+                                if (ep.id === this.activeEndpointId) {
+                                    this.pingMs = livePing;
+                                }
+                                this.notifyPingListeners(ep.id, livePing);
+                            } else if (msg.type === 'tick') {
                                 this._lastTickReceivedTime = Date.now();
                                 this.tickListeners.forEach(cb => {
                                     try { cb(msg); } catch (_) {}
@@ -1976,6 +1999,10 @@
                     };
 
                     socket.onclose = () => {
+                        if (pingTimer) {
+                            clearInterval(pingTimer);
+                            pingTimer = null;
+                        }
                         this.wsSockets.delete(ep.id);
                         if (this.ws === socket) this.ws = null;
                         setTimeout(() => {
@@ -2278,6 +2305,20 @@
             if (window.MT5UI && typeof window.MT5UI.showNotification === 'function') {
                 try { window.MT5UI.showNotification(notif); } catch (_) {}
             }
+        }
+
+        onPing(cb) {
+            if (typeof cb === 'function') this.pingListeners.add(cb);
+        }
+
+        offPing(cb) {
+            this.pingListeners.delete(cb);
+        }
+
+        notifyPingListeners(endpointId, pingMs) {
+            this.pingListeners.forEach(cb => {
+                try { cb(endpointId, pingMs); } catch (_) {}
+            });
         }
 
         processPositionDiff(accountId, newPositions = []) {

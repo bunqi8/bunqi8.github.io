@@ -20,6 +20,13 @@
             this.switchProgress = null;
             this.editingEndpointId = null; // Endpoint currently open in edit mode
 
+            // Real-time live ping listener from bridge sockets
+            if (window.MT5API && typeof window.MT5API.onPing === 'function') {
+                window.MT5API.onPing((epId, pingMs) => {
+                    this.updateLivePingBadge(epId, pingMs);
+                });
+            }
+
             // Full account details state & history
             this.detailsAccountId = null;
             this.detailsData = null;
@@ -247,6 +254,23 @@
                 } else if (symbolSearch.previousElementSibling !== mt5Wrapper) {
                     symbolSearch.parentNode.insertBefore(mt5Wrapper, symbolSearch);
                 }
+            }
+        }
+
+        updateLivePingBadge(epId, pingMs) {
+            const modal = document.getElementById(this.modalId);
+            if (modal) {
+                const badge = modal.querySelector(`.mt5-ping-badge[data-id="${epId}"]`);
+                if (badge) {
+                    badge.innerText = `🟢 Online (${pingMs}ms)`;
+                    badge.style.color = '#089981';
+                    badge.style.background = 'rgba(8,153,129,0.15)';
+                    badge.style.border = '1px solid rgba(8,153,129,0.3)';
+                }
+            }
+            const activeEp = window.MT5API ? window.MT5API.getActiveEndpoint() : null;
+            if (activeEp && activeEp.id === epId) {
+                this.updateButtonState();
             }
         }
 
@@ -641,7 +665,24 @@
             const vault = window.MT5API ? window.MT5API.getClientVault() : [];
             const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
 
-            const cards = accounts.map(acc => {
+            // Deduplicate accounts so each physical MT5 account (login + server) appears as exactly ONE unified card
+            const uniqueAccountsMap = new Map();
+            accounts.forEach(acc => {
+                const key = `${String(acc.login || '').trim()}::${String(acc.server || '').trim().toLowerCase()}`;
+                if (!uniqueAccountsMap.has(key)) {
+                    uniqueAccountsMap.set(key, acc);
+                } else {
+                    const prev = uniqueAccountsMap.get(key);
+                    if (activeAcc && activeAcc.id === acc.id) {
+                        uniqueAccountsMap.set(key, acc);
+                    } else if (!prev.is_connected && acc.is_connected) {
+                        uniqueAccountsMap.set(key, acc);
+                    }
+                }
+            });
+            const dedupedAccounts = Array.from(uniqueAccountsMap.values());
+
+            const cards = dedupedAccounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
                 const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
                 const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
@@ -650,9 +691,15 @@
                 const hostEp = allEndpoints.find(e => e.id === acc.endpointId) || { name: acc.endpointName, url: acc.endpointUrl };
                 const isLocalHost = this.isLocalVmBridge(hostEp);
                 const epIcon = isLocalHost ? '💻' : ((acc.endpointName || '').toLowerCase().includes('oracle') ? '☁️' : '⚡');
-                const originBadge = acc.endpointName
-                    ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;" title="Hosted on ${acc.endpointUrl || acc.endpointName}">${epIcon} ${acc.endpointName}</span>`
-                    : '';
+
+                const activeInstances = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+                const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
+
+                const originBadge = activeInstances.length > 1
+                    ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(8,153,129,0.12); color: ${theme.success}; border: 1px solid rgba(8,153,129,0.3); font-weight: 700;" title="Synced and active on ${activeInstances.length} bridge servers">🔗 Multi-Bridge (${activeInstances.length})</span>`
+                    : (acc.endpointName
+                        ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;" title="Hosted on ${acc.endpointUrl || acc.endpointName}">${epIcon} ${acc.endpointName}</span>`
+                        : '');
 
                 // Bridge routing badges for this account
                 const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
@@ -664,9 +711,6 @@
                 } else if (acc.endpointId) {
                     allowedEpIds = [acc.endpointId];
                 }
-
-                const activeInstances = accounts.filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
-                const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
 
                 const allowedBridgeBadges = allowedEpIds.map(epId => {
                     const ep = allEndpoints.find(e => e.id === epId);
@@ -685,6 +729,8 @@
                         ${bIcon} ${ep.name} (${statusText})
                     </span>`;
                 }).filter(Boolean).join('');
+
+                const hostBridgeNames = activeInstances.map(i => i.endpointName || 'Bridge Server').filter(Boolean).join(', ');
 
                 return `
                     <div class="mt5-account-card" data-id="${acc.id}" style="
@@ -737,7 +783,7 @@
                             </div>
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Host Bridge:</span><br>
-                                <strong style="font-size: 11.5px; color: ${theme.text};">${acc.endpointName || 'Bridge Server'}</strong>
+                                <strong style="font-size: 11.5px; color: ${theme.text};">${hostBridgeNames || acc.endpointName || 'Bridge Server'}</strong>
                             </div>
                             <div>
                                 <span style="color: ${theme.textMuted}; font-size: 10.5px;">Status:</span><br>
@@ -804,13 +850,13 @@
 
                 let statusBadge = '';
                 if (!isEnabled) {
-                    statusBadge = `<span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(120,123,134,0.15); color: #787b86; font-weight: 600; border: 1px solid rgba(120,123,134,0.3);">⏸️ Disabled</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(120,123,134,0.15); color: #787b86; font-weight: 600; border: 1px solid rgba(120,123,134,0.3);">⏸️ Disabled</span>`;
                 } else if (isOnline) {
-                    statusBadge = `<span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(8,153,129,0.15); color: #089981; font-weight: 600; border: 1px solid rgba(8,153,129,0.3);">🟢 Online (${ep.ping || 0}ms)</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(8,153,129,0.15); color: #089981; font-weight: 600; border: 1px solid rgba(8,153,129,0.3);">🟢 Online (${ep.ping || 0}ms)</span>`;
                 } else if (isOffline) {
-                    statusBadge = `<span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(242,54,69,0.15); color: #f23645; font-weight: 600; border: 1px solid rgba(242,54,69,0.3);" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(242,54,69,0.15); color: #f23645; font-weight: 600; border: 1px solid rgba(242,54,69,0.3);" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
                 } else {
-                    statusBadge = `<span style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(255,152,0,0.15); color: #ff9800; font-weight: 600; border: 1px solid rgba(255,152,0,0.3);">⚪ Standby</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(255,152,0,0.15); color: #ff9800; font-weight: 600; border: 1px solid rgba(255,152,0,0.3);">⚪ Standby</span>`;
                 }
 
                 const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
