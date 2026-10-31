@@ -351,6 +351,28 @@
                 ep.ping = ping;
                 ep.status = 'online';
                 ep.error = null;
+
+                // Validate API key and sync accounts for this endpoint
+                try {
+                    const accRes = await fetch(`${ep.url}/api/accounts`, {
+                        headers: this.getReqHeaders(ep),
+                        signal: AbortSignal.timeout(6000)
+                    });
+                    if (accRes.status === 401 || accRes.status === 403) {
+                        ep.error = 'Invalid API Key (HTTP 401 Unauthorized)';
+                        this.saveConfig();
+                        return {
+                            success: false,
+                            error: 'Authentication Failed (HTTP 401): The Bridge API Key is incorrect. Please click Edit and enter the strong API Key.'
+                        };
+                    }
+                    if (accRes.ok) {
+                        await this.syncAccounts(true);
+                    }
+                } catch (authErr) {
+                    console.warn('[MT5API] Could not sync accounts during test:', authErr);
+                }
+
                 this.saveConfig();
                 return { success: true, ping, data };
             } catch (err) {
