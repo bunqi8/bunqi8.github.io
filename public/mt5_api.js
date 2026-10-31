@@ -156,7 +156,8 @@
                         name: e.name,
                         url: e.url,
                         apiKey: e.apiKey,
-                        vaultKey: e.vaultKey || null,
+                        gistId: e.gistId || '',
+                        gistToken: e.gistToken || '',
                         enabled: e.enabled !== false,
                         status: e.status || 'unknown',
                         ping: e.ping || 0,
@@ -179,103 +180,75 @@
             return this.endpoints || [];
         }
 
-        getGistSyncConfig() {
-            try {
-                const raw = localStorage.getItem('mt5_gist_sync');
-                if (raw) return JSON.parse(raw);
-            } catch (_) {}
-            return {
-                enabled: true,
-                gistId: '9d41609fb0b53d6d5a398a915f55bb5c',
-                token: '',
-                lastSynced: 0,
-                status: 'idle'
-            };
-        }
-
-        saveGistSyncConfig(cfg) {
-            try {
-                localStorage.setItem('mt5_gist_sync', JSON.stringify(cfg));
-            } catch (_) {}
-        }
-
-        async syncFromGist(force = false) {
-            const cfg = this.getGistSyncConfig();
-            if (!cfg || !cfg.enabled || !cfg.gistId || !cfg.token) {
-                return { success: false, reason: 'Gist sync not configured' };
+        async syncEndpointFromGist(endpointId, force = false) {
+            const ep = (this.endpoints || []).find(e => e.id === endpointId);
+            if (!ep || !ep.gistId || !ep.gistToken) {
+                return { success: false, reason: 'Gist ID or Token not configured for this bridge' };
             }
 
-            // Rate-limit automated checks to once per 60 seconds unless forced
-            const now = Date.now();
-            if (!force && this._lastGistFetchTime && (now - this._lastGistFetchTime < 60000)) {
-                return { success: true, rateLimited: true, lastSynced: cfg.lastSynced };
-            }
-            this._lastGistFetchTime = now;
-
             try {
-                const res = await fetch(`https://api.github.com/gists/${cfg.gistId.trim()}`, {
+                const res = await fetch(`https://api.github.com/gists/${ep.gistId.trim()}`, {
                     headers: {
-                        'Authorization': `token ${cfg.token.trim()}`,
+                        'Authorization': `token ${ep.gistToken.trim()}`,
                         'Accept': 'application/vnd.github.v3+json'
                     }
                 });
-                if (!res.ok) throw new Error(`GitHub Gist API HTTP ${res.status}`);
+                if (!res.ok) throw new Error(`GitHub Gist HTTP ${res.status}`);
                 const data = await res.json();
-                const vaultFile = data.files && data.files['mt5_bridges.json'];
-                if (!vaultFile || !vaultFile.content) throw new Error('mt5_bridges.json not found in Gist');
+                const files = data.files || {};
 
-                const vault = JSON.parse(vaultFile.content);
-                const bridges = vault.bridges || {};
-                let updatedCount = 0;
-
-                for (const ep of this.endpoints) {
-                    let vaultKey = ep.vaultKey;
-                    if (!vaultKey) {
-                        const lowerName = (ep.name || '').toLowerCase();
-                        const lowerUrl = (ep.url || '').toLowerCase();
-                        if (lowerName.includes('oracle') || lowerUrl.includes('trycloudflare') || lowerName.includes('cloud')) {
-                            vaultKey = 'oracle_cloud';
-                        } else if (lowerName.includes('vmware') || lowerUrl.includes('172.16.') || lowerName.includes('local')) {
-                            vaultKey = 'vmware_local';
-                        }
-                    }
-
-                    if (vaultKey && bridges[vaultKey] && bridges[vaultKey].url) {
-                        const encryptedUrl = bridges[vaultKey].url;
-                        const decryptedUrl = await this.decryptE2EPayload(encryptedUrl, ep.apiKey);
-                        if (decryptedUrl && decryptedUrl.startsWith('http')) {
-                            const clean = decryptedUrl.trim().replace(/\/+$/, '');
-                            if (clean !== ep.url) {
-                                console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL from ${ep.url} -> ${clean}`);
-                                ep.url = clean;
-                                ep.status = 'unknown';
-                                ep.ping = 0;
-                                updatedCount++;
-                            }
-                        }
-                    }
+                // Look for bridge_endpoint.json or mt5_bridges.json or first .json file in Gist
+                let rawContent = null;
+                if (files['bridge_endpoint.json'] && files['bridge_endpoint.json'].content) {
+                    rawContent = files['bridge_endpoint.json'].content;
+                } else if (files['mt5_bridges.json'] && files['mt5_bridges.json'].content) {
+                    rawContent = files['mt5_bridges.json'].content;
+                } else {
+                    const firstJson = Object.values(files).find(f => f.filename && f.filename.endsWith('.json') && f.content);
+                    if (firstJson) rawContent = firstJson.content;
                 }
 
-                cfg.lastSynced = Date.now();
-                cfg.status = 'ok';
-                cfg.error = null;
-                this.saveGistSyncConfig(cfg);
+                if (!rawContent) throw new Error('No valid JSON endpoint data found in Gist');
+                const parsed = JSON.parse(rawContent);
 
-                if (updatedCount > 0) {
+                // Extract encrypted URL: supports single bridge object or multi-bridge map
+                let encryptedUrl = parsed.url;
+                if (!encryptedUrl && parsed.bridges) {
+                    const matching = Object.values(parsed.bridges).find(b => b && b.url);
+                    if (matching) encryptedUrl = matching.url;
+                }
+
+                if (!encryptedUrl) throw new Error('No encrypted URL payload found in Gist');
+
+                const decryptedUrl = await this.decryptE2EPayload(encryptedUrl, ep.apiKey);
+                if (!decryptedUrl || !decryptedUrl.startsWith('http')) {
+                    throw new Error('Failed to decrypt Gist URL payload. Check the bridge API key.');
+                }
+
+                const clean = decryptedUrl.trim().replace(/\/+$/, '');
+                const changed = clean !== ep.url;
+                if (changed) {
+                    console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
+                    ep.url = clean;
+                    ep.status = 'unknown';
+                    ep.ping = 0;
                     this.saveConfig();
-                    this.testConnection();
-                    this.ensureWebSocket();
-                    this.notifyAccountListeners();
+                    this.reconnectWebSocket(ep.id);
+                    this.testSingleEndpoint(ep.id);
                 }
-
-                return { success: true, updatedCount, lastSynced: cfg.lastSynced };
+                return { success: true, url: clean, changed };
             } catch (err) {
-                console.warn('[MT5API] Gist sync failed:', err);
-                cfg.status = 'error';
-                cfg.error = err.message;
-                this.saveGistSyncConfig(cfg);
+                console.warn(`[MT5API] Gist sync failed for ${ep.name}:`, err);
                 return { success: false, error: err.message };
             }
+        }
+
+        async syncAllEndpointsFromGist(force = false) {
+            const configured = (this.endpoints || []).filter(e => e.gistId && e.gistToken);
+            if (configured.length === 0) return { total: 0, updated: 0 };
+            const results = await Promise.all(configured.map(e => this.syncEndpointFromGist(e.id, force)));
+            const updated = results.filter(r => r.success && r.changed).length;
+            return { total: configured.length, updated };
         }
 
         getActiveEndpoint() {
@@ -341,7 +314,7 @@
             return this.getReqHeaders(this.getActiveEndpoint());
         }
 
-        addEndpoint({ name, url, apiKey, enabled = true }) {
+        addEndpoint({ name, url, apiKey, gistId = '', gistToken = '', enabled = true }) {
             const cleanUrl = (url || '').trim().replace(/\/+$/, '');
             if (!cleanUrl) return { success: false, error: 'Endpoint URL is required' };
             const cleanKey = (apiKey || 'mt5_secret_key_2026').trim();
@@ -353,6 +326,8 @@
                 name: cleanName,
                 url: cleanUrl,
                 apiKey: cleanKey,
+                gistId: (gistId || '').trim(),
+                gistToken: (gistToken || '').trim(),
                 enabled: enabled !== false,
                 status: 'unknown',
                 ping: 0
@@ -374,7 +349,8 @@
             if (updates.name !== undefined) ep.name = String(updates.name).trim();
             if (updates.url !== undefined) ep.url = String(updates.url).trim().replace(/\/+$/, '');
             if (updates.apiKey !== undefined) ep.apiKey = String(updates.apiKey).trim();
-            if (updates.vaultKey !== undefined) ep.vaultKey = updates.vaultKey ? String(updates.vaultKey).trim() : null;
+            if (updates.gistId !== undefined) ep.gistId = String(updates.gistId).trim();
+            if (updates.gistToken !== undefined) ep.gistToken = String(updates.gistToken).trim();
             if (updates.enabled !== undefined) ep.enabled = Boolean(updates.enabled);
             this.saveConfig();
             this.syncAccounts(true);
@@ -438,7 +414,7 @@
             this.reconnectWebSocket();
         }
 
-        async testSingleEndpoint(endpointId) {
+        async testSingleEndpoint(endpointId, retry = false) {
             const ep = this.endpoints.find(e => e.id === endpointId);
             if (!ep) return { success: false, error: 'Endpoint not found' };
             const start = performance.now();
@@ -478,6 +454,15 @@
                 this.saveConfig();
                 return { success: true, ping, data };
             } catch (err) {
+                // If offline and bridge has Gist configured, attempt Auto-Discovery recovery
+                if (ep.gistId && ep.gistToken && !retry) {
+                    try {
+                        const sync = await this.syncEndpointFromGist(endpointId);
+                        if (sync.success && sync.changed) {
+                            return this.testSingleEndpoint(endpointId, true);
+                        }
+                    } catch (_) {}
+                }
                 ep.status = 'offline';
                 ep.error = err.message;
                 this.saveConfig();
@@ -498,10 +483,10 @@
                 this.pingMs = successful[0].ping;
                 this.syncAccounts(true);
             } else {
-                // If all enabled endpoints are offline, attempt Gist Auto-Discovery to recover rotated URLs
+                // If all enabled endpoints are offline, attempt auto-discovery on any configured Gists
                 try {
-                    const syncRes = await this.syncFromGist();
-                    if (syncRes && syncRes.updatedCount > 0) {
+                    const syncRes = await this.syncAllEndpointsFromGist();
+                    if (syncRes && syncRes.updated > 0) {
                         return this.testConnection();
                     }
                 } catch (_) {}
@@ -2120,8 +2105,10 @@
                         }
                         this.wsSockets.delete(ep.id);
                         if (this.ws === socket) this.ws = null;
-                        // Auto-discover via Gist if WebSocket dropped unexpectedly
-                        this.syncFromGist();
+                        // Auto-discover via bridge Gist if WebSocket dropped unexpectedly
+                        if (ep.gistId && ep.gistToken) {
+                            this.syncEndpointFromGist(ep.id);
+                        }
                         setTimeout(() => {
                             if (this.tickListeners && this.tickListeners.size > 0 && ep.enabled) {
                                 this.ensureWebSocket();
