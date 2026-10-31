@@ -180,7 +180,7 @@
             return this.endpoints || [];
         }
 
-        async syncEndpointFromGist(endpointId, force = false) {
+        async syncEndpointFromGist(endpointId, testEndpoint = false) {
             const ep = (this.endpoints || []).find(e => e.id === endpointId);
             if (!ep || !ep.gistId || !ep.gistToken) {
                 return { success: false, reason: 'Gist ID or Token not configured for this bridge' };
@@ -234,7 +234,9 @@
                     ep.ping = 0;
                     this.saveConfig();
                     this.reconnectWebSocket(ep.id);
-                    this.testSingleEndpoint(ep.id);
+                    if (testEndpoint) {
+                        this.testSingleEndpoint(ep.id);
+                    }
                 }
                 return { success: true, url: clean, changed };
             } catch (err) {
@@ -243,10 +245,10 @@
             }
         }
 
-        async syncAllEndpointsFromGist(force = false) {
+        async syncAllEndpointsFromGist(testEndpoints = false) {
             const configured = (this.endpoints || []).filter(e => e.gistId && e.gistToken);
             if (configured.length === 0) return { total: 0, updated: 0 };
-            const results = await Promise.all(configured.map(e => this.syncEndpointFromGist(e.id, force)));
+            const results = await Promise.all(configured.map(e => this.syncEndpointFromGist(e.id, testEndpoints)));
             const updated = results.filter(r => r.success && r.changed).length;
             return { total: configured.length, updated };
         }
@@ -527,10 +529,29 @@
         }
 
         initAutoSync() {
+            // Immediate account sync on page boot
             this.syncAccounts();
             if (this.syncTimer) clearInterval(this.syncTimer);
             // Continuous auto-connect heartbeat: checks every 2.5s across all enabled bridges
             this.syncTimer = setInterval(() => this.syncAccounts(), 2500);
+
+            // Proactive startup Gist auto-discovery:
+            // If any bridge has Gist configured, immediately detect rotated Cloudflare URLs
+            // so we don't have to wait for connection timeouts or manual user intervention!
+            const hasGistConfigured = (this.endpoints || []).some(e => e.enabled && e.gistId && e.gistToken);
+            if (hasGistConfigured) {
+                setTimeout(async () => {
+                    try {
+                        const res = await this.syncAllEndpointsFromGist(false);
+                        if (res && res.updated > 0) {
+                            console.log(`[MT5API] 🚀 Startup Gist auto-discovery updated ${res.updated} bridge URL(s). Syncing accounts...`);
+                            this.syncAccounts(true);
+                        }
+                    } catch (err) {
+                        console.warn('[MT5API] Startup Gist auto-discovery check:', err);
+                    }
+                }, 50);
+            }
         }
 
         // --- Parallel Multi-Bridge Account Sync ---
@@ -557,6 +578,38 @@
                     ep.error = null;
                     return { ep, data };
                 } catch (err) {
+                    // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
+                    // automatically check Gist for the newly generated URL and retry immediately!
+                    const now = Date.now();
+                    if (ep.gistId && ep.gistToken && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
+                        ep._lastGistAutoCheck = now;
+                        try {
+                            console.log(`[MT5API] 🔍 Endpoint '${ep.name}' unreachable (${err.message}). Auto-checking Gist for rotated tunnel URL...`);
+                            const syncRes = await this.syncEndpointFromGist(ep.id, false);
+                            if (syncRes && syncRes.success) {
+                                if (syncRes.changed) {
+                                    console.log(`[MT5API] ✨ Discovered rotated tunnel URL for '${ep.name}': ${ep.url}. Retrying accounts fetch...`);
+                                }
+                                const retryStart = performance.now();
+                                try {
+                                    const retryRes = await fetch(`${ep.url}/api/accounts`, {
+                                        headers: this.getReqHeaders(ep),
+                                        signal: AbortSignal.timeout(6000)
+                                    });
+                                    if (retryRes.ok) {
+                                        const retryData = await retryRes.json();
+                                        ep.ping = Math.round(performance.now() - retryStart);
+                                        ep.status = 'online';
+                                        ep.error = null;
+                                        return { ep, data: retryData };
+                                    }
+                                } catch (_) {}
+                            }
+                        } catch (autoErr) {
+                            console.warn(`[MT5API] Gist auto-heal failed for '${ep.name}':`, autoErr.message);
+                        }
+                    }
+
                     ep.status = 'offline';
                     ep.error = err.message;
                     if (force) console.warn(`[MT5API] Endpoint '${ep.name}' sync error:`, err.message);
@@ -570,25 +623,41 @@
             let primaryActiveId = null;
 
             for (const r of results) {
-                if (r.status === 'fulfilled' && r.value && r.value.data) {
+                if (r.status === 'fulfilled' && r.value) {
                     const { ep, data } = r.value;
-                    anyOnline = true;
-                    if (ep.id === this.activeEndpointId && data.active_account_id) {
-                        primaryActiveId = data.active_account_id;
-                    }
-                    const accountsList = data.accounts || [];
-                    accountsList.forEach(acc => {
-                        const isPaused = this.isAccountPaused(acc.id);
-                        allAccounts.push({
-                            ...acc,
-                            endpointId: ep.id,
-                            endpointName: ep.name,
-                            endpointUrl: ep.url,
-                            endpointApiKey: ep.apiKey,
-                            is_paused: isPaused,
-                            is_connected: !isPaused && ep.status === 'online'
+                    if (data && Array.isArray(data.accounts)) {
+                        anyOnline = true;
+                        if (ep.id === this.activeEndpointId && data.active_account_id) {
+                            primaryActiveId = data.active_account_id;
+                        }
+                        const accountsList = data.accounts || [];
+                        accountsList.forEach(acc => {
+                            const isPaused = this.isAccountPaused(acc.id);
+                            allAccounts.push({
+                                ...acc,
+                                endpointId: ep.id,
+                                endpointName: ep.name,
+                                endpointUrl: ep.url,
+                                endpointApiKey: ep.apiKey,
+                                is_paused: isPaused,
+                                is_connected: !isPaused && ep.status === 'online'
+                            });
                         });
-                    });
+                    } else if (ep) {
+                        // Bridge is offline/reconnecting: preserve existing cached accounts for this bridge
+                        // as standby (is_connected: false) so accounts never abruptly vanish from the fleet view!
+                        const cachedForEp = (this.accounts || []).filter(a => a.endpointId === ep.id);
+                        cachedForEp.forEach(acc => {
+                            allAccounts.push({
+                                ...acc,
+                                endpointId: ep.id,
+                                endpointName: ep.name,
+                                endpointUrl: ep.url,
+                                endpointApiKey: ep.apiKey,
+                                is_connected: false
+                            });
+                        });
+                    }
                 }
             }
 
