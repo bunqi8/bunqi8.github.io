@@ -1963,7 +1963,7 @@ const Datafeed = {
                         open: (isMatchingCandle && tick.candle && tick.candle.open) ? Number(tick.candle.open) : price,
                         high: (isMatchingCandle && tick.candle && tick.candle.high) ? Math.max(Number(tick.candle.high), price) : price,
                         low: (isMatchingCandle && tick.candle && tick.candle.low) ? Math.min(Number(tick.candle.low), price) : price,
-                        close: price,
+                        close: (isMatchingCandle && tick.candle && tick.candle.close !== undefined && tick.candle.close !== null) ? Number(tick.candle.close) : price,
                         volume: (isMatchingCandle && tick.candle && tick.candle.volume) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[unifiedKey] = lastBar;
@@ -2018,7 +2018,7 @@ const Datafeed = {
                         open: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Number(tick.candle.open) : price,
                         high: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Math.max(Number(tick.candle.high), price) : price,
                         low: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Math.min(Number(tick.candle.low), price) : price,
-                        close: price,
+                        close: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime && tick.candle.close !== undefined && tick.candle.close !== null) ? Number(tick.candle.close) : price,
                         volume: (isMatchingCandle && tick.candle && brokerCandleTime === targetBarTime) ? Number(tick.candle.volume) : 1
                     };
                     window._tvLastBar[unifiedKey] = lastBar;
@@ -2027,12 +2027,14 @@ const Datafeed = {
                     return;
                 }
 
+                const prevBar = { ...lastBar };
+
                 // Update active forming candle (STRICTLY preserves lastBar.time so TradingView never gets time violation)
                 if (isMatchingCandle && tick.candle && brokerCandleTime === lastBar.time) {
                     lastBar.open = Number(tick.candle.open) || lastBar.open;
                     lastBar.high = Math.max(lastBar.high, Number(tick.candle.high), price);
                     lastBar.low = Math.min(lastBar.low, Number(tick.candle.low), price);
-                    lastBar.close = price;
+                    lastBar.close = (tick.candle.close !== undefined && tick.candle.close !== null) ? Number(tick.candle.close) : price;
                     lastBar.volume = Number(tick.candle.volume) || (lastBar.volume || 0) + 1;
                 } else {
                     lastBar.high = Math.max(lastBar.high, price);
@@ -2043,6 +2045,19 @@ const Datafeed = {
 
                 window._tvLastBar[unifiedKey] = lastBar;
                 window._tvLastBar[cacheKey] = lastBar;
+
+                // If values did not change, skip redundant chart repaint
+                if (
+                    prevBar.time === lastBar.time &&
+                    prevBar.open === lastBar.open &&
+                    prevBar.high === lastBar.high &&
+                    prevBar.low === lastBar.low &&
+                    prevBar.close === lastBar.close &&
+                    prevBar.volume === lastBar.volume
+                ) {
+                    return;
+                }
+
                 onRealtimeCallback({ ...lastBar });
             };
 

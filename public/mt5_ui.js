@@ -342,8 +342,9 @@
                 if (badge) {
                     badge.innerText = `🟢 Online (${pingMs}ms)`;
                     badge.style.color = '#089981';
-                    badge.style.background = 'rgba(8,153,129,0.15)';
-                    badge.style.border = '1px solid rgba(8,153,129,0.3)';
+                    badge.style.background = 'rgba(8,153,129,0.12)';
+                    badge.style.border = '1px solid rgba(8,153,129,0.25)';
+                    badge.style.padding = '1px 6px';
                 }
             }
             const activeEp = window.MT5API ? window.MT5API.getActiveEndpoint() : null;
@@ -973,13 +974,13 @@
 
                 let statusBadge = '';
                 if (!isEnabled) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(120,123,134,0.15); color: #787b86; font-weight: 600;">⏸️ Off</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(120,123,134,0.12); color: #787b86; border: 1px solid rgba(120,123,134,0.25); font-weight: 600;">⏸️ Off</span>`;
                 } else if (isOnline) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(8,153,129,0.15); color: #089981; font-weight: 600;">🟢 ${ep.ping || 0}ms</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.25); font-weight: 600;">🟢 Online (${ep.ping || 0}ms)</span>`;
                 } else if (isOffline) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(242,54,69,0.15); color: #f23645; font-weight: 600;" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(242,54,69,0.12); color: #f23645; border: 1px solid rgba(242,54,69,0.25); font-weight: 600;" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
                 } else {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(255,152,0,0.15); color: #ff9800; font-weight: 600;">⚪ Standby</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.25); font-weight: 600;">⚪ Standby</span>`;
                 }
 
                 const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
