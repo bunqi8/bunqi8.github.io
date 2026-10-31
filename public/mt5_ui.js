@@ -1013,6 +1013,7 @@
                             <div style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">
                                 <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
                                 ${hasGist ? `<button type="button" class="mt5-btn-sync-single-gist" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Sync latest rotated URL from this bridge's Gist">⚡ Sync</button>` : ''}
+                                <button type="button" class="mt5-btn-view-audit" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="View Live Connected Users (SSH, WebSockets, API) & Historical Access Audit">🛡️ Audit</button>
                                 <button type="button" class="mt5-btn-edit-endpoint" data-id="${ep.id}" style="background: ${isEditing ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.08)'}; color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Edit Bridge Server URL, API Key, and Gist Settings">${isEditing ? '✕ Close' : '✏️ Edit'}</button>
                                 ${!isPrimary ? `<button type="button" class="mt5-btn-set-primary-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Set as primary default bridge">★ Primary</button>` : ''}
                                 <button type="button" class="mt5-btn-toggle-endpoint" data-id="${ep.id}" style="background: ${isEnabled ? 'rgba(255,165,0,0.1)' : 'rgba(0,200,83,0.1)'}; color: ${isEnabled ? '#ffa500' : theme.success}; border: 1px solid ${isEnabled ? 'rgba(255,165,0,0.3)' : 'rgba(0,200,83,0.3)'}; height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="${isEnabled ? 'Disable polling this endpoint' : 'Enable polling this endpoint'}">${isEnabled ? '⏸️' : '▶️'}</button>
@@ -3307,6 +3308,47 @@
                         alert(`✕ Gist Sync Failed: ${res.reason || res.error}`);
                     }
                     this.renderModal();
+                };
+            });
+
+            // View Server Access & User Audit
+            modal.querySelectorAll('.mt5-btn-view-audit').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const ep = window.MT5API ? window.MT5API.endpoints.find(x => x.id === id) : null;
+                    if (!ep || !window.MT5API) return;
+                    btn.innerText = 'Auditing...';
+                    btn.disabled = true;
+                    const res = await window.MT5API.fetchAudit(id);
+                    btn.innerText = '🛡️ Audit';
+                    btn.disabled = false;
+                    if (!res || !res.success) {
+                        alert(`Could not fetch audit data from ${ep.name}. Bridge server may be offline or unreachable.`);
+                        return;
+                    }
+                    const m = res.metrics || {};
+                    const activeSessions = m.active_sessions || [];
+                    const activeStr = activeSessions.length === 0
+                        ? '  None (0 users right now)'
+                        : activeSessions.map(s => `  • [${s.type}] ${s.username} (${s.ip}) — active for ${Math.floor(s.duration_sec / 60)}m ${s.duration_sec % 60}s`).join('\n');
+                    
+                    const recentHist = (res.history || []).slice(0, 8);
+                    const histStr = recentHist.length === 0
+                        ? '  None recorded'
+                        : recentHist.map(h => `  • ${new Date(h.started_at * 1000).toLocaleTimeString()} | ${h.session_type} | ${h.username} (${h.client_ip}) | ${Math.floor(h.duration_sec / 60)}m | ${h.status}`).join('\n');
+
+                    alert(
+                        `========================================\n` +
+                        `🛡️ ${ep.name} - ACCESS & USER AUDIT\n` +
+                        `========================================\n\n` +
+                        `🟢 ACTIVE SESSIONS RIGHT NOW (${m.active_count || 0}):\n${activeStr}\n\n` +
+                        `📊 LIFETIME PERSISTENT METRICS:\n` +
+                        `  • Total Historical Sessions: ${(m.total_sessions || 0).toLocaleString()}\n` +
+                        `  • Unique Client IPs All-Time: ${(m.unique_ips_all_time || 0).toLocaleString()}\n` +
+                        `  • Unique IPs Active Today: ${(m.today_unique_ips || 0).toLocaleString()}\n\n` +
+                        `📜 RECENT SESSION HISTORY:\n${histStr}\n\n` +
+                        `💡 Tip: On the server terminal, run: python audit_viewer.py`
+                    );
                 };
             });
 

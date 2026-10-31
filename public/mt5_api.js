@@ -556,6 +556,19 @@
             }
         }
 
+        async fetchAudit(endpointId = null) {
+            try {
+                const ep = endpointId ? (this.endpoints.find(e => e.id === endpointId) || this.getActiveEndpoint()) : this.getActiveEndpoint();
+                if (!ep || !ep.url) return null;
+                const res = await fetch(`${ep.url}/api/audit`, { headers: this.getReqHeaders(ep) });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (e) {
+                console.warn('[MT5API] Failed to fetch audit:', e);
+                return null;
+            }
+        }
+
         async testConnection() {
             const enabled = (this.endpoints || []).filter(e => e.enabled);
             if (enabled.length === 0) {
