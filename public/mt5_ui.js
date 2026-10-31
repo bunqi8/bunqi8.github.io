@@ -82,8 +82,19 @@
                     if (this.isOpen && !this.switchingAccountId) {
                         if (this.viewMode === 'details') {
                             this.updateLiveDetailsFinancials();
-                        } else {
-                            this.updateFleetCardsInPlace();
+                        } else if (this.viewMode === 'list') {
+                            const modal = document.getElementById(this.modalId);
+                            const renderedCards = modal ? modal.querySelectorAll('.mt5-account-card') : [];
+                            const accounts = (window.MT5API && window.MT5API.accounts) ? window.MT5API.accounts : [];
+                            const hasEmptyPlaceholder = modal ? Boolean(modal.querySelector('.mt5-modal-body div[style*="dashed"]')) : false;
+                            // If account count changed, or if placeholder was showing and accounts arrived, do a full re-render
+                            if (renderedCards.length !== accounts.length || (hasEmptyPlaceholder && accounts.length > 0)) {
+                                this.renderModal();
+                            } else {
+                                this.updateFleetCardsInPlace();
+                            }
+                        } else if (this.viewMode === 'bridges' || this.viewMode === 'routing') {
+                            this.renderModal();
                         }
                     }
                 });
@@ -462,6 +473,21 @@
 
             modal.style.display = 'flex';
             this.renderModal();
+
+            // Auto-heal on open: if any bridge is offline/unknown or 0 accounts, proactively trigger auto-discovery and account sync!
+            if (window.MT5API) {
+                const endpoints = window.MT5API.getEndpoints() || [];
+                const hasOffline = endpoints.some(e => e.enabled && (e.status === 'offline' || e.status === 'unknown'));
+                const hasNoAccounts = (window.MT5API.accounts || []).length === 0;
+
+                if (hasOffline || hasNoAccounts) {
+                    window.MT5API.syncAllEndpointsFromGist(false).then(() => {
+                        return window.MT5API.syncAccounts(true);
+                    }).then(() => {
+                        if (this.isOpen) this.renderModal();
+                    }).catch(() => {});
+                }
+            }
         }
 
         closeModal() {
@@ -855,7 +881,7 @@
                             </div>
 
                             <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
-                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: ${theme.primarySoft}; color: #60a5fa; border: 1px solid ${theme.primaryBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Show this account on chart">⚡ Feed</button>` : ''}
+                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: ${theme.primarySoft}; color: ${theme.primary}; border: 1px solid ${theme.primaryBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Show this account on chart">⚡ Feed</button>` : ''}
                                 <button class="mt5-btn-config-bridges mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Configure bridges">🔗 Bridges (${allowedEpIds.length})</button>
                                 ${isPaused
                                     ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: ${theme.successSoft}; color: ${theme.success}; border: 1px solid ${theme.successBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">▶️ Resume</button>`
@@ -898,6 +924,9 @@
                             </span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 5px;">
+                            <button id="mt5-btn-fleet-sync" type="button" style="background: ${theme.inputBg}; color: ${theme.primary}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Refresh & sync all bridges and accounts immediately">
+                                <span>🔄</span> Sync Fleet
+                            </button>
                             <button id="mt5-btn-toggle-select-all" type="button" style="background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;" title="Toggle multi-account copy selection">
                                 ☑️ Multi-Select (${selectedCount})
                             </button>
@@ -2931,6 +2960,22 @@
                     window.MT5API.saveConfig();
                 };
             });
+
+            // Sync Fleet (Accounts tab summary bar)
+            const btnFleetSync = modal.querySelector('#mt5-btn-fleet-sync');
+            if (btnFleetSync && window.MT5API) {
+                btnFleetSync.onclick = async () => {
+                    btnFleetSync.innerHTML = '<span>⏳</span> Syncing...';
+                    btnFleetSync.disabled = true;
+                    try {
+                        await window.MT5API.syncAllEndpointsFromGist(false);
+                        await window.MT5API.syncAccounts(true);
+                    } catch (_) {}
+                    btnFleetSync.innerHTML = '<span>🔄</span> Sync Fleet';
+                    btnFleetSync.disabled = false;
+                    this.renderModal();
+                };
+            }
 
             // Toggle select all unpaused accounts
             const btnToggleSelectAll = modal.querySelector('#mt5-btn-toggle-select-all');
