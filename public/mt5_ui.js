@@ -19,6 +19,7 @@
             this.switchingAccountId = null;
             this.switchProgress = null;
             this.editingEndpointId = null; // Endpoint currently open in edit mode
+            this.showAddBridgeForm = false; // Toggle collapsible add bridge server drawer
 
             // Real-time live ping listener from bridge sockets
             if (window.MT5API && typeof window.MT5API.onPing === 'function') {
@@ -458,74 +459,85 @@
                     background: ${theme.bg};
                     color: ${theme.text};
                     border: 1px solid ${theme.border};
-                    border-radius: 12px;
-                    width: 720px;
-                    max-width: 95vw;
-                    max-height: 90vh;
+                    border-radius: 8px;
+                    width: 820px;
+                    max-width: 96vw;
+                    max-height: 88vh;
                     display: flex;
                     flex-direction: column;
-                    box-shadow: 0 20px 45px rgba(0,0,0,0.45);
+                    box-shadow: 0 16px 45px rgba(0,0,0,0.5);
                     overflow: hidden;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 ">
-                    <!-- Modal Header -->
+                    <!-- Modal Header (Unified Streamlined Bar) -->
                     <div style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
-                        padding: 14px clamp(12px, 3vw, 20px);
+                        padding: 7px 12px;
                         background: ${theme.cardBg};
                         border-bottom: 1px solid ${theme.border};
+                        flex-wrap: wrap;
+                        gap: 6px;
                     ">
-                        <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                        <!-- Left Brand & Live Status -->
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
                             <span style="
-                                width: 34px; height: 34px; border-radius: 8px;
+                                width: 22px; height: 22px; border-radius: 5px;
                                 background: linear-gradient(135deg, #2962ff 0%, #089981 100%);
                                 color: #fff; display: flex; align-items: center; justify-content: center;
-                                font-weight: bold; font-size: 16px; flex-shrink: 0;
+                                font-weight: bold; font-size: 11px; flex-shrink: 0;
                             ">⚡</span>
-                            <div style="min-width: 0;">
-                                <h3 style="margin: 0; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    MetaTrader 5 Fleet Manager
-                                </h3>
-                                <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                    24/7 Cloud Bridge & Multi-Account Execution
-                                </div>
-                            </div>
+                            <strong style="font-size: 13px; font-weight: 700; white-space: nowrap;">
+                                MT5 Fleet Terminal
+                            </strong>
+                            <span style="
+                                font-size: 9.5px; padding: 1px 6px; border-radius: 4px; font-weight: 600;
+                                background: ${isConn ? 'rgba(8,153,129,0.12)' : 'rgba(255,152,0,0.12)'};
+                                color: ${isConn ? theme.success : theme.warning};
+                                border: 1px solid ${isConn ? 'rgba(8,153,129,0.25)' : 'rgba(255,152,0,0.25)'};
+                                display: inline-flex; align-items: center; gap: 3px;
+                            ">
+                                ${isConn ? '🟢 Live' : '⚪ Standby'}
+                            </span>
                         </div>
+
+                        <!-- Center Compact Segment Navigation -->
+                        <div style="
+                            display: inline-flex; align-items: center;
+                            background: ${theme.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.06)'};
+                            padding: 2px; border-radius: 5px; border: 1px solid ${theme.border};
+                        ">
+                            <button id="mt5-tab-fleet" type="button" style="
+                                background: ${this.activeTab === 'fleet' ? theme.primary : 'transparent'};
+                                color: ${this.activeTab === 'fleet' ? '#fff' : theme.textMuted};
+                                border: none; border-radius: 3px;
+                                padding: 3px 11px; font-size: 11px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px; transition: all 0.12s ease;
+                            ">
+                                <span>💼</span> Accounts (${accounts.length})
+                            </button>
+                            <button id="mt5-tab-settings" type="button" style="
+                                background: ${this.activeTab === 'settings' ? theme.primary : 'transparent'};
+                                color: ${this.activeTab === 'settings' ? '#fff' : theme.textMuted};
+                                border: none; border-radius: 3px;
+                                padding: 3px 11px; font-size: 11px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px; transition: all 0.12s ease;
+                            ">
+                                <span>⚙️</span> Bridges (${endpoints.length})
+                                <span style="width: 5px; height: 5px; border-radius: 50%; background: ${isConn ? '#00e676' : '#ffa500'}; display: inline-block;"></span>
+                            </button>
+                        </div>
+
+                        <!-- Right Close Button -->
                         <button id="mt5-modal-btn-close" style="
                             background: transparent; border: none; color: ${theme.textMuted};
-                            font-size: 20px; cursor: pointer; padding: 4px 8px; border-radius: 4px;
-                        " title="Close">✕</button>
+                            font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1;
+                        " title="Close (Esc)">✕</button>
                     </div>
 
-                    <!-- Navigation Tabs -->
-                    <div style="
-                        display: flex; gap: 6px; padding: 0 clamp(12px, 3vw, 20px);
-                        border-bottom: 1px solid ${theme.border}; background: ${theme.cardBg};
-                    ">
-                        <button id="mt5-tab-fleet" type="button" style="
-                            background: transparent; border: none;
-                            border-bottom: 2px solid ${this.activeTab === 'fleet' ? theme.primary : 'transparent'};
-                            color: ${this.activeTab === 'fleet' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-                            display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-                        ">
-                            <span>💼</span> Prop Accounts Fleet (${accounts.length})
-                        </button>
-                        <button id="mt5-tab-settings" type="button" style="
-                            background: transparent; border: none;
-                            border-bottom: 2px solid ${this.activeTab === 'settings' ? theme.primary : 'transparent'};
-                            color: ${this.activeTab === 'settings' ? (theme.isDark ? '#fff' : '#131722') : theme.textMuted};
-                            padding: 10px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-                            display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-                        ">
-                            <span>⚙️</span> Cloud Bridge Settings
-                            <span style="width: 7px; height: 7px; border-radius: 50%; background: ${isConn ? theme.success : theme.warning}; display: inline-block;"></span>
-                        </button>
-                    </div>
-
-                    <!-- Modal Body -->
-                    <div class="mt5-modal-body" style="padding: clamp(14px, 3vw, 20px); overflow-y: auto; overflow-x: hidden; flex: 1; box-sizing: border-box; width: 100%;">
+                    <!-- Modal Body (Compact High-Density View) -->
+                    <div class="mt5-modal-body" style="padding: 10px 12px; overflow-y: auto; overflow-x: hidden; flex: 1; box-sizing: border-box; width: 100%;">
                         ${this.activeTab === 'fleet' ? this.getFleetHtml(theme, accounts, activeAcc) : this.getSettingsHtml(theme)}
                     </div>
                 </div>
@@ -568,92 +580,78 @@
                     : [window.MT5API?.activeEndpointId || endpoints[0]?.id];
 
                 return `
-                    <div style="display: flex; flex-direction: column; gap: 14px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <strong style="font-size: 14px; color: ${theme.text};">Connect New MT5 Account</strong>
-                            <button id="mt5-btn-cancel-add" type="button" style="background: transparent; border: none; color: ${theme.primary}; font-size: 12px; cursor: pointer; font-weight: 600;">← Back to Fleet</button>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 4px; border-bottom: 1px solid ${theme.border};">
+                            <strong style="font-size: 12.5px; color: ${theme.text};">Connect New MT5 Account</strong>
+                            <button id="mt5-btn-cancel-add" type="button" style="background: transparent; border: none; color: ${theme.primary}; font-size: 11px; cursor: pointer; font-weight: 600;">← Back to Fleet</button>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
                             <!-- Target Bridge Server Selection -->
-                            <div style="background: rgba(120, 120, 120, 0.05); border: 1px solid ${theme.border}; border-radius: 8px; padding: 12px; box-sizing: border-box;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 4px;">
-                                    <label style="display: block; font-size: 11.5px; font-weight: 700; color: ${theme.text};">
-                                        🔗 Tie Account to Bridge Servers *
+                            <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px; box-sizing: border-box;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+                                    <label style="font-size: 11px; font-weight: 700; color: ${theme.text};">
+                                        🔗 Target Bridge Server(s) *
                                     </label>
-                                    <span style="font-size: 10px; color: ${theme.textMuted};">Local VM bridges are selected by default. Check any additional bridges as needed.</span>
+                                    <span style="font-size: 9.5px; color: ${theme.textMuted};">Select bridge hosts where this account should connect</span>
                                 </div>
                                 ${endpoints.length === 0 ? `
-                                    <div style="padding: 10px; border-radius: 6px; background: rgba(242,54,69,0.1); border: 1px solid rgba(242,54,69,0.3); color: ${theme.error}; font-size: 11.5px;">
-                                        ⚠️ No active bridge servers configured. Please add and enable a bridge server in the <strong>Cloud Bridge Settings</strong> tab first.
+                                    <div style="padding: 6px 10px; border-radius: 4px; background: rgba(242,54,69,0.1); border: 1px solid rgba(242,54,69,0.25); color: ${theme.error}; font-size: 11px;">
+                                        ⚠️ No active bridge servers configured. Please add a bridge in Cloud Bridge Settings first.
                                     </div>
                                 ` : `
-                                    <div style="display: flex; flex-direction: column; gap: 6px;" id="mt5-target-bridges-list">
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px;" id="mt5-target-bridges-list">
                                         ${endpoints.map((ep) => {
                                             const isOnline = ep.status === 'online';
                                             const isLocal = this.isLocalVmBridge(ep);
                                             const icon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
                                             const isChecked = defaultTargetIds.includes(ep.id);
-                                            const typeBadge = isLocal 
-                                                ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(0,200,83,0.15); color: #089981; font-weight: 700; border: 1px solid rgba(0,200,83,0.3);">💻 Local VM (Default)</span>`
-                                                : `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 4px; background: rgba(41,98,255,0.12); color: #2962ff; font-weight: 600; border: 1px solid rgba(41,98,255,0.25);">☁️ Cloud VPS</span>`;
 
                                             return `
-                                                <label style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 6px; background: ${theme.cardBg}; border: 1px solid ${isChecked ? 'rgba(41,98,255,0.45)' : theme.border}; cursor: pointer; transition: all 0.15s ease;">
-                                                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
-                                                        <input type="checkbox" class="mt5-check-target-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
-                                                        <span style="font-size: 16px; flex-shrink: 0;">${icon}</span>
-                                                        <div style="min-width: 0;">
-                                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                                <strong style="font-size: 12.5px; color: ${theme.text};">${ep.name}</strong>
-                                                                ${typeBadge}
-                                                            </div>
-                                                            <div style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.url}</div>
-                                                        </div>
+                                                <label style="display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 4px; background: ${theme.inputBg}; border: 1px solid ${isChecked ? 'rgba(41,98,255,0.4)' : theme.border}; cursor: pointer;">
+                                                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                                                        <input type="checkbox" class="mt5-check-target-bridge" value="${ep.id}" ${isChecked ? 'checked' : ''} style="width: 13px; height: 13px; accent-color: ${theme.primary}; cursor: pointer; flex-shrink: 0;">
+                                                        <span style="font-size: 13px; flex-shrink: 0;">${icon}</span>
+                                                        <strong style="font-size: 11px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</strong>
                                                     </div>
-                                                    <span style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: ${isOnline ? 'rgba(8,153,129,0.15)' : 'rgba(242,54,69,0.15)'}; color: ${isOnline ? theme.success : theme.error}; flex-shrink: 0; margin-left: 8px;">
+                                                    <span style="font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: ${isOnline ? 'rgba(8,153,129,0.12)' : 'rgba(242,54,69,0.12)'}; color: ${isOnline ? theme.success : theme.error};">
                                                         ${isOnline ? '🟢 Online' : '🔴 Offline'}
                                                     </span>
                                                 </label>
                                             `;
                                         }).join('')}
                                     </div>
-                                    ${endpoints.length === 1 ? `
-                                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 8px; display: flex; align-items: center; gap: 5px;">
-                                            <span>💡</span> Tied to your configured bridge. Add more bridges in <strong>Cloud Bridge Settings</strong> to distribute accounts across multiple clouds or VMs.
-                                        </div>
-                                    ` : ''}
                                 `}
                             </div>
-                            <div>
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Account Nickname (e.g. The5ers $100K, Goat $50K) *</label>
-                                <input type="text" id="mt5-in-nickname" placeholder="e.g. The5ers High Stakes" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
-                            </div>
-                            <div>
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Broker MT5 Server Name *</label>
-                                <input type="text" id="mt5-in-server" placeholder="e.g. TheFivePercenters-Live or GoatFundedTrader-Server" style="width: 100%; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
-                            </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; width: 100%;">
-                                <div style="min-width: 0;">
-                                    <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">MT5 Login ID *</label>
-                                    <input type="number" id="mt5-in-login" placeholder="e.g. 1058492" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%;">
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Account Nickname *</label>
+                                    <input type="text" id="mt5-in-nickname" placeholder="e.g. The5ers High Stakes" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                 </div>
-                                <div style="min-width: 0;">
-                                    <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">MT5 Password *</label>
-                                    <input type="password" id="mt5-in-password" placeholder="Trading password" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Broker MT5 Server *</label>
+                                    <input type="text" id="mt5-in-server" placeholder="e.g. TheFivePercenters-Live" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                 </div>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; width: 100%;">
-                                <div style="min-width: 0;">
-                                    <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Lot Scaling Multiplier</label>
-                                    <input type="number" step="0.1" id="mt5-in-mult" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; width: 100%;">
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Login ID *</label>
+                                    <input type="number" id="mt5-in-login" placeholder="1058492" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                 </div>
-                                <div style="min-width: 0;">
-                                    <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Risk Sizing %</label>
-                                    <input type="number" step="0.1" id="mt5-in-risk" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Password *</label>
+                                    <input type="password" id="mt5-in-password" placeholder="Password" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Lot Multiplier</label>
+                                    <input type="number" step="0.1" id="mt5-in-mult" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 3px;">Risk Sizing %</label>
+                                    <input type="number" step="0.1" id="mt5-in-risk" value="1.0" placeholder="1.0" style="width: 100%; box-sizing: border-box; padding: 5px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                 </div>
                             </div>
-                            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                                <button id="mt5-btn-save-acc" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 9px 18px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer;">
+                            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px;">
+                                <button id="mt5-btn-save-acc" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; font-weight: 600; font-size: 11px; cursor: pointer;">
                                     Connect & Save Account
                                 </button>
                             </div>
@@ -682,24 +680,23 @@
             });
             const dedupedAccounts = Array.from(uniqueAccountsMap.values());
 
+            const totalBalance = dedupedAccounts.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+            const totalEquity = dedupedAccounts.reduce((sum, a) => sum + (Number(a.equity) || 0), 0);
+            const floatingTotal = totalEquity - totalBalance;
+            const selectedCount = dedupedAccounts.filter(a => window.MT5API && window.MT5API.multiAccountSelection.has(a.id) && !window.MT5API.isAccountPaused(a.id)).length;
+
             const cards = dedupedAccounts.map(acc => {
                 const isActive = activeAcc && activeAcc.id === acc.id;
                 const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
                 const isChecked = window.MT5API && window.MT5API.multiAccountSelection.has(acc.id) && !isPaused;
 
-                let cardBorder = isActive ? 'rgba(41,98,255,0.6)' : (isPaused ? 'rgba(255,165,0,0.35)' : theme.border);
+                let cardBorder = isActive ? 'rgba(41,98,255,0.5)' : (isPaused ? 'rgba(255,165,0,0.3)' : theme.border);
                 const hostEp = allEndpoints.find(e => e.id === acc.endpointId) || { name: acc.endpointName, url: acc.endpointUrl };
                 const isLocalHost = this.isLocalVmBridge(hostEp);
                 const epIcon = isLocalHost ? '💻' : ((acc.endpointName || '').toLowerCase().includes('oracle') ? '☁️' : '⚡');
 
                 const activeInstances = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
                 const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
-
-                const originBadge = activeInstances.length > 1
-                    ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(8,153,129,0.12); color: ${theme.success}; border: 1px solid rgba(8,153,129,0.3); font-weight: 700;" title="Synced and active on ${activeInstances.length} bridge servers">🔗 Multi-Bridge (${activeInstances.length})</span>`
-                    : (acc.endpointName
-                        ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); font-weight: 600;" title="Hosted on ${acc.endpointUrl || acc.endpointName}">${epIcon} ${acc.endpointName}</span>`
-                        : '');
 
                 // Bridge routing badges for this account
                 const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
@@ -721,113 +718,98 @@
                     const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
 
                     const badgeColor = isConn && isOnline ? '#089981' : (isOnline ? '#2962ff' : '#f23645');
-                    const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.12)' : (isOnline ? 'rgba(41,98,255,0.1)' : 'rgba(242,54,69,0.1)');
-                    const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.3)' : (isOnline ? 'rgba(41,98,255,0.25)' : 'rgba(242,54,69,0.25)');
-                    const statusText = isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline');
+                    const badgeBg = isConn && isOnline ? 'rgba(8,153,129,0.1)' : (isOnline ? 'rgba(41,98,255,0.08)' : 'rgba(242,54,69,0.08)');
+                    const badgeBorder = isConn && isOnline ? 'rgba(8,153,129,0.25)' : (isOnline ? 'rgba(41,98,255,0.2)' : 'rgba(242,54,69,0.2)');
 
-                    return `<span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
-                        ${bIcon} ${ep.name} (${statusText})
+                    return `<span style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;" title="${ep.name}: ${isConn && isOnline ? 'Connected' : (isOnline ? 'Standby' : 'Offline')}">
+                        ${bIcon} ${ep.name} (${isConn && isOnline ? '🟢' : (isOnline ? '⚪' : '🔴')})
                     </span>`;
                 }).filter(Boolean).join('');
 
-                const hostBridgeNames = activeInstances.map(i => i.endpointName || 'Bridge Server').filter(Boolean).join(', ');
+                const hostBridgeNames = activeInstances.map(i => i.endpointName || 'Bridge').filter(Boolean).join(', ');
+                const pnl = (Number(acc.equity || 0) - Number(acc.balance || 0));
 
                 return `
                     <div class="mt5-account-card" data-id="${acc.id}" style="
                         background: ${theme.cardBg};
                         border: 1px solid ${cardBorder};
-                        border-radius: 8px;
-                        padding: 14px;
-                        margin-bottom: 10px;
+                        border-radius: 6px;
+                        padding: 6px 10px;
                         display: flex;
                         flex-direction: column;
-                        gap: 10px;
+                        gap: 4px;
                         opacity: ${isPaused ? '0.85' : '1'};
-                        transition: border 0.2s ease;
+                        transition: border 0.15s ease;
                     ">
-                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account is paused in Standby mode. Click Resume to enable.' : 'Select for Multi-Account Simultaneous Copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 16px; height: 16px; accent-color: ${theme.primary};">
-                                <div>
-                                    <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                        <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; text-decoration: underline; text-decoration-color: rgba(41,98,255,0.4); text-underline-offset: 2px;" title="Click to view full account details">${acc.nickname}</span>
-                                        ${originBadge}
-                                        ${isActive ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">ACTIVE FEED</span>` : ''}
-                                        ${isPaused ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: rgba(255,165,0,0.18); color: #ffa500; border: 1px solid rgba(255,165,0,0.4); font-weight: 700;">PAUSED</span>` : ''}
-                                    </div>
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        Login: <strong>${acc.login}</strong> • Server: <strong>${acc.server}</strong>
-                                    </div>
-                                </div>
+                        <!-- Row 1: Checkbox, Identity & Action Buttons -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 240px;">
+                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account paused' : 'Select for multi-copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 14px; height: 14px; accent-color: ${theme.primary}; flex-shrink: 0;">
+                                <span style="font-size: 10px;">${isPaused ? '⚪' : '🟢'}</span>
+                                <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
+                                ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
+                                ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(255,165,0,0.15); color: #ffa500; font-weight: 700;">PAUSED</span>` : ''}
+                                <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace;">#${acc.login} • ${acc.server}</span>
                             </div>
-                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                                <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View full account details, financial metrics, and supported tickers">📋 Details</button>
-                                <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Configure allowed bridge servers for this account">🔗 Bridges (${allowedEpIds.length})</button>
+
+                            <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
+                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.06); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.2); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Show this account on chart">⚡ Feed</button>` : ''}
+                                <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="background: rgba(41,98,255,0.06); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.2); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Configure bridges">🔗 Bridges (${allowedEpIds.length})</button>
                                 ${isPaused
-                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.12); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Resume account back to Online mode">▶️ Resume</button>`
-                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.12); color: #ffa500; border: 1px solid rgba(255,165,0,0.35); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Pause account to put into Standby mode">⏸️ Pause</button>`
+                                    ? `<button class="mt5-btn-resume-acc" data-id="${acc.id}" style="background: rgba(0,200,83,0.08); color: ${theme.success}; border: 1px solid rgba(0,200,83,0.22); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">▶️ Resume</button>`
+                                    : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: rgba(255,165,0,0.08); color: #ffa500; border: 1px solid rgba(255,165,0,0.22); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">⏸️ Pause</button>`
                                 }
-                                ${!isActive ? `<button class="mt5-btn-set-active" data-id="${acc.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Switch chart feed to this account (0ms)">⚡ Show Chart Feed</button>` : ''}
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Disconnect / remove account">✕</button>
+                                <button class="mt5-btn-view-details" data-id="${acc.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="View financial details">📋 Details</button>
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.22); padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Delete account">✕</button>
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11.5px;">
-                            <div>
-                                <span style="color: ${theme.textMuted}; font-size: 10.5px;">Balance:</span><br>
-                                <strong class="mt5-card-bal" data-id="${acc.id}" style="color: ${theme.text}; font-size: 12px;">$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                        <!-- Row 2: Financial Stats & Allowed Routing (Inline Dense) -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 10.5px; padding-top: 3px; border-top: 1px solid rgba(120,120,120,0.1);">
+                            <div style="display: flex; align-items: center; gap: 8px; font-family: monospace;">
+                                <span>Bal: <strong class="mt5-card-bal" data-id="${acc.id}" style="color: ${theme.text};">$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
+                                <span>Eq: <strong class="mt5-card-eq" data-id="${acc.id}" style="color: ${theme.success};">$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
+                                <span style="color: ${pnl >= 0 ? theme.success : theme.error}; font-weight: 600;">
+                                    ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}
+                                </span>
+                                <span style="color: ${theme.textMuted}; font-size: 9.5px;">Host: <strong style="color: ${theme.text};">${hostBridgeNames || acc.endpointName || 'Bridge'}</strong></span>
                             </div>
-                            <div>
-                                <span style="color: ${theme.textMuted}; font-size: 10.5px;">Equity:</span><br>
-                                <strong class="mt5-card-eq" data-id="${acc.id}" style="color: ${theme.success}; font-size: 12px;">$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
-                            </div>
-                            <div>
-                                <span style="color: ${theme.textMuted}; font-size: 10.5px;">Host Bridge:</span><br>
-                                <strong style="font-size: 11.5px; color: ${theme.text};">${hostBridgeNames || acc.endpointName || 'Bridge Server'}</strong>
-                            </div>
-                            <div>
-                                <span style="color: ${theme.textMuted}; font-size: 10.5px;">Status:</span><br>
-                                <strong style="color: ${isPaused ? '#ffa500' : theme.success}; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
-                                    ${isPaused ? '⚪ Standby (Paused)' : '🟢 Online'}
-                                </strong>
-                            </div>
-                        </div>
 
-                        <!-- Bridge Routing Row -->
-                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px dashed ${theme.border}; font-size: 11px;">
-                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
-                                <span style="color: ${theme.textMuted}; font-weight: 600; font-size: 10.5px;">Allowed Bridges:</span>
-                                ${allowedBridgeBadges || `<span style="color: ${theme.textMuted}; font-size: 10.5px;">${acc.endpointName || 'Bridge Server'}</span>`}
+                            <div style="display: flex; align-items: center; gap: 3px; font-size: 9.5px;">
+                                ${allowedBridgeBadges || `<span style="color: ${theme.textMuted};">${acc.endpointName || 'Bridge Server'}</span>`}
                             </div>
-                            <button class="mt5-btn-config-bridges" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
-                                background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25);
-                                padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;
-                                display: inline-flex; align-items: center; gap: 3px;
-                            " title="Configure which bridges this account is allowed to connect to">
-                                <span>🔗</span> Configure
-                            </button>
                         </div>
                     </div>
                 `;
             }).join('');
 
             return `
-                <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                        <div>
-                            <strong style="font-size: 13.5px; color: ${theme.text};">Connected MT5 Fleets</strong>
-                            <div style="font-size: 11px; color: ${theme.textMuted};">Check accounts to participate in 1-click multi-account parallel copying across all bridges.</div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Compact Summary & Control Bar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 2px;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <strong style="font-size: 12px; color: ${theme.text};">Fleet Accounts (${dedupedAccounts.length})</strong>
+                            <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace;">
+                                Bal: <strong style="color: ${theme.text};">$${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong> • 
+                                Eq: <strong style="color: ${theme.success};">$${totalEquity.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                                ${floatingTotal !== 0 ? ` • <span style="color: ${floatingTotal >= 0 ? theme.success : theme.error}; font-weight: 700;">${floatingTotal >= 0 ? '+' : ''}$${floatingTotal.toFixed(2)}</span>` : ''}
+                            </span>
                         </div>
-                        <button id="mt5-btn-add-account-view" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                            <span>➕</span> Add MT5 Account
-                        </button>
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <button id="mt5-btn-toggle-select-all" type="button" style="background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;" title="Toggle multi-account copy selection">
+                                ☑️ Multi-Select (${selectedCount})
+                            </button>
+                            <button id="mt5-btn-add-account-view" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 3px 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                                <span>➕</span> Add Account
+                            </button>
+                        </div>
                     </div>
 
                     ${accounts.length === 0 ? `
-                        <div style="text-align: center; padding: 30px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
-                            <div style="font-size: 24px; margin-bottom: 6px;">💼</div>
-                            <div style="font-weight: 600; font-size: 13px; color: ${theme.text};">No MT5 Accounts Added Yet</div>
-                            <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 4px;">Connect your The5ers, FundedNext, or broker account to start.</div>
+                        <div style="text-align: center; padding: 24px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 6px;">
+                            <div style="font-size: 20px; margin-bottom: 4px;">💼</div>
+                            <div style="font-weight: 600; font-size: 12px; color: ${theme.text};">No MT5 Accounts Added Yet</div>
+                            <div style="font-size: 10.5px; color: ${theme.textMuted}; margin-top: 2px;">Connect your broker or prop firm account to start.</div>
                         </div>
                     ` : cards}
                 </div>
@@ -851,13 +833,13 @@
 
                 let statusBadge = '';
                 if (!isEnabled) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(120,123,134,0.15); color: #787b86; font-weight: 600; border: 1px solid rgba(120,123,134,0.3);">⏸️ Disabled</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(120,123,134,0.15); color: #787b86; font-weight: 600;">⏸️ Off</span>`;
                 } else if (isOnline) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(8,153,129,0.15); color: #089981; font-weight: 600; border: 1px solid rgba(8,153,129,0.3);">🟢 Online (${ep.ping || 0}ms)</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(8,153,129,0.15); color: #089981; font-weight: 600;">🟢 ${ep.ping || 0}ms</span>`;
                 } else if (isOffline) {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(242,54,69,0.15); color: #f23645; font-weight: 600; border: 1px solid rgba(242,54,69,0.3);" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(242,54,69,0.15); color: #f23645; font-weight: 600;" title="${ep.error || 'Connection failed'}">🔴 Offline</span>`;
                 } else {
-                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 10px; padding: 2px 7px; border-radius: 10px; background: rgba(255,152,0,0.15); color: #ff9800; font-weight: 600; border: 1px solid rgba(255,152,0,0.3);">⚪ Standby</span>`;
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: rgba(255,152,0,0.15); color: #ff9800; font-weight: 600;">⚪ Standby</span>`;
                 }
 
                 const icon = ep.name.toLowerCase().includes('oracle') ? '☁️' : (ep.name.toLowerCase().includes('vmware') ? '💻' : '⚡');
@@ -868,82 +850,83 @@
                     <div class="mt5-endpoint-card" data-id="${ep.id}" style="
                         background: ${theme.cardBg};
                         border: 1px solid ${isPrimary ? 'rgba(41,98,255,0.6)' : (isEditing ? 'rgba(41,98,255,0.4)' : theme.border)};
-                        border-radius: 8px;
-                        padding: 12px 14px;
+                        border-radius: 6px;
+                        padding: 6px 10px;
                         display: flex;
                         flex-direction: column;
-                        gap: 10px;
+                        gap: 4px;
                         box-sizing: border-box;
                         width: 100%;
                         opacity: ${isEnabled ? '1' : '0.75'};
                     ">
-                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; width: 100%;">
-                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 260px;">
-                                <span style="font-size: 18px; flex-shrink: 0;">${icon}</span>
-                                <div style="min-width: 0;">
-                                    <div style="font-weight: 700; font-size: 13.5px; color: ${theme.text}; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                        <span>${ep.name}</span>
-                                        ${isPrimary ? `<span style="font-size: 9.5px; padding: 1px 6px; border-radius: 10px; background: ${theme.primary}; color: #fff; font-weight: 700;">PRIMARY BRIDGE</span>` : ''}
-                                        ${statusBadge}
-                                    </div>
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; font-family: monospace; margin-top: 2px; word-break: break-all;">
-                                        ${ep.url} • ${hostedAccs.length} account${hostedAccs.length === 1 ? '' : 's'} online
-                                        ${hasGist ? ` • <span style="color:${theme.primary}; font-weight:600;" title="Auto-Discovery Gist configured">🔄 Gist: ${ep.gistId.slice(0, 8)}...</span>` : ''}
-                                    </div>
-                                </div>
+                        <!-- Top Line: Identity & Quick Actions -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;">
+                                <span style="font-size: 13px; flex-shrink: 0;">${icon}</span>
+                                <span style="font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</span>
+                                ${isPrimary ? `<span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700; flex-shrink: 0;">PRIMARY</span>` : ''}
+                                ${statusBadge}
+                                <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace; flex-shrink: 0;">👥 ${hostedAccs.length} acc</span>
                             </div>
 
-                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0;">
-                                <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
-                                ${hasGist ? `<button type="button" class="mt5-btn-sync-single-gist" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Sync latest rotated URL from this bridge's Gist">⚡ Sync Gist</button>` : ''}
-                                <button type="button" class="mt5-btn-edit-endpoint" data-id="${ep.id}" style="background: ${isEditing ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.08)'}; color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Edit Bridge Server URL, API Key, and Gist Settings">${isEditing ? '✕ Close' : '✏️ Edit'}</button>
-                                ${!isPrimary ? `<button type="button" class="mt5-btn-set-primary-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="Set as primary default bridge">★ Set Primary</button>` : ''}
-                                <button type="button" class="mt5-btn-toggle-endpoint" data-id="${ep.id}" style="background: ${isEnabled ? 'rgba(255,165,0,0.12)' : 'rgba(0,200,83,0.12)'}; color: ${isEnabled ? '#ffa500' : theme.success}; border: 1px solid ${isEnabled ? 'rgba(255,165,0,0.3)' : 'rgba(0,200,83,0.3)'}; padding: 4px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;" title="${isEnabled ? 'Disable polling this endpoint' : 'Enable polling this endpoint'}">${isEnabled ? '⏸️ Disable' : '▶️ Enable'}</button>
-                                ${endpoints.length > 1 ? `<button type="button" class="mt5-btn-delete-endpoint" data-id="${ep.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); padding: 4px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;" title="Remove this endpoint">✕</button>` : ''}
+                            <div style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">
+                                <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
+                                ${hasGist ? `<button type="button" class="mt5-btn-sync-single-gist" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Sync latest rotated URL from this bridge's Gist">⚡ Sync</button>` : ''}
+                                <button type="button" class="mt5-btn-edit-endpoint" data-id="${ep.id}" style="background: ${isEditing ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.08)'}; color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Edit Bridge Server URL, API Key, and Gist Settings">${isEditing ? '✕ Close' : '✏️ Edit'}</button>
+                                ${!isPrimary ? `<button type="button" class="mt5-btn-set-primary-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Set as primary default bridge">★ Primary</button>` : ''}
+                                <button type="button" class="mt5-btn-toggle-endpoint" data-id="${ep.id}" style="background: ${isEnabled ? 'rgba(255,165,0,0.1)' : 'rgba(0,200,83,0.1)'}; color: ${isEnabled ? '#ffa500' : theme.success}; border: 1px solid ${isEnabled ? 'rgba(255,165,0,0.3)' : 'rgba(0,200,83,0.3)'}; height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="${isEnabled ? 'Disable polling this endpoint' : 'Enable polling this endpoint'}">${isEnabled ? '⏸️' : '▶️'}</button>
+                                ${endpoints.length > 1 ? `<button type="button" class="mt5-btn-delete-endpoint" data-id="${ep.id}" style="background: transparent; color: ${theme.error}; border: 1px solid rgba(242,54,69,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Remove this endpoint">✕</button>` : ''}
                             </div>
                         </div>
 
+                        <!-- Bottom Line: Endpoint URL & Sync Origin -->
+                        <div style="display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 10.5px; color: ${theme.textMuted}; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
+                            <span style="color: ${theme.text}; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${ep.url}</span>
+                            ${hasGist ? `<span style="color:${theme.primary}; font-weight: 600; flex-shrink: 0;" title="Auto-Discovery Gist configured">• 🔄 Gist: ${ep.gistId.slice(0, 8)}...</span>` : `<span style="color: ${theme.textMuted}; flex-shrink: 0;">• Direct / Static</span>`}
+                            <span style="color: ${theme.textMuted}; flex-shrink: 0;">• Key: ${ep.apiKey ? '••••' : 'None'}</span>
+                        </div>
+
                         ${isEditing ? `
-                            <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 6px; padding-top: 12px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 10px;">
-                                <div style="font-size: 11.5px; font-weight: 700; color: ${theme.text}; display: flex; align-items: center; justify-content: space-between;">
-                                    <span>✏️ Edit Bridge Connection & Auto-Discovery</span>
+                            <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 4px; padding-top: 8px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 6px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 10.5px; font-weight: 700; color: ${theme.primary};">✏️ EDIT BRIDGE CONNECTION & AUTO-DISCOVERY</span>
                                 </div>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                                <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge Friendly Name *</label>
-                                        <input type="text" class="mt5-in-edit-name" value="${ep.name || ''}" placeholder="e.g. Oracle Cloud VPS" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px;">
+                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Bridge Name *</label>
+                                        <input type="text" class="mt5-in-edit-name" value="${ep.name || ''}" placeholder="e.g. Oracle Cloud VPS" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                                     </div>
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge API Key (Secret Password)</label>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                                            <label style="font-size: 10px; font-weight: 600; color: ${theme.text};">Endpoint URL *</label>
+                                            <button type="button" class="mt5-btn-edit-sync-gist" data-id="${ep.id}" style="background: transparent; border: none; color: ${theme.primary}; font-size: 10px; font-weight: 600; cursor: pointer; text-decoration: underline;" title="Fetch latest rotated URL from this server's Gist">⚡ Fetch from Gist</button>
+                                        </div>
+                                        <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                    </div>
+                                    <div style="min-width: 0;">
+                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">API Key (Password)</label>
                                         <div style="position: relative; display: flex; align-items: center;">
-                                            <input type="password" class="mt5-in-edit-key" value="${ep.apiKey || ''}" placeholder="API Key" style="width: 100%; box-sizing: border-box; padding: 7px 32px 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 6px; background: transparent; border: none; cursor: pointer; font-size: 13px; opacity: 0.7;" title="Show/Hide API Key">👁️</button>
+                                            <input type="password" class="mt5-in-edit-key" value="${ep.apiKey || ''}" placeholder="Secret Key" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
                                         </div>
                                     </div>
                                 </div>
-                                <div style="min-width: 0; width: 100%;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                        <label style="font-size: 11px; font-weight: 600; color: ${theme.text};">Bridge Endpoint URL *</label>
-                                        <button type="button" class="mt5-btn-edit-sync-gist" data-id="${ep.id}" style="background: transparent; border: none; color: ${theme.primary}; font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline;" title="Fetch latest rotated URL from this server's Gist">⚡ Fetch from Gist</button>
-                                    </div>
-                                    <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="e.g. https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
-                                </div>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
-                                        <input type="text" class="mt5-in-edit-gist-id" value="${ep.gistId || ''}" placeholder="Paste Gist ID generated by this server" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 11.5px; font-family: monospace;">
+                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
+                                        <input type="text" class="mt5-in-edit-gist-id" value="${ep.gistId || ''}" placeholder="Paste Gist ID generated by this server" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
                                     </div>
                                     <div style="min-width: 0;">
-                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">GitHub Token (PAT)</label>
+                                        <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">GitHub PAT Token (stored in localStorage only)</label>
                                         <div style="position: relative; display: flex; align-items: center;">
-                                            <input type="password" class="mt5-in-edit-gist-token" value="${ep.gistToken || ''}" placeholder="ghp_... (stored only in browser localStorage)" style="width: 100%; box-sizing: border-box; padding: 7px 32px 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 11.5px; font-family: monospace;">
-                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 6px; background: transparent; border: none; cursor: pointer; font-size: 13px; opacity: 0.7;" title="Show/Hide Token">👁️</button>
+                                            <input type="password" class="mt5-in-edit-gist-token" value="${ep.gistToken || ''}" placeholder="ghp_... (local only)" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                            <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
                                         </div>
                                     </div>
                                 </div>
-                                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
-                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">Cancel</button>
-                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 6px 15px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;">💾 Save & Test Connection</button>
+                                <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
+                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
                                 </div>
                             </div>
                         ` : ''}
@@ -952,84 +935,82 @@
             }).join('');
 
             return `
-                <div style="display: flex; flex-direction: column; gap: 16px;">
-                    <!-- Top Status Banner -->
-                    <div style="background: ${theme.cardBg}; border: 1px solid ${isAnyConn ? 'rgba(8,153,129,0.3)' : theme.border}; border-radius: 8px; padding: 14px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="width: 34px; height: 34px; border-radius: 8px; background: ${isAnyConn ? theme.success : theme.warning}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">🌐</span>
-                                <div>
-                                    <strong style="font-size: 13.5px; color: ${theme.text};">Multi-Bridge Cloud & VM Mesh</strong>
-                                    <div style="font-size: 11px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        ${onlineEndpoints.length} of ${enabledEndpoints.length} enabled bridge servers online • Unified Fleet Aggregation
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                                <button id="mt5-btn-sync-all-gists" type="button" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;" title="Sync all bridges with configured Auto-Discovery Gists">
-                                    <span>⚡</span> Sync All Gists
-                                </button>
-                                <button id="mt5-btn-test-conn" type="button" style="background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; color: ${theme.text}; border: 1px solid ${theme.border}; padding: 6px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;">
-                                    <span>🔄</span> Test All Endpoints
-                                </button>
-                            </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Sleek 1-line Top Control Bar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 2px 2px;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 11px; font-weight: 700; color: ${theme.text}; letter-spacing: 0.2px;">CONFIGURED BRIDGES (${endpoints.length})</span>
+                            <span style="font-size: 10px; color: ${onlineEndpoints.length > 0 ? theme.success : theme.error}; font-family: monospace; font-weight: 600;">• ${onlineEndpoints.length}/${enabledEndpoints.length} ONLINE</span>
+                        </div>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <button id="mt5-btn-sync-all-gists" type="button" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 23px; padding: 0 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Sync all bridges with configured Auto-Discovery Gists">
+                                <span>⚡</span> Sync Gists
+                            </button>
+                            <button id="mt5-btn-test-conn" type="button" style="background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; height: 23px; padding: 0 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Test and ping all endpoints">
+                                <span>🔄</span> Ping All
+                            </button>
+                            <button id="mt5-btn-toggle-add-bridge" type="button" style="background: ${this.showAddBridgeForm ? 'rgba(255,165,0,0.15)' : theme.primary}; color: ${this.showAddBridgeForm ? '#ffa500' : '#fff'}; border: 1px solid ${this.showAddBridgeForm ? 'rgba(255,165,0,0.3)' : 'transparent'}; height: 23px; padding: 0 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                <span>${this.showAddBridgeForm ? '✕' : '➕'}</span> ${this.showAddBridgeForm ? 'Close' : 'Add Bridge'}
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Configured Endpoints List -->
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <strong style="font-size: 12.5px; color: ${theme.text};">Configured Bridge Endpoints (${endpoints.length})</strong>
-                            <span style="font-size: 11px; color: ${theme.textMuted};">Requests and trades route dynamically to each account's host</span>
-                        </div>
+                    <!-- Bridge Endpoints List -->
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
                         ${endpoints.length === 0 ? `
-                        <div style="text-align: center; padding: 24px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 8px;">
-                            <div style="font-size: 22px; margin-bottom: 4px;">🌐</div>
-                            <div style="font-weight: 600; font-size: 13px; color: ${theme.text};">No Bridge Endpoints Configured Yet</div>
-                            <div style="font-size: 11.5px; color: ${theme.textMuted}; margin-top: 3px;">Add your bridge server endpoint address and API key below to connect.</div>
+                        <div style="text-align: center; padding: 20px; background: ${theme.cardBg}; border: 1px dashed ${theme.border}; border-radius: 6px;">
+                            <div style="font-size: 18px; margin-bottom: 2px;">🌐</div>
+                            <div style="font-weight: 600; font-size: 12px; color: ${theme.text};">No Bridge Endpoints Configured Yet</div>
+                            <div style="font-size: 10.5px; color: ${theme.textMuted}; margin-top: 2px;">Click "Add Bridge" above to connect your MT5 Bridge Server.</div>
                         </div>
                         ` : cards}
                     </div>
 
-                    <!-- Add Bridge Endpoint Form -->
-                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; width: 100%; overflow: hidden;">
-                        <strong style="font-size: 12.5px; color: ${theme.text};">Connect Bridge Endpoint</strong>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
-                            <div style="min-width: 0;">
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Server Friendly Name *</label>
-                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM, Tokyo VPS" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
-                            </div>
-                            <div style="min-width: 0;">
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Bridge Endpoint URL *</label>
-                                <input type="text" id="mt5-in-new-url" placeholder="e.g. https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px;">
-                            </div>
+                    <!-- Add Bridge Endpoint Form (Collapsible) -->
+                    ${(this.showAddBridgeForm || endpoints.length === 0) ? `
+                    <div style="background: ${theme.cardBg}; border: 1px solid rgba(41,98,255,0.4); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <strong style="font-size: 11px; font-weight: 700; color: ${theme.primary}; letter-spacing: 0.2px;">➕ CONNECT NEW BRIDGE SERVER</strong>
+                            <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; font-size: 11px; cursor: pointer;">✕</button>
                         </div>
-                        <div style="min-width: 0; width: 100%;">
-                            <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Bearer API Secret Key</label>
-                            <div style="position: relative; display: flex; align-items: center;">
-                                <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="Secret key on bridge server" style="width: 100%; box-sizing: border-box; padding: 8px 34px 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
-                                <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 8px; background: transparent; border: none; cursor: pointer; font-size: 14px; opacity: 0.7;" title="Show/Hide API Key">👁️</button>
-                            </div>
-                        </div>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                        <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">Auto-Discovery Gist ID (Optional, from server BRIDGE_INFO.txt)</label>
-                                <input type="text" id="mt5-in-new-gist-id" placeholder="Optional: Gist ID from server" style="width: 100%; box-sizing: border-box; padding: 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
+                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Server Name *</label>
+                                <input type="text" id="mt5-in-new-name" placeholder="e.g. Cloud Bridge, Local VM" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px;">
                             </div>
                             <div style="min-width: 0;">
-                                <label style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;">GitHub PAT Token (Optional, for Auto-Discovery)</label>
+                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Bridge Endpoint URL *</label>
+                                <input type="text" id="mt5-in-new-url" placeholder="https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                            </div>
+                            <div style="min-width: 0;">
+                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">API Key (Password)</label>
                                 <div style="position: relative; display: flex; align-items: center;">
-                                    <input type="password" id="mt5-in-new-gist-token" placeholder="Optional: ghp_... (saved only in localStorage)" style="width: 100%; box-sizing: border-box; padding: 8px 34px 8px 12px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12.5px; font-family: monospace;">
-                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 8px; background: transparent; border: none; cursor: pointer; font-size: 14px; opacity: 0.7;" title="Show/Hide Token">👁️</button>
+                                    <input type="password" id="mt5-in-new-key" value="mt5_secret_key_2026" placeholder="API Key" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
                                 </div>
                             </div>
                         </div>
-                        <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
-                            <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; box-sizing: border-box;">
+                            <div style="min-width: 0;">
+                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">Auto-Discovery Gist ID (Optional, from BRIDGE_INFO.txt)</label>
+                                <input type="text" id="mt5-in-new-gist-id" placeholder="Optional: Gist ID generated on server" style="width: 100%; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                            </div>
+                            <div style="min-width: 0;">
+                                <label style="display: block; font-size: 10px; font-weight: 600; margin-bottom: 2px; color: ${theme.text};">GitHub PAT Token (Optional, stored only in localStorage)</label>
+                                <div style="position: relative; display: flex; align-items: center;">
+                                    <input type="password" id="mt5-in-new-gist-token" placeholder="Optional: ghp_... (browser-only)" style="width: 100%; box-sizing: border-box; padding: 4px 24px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7;" title="Show/Hide">👁️</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
+                            <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                            <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 3px 10px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
                                 <span>➕</span> Add Bridge Server
                             </button>
                         </div>
                     </div>
+                    ` : ''}
                 </div>
             `;
         }
@@ -2875,6 +2856,23 @@
                 };
             });
 
+            // Toggle select all unpaused accounts
+            const btnToggleSelectAll = modal.querySelector('#mt5-btn-toggle-select-all');
+            if (btnToggleSelectAll && window.MT5API) {
+                btnToggleSelectAll.onclick = () => {
+                    const accounts = window.MT5API.accounts || [];
+                    const unpaused = accounts.filter(a => !window.MT5API.isAccountPaused(a.id));
+                    const allSelected = unpaused.length > 0 && unpaused.every(a => window.MT5API.multiAccountSelection.has(a.id));
+                    if (allSelected) {
+                        unpaused.forEach(a => window.MT5API.multiAccountSelection.delete(a.id));
+                    } else {
+                        unpaused.forEach(a => window.MT5API.multiAccountSelection.add(a.id));
+                    }
+                    window.MT5API.saveConfig();
+                    this.renderModal();
+                };
+            }
+
             // Open Bridge Routing view for an account
             modal.querySelectorAll('.mt5-btn-config-bridges').forEach(b => {
                 b.onclick = (e) => {
@@ -3006,6 +3004,22 @@
                 };
             }
 
+            // Toggle Add Bridge Form
+            const btnToggleAddBridge = modal.querySelector('#mt5-btn-toggle-add-bridge');
+            if (btnToggleAddBridge) {
+                btnToggleAddBridge.onclick = () => {
+                    this.showAddBridgeForm = !this.showAddBridgeForm;
+                    this.renderModal();
+                };
+            }
+            const btnCancelAddBridge = modal.querySelector('#mt5-btn-cancel-add-bridge');
+            if (btnCancelAddBridge) {
+                btnCancelAddBridge.onclick = () => {
+                    this.showAddBridgeForm = false;
+                    this.renderModal();
+                };
+            }
+
             // Add Bridge Endpoint
             const btnAddEp = modal.querySelector('#mt5-btn-add-endpoint');
             if (btnAddEp) {
@@ -3031,6 +3045,7 @@
                             enabled: true
                         });
                         if (res.success) {
+                            this.showAddBridgeForm = false;
                             if (gistId && gistToken) {
                                 await window.MT5API.syncEndpointFromGist(res.endpoint.id, true);
                             }
