@@ -841,6 +841,7 @@
             const enabledEndpoints = endpoints.filter(e => e.enabled);
             const onlineEndpoints = endpoints.filter(e => e.enabled && e.status === 'online');
             const isAnyConn = onlineEndpoints.length > 0;
+            const gistCfg = window.MT5API ? window.MT5API.getGistSyncConfig() : { gistId: '9d41609fb0b53d6d5a398a915f55bb5c', token: '' };
 
             const cards = endpoints.map((ep) => {
                 const isPrimary = ep.id === activeEpId;
@@ -918,9 +919,15 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div style="min-width: 0; width: 100%;">
-                                    <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge Endpoint URL *</label>
-                                    <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="e.g. https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; width: 100%; box-sizing: border-box;">
+                                    <div style="min-width: 0;">
+                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Bridge Endpoint URL *</label>
+                                        <input type="text" class="mt5-in-edit-url" value="${ep.url || ''}" placeholder="e.g. https://...trycloudflare.com or https://IP:PORT" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 12px; font-family: monospace;">
+                                    </div>
+                                    <div style="min-width: 0;">
+                                        <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Gist Vault Key (Optional)</label>
+                                        <input type="text" class="mt5-in-edit-vault-key" value="${ep.vaultKey || ''}" placeholder="auto (oracle_cloud / vmware_local)" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 11.5px; font-family: monospace;">
+                                    </div>
                                 </div>
                                 <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
                                     <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;">Cancel</button>
@@ -949,6 +956,40 @@
                             <button id="mt5-btn-test-conn" type="button" style="background: ${theme.isDark ? '#2a2e39' : '#e0e3eb'}; color: ${theme.text}; border: 1px solid ${theme.border}; padding: 6px 14px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;">
                                 <span>🔄</span> Test All Endpoints
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Auto-Discovery Rendezvous Vault (Private GitHub Gist) -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid rgba(41,98,255,0.25); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; width: 100%;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">🔄</span>
+                                <div>
+                                    <strong style="font-size: 13px; color: ${theme.text};">Auto-Discovery Vault (Private GitHub Gist Sync)</strong>
+                                    <div style="font-size: 11px; color: ${theme.textMuted};">Automatically discovers rotated Cloudflare URLs without manual editing • AES-256-GCM Encrypted</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="mt5-gist-sync-badge" style="font-size: 10.5px; padding: 3px 8px; border-radius: 4px; background: ${theme.inputBg}; color: ${gistCfg.status === 'ok' ? theme.success : (gistCfg.status === 'error' ? theme.error : theme.textMuted)}; font-weight: 600; border: 1px solid ${theme.border};">
+                                    ${gistCfg.lastSynced ? `✓ Synced ${Math.round((Date.now() - gistCfg.lastSynced) / 60000)}m ago` : '⚪ Not Synced'}
+                                </span>
+                                <button id="mt5-btn-gist-sync" type="button" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                                    <span>⚡</span> Sync Now
+                                </button>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; width: 100%; box-sizing: border-box;">
+                            <div style="min-width: 0;">
+                                <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">Private Gist ID</label>
+                                <input type="text" id="mt5-in-gist-id" value="${gistCfg.gistId || '9d41609fb0b53d6d5a398a915f55bb5c'}" placeholder="e.g. 9d41609fb0b53d6d5a398a915f55bb5c" style="width: 100%; box-sizing: border-box; padding: 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 11.5px; font-family: monospace;">
+                            </div>
+                            <div style="min-width: 0;">
+                                <label style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 4px; color: ${theme.text};">GitHub Personal Access Token (PAT)</label>
+                                <div style="position: relative; display: flex; align-items: center;">
+                                    <input type="password" id="mt5-in-gist-token" value="${gistCfg.token || ''}" placeholder="ghp_... (Saved only in private localStorage)" style="width: 100%; box-sizing: border-box; padding: 7px 32px 7px 10px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 6px; font-size: 11.5px; font-family: monospace;">
+                                    <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 6px; background: transparent; border: none; cursor: pointer; font-size: 13px; opacity: 0.7;" title="Show/Hide Token">👁️</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -3082,10 +3123,12 @@
                     const inName = card.querySelector('.mt5-in-edit-name');
                     const inUrl = card.querySelector('.mt5-in-edit-url');
                     const inKey = card.querySelector('.mt5-in-edit-key');
+                    const inVaultKey = card.querySelector('.mt5-in-edit-vault-key');
 
                     const name = inName ? inName.value.trim() : '';
                     const url = inUrl ? inUrl.value.trim() : '';
                     const apiKey = inKey ? inKey.value.trim() : '';
+                    const vaultKey = inVaultKey ? inVaultKey.value.trim() : null;
 
                     if (!url) {
                         alert('Bridge Endpoint URL cannot be empty.');
@@ -3095,7 +3138,7 @@
                     btn.innerText = 'Connecting...';
                     btn.disabled = true;
 
-                    window.MT5API.updateEndpoint(id, { name, url, apiKey });
+                    window.MT5API.updateEndpoint(id, { name, url, apiKey, vaultKey });
                     const res = await window.MT5API.testSingleEndpoint(id);
                     this.editingEndpointId = null;
                     this.renderModal();
@@ -3107,6 +3150,38 @@
                     }
                 };
             });
+
+            // Auto-Discovery Gist Sync
+            const btnGistSync = modal.querySelector('#mt5-btn-gist-sync');
+            const inGistId = modal.querySelector('#mt5-in-gist-id');
+            const inGistToken = modal.querySelector('#mt5-in-gist-token');
+
+            const saveGistInputs = () => {
+                if (!window.MT5API || !inGistId || !inGistToken) return;
+                const cfg = window.MT5API.getGistSyncConfig();
+                cfg.gistId = inGistId.value.trim();
+                cfg.token = inGistToken.value.trim();
+                cfg.enabled = true;
+                window.MT5API.saveGistSyncConfig(cfg);
+            };
+
+            if (inGistId) inGistId.onchange = saveGistInputs;
+            if (inGistToken) inGistToken.onchange = saveGistInputs;
+
+            if (btnGistSync) {
+                btnGistSync.onclick = async () => {
+                    saveGistInputs();
+                    btnGistSync.innerText = 'Syncing...';
+                    btnGistSync.disabled = true;
+                    const res = await window.MT5API.syncFromGist(true);
+                    this.renderModal();
+                    if (res.success) {
+                        alert(`✓ Auto-Discovery Complete!\nDiscovered & updated ${res.updatedCount} bridge endpoint(s) from your private Gist vault.`);
+                    } else {
+                        alert(`✕ Gist Sync Failed: ${res.error || res.reason}\nPlease verify your Gist ID and GitHub Personal Access Token (PAT).`);
+                    }
+                };
+            }
 
             // Test All Connections
             const btnTestConn = modal.querySelector('#mt5-btn-test-conn');

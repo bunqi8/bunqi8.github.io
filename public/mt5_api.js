@@ -156,6 +156,7 @@
                         name: e.name,
                         url: e.url,
                         apiKey: e.apiKey,
+                        vaultKey: e.vaultKey || null,
                         enabled: e.enabled !== false,
                         status: e.status || 'unknown',
                         ping: e.ping || 0,
@@ -176,6 +177,105 @@
         // --- Multi-Bridge Endpoint Management ---
         getEndpoints() {
             return this.endpoints || [];
+        }
+
+        getGistSyncConfig() {
+            try {
+                const raw = localStorage.getItem('mt5_gist_sync');
+                if (raw) return JSON.parse(raw);
+            } catch (_) {}
+            return {
+                enabled: true,
+                gistId: '9d41609fb0b53d6d5a398a915f55bb5c',
+                token: '',
+                lastSynced: 0,
+                status: 'idle'
+            };
+        }
+
+        saveGistSyncConfig(cfg) {
+            try {
+                localStorage.setItem('mt5_gist_sync', JSON.stringify(cfg));
+            } catch (_) {}
+        }
+
+        async syncFromGist(force = false) {
+            const cfg = this.getGistSyncConfig();
+            if (!cfg || !cfg.enabled || !cfg.gistId || !cfg.token) {
+                return { success: false, reason: 'Gist sync not configured' };
+            }
+
+            // Rate-limit automated checks to once per 60 seconds unless forced
+            const now = Date.now();
+            if (!force && this._lastGistFetchTime && (now - this._lastGistFetchTime < 60000)) {
+                return { success: true, rateLimited: true, lastSynced: cfg.lastSynced };
+            }
+            this._lastGistFetchTime = now;
+
+            try {
+                const res = await fetch(`https://api.github.com/gists/${cfg.gistId.trim()}`, {
+                    headers: {
+                        'Authorization': `token ${cfg.token.trim()}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                if (!res.ok) throw new Error(`GitHub Gist API HTTP ${res.status}`);
+                const data = await res.json();
+                const vaultFile = data.files && data.files['mt5_bridges.json'];
+                if (!vaultFile || !vaultFile.content) throw new Error('mt5_bridges.json not found in Gist');
+
+                const vault = JSON.parse(vaultFile.content);
+                const bridges = vault.bridges || {};
+                let updatedCount = 0;
+
+                for (const ep of this.endpoints) {
+                    let vaultKey = ep.vaultKey;
+                    if (!vaultKey) {
+                        const lowerName = (ep.name || '').toLowerCase();
+                        const lowerUrl = (ep.url || '').toLowerCase();
+                        if (lowerName.includes('oracle') || lowerUrl.includes('trycloudflare') || lowerName.includes('cloud')) {
+                            vaultKey = 'oracle_cloud';
+                        } else if (lowerName.includes('vmware') || lowerUrl.includes('172.16.') || lowerName.includes('local')) {
+                            vaultKey = 'vmware_local';
+                        }
+                    }
+
+                    if (vaultKey && bridges[vaultKey] && bridges[vaultKey].url) {
+                        const encryptedUrl = bridges[vaultKey].url;
+                        const decryptedUrl = await this.decryptE2EPayload(encryptedUrl, ep.apiKey);
+                        if (decryptedUrl && decryptedUrl.startsWith('http')) {
+                            const clean = decryptedUrl.trim().replace(/\/+$/, '');
+                            if (clean !== ep.url) {
+                                console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL from ${ep.url} -> ${clean}`);
+                                ep.url = clean;
+                                ep.status = 'unknown';
+                                ep.ping = 0;
+                                updatedCount++;
+                            }
+                        }
+                    }
+                }
+
+                cfg.lastSynced = Date.now();
+                cfg.status = 'ok';
+                cfg.error = null;
+                this.saveGistSyncConfig(cfg);
+
+                if (updatedCount > 0) {
+                    this.saveConfig();
+                    this.testConnection();
+                    this.ensureWebSocket();
+                    this.notifyAccountListeners();
+                }
+
+                return { success: true, updatedCount, lastSynced: cfg.lastSynced };
+            } catch (err) {
+                console.warn('[MT5API] Gist sync failed:', err);
+                cfg.status = 'error';
+                cfg.error = err.message;
+                this.saveGistSyncConfig(cfg);
+                return { success: false, error: err.message };
+            }
         }
 
         getActiveEndpoint() {
@@ -274,6 +374,7 @@
             if (updates.name !== undefined) ep.name = String(updates.name).trim();
             if (updates.url !== undefined) ep.url = String(updates.url).trim().replace(/\/+$/, '');
             if (updates.apiKey !== undefined) ep.apiKey = String(updates.apiKey).trim();
+            if (updates.vaultKey !== undefined) ep.vaultKey = updates.vaultKey ? String(updates.vaultKey).trim() : null;
             if (updates.enabled !== undefined) ep.enabled = Boolean(updates.enabled);
             this.saveConfig();
             this.syncAccounts(true);
@@ -396,6 +497,14 @@
             if (anySuccess) {
                 this.pingMs = successful[0].ping;
                 this.syncAccounts(true);
+            } else {
+                // If all enabled endpoints are offline, attempt Gist Auto-Discovery to recover rotated URLs
+                try {
+                    const syncRes = await this.syncFromGist();
+                    if (syncRes && syncRes.updatedCount > 0) {
+                        return this.testConnection();
+                    }
+                } catch (_) {}
             }
             return {
                 success: anySuccess,
@@ -1994,6 +2103,12 @@
                                     this.positions = newPositions;
                                     this.notifyPositionListeners();
                                 }
+                            } else if (msg.type === 'tunnel_migration' && msg.new_url) {
+                                console.log(`[MT5API] 🚀 In-band tunnel migration event received for ${ep.name}: ${msg.new_url}`);
+                                ep.url = String(msg.new_url).trim().replace(/\/+$/, '');
+                                this.saveConfig();
+                                this.reconnectWebSocket(ep.id);
+                                this.testSingleEndpoint(ep.id);
                             }
                         } catch (_) {}
                     };
@@ -2005,6 +2120,8 @@
                         }
                         this.wsSockets.delete(ep.id);
                         if (this.ws === socket) this.ws = null;
+                        // Auto-discover via Gist if WebSocket dropped unexpectedly
+                        this.syncFromGist();
                         setTimeout(() => {
                             if (this.tickListeners && this.tickListeners.size > 0 && ep.enabled) {
                                 this.ensureWebSocket();
