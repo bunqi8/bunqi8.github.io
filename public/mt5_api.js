@@ -12,6 +12,9 @@
             this.configKey = 'tv_mt5_bridge_config';
             this.endpoints = [];
             this.activeEndpointId = null;
+            this.masterGistToken = '';
+            this._decryptPromise = null;
+            this._secretsDecrypted = false;
             this.wsSockets = new Map();
             this.loadConfig();
 
@@ -124,15 +127,20 @@
                 }
 
                 this.endpoints = endpoints;
+                this.masterGistToken = cfg.masterGistToken || '';
                 this.activeEndpointId = cfg.activeEndpointId || (this.endpoints[0] ? this.endpoints[0].id : null);
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
                 this.pausedAccountIds = new Set(cfg.pausedAccountIds || []);
             } catch (_) {
                 this.endpoints = [];
+                this.masterGistToken = '';
                 this.activeEndpointId = null;
                 this.multiAccountSelection = new Set();
                 this.pausedAccountIds = new Set();
             }
+
+            // Immediately kick off asynchronous decryption of encrypted secrets in background
+            this.decryptConfigSecrets();
 
             // Instantly restore cached accounts on page load for 0ms exchange rendering
             try {
@@ -148,24 +156,63 @@
             } catch (_) {}
         }
 
-        saveConfig() {
+        async decryptConfigSecrets() {
+            if (this._decryptPromise) return this._decryptPromise;
+            this._decryptPromise = (async () => {
+                try {
+                    if (this.masterGistToken && (this.masterGistToken.startsWith('enc:v1:') || this.masterGistToken.startsWith('b64:v1:'))) {
+                        this.masterGistToken = await this.decryptVaultSecret(this.masterGistToken);
+                    }
+                    for (const ep of (this.endpoints || [])) {
+                        if (ep.apiKey && (ep.apiKey.startsWith('enc:v1:') || ep.apiKey.startsWith('b64:v1:'))) {
+                            ep.apiKey = await this.decryptVaultSecret(ep.apiKey);
+                        }
+                        if (ep.gistId && (ep.gistId.startsWith('enc:v1:') || ep.gistId.startsWith('b64:v1:'))) {
+                            ep.gistId = await this.decryptVaultSecret(ep.gistId);
+                        }
+                        if (ep.gistToken && (ep.gistToken.startsWith('enc:v1:') || ep.gistToken.startsWith('b64:v1:'))) {
+                            ep.gistToken = await this.decryptVaultSecret(ep.gistToken);
+                        }
+                    }
+                    this._secretsDecrypted = true;
+                } catch (e) {
+                    console.warn('[MT5API] Error decrypting config secrets:', e);
+                }
+            })();
+            return this._decryptPromise;
+        }
+
+        async ensureSecretsDecrypted() {
+            if (this._decryptPromise) await this._decryptPromise;
+        }
+
+        async saveConfig() {
             try {
-                const payload = {
-                    endpoints: (this.endpoints || []).map(e => ({
+                const encryptedEndpoints = await Promise.all((this.endpoints || []).map(async (e) => {
+                    const encApiKey = e.apiKey ? await this.encryptVaultSecret(e.apiKey) : '';
+                    const encGistId = e.gistId ? await this.encryptVaultSecret(e.gistId) : '';
+                    const encGistToken = e.gistToken ? await this.encryptVaultSecret(e.gistToken) : '';
+                    return {
                         id: e.id,
                         name: e.name,
                         url: e.url,
-                        apiKey: e.apiKey,
-                        gistId: e.gistId || '',
-                        gistToken: e.gistToken || '',
+                        apiKey: encApiKey,
+                        gistId: encGistId,
+                        gistToken: encGistToken,
                         enabled: e.enabled !== false,
                         status: e.status || 'unknown',
                         ping: e.ping || 0,
                         error: e.error || null
-                    })),
+                    };
+                }));
+
+                const encMasterToken = this.masterGistToken ? await this.encryptVaultSecret(this.masterGistToken) : '';
+
+                const payload = {
+                    endpoints: encryptedEndpoints,
+                    masterGistToken: encMasterToken,
                     activeEndpointId: this.activeEndpointId,
                     endpoint: this.endpoint,
-                    apiKey: this.apiKey,
                     multiAccountSelection: Array.from(this.multiAccountSelection || []),
                     pausedAccountIds: Array.from(this.pausedAccountIds || [])
                 };
@@ -175,21 +222,56 @@
             }
         }
 
+        // --- Master GitHub Gist Token Subsystem ---
+        getMasterGistToken() {
+            return this.masterGistToken || '';
+        }
+
+        hasMasterGistToken() {
+            return Boolean(this.masterGistToken && this.masterGistToken.trim());
+        }
+
+        async setMasterGistToken(token) {
+            await this.ensureSecretsDecrypted();
+            this.masterGistToken = (token || '').trim();
+            await this.saveConfig();
+            this.syncAllEndpointsFromGist(false).then(() => this.syncAccounts(true));
+            return true;
+        }
+
+        async clearMasterGistToken() {
+            await this.ensureSecretsDecrypted();
+            this.masterGistToken = '';
+            await this.saveConfig();
+            this.syncAccounts(true);
+            return true;
+        }
+
+        getEndpointGistToken(endpointId) {
+            const ep = (this.endpoints || []).find(e => e.id === endpointId);
+            if (ep && ep.gistToken && ep.gistToken.trim()) {
+                return ep.gistToken.trim();
+            }
+            return (this.masterGistToken || '').trim();
+        }
+
         // --- Multi-Bridge Endpoint Management ---
         getEndpoints() {
             return this.endpoints || [];
         }
 
         async syncEndpointFromGist(endpointId, testEndpoint = false) {
+            await this.ensureSecretsDecrypted();
             const ep = (this.endpoints || []).find(e => e.id === endpointId);
-            if (!ep || !ep.gistId || !ep.gistToken) {
-                return { success: false, reason: 'Gist ID or Token not configured for this bridge' };
+            const token = this.getEndpointGistToken(endpointId);
+            if (!ep || !ep.gistId || !token) {
+                return { success: false, reason: 'Gist ID or Token not configured for this bridge (configure per bridge or set Master Token)' };
             }
 
             try {
                 const res = await fetch(`https://api.github.com/gists/${ep.gistId.trim()}`, {
                     headers: {
-                        'Authorization': `token ${ep.gistToken.trim()}`,
+                        'Authorization': `token ${token.trim()}`,
                         'Accept': 'application/vnd.github.v3+json'
                     }
                 });
@@ -246,7 +328,8 @@
         }
 
         async syncAllEndpointsFromGist(testEndpoints = false) {
-            const configured = (this.endpoints || []).filter(e => e.gistId && e.gistToken);
+            await this.ensureSecretsDecrypted();
+            const configured = (this.endpoints || []).filter(e => e.gistId && this.getEndpointGistToken(e.id));
             if (configured.length === 0) return { total: 0, updated: 0 };
             const results = await Promise.all(configured.map(e => this.syncEndpointFromGist(e.id, testEndpoints)));
             const updated = results.filter(r => r.success && r.changed).length;
@@ -457,7 +540,8 @@
                 return { success: true, ping, data };
             } catch (err) {
                 // If offline and bridge has Gist configured, attempt Auto-Discovery recovery
-                if (ep.gistId && ep.gistToken && !retry) {
+                const gistToken = this.getEndpointGistToken(endpointId);
+                if (ep.gistId && gistToken && !retry) {
                     try {
                         const sync = await this.syncEndpointFromGist(endpointId);
                         if (sync.success && sync.changed) {
@@ -538,20 +622,19 @@
             // Proactive startup Gist auto-discovery:
             // If any bridge has Gist configured, immediately detect rotated Cloudflare URLs
             // so we don't have to wait for connection timeouts or manual user intervention!
-            const hasGistConfigured = (this.endpoints || []).some(e => e.enabled && e.gistId && e.gistToken);
-            if (hasGistConfigured) {
-                setTimeout(async () => {
-                    try {
-                        const res = await this.syncAllEndpointsFromGist(false);
+            this.decryptConfigSecrets().then(() => {
+                const hasGistConfigured = (this.endpoints || []).some(e => e.enabled && e.gistId && this.getEndpointGistToken(e.id));
+                if (hasGistConfigured) {
+                    this.syncAllEndpointsFromGist(false).then(res => {
                         if (res && res.updated > 0) {
                             console.log(`[MT5API] 🚀 Startup Gist auto-discovery updated ${res.updated} bridge URL(s). Syncing accounts...`);
                             this.syncAccounts(true);
                         }
-                    } catch (err) {
+                    }).catch(err => {
                         console.warn('[MT5API] Startup Gist auto-discovery check:', err);
-                    }
-                }, 50);
-            }
+                    });
+                }
+            });
         }
 
         // --- Parallel Multi-Bridge Account Sync ---
@@ -581,7 +664,8 @@
                     // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
                     // automatically check Gist for the newly generated URL and retry immediately!
                     const now = Date.now();
-                    if (ep.gistId && ep.gistToken && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
+                    const gistToken = this.getEndpointGistToken(ep.id);
+                    if (ep.gistId && gistToken && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
                         ep._lastGistAutoCheck = now;
                         try {
                             console.log(`[MT5API] 🔍 Endpoint '${ep.name}' unreachable (${err.message}). Auto-checking Gist for rotated tunnel URL...`);
