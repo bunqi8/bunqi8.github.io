@@ -109,33 +109,88 @@
         }
 
         getTheme() {
-            const isDark = document.body.classList.contains('theme-dark') || 
-                           window.matchMedia('(prefers-color-scheme: dark)').matches || true;
+            let isDark = false;
+            try {
+                if (window.tvWidget && typeof window.tvWidget.getTheme === 'function') {
+                    isDark = window.tvWidget.getTheme().toLowerCase() === 'dark';
+                }
+            } catch (_) {}
+            if (!isDark) {
+                isDark = document.body.classList.contains('theme-dark') || 
+                         document.documentElement.getAttribute('data-theme') === 'dark' ||
+                         document.documentElement.classList.contains('theme-dark');
+            }
+
+            if (isDark) {
+                // Official TradingView Dark Theme
+                return {
+                    isDark: true,
+                    bg: '#1e222d',
+                    cardBg: '#131722',
+                    cardSurface: '#2a2e39',
+                    border: '#2a2e39',
+                    borderSubtle: '#1e222d',
+                    text: '#d1d4dc',
+                    textMuted: '#787b86',
+                    textDim: '#5d606b',
+                    primary: '#2962ff',
+                    primarySoft: 'rgba(41, 98, 255, 0.12)',
+                    primaryBorder: 'rgba(41, 98, 255, 0.3)',
+                    success: '#089981',
+                    successSoft: 'rgba(8, 153, 129, 0.12)',
+                    successBorder: 'rgba(8, 153, 129, 0.3)',
+                    error: '#f23645',
+                    errorSoft: 'rgba(242, 54, 69, 0.12)',
+                    errorBorder: 'rgba(242, 54, 69, 0.3)',
+                    warning: '#ff9800',
+                    warningSoft: 'rgba(255, 152, 0, 0.12)',
+                    warningBorder: 'rgba(255, 152, 0, 0.3)',
+                    inputBg: '#131722',
+                    inputBorder: '#363c4e',
+                    inputText: '#d1d4dc',
+                    pillBg: '#2a2e39',
+                    pillText: '#787b86',
+                    pillBorder: '#363c4e',
+                    rowBg: '#131722',
+                    rowHover: '#2a2e39',
+                    rowBorder: '#2a2e39',
+                    shadow: '0 16px 45px rgba(0,0,0,0.5)',
+                };
+            }
+
+            // Official TradingView Light Theme (Signature TV Palette matching chart)
             return {
-                isDark,
-                bg: isDark ? '#0d1117' : '#ffffff',
-                cardBg: isDark ? '#161b22' : '#f6f8fa',
-                cardSurface: isDark ? '#1c212c' : '#ffffff',
-                border: isDark ? 'rgba(255, 255, 255, 0.08)' : '#d0d7de',
-                borderSubtle: isDark ? 'rgba(255, 255, 255, 0.05)' : '#eaeef2',
-                text: isDark ? '#f0f6fc' : '#1f2328',
-                textMuted: isDark ? '#8b949e' : '#656d76',
-                textDim: isDark ? '#6e7681' : '#8c959f',
-                primary: '#3b82f6',
-                primarySoft: 'rgba(59, 130, 246, 0.12)',
-                primaryBorder: 'rgba(59, 130, 246, 0.25)',
-                success: '#10b981',
-                successSoft: 'rgba(16, 185, 129, 0.12)',
-                successBorder: 'rgba(16, 185, 129, 0.25)',
-                error: '#f43f5e',
-                errorSoft: 'rgba(244, 63, 94, 0.12)',
-                errorBorder: 'rgba(244, 63, 94, 0.25)',
-                warning: '#f59e0b',
-                warningSoft: 'rgba(245, 158, 11, 0.12)',
-                warningBorder: 'rgba(245, 158, 11, 0.25)',
-                inputBg: isDark ? '#0b0e14' : '#ffffff',
-                inputBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#d0d7de',
-                inputText: isDark ? '#f0f6fc' : '#1f2328',
+                isDark: false,
+                bg: '#ffffff',
+                cardBg: '#f8f9fd',
+                cardSurface: '#ffffff',
+                border: '#e0e3eb',
+                borderSubtle: '#f0f3fa',
+                text: '#131722',
+                textMuted: '#787b86',
+                textDim: '#b2b5be',
+                primary: '#2962ff',
+                primarySoft: 'rgba(41, 98, 255, 0.08)',
+                primaryBorder: 'rgba(41, 98, 255, 0.25)',
+                success: '#089981',
+                successSoft: 'rgba(8, 153, 129, 0.1)',
+                successBorder: 'rgba(8, 153, 129, 0.25)',
+                error: '#f23645',
+                errorSoft: 'rgba(242, 54, 69, 0.1)',
+                errorBorder: 'rgba(242, 54, 69, 0.25)',
+                warning: '#ff9800',
+                warningSoft: 'rgba(255, 152, 0, 0.1)',
+                warningBorder: 'rgba(255, 152, 0, 0.25)',
+                inputBg: '#ffffff',
+                inputBorder: '#d1d4dc',
+                inputText: '#131722',
+                pillBg: '#f0f3fa',
+                pillText: '#787b86',
+                pillBorder: '#e0e3eb',
+                rowBg: '#ffffff',
+                rowHover: '#f0f3fa',
+                rowBorder: '#e0e3eb',
+                shadow: '0 16px 45px rgba(0,0,0,0.18)',
             };
         }
 
@@ -467,40 +522,39 @@
                         scrollbar-color: rgba(120, 120, 120, 0.35) transparent;
                     }
                     .mt5-ghost-btn {
-                        background: rgba(255, 255, 255, 0.04) !important;
-                        color: ${theme.textMuted} !important;
-                        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                        transition: all 0.14s ease !important;
+                        background: ${theme.pillBg} !important;
+                        color: ${theme.text} !important;
+                        border: 1px solid ${theme.border} !important;
+                        transition: all 0.12s ease !important;
                     }
                     .mt5-ghost-btn:hover {
-                        background: rgba(255, 255, 255, 0.08) !important;
-                        color: #ffffff !important;
-                        border-color: rgba(255, 255, 255, 0.16) !important;
+                        background: ${theme.rowHover} !important;
+                        color: ${theme.primary} !important;
+                        border-color: ${theme.primaryBorder} !important;
                     }
                     .mt5-btn-chart-symbol {
-                        background: rgba(255, 255, 255, 0.035) !important;
-                        color: #cbd5e1 !important;
-                        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                        transition: all 0.14s ease !important;
+                        background: ${theme.primarySoft} !important;
+                        color: ${theme.primary} !important;
+                        border: 1px solid ${theme.primaryBorder} !important;
+                        transition: all 0.12s ease !important;
                     }
                     .mt5-btn-chart-symbol:hover {
-                        background: rgba(59, 130, 246, 0.16) !important;
-                        color: #60a5fa !important;
-                        border-color: rgba(59, 130, 246, 0.35) !important;
+                        background: ${theme.primary} !important;
+                        color: #ffffff !important;
+                        border-color: ${theme.primary} !important;
                     }
                     .mt5-ticker-row {
                         transition: background 0.12s ease !important;
                     }
                     .mt5-ticker-row:hover {
-                        background: rgba(255, 255, 255, 0.035) !important;
-                        border-color: rgba(255, 255, 255, 0.1) !important;
+                        background: ${theme.rowHover} !important;
                     }
                     .mt5-cat-pill {
                         transition: all 0.12s ease !important;
                     }
-                    .mt5-cat-pill:hover:not([style*="rgb(59, 130, 246)"]) {
-                        background: rgba(255, 255, 255, 0.06) !important;
-                        color: #ffffff !important;
+                    .mt5-cat-pill:hover:not([style*="rgb(41, 98, 255)"]):not([style*="#2962ff"]) {
+                        background: ${theme.rowHover} !important;
+                        color: ${theme.text} !important;
                     }
                 </style>
                 <div style="
@@ -513,9 +567,9 @@
                     max-height: 88vh;
                     display: flex;
                     flex-direction: column;
-                    box-shadow: 0 16px 45px rgba(0,0,0,0.5);
+                    box-shadow: ${theme.shadow};
                     overflow: hidden;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
                 ">
                     <!-- Modal Header (Unified Streamlined Bar) -->
                     <div style="
@@ -2010,27 +2064,27 @@
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
-                        padding: 5px 10px;
-                        background: rgba(255, 255, 255, 0.015);
-                        border: 1px solid rgba(255, 255, 255, 0.05);
-                        border-radius: 4px;
-                        margin-bottom: 3px;
+                        padding: 6px 12px;
+                        background: ${theme.rowBg};
+                        border: 1px solid ${theme.border};
+                        border-radius: 5px;
+                        margin-bottom: 4px;
                         gap: 8px;
                     ">
-                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;">
-                            <strong style="font-size: 12px; color: ${theme.text}; font-family: 'SF Mono', Monaco, Consolas, monospace; letter-spacing: 0.2px;">${s.name}</strong>
-                            <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.04); color: ${theme.textMuted}; border: 1px solid rgba(255, 255, 255, 0.07); font-weight: 500; white-space: nowrap;">${cat}</span>
-                            ${desc ? `<span style="font-size: 10.5px; color: ${theme.textDim}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
+                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                            <strong style="font-size: 12.5px; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${s.name}</strong>
+                            <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: ${theme.pillBg}; color: ${theme.textMuted}; border: 1px solid ${theme.border}; font-weight: 600; white-space: nowrap;">${cat}</span>
+                            ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                            <div style="font-size: 10px; color: ${theme.textMuted}; text-align: right; white-space: nowrap; font-family: monospace;">
+                            <div style="font-size: 10.5px; color: ${theme.textMuted}; text-align: right; white-space: nowrap; font-family: monospace;">
                                 <span>Lots: <strong>${minLot}</strong>-${maxLot}</span>
-                                <span style="margin-left: 4px; opacity: 0.65;">(${digits}d)</span>
+                                <span style="margin-left: 4px; opacity: 0.75;">(${digits}d)</span>
                             </div>
                             <button class="mt5-btn-chart-symbol" data-symbol="${s.name}" data-server="${server || ''}" style="
-                                padding: 2px 8px;
+                                padding: 3px 8px;
                                 border-radius: 4px;
-                                font-size: 10px;
+                                font-size: 10.5px;
                                 font-weight: 600;
                                 cursor: pointer;
                                 display: inline-flex;
@@ -2082,9 +2136,9 @@
                     pill.style.color = '#ffffff';
                     pill.style.borderColor = theme.primary;
                 } else {
-                    pill.style.background = 'rgba(255, 255, 255, 0.03)';
+                    pill.style.background = theme.pillBg;
                     pill.style.color = theme.textMuted;
-                    pill.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                    pill.style.borderColor = theme.border;
                 }
             });
         }
@@ -2407,9 +2461,9 @@
                                 <!-- Category Pills Filter -->
                                 <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
                                     <button class="mt5-cat-pill" data-cat="ALL" style="
-                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'rgba(255,255,255,0.03)'};
+                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.pillBg};
                                         color: ${this.tickerCategoryFilter === 'ALL' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : 'rgba(255,255,255,0.08)'};
+                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.border};
                                         padding: 2px 8px;
                                         border-radius: 4px;
                                         font-size: 10px;
@@ -2421,9 +2475,9 @@
                                     </button>
                                     ${categoryList.map(cat => `
                                         <button class="mt5-cat-pill" data-cat="${cat}" style="
-                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : 'rgba(255,255,255,0.03)'};
+                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : theme.pillBg};
                                             color: ${this.tickerCategoryFilter === cat ? '#ffffff' : theme.textMuted};
-                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : 'rgba(255,255,255,0.08)'};
+                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : theme.border};
                                             padding: 2px 8px;
                                             border-radius: 4px;
                                             font-size: 10px;
