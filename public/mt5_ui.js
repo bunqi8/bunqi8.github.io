@@ -3330,7 +3330,10 @@
                     const activeSessions = m.active_sessions || [];
                     const activeStr = activeSessions.length === 0
                         ? '  None (0 users right now)'
-                        : activeSessions.map(s => `  • [${s.type}] ${s.username} (${s.ip}) — active for ${Math.floor(s.duration_sec / 60)}m ${s.duration_sec % 60}s`).join('\n');
+                        : activeSessions.map(s => {
+                            const icon = s.type === 'SSH' ? '💻' : (s.type === 'RDP' ? '🖥️' : (s.type === 'BRIDGE_WS' ? '📈' : '🌐'));
+                            return `  • ${icon} [${s.type}] ${s.username} (${s.ip}) — active for ${Math.floor(s.duration_sec / 60)}m ${s.duration_sec % 60}s`;
+                        }).join('\n');
                     
                     const recentHist = (res.history || []).slice(0, 8);
                     const histStr = recentHist.length === 0
