@@ -3331,7 +3331,7 @@
                     const activeStr = activeSessions.length === 0
                         ? '  None (0 users right now)'
                         : activeSessions.map(s => {
-                            const icon = s.type === 'SSH' ? '💻' : (s.type === 'RDP' ? '🖥️' : (s.type === 'BRIDGE_WS' ? '📈' : '🌐'));
+                            const icon = s.type === 'SSH' ? '💻' : (s.type === 'RDP' ? '🖥️' : (s.type === 'DESKTOP' ? '🪟' : (s.type === 'BRIDGE_WS' ? '📈' : '🌐')));
                             return `  • ${icon} [${s.type}] ${s.username} (${s.ip}) — active for ${Math.floor(s.duration_sec / 60)}m ${s.duration_sec % 60}s`;
                         }).join('\n');
                     
