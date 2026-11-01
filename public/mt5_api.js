@@ -340,8 +340,11 @@
             if (!this.endpoints || this.endpoints.length === 0) return null;
             if (this.activeEndpointId) {
                 const matched = this.endpoints.find(e => e.id === this.activeEndpointId);
-                if (matched) return matched;
+                if (matched && matched.enabled && matched.status !== 'offline') return matched;
             }
+            // Auto-failover: Pick the first online enabled endpoint
+            const firstOnline = this.endpoints.find(e => e.enabled && e.status !== 'offline');
+            if (firstOnline) return firstOnline;
             const firstEnabled = this.endpoints.find(e => e.enabled);
             return firstEnabled || this.endpoints[0] || null;
         }
@@ -350,14 +353,40 @@
             if (accountId && this.accounts) {
                 const acc = this.accounts.find(a => String(a.id) === String(accountId));
                 if (acc) {
+                    let targetEp = null;
                     if (acc.endpointId) {
-                        const ep = this.endpoints.find(e => e.id === acc.endpointId);
-                        if (ep) return ep;
+                        targetEp = this.endpoints.find(e => e.id === acc.endpointId);
+                    } else if (acc.endpointUrl) {
+                        targetEp = this.endpoints.find(e => e.url === acc.endpointUrl);
                     }
-                    if (acc.endpointUrl) {
-                        const ep = this.endpoints.find(e => e.url === acc.endpointUrl);
-                        if (ep) return ep;
+
+                    // 1. Direct path: If target endpoint is online and healthy, route to it immediately
+                    if (targetEp && targetEp.enabled && targetEp.status !== 'offline') {
+                        return targetEp;
                     }
+
+                    // 2. High-Availability Automatic Failover:
+                    // If target endpoint is offline, look for any sibling bridge hosting the EXACT SAME physical account (login + server) that is currently online!
+                    const accLogin = String(acc.login || '').trim();
+                    const accServer = (acc.server || '').trim().toLowerCase();
+                    if (accLogin) {
+                        const onlineSibling = this.accounts.find(a => 
+                            String(a.login || '').trim() === accLogin &&
+                            (a.server || '').trim().toLowerCase() === accServer &&
+                            a.endpointId !== acc.endpointId &&
+                            a.is_connected
+                        );
+                        if (onlineSibling && onlineSibling.endpointId) {
+                            const siblingEp = this.endpoints.find(e => e.id === onlineSibling.endpointId);
+                            if (siblingEp && siblingEp.enabled && siblingEp.status !== 'offline') {
+                                console.log(`[MT5API] 🔀 Failover: Account #${accLogin} on '${targetEp ? targetEp.name : 'Unknown'}' is offline. Transparently routing to online sibling bridge '${siblingEp.name}'!`);
+                                return siblingEp;
+                            }
+                        }
+                    }
+
+                    // 3. Fallback: Return original endpoint if no online sibling exists
+                    if (targetEp) return targetEp;
                 }
             }
             return this.getActiveEndpoint();
@@ -816,9 +845,31 @@
 
         getActiveAccount() {
             if (!this.activeAccountId && this.accounts.length > 0) {
-                return this.accounts[0];
+                const firstConnected = this.accounts.find(a => a.is_connected && !a.is_paused);
+                return firstConnected || this.accounts[0];
             }
-            return this.accounts.find(a => a.id === this.activeAccountId) || null;
+            const direct = this.accounts.find(a => a.id === this.activeAccountId);
+            if (direct) {
+                // If direct active account is currently disconnected/offline, failover to online sibling instance
+                if (!direct.is_connected) {
+                    const accLogin = String(direct.login || '').trim();
+                    const accServer = (direct.server || '').trim().toLowerCase();
+                    if (accLogin) {
+                        const onlineSibling = this.accounts.find(a => 
+                            String(a.login || '').trim() === accLogin &&
+                            (a.server || '').trim().toLowerCase() === accServer &&
+                            a.id !== direct.id &&
+                            a.is_connected &&
+                            !a.is_paused
+                        );
+                        if (onlineSibling) {
+                            return onlineSibling;
+                        }
+                    }
+                }
+                return direct;
+            }
+            return null;
         }
 
         getCleanBrokerExchange(acc = null) {
