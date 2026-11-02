@@ -645,8 +645,13 @@
             // Immediate account sync on page boot
             this.syncAccounts();
             if (this.syncTimer) clearInterval(this.syncTimer);
-            // Continuous auto-connect heartbeat: checks every 2.5s across all enabled bridges
-            this.syncTimer = setInterval(() => this.syncAccounts(), 2500);
+            // Smart adaptive sync: only fallback to HTTP poll if any enabled bridge WebSocket is offline
+            this.syncTimer = setInterval(() => {
+                const anyWsClosed = (this.endpoints || []).some(e => e.enabled && (!this.wsSockets.get(e.id) || this.wsSockets.get(e.id).readyState !== WebSocket.OPEN));
+                if (anyWsClosed) {
+                    this.syncAccounts();
+                }
+            }, 15000);
 
             // Proactive startup Gist auto-discovery:
             // If any bridge has Gist configured, immediately detect rotated Cloudflare URLs
@@ -2332,6 +2337,8 @@
                                     this.positions = newPositions;
                                     this.notifyPositionListeners();
                                 }
+                            } else if (msg.type === 'accounts') {
+                                this.handleWebSocketAccountsUpdate(ep.id, msg);
                             } else if (msg.type === 'tunnel_migration' && msg.new_url) {
                                 console.log(`[MT5API] 🚀 In-band tunnel migration event received for ${ep.name}: ${msg.new_url}`);
                                 ep.url = String(msg.new_url).trim().replace(/\/+$/, '');
@@ -2381,6 +2388,45 @@
             this.wsSockets.clear();
             this.ws = null;
             this.ensureWebSocket();
+        }
+
+        handleWebSocketAccountsUpdate(endpointId, data) {
+            const ep = (this.endpoints || []).find(e => e.id === endpointId);
+            if (!ep || !data || !Array.isArray(data.accounts)) return;
+
+            const accountsList = data.accounts;
+            const updatedEpAccounts = accountsList.map(acc => {
+                const isPaused = this.isAccountPaused(acc.id);
+                return {
+                    ...acc,
+                    endpointId: ep.id,
+                    endpointName: ep.name,
+                    endpointUrl: ep.url,
+                    endpointApiKey: ep.apiKey,
+                    is_paused: isPaused,
+                    is_connected: !isPaused && ep.status === 'online'
+                };
+            });
+
+            // Merge with accounts from other endpoints
+            const otherAccounts = (this.accounts || []).filter(a => a.endpointId !== ep.id);
+            this.accounts = [...otherAccounts, ...updatedEpAccounts];
+            this.isConnected = true;
+
+            if (ep.id === this.activeEndpointId && data.active_account_id) {
+                if (this.accounts.some(a => String(a.id) === String(data.active_account_id))) {
+                    this.activeAccountId = data.active_account_id;
+                }
+            } else if (!this.accounts.some(a => String(a.id) === String(this.activeAccountId))) {
+                const firstActive = this.accounts.find(a => a.is_active && !a.is_paused);
+                this.activeAccountId = firstActive ? firstActive.id : (this.accounts[0] ? this.accounts[0].id : null);
+            }
+
+            try {
+                localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
+            } catch (_) {}
+
+            this.notifyAccountListeners();
         }
 
         // --- Orders & Positions Execution ---
