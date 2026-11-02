@@ -878,6 +878,11 @@
                                 <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
+                                ${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? `
+                                    <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: Pre-authenticated in MT5 GUI (No password stored in bridge)">🖥️ Pre-Logged In</span>
+                                ` : `
+                                    <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Password Saved: Credentials securely vaulted in RAM/DPAPI (Auto-login enabled)">🔑 Saved Password</span>
+                                `}
                                 <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace;">#${acc.login} • ${acc.server}</span>
                             </div>
 
@@ -1533,8 +1538,9 @@
                         tabTickers.innerHTML = `<span>📈</span> Market Watch & Tickers (${this.detailsData.symbols.length})`;
                     }
                     const tabPos = modal.querySelector('#mt5-tab-positions-count');
-                    if (tabPos && this.detailsData && this.detailsData.positions) {
-                        tabPos.textContent = `💼 Active Positions (${this.detailsData.positions.length})`;
+                    if (tabPos) {
+                        const posCount = (this.detailsData && Array.isArray(this.detailsData.positions)) ? this.detailsData.positions.length : 0;
+                        tabPos.textContent = `💼 Active Positions (${posCount})`;
                     }
                     if (this.detailsData && this.detailsData.account) {
                         const nickEl = modal.querySelector('#mt5-details-account-nickname');
@@ -1925,17 +1931,47 @@
             const modal = document.getElementById(this.modalId);
             if (!modal) return;
 
+            let relevantPositions = positions;
+            if (this.viewMode === 'details' && this.detailsAccountId) {
+                const targetId = String(this.detailsAccountId);
+                const cleanId = targetId.replace(/^mt5_/, '');
+                if (window.MT5API && Array.isArray(window.MT5API.accounts)) {
+                    const acc = window.MT5API.accounts.find(a => 
+                        String(a.id) === targetId || 
+                        String(a.login) === cleanId || 
+                        String(a.id).replace(/^mt5_/, '') === cleanId
+                    );
+                    if (acc && Array.isArray(acc.positions)) {
+                        relevantPositions = acc.positions;
+                    }
+                }
+                if (Array.isArray(positions) && (!relevantPositions || relevantPositions === positions)) {
+                    const filtered = positions.filter(p => {
+                        const pAid = String(p.account_id || '').trim();
+                        return pAid === targetId || pAid === cleanId || pAid.replace(/^mt5_/, '') === cleanId;
+                    });
+                    if (filtered.length > 0 || (this.detailsData && this.detailsData.account && this.detailsData.account.is_active)) {
+                        relevantPositions = filtered;
+                    }
+                }
+                if (this.detailsData) {
+                    this.detailsData.positions = relevantPositions;
+                }
+            }
+
+            const count = (relevantPositions && Array.isArray(relevantPositions)) ? relevantPositions.length : 0;
+
             // Update badge on Active Positions tab
             const posBadge = modal.querySelector('#mt5-tab-positions-count');
             if (posBadge) {
-                posBadge.textContent = `💼 Active Positions (${positions.length})`;
+                posBadge.textContent = `💼 Active Positions (${count})`;
             }
 
             // If user is currently looking at Active Positions tab, update table live without rebuilding whole modal
             if (this.viewMode === 'details' && this.detailsSubTab === 'positions') {
                 const container = modal.querySelector('#mt5-positions-items-container');
                 if (container && this.detailsData) {
-                    this.detailsData.positions = positions;
+                    this.detailsData.positions = relevantPositions;
                     const theme = this.getTheme();
                     const srv = this.detailsData.account ? this.detailsData.account.server : '';
                     
@@ -2294,6 +2330,11 @@
             const positions = this.detailsData.positions || [];
             container.innerHTML = this.getPositionsTableHtml(positions, theme, server);
 
+            const posBadge = modal.querySelector('#mt5-tab-positions-count');
+            if (posBadge) {
+                posBadge.textContent = `💼 Active Positions (${positions.length})`;
+            }
+
             // Re-bind chart buttons inside the updated positions list
             container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
                 btn.onclick = (e) => {
@@ -2536,6 +2577,8 @@
                             <span>•</span>
                             <span>Status: <strong style="color: ${isPaused ? theme.warning : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
                             <span>•</span>
+                            <span>Auth: <strong style="color: ${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? '#00bcd4' : '#089981'}; font-weight: 700;">${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? '🖥️ Pre-Logged In (Desktop Session)' : '🔑 Password Saved (Auto-Login)'}</strong></span>
+                            <span>•</span>
                             <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
                         </div>
                     </div>
@@ -2580,7 +2623,7 @@
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'tickers' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'tickers' ? '#ffffff' : theme.textMuted};
+                            color: ${this.detailsSubTab === 'tickers' ? (theme.isDark ? '#ffffff' : theme.primary) : theme.textMuted};
                             padding: 6px 12px;
                             font-size: 11.5px;
                             font-weight: 600;
@@ -2597,7 +2640,7 @@
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'positions' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'positions' ? '#ffffff' : theme.textMuted};
+                            color: ${this.detailsSubTab === 'positions' ? (theme.isDark ? '#ffffff' : theme.primary) : theme.textMuted};
                             padding: 6px 12px;
                             font-size: 11.5px;
                             font-weight: 600;
@@ -2614,7 +2657,7 @@
                             background: transparent;
                             border: none;
                             border-bottom: 2px solid ${this.detailsSubTab === 'history' ? theme.primary : 'transparent'};
-                            color: ${this.detailsSubTab === 'history' ? '#ffffff' : theme.textMuted};
+                            color: ${this.detailsSubTab === 'history' ? (theme.isDark ? '#ffffff' : theme.primary) : theme.textMuted};
                             padding: 6px 12px;
                             font-size: 11.5px;
                             font-weight: 600;
@@ -2888,6 +2931,13 @@
                     if (subtab) {
                         this.detailsSubTab = subtab;
                         this.renderModal();
+                        if (subtab === 'positions' && this.detailsAccountId && window.MT5API) {
+                            window.MT5API.fetchPositions(this.detailsAccountId).then(pos => {
+                                if (Array.isArray(pos)) {
+                                    this.handleLivePositionUpdate(pos);
+                                }
+                            }).catch(() => {});
+                        }
                     }
                 };
             });
