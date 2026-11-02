@@ -16,6 +16,7 @@
             this._decryptPromise = null;
             this._secretsDecrypted = false;
             this.wsSockets = new Map();
+            this._wsPendingRequests = new Map();
             this.loadConfig();
 
             this.accounts = [];
@@ -985,34 +986,7 @@
                 const accId = String(acc.id);
                 const cached = this._accountSymbolsCache && this._accountSymbolsCache.get(accId);
                 if (!cached || cached.length <= 2) {
-                    try {
-                        const localSyms = localStorage.getItem(`mt5_symbols_${accId}`);
-                        if (localSyms) {
-                            const parsed = JSON.parse(localSyms);
-                            if (Array.isArray(parsed) && parsed.length > 2) {
-                                if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
-                                this._accountSymbolsCache.set(accId, parsed);
-                                continue;
-                            } else {
-                                localStorage.removeItem(`mt5_symbols_${accId}`);
-                            }
-                        }
-                    } catch (_) {}
-
-                    const ep = this.getEndpointForAccount(accId);
-                    if (!ep || !ep.url) continue;
-
-                    fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
-                        headers: this.getReqHeaders(ep)
-                    }).then(r => r.ok ? r.json() : null).then(data => {
-                        if (data && data.symbols && data.symbols.length > 2) {
-                            if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
-                            this._accountSymbolsCache.set(accId, data.symbols);
-                            try {
-                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(data.symbols));
-                            } catch (_) {}
-                        }
-                    }).catch(() => {});
+                    this.getSymbolsForAccount(accId).catch(() => {});
                 }
             }
         }
@@ -1049,18 +1023,28 @@
                 report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
 
                 const ep = this.getEndpointForAccount(id);
-                if (ep && ep.url) {
-                    fetch(`${ep.url}/api/accounts/active`, {
-                        method: 'POST',
-                        headers: this.getReqHeaders(ep),
-                        body: JSON.stringify({ account_id: id })
-                    }).then(async res => {
-                        if (res.ok) {
-                            this.fetchPositions(id);
-                            this.loadAllSymbolsCache();
+                if (ep) {
+                    this.wsRequest(ep.id, {
+                        action: 'set_active_account',
+                        account_id: id
+                    }, 2500).then(() => {
+                        this.fetchPositions(id);
+                        this.loadAllSymbolsCache();
+                    }).catch(() => {
+                        if (ep.url) {
+                            fetch(`${ep.url}/api/accounts/active`, {
+                                method: 'POST',
+                                headers: this.getReqHeaders(ep),
+                                body: JSON.stringify({ account_id: id })
+                            }).then(async res => {
+                                if (res.ok) {
+                                    this.fetchPositions(id);
+                                    this.loadAllSymbolsCache();
+                                }
+                            }).catch(e => {
+                                console.warn('[MT5API] Background active account switch note:', e.message);
+                            });
                         }
-                    }).catch(e => {
-                        console.warn('[MT5API] Background active account switch note:', e.message);
                     });
                 }
 
@@ -1271,22 +1255,42 @@
             if (this._historyEndpointSupported !== false) {
                 try {
                     const ep = this.getEndpointForAccount(targetId);
-                    if (ep && ep.url) {
-                        const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
-                        const res = await fetch(`${ep.url}/api/history${accParam}`, {
-                            headers: this.getReqHeaders(ep)
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data.history && data.history.length > 0) {
-                                remoteHistory = data.history;
+                    if (ep) {
+                        // 1. Try WebSocket RPC first
+                        try {
+                            const wsRes = await this.wsRequest(ep.id, {
+                                action: 'get_history',
+                                account_id: targetId ? String(targetId) : null,
+                                days: 3650,
+                                limit: 1000
+                            }, 4000);
+                            if (wsRes && wsRes.history && Array.isArray(wsRes.history) && wsRes.history.length > 0) {
+                                remoteHistory = wsRes.history;
                                 this._historyEndpointSupported = true;
                                 try {
                                     localStorage.setItem(`mt5_history_cache_${targetId}`, JSON.stringify(remoteHistory));
                                 } catch (_) {}
                             }
-                        } else if (res.status === 404) {
-                            this._historyEndpointSupported = false;
+                        } catch (_) {}
+
+                        // 2. HTTP REST fallback
+                        if (remoteHistory.length === 0 && ep.url) {
+                            const accParam = targetId ? `?account_id=${encodeURIComponent(targetId)}&days=3650&limit=1000` : '?days=3650&limit=1000';
+                            const res = await fetch(`${ep.url}/api/history${accParam}`, {
+                                headers: this.getReqHeaders(ep)
+                            });
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.history && data.history.length > 0) {
+                                    remoteHistory = data.history;
+                                    this._historyEndpointSupported = true;
+                                    try {
+                                        localStorage.setItem(`mt5_history_cache_${targetId}`, JSON.stringify(remoteHistory));
+                                    } catch (_) {}
+                                }
+                            } else if (res.status === 404) {
+                                this._historyEndpointSupported = false;
+                            }
                         }
                     }
                 } catch (e) {}
@@ -1866,7 +1870,27 @@
                 try {
                     const acc = this.getActiveAccount();
                     const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                    if (!ep || !ep.url) return this.getMockSymbols();
+                    if (!ep) return this.getMockSymbols();
+
+                    // 1. Try WebSocket RPC first
+                    try {
+                        const wsRes = await this.wsRequest(ep.id, {
+                            action: 'get_symbols',
+                            account_id: acc ? acc.id : null
+                        }, 3500);
+                        if (wsRes && wsRes.symbols && wsRes.symbols.length > 0) {
+                            this._allSymbols = wsRes.symbols;
+                            if (!this._symbolMap) this._symbolMap = new Map();
+                            this._allSymbols.forEach(s => {
+                                this._symbolMap.set(s.symbol.toUpperCase(), s);
+                            });
+                            console.log(`[MT5API] Cached ${this._allSymbols.length} MT5 symbols in local memory via WebSocket.`);
+                            return this._allSymbols;
+                        }
+                    } catch (_) {}
+
+                    // 2. HTTP REST fallback
+                    if (!ep.url) return this.getMockSymbols();
                     const accParam = acc ? `?account_id=${encodeURIComponent(acc.id)}` : '';
                     const url = `${ep.url}/api/symbols${accParam}`;
                     const res = await fetch(url, { headers: this.getReqHeaders(ep) });
@@ -1912,23 +1936,41 @@
                 }
             } catch (_) {}
 
-            // 3. Direct network fetch from bridge
+            // 3. Direct fetch from bridge (WebSocket RPC first, HTTP fallback)
             try {
                 const ep = this.getEndpointForAccount(accId);
-                if (ep && ep.url) {
-                    const res = await fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
-                        headers: this.getReqHeaders(ep),
-                        signal: AbortSignal.timeout(10000)
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        const syms = data.symbols || [];
-                        if (syms.length > 0) {
-                            this._accountSymbolsCache.set(accId, syms);
+                if (ep) {
+                    // Try WebSocket RPC
+                    try {
+                        const wsRes = await this.wsRequest(ep.id, {
+                            action: 'get_symbols',
+                            account_id: accId
+                        }, 3500);
+                        if (wsRes && wsRes.symbols && wsRes.symbols.length > 0) {
+                            this._accountSymbolsCache.set(accId, wsRes.symbols);
                             try {
-                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
+                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(wsRes.symbols));
                             } catch (_) {}
-                            return syms;
+                            return wsRes.symbols;
+                        }
+                    } catch (_) {}
+
+                    // HTTP fallback
+                    if (ep.url) {
+                        const res = await fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
+                            headers: this.getReqHeaders(ep),
+                            signal: AbortSignal.timeout(10000)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const syms = data.symbols || [];
+                            if (syms.length > 0) {
+                                this._accountSymbolsCache.set(accId, syms);
+                                try {
+                                    localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
+                                } catch (_) {}
+                                return syms;
+                            }
                         }
                     }
                 }
@@ -2016,7 +2058,32 @@
                     ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
                     : this.getActiveAccount();
                 const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                if (!ep || !ep.url) return null;
+                if (!ep) return null;
+
+                // 1. Try WebSocket RPC first
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'get_symbol_info',
+                        symbol: clean,
+                        account_id: acc ? acc.id : null
+                    }, 3000);
+                    if (wsRes && wsRes.symbol_info) {
+                        if (!this._symbolMap) this._symbolMap = new Map();
+                        this._symbolMap.set(clean, wsRes.symbol_info);
+                        if (wsRes.symbol_info.earliest_time_ms) {
+                            if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
+                            window._symbolEarliestTime[clean] = wsRes.symbol_info.earliest_time_ms;
+                        }
+                        if (wsRes.symbol_info.earliest_date) {
+                            if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
+                            window._symbolEarliestDate[clean] = wsRes.symbol_info.earliest_date;
+                        }
+                        return wsRes.symbol_info;
+                    }
+                } catch (_) {}
+
+                // 2. HTTP REST fallback
+                if (!ep.url) return null;
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
                 const url = `${ep.url}/api/symbol_info?symbol=${encodeURIComponent(clean)}${accParam}`;
                 const res = await fetch(url, { headers: this.getReqHeaders(ep) });
@@ -2088,13 +2155,34 @@
                     ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
                     : this.getActiveAccount();
                 const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                if (!ep || !ep.url) return {};
-                const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                const url = `${ep.url}/api/quotes?symbols=${encodeURIComponent(symParam)}${accParam}`;
-                const res = await fetch(url, { headers: this.getReqHeaders(ep) });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                const quotes = data.quotes || {};
+                if (!ep) return {};
+
+                let quotes = null;
+
+                // 1. Try WebSocket RPC first
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'get_quotes',
+                        symbols: symParam,
+                        account_id: acc ? acc.id : null
+                    }, 3000);
+                    if (wsRes && wsRes.quotes) {
+                        quotes = wsRes.quotes;
+                    }
+                } catch (_) {}
+
+                // 2. HTTP REST fallback
+                if (!quotes && ep.url) {
+                    const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
+                    const url = `${ep.url}/api/quotes?symbols=${encodeURIComponent(symParam)}${accParam}`;
+                    const res = await fetch(url, { headers: this.getReqHeaders(ep) });
+                    if (res.ok) {
+                        const data = await res.json();
+                        quotes = data.quotes || {};
+                    }
+                }
+
+                if (!quotes) quotes = {};
 
                 const POPULAR_DEFAULTS = {
                     'BTCUSD': { last: 67420.50, open: 66880.00, change: 0.81, bid: 67415.00, ask: 67425.00 },
@@ -2113,18 +2201,48 @@
         }
 
         async fetchBars(symbol, resolution, from = null, to = null, count = 500, accountId = null) {
+            const cleanSym = (symbol || 'EURUSD').split(':').pop();
+            const acc = accountId 
+                ? (this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount())
+                : this.getActiveAccount();
+            const targetAccId = acc ? acc.id : null;
+            const ep = this.getEndpointForAccount(targetAccId);
+
+            // 1. Try WebSocket RPC first
+            if (ep) {
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'get_bars',
+                        symbol: cleanSym,
+                        resolution: String(resolution),
+                        count: Number(count) || 500,
+                        from: from ? Math.floor(from) : null,
+                        to: to ? Math.ceil(to) : null,
+                        account_id: targetAccId
+                    }, 3500);
+
+                    if (wsRes && wsRes.success && Array.isArray(wsRes.bars)) {
+                        if (wsRes.earliest_time_ms) {
+                            if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
+                            window._symbolEarliestTime[cleanSym] = wsRes.earliest_time_ms;
+                        }
+                        if (wsRes.earliest_date) {
+                            if (!window._symbolEarliestDate) window._symbolEarliestDate = {};
+                            window._symbolEarliestDate[cleanSym] = wsRes.earliest_date;
+                        }
+                        return wsRes.bars;
+                    }
+                } catch (_) {}
+            }
+
+            // 2. HTTP REST fallback
             try {
-                const cleanSym = (symbol || 'EURUSD').split(':').pop();
-                const acc = accountId 
-                    ? (this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount())
-                    : this.getActiveAccount();
+                if (!ep || !ep.url) return [];
                 const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
                 let rangeParams = '';
                 if (from && to) {
                     rangeParams = `&from=${Math.floor(from)}&to=${Math.ceil(to)}`;
                 }
-                const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                if (!ep || !ep.url) return [];
                 const url = `${ep.url}/api/bars?symbol=${encodeURIComponent(cleanSym)}&resolution=${encodeURIComponent(resolution)}&count=${count}${rangeParams}${accParam}`;
                 const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2307,6 +2425,16 @@
                     socket.onmessage = (evt) => {
                         try {
                             const msg = JSON.parse(evt.data);
+
+                            // Intercept and resolve WebSocket RPC responses
+                            if (msg.req_id && this._wsPendingRequests && this._wsPendingRequests.has(msg.req_id)) {
+                                const pending = this._wsPendingRequests.get(msg.req_id);
+                                clearTimeout(pending.timer);
+                                this._wsPendingRequests.delete(msg.req_id);
+                                pending.resolve(msg);
+                                return;
+                            }
+
                             if (msg.type === 'pong' && msg.t) {
                                 const livePing = Math.round(performance.now() - Number(msg.t));
                                 ep.ping = livePing;
@@ -2356,6 +2484,18 @@
                         }
                         this.wsSockets.delete(ep.id);
                         if (this.ws === socket) this.ws = null;
+
+                        // Reject any pending RPC requests for this closed bridge
+                        if (this._wsPendingRequests) {
+                            this._wsPendingRequests.forEach((pending, reqId) => {
+                                if (pending.epId === ep.id) {
+                                    clearTimeout(pending.timer);
+                                    this._wsPendingRequests.delete(reqId);
+                                    pending.reject(new Error(`WebSocket disconnected for ${ep.name || ep.id}`));
+                                }
+                            });
+                        }
+
                         // Auto-discover via bridge Gist if WebSocket dropped unexpectedly
                         if (ep.gistId && ep.gistToken) {
                             this.syncEndpointFromGist(ep.id);
@@ -2379,6 +2519,13 @@
         }
 
         reconnectWebSocket() {
+            if (this._wsPendingRequests) {
+                this._wsPendingRequests.forEach((pending, reqId) => {
+                    clearTimeout(pending.timer);
+                    pending.reject(new Error('WebSocket reconnected'));
+                });
+                this._wsPendingRequests.clear();
+            }
             this.wsSockets.forEach((sock) => {
                 try {
                     sock.onclose = null;
@@ -2388,6 +2535,50 @@
             this.wsSockets.clear();
             this.ws = null;
             this.ensureWebSocket();
+        }
+
+        // --- WebSocket Request-Response (RPC) Protocol ---
+        wsRequest(endpointId, payload, timeoutMs = 4000) {
+            return new Promise((resolve, reject) => {
+                let ep = null;
+                if (endpointId) {
+                    ep = (this.endpoints || []).find(e => e.id === endpointId);
+                }
+                if (!ep) {
+                    ep = this.getActiveEndpoint();
+                }
+                if (!ep) {
+                    return reject(new Error('No active bridge endpoint configured'));
+                }
+                const socket = this.wsSockets.get(ep.id);
+                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    return reject(new Error(`WebSocket not connected for ${ep.name || ep.id}`));
+                }
+                const reqId = `ws_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                const timer = setTimeout(() => {
+                    if (this._wsPendingRequests) {
+                        this._wsPendingRequests.delete(reqId);
+                    }
+                    reject(new Error(`WebSocket request timed out (${timeoutMs}ms)`));
+                }, timeoutMs);
+
+                if (!this._wsPendingRequests) {
+                    this._wsPendingRequests = new Map();
+                }
+                this._wsPendingRequests.set(reqId, { resolve, reject, timer, epId: ep.id });
+
+                try {
+                    socket.send(JSON.stringify({
+                        ...payload,
+                        req_id: reqId,
+                        token: ep.apiKey || undefined
+                    }));
+                } catch (err) {
+                    clearTimeout(timer);
+                    this._wsPendingRequests.delete(reqId);
+                    reject(err);
+                }
+            });
         }
 
         handleWebSocketAccountsUpdate(endpointId, data) {
@@ -2433,15 +2624,16 @@
         async fetchPositions(accountId = null) {
             if (accountId) {
                 const ep = this.getEndpointForAccount(accountId);
-                if (!ep || !ep.url) return [];
+                if (!ep) return [];
+
+                // 1. Try WebSocket RPC first
                 try {
-                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
-                    const res = await fetch(`${ep.url}/api/positions${accParam}`, {
-                        headers: this.getReqHeaders(ep)
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        const pos = data.positions || [];
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'get_positions',
+                        account_id: String(accountId)
+                    }, 3000);
+                    if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
+                        const pos = wsRes.positions;
                         this.processPositionDiff(accountId, pos);
                         if (!this.activeAccountId || this.activeAccountId === accountId) {
                             this.positions = pos;
@@ -2449,7 +2641,27 @@
                         }
                         return pos;
                     }
-                } catch (e) {}
+                } catch (_) {}
+
+                // 2. HTTP REST fallback
+                if (ep.url) {
+                    try {
+                        const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                        const res = await fetch(`${ep.url}/api/positions${accParam}`, {
+                            headers: this.getReqHeaders(ep)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const pos = data.positions || [];
+                            this.processPositionDiff(accountId, pos);
+                            if (!this.activeAccountId || this.activeAccountId === accountId) {
+                                this.positions = pos;
+                                this.notifyPositionListeners();
+                            }
+                            return pos;
+                        }
+                    } catch (e) {}
+                }
                 const acc = this.accounts.find(a => String(a.id) === String(accountId));
                 return (acc && acc.positions) ? acc.positions : [];
             }
@@ -2459,20 +2671,35 @@
             if (enabledEndpoints.length === 0) return this.positions || [];
 
             const allPromises = enabledEndpoints.map(async ep => {
+                // Try WebSocket RPC first
                 try {
-                    const res = await fetch(`${ep.url}/api/positions`, {
-                        headers: this.getReqHeaders(ep),
-                        signal: AbortSignal.timeout(4000)
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        return (data.positions || []).map(p => ({
+                    const wsRes = await this.wsRequest(ep.id, { action: 'get_positions' }, 3000);
+                    if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
+                        return wsRes.positions.map(p => ({
                             ...p,
                             endpointId: ep.id,
                             endpointName: ep.name
                         }));
                     }
                 } catch (_) {}
+
+                // HTTP fallback
+                if (ep.url) {
+                    try {
+                        const res = await fetch(`${ep.url}/api/positions`, {
+                            headers: this.getReqHeaders(ep),
+                            signal: AbortSignal.timeout(4000)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            return (data.positions || []).map(p => ({
+                                ...p,
+                                endpointId: ep.id,
+                                endpointName: ep.name
+                            }));
+                        }
+                    } catch (_) {}
+                }
                 return [];
             });
 
@@ -2501,7 +2728,7 @@
                     return { success: false, error: 'Cannot place order: This account is currently paused (Standby mode). Click Resume in MT5 Fleet first.' };
                 }
                 const ep = this.getEndpointForAccount(targetAcc);
-                if (!ep || !ep.url) {
+                if (!ep) {
                     return { success: false, error: 'Bridge endpoint is not configured or offline for this account.' };
                 }
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
@@ -2510,6 +2737,32 @@
                     effectiveType = effectiveType === 'BUY' ? 'BUY_LIMIT' : 'SELL_LIMIT';
                 } else if (orderType === 'stop') {
                     effectiveType = effectiveType === 'BUY' ? 'BUY_STOP' : 'SELL_STOP';
+                }
+
+                // 1. Try WebSocket RPC first
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'order_place',
+                        account_id: targetAcc,
+                        symbol: cleanSym,
+                        type: effectiveType,
+                        price: Number(price) || 0.0,
+                        lots: Number(lots),
+                        sl: Number(sl) || 0.0,
+                        tp: Number(tp) || 0.0,
+                        comment
+                    }, 5000);
+                    if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined || wsRes.order !== undefined)) {
+                        await this.fetchPositions(targetAcc);
+                        return wsRes;
+                    }
+                } catch (wsErr) {
+                    console.warn('[MT5API] WS placeOrder fallback to HTTP:', wsErr.message);
+                }
+
+                // 2. HTTP REST fallback
+                if (!ep.url) {
+                    return { success: false, error: 'Bridge URL not configured' };
                 }
                 const res = await fetch(`${ep.url}/api/orders/place`, {
                     method: 'POST',
@@ -2537,7 +2790,27 @@
             try {
                 const targetAcc = accountId || this.activeAccountId;
                 const ep = this.getEndpointForAccount(targetAcc);
-                if (!ep || !ep.url) return { success: false, error: 'Bridge endpoint offline' };
+                if (!ep) return { success: false, error: 'Bridge endpoint offline' };
+
+                // 1. Try WebSocket RPC first
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'order_modify',
+                        account_id: targetAcc,
+                        ticket: Number(ticket),
+                        sl: Number(sl),
+                        tp: Number(tp)
+                    }, 4500);
+                    if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined)) {
+                        await this.fetchPositions(targetAcc);
+                        return wsRes;
+                    }
+                } catch (wsErr) {
+                    console.warn('[MT5API] WS modifyPosition fallback to HTTP:', wsErr.message);
+                }
+
+                // 2. HTTP REST fallback
+                if (!ep.url) return { success: false, error: 'Bridge URL offline' };
                 const res = await fetch(`${ep.url}/api/orders/modify`, {
                     method: 'POST',
                     headers: this.getReqHeaders(ep),
@@ -2560,7 +2833,26 @@
             try {
                 const targetAcc = accountId || this.activeAccountId;
                 const ep = this.getEndpointForAccount(targetAcc);
-                if (!ep || !ep.url) return { success: false, error: 'Bridge endpoint offline' };
+                if (!ep) return { success: false, error: 'Bridge endpoint offline' };
+
+                // 1. Try WebSocket RPC first
+                try {
+                    const wsRes = await this.wsRequest(ep.id, {
+                        action: 'order_close',
+                        account_id: targetAcc,
+                        ticket: Number(ticket),
+                        lots: lots ? Number(lots) : null
+                    }, 4500);
+                    if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined)) {
+                        await this.fetchPositions(targetAcc);
+                        return wsRes;
+                    }
+                } catch (wsErr) {
+                    console.warn('[MT5API] WS closePosition fallback to HTTP:', wsErr.message);
+                }
+
+                // 2. HTTP REST fallback
+                if (!ep.url) return { success: false, error: 'Bridge URL offline' };
                 const res = await fetch(`${ep.url}/api/orders/close`, {
                     method: 'POST',
                     headers: this.getReqHeaders(ep),
@@ -2603,24 +2895,44 @@
                 }
 
                 const requests = Array.from(endpointMap.values()).map(async ({ ep, accIds }) => {
+                    // 1. Try WebSocket RPC first
                     try {
-                        const res = await fetch(`${ep.url}/api/orders/broadcast`, {
-                            method: 'POST',
-                            headers: this.getReqHeaders(ep),
-                            body: JSON.stringify({
-                                account_ids: accIds,
-                                symbol: cleanSym,
-                                type: type.toUpperCase(),
-                                base_lots: Number(baseLots),
-                                sl: Number(sl) || 0.0,
-                                tp: Number(tp) || 0.0
-                            })
-                        });
-                        const data = await res.json();
-                        return { ep, data };
-                    } catch (err) {
-                        return { ep, data: { success: false, error: err.message, results: [] } };
+                        const wsRes = await this.wsRequest(ep.id, {
+                            action: 'order_broadcast',
+                            account_ids: accIds,
+                            symbol: cleanSym,
+                            type: type.toUpperCase(),
+                            base_lots: Number(baseLots),
+                            sl: Number(sl) || 0.0,
+                            tp: Number(tp) || 0.0
+                        }, 6000);
+                        if (wsRes && (wsRes.success !== undefined || wsRes.results)) {
+                            return { ep, data: wsRes };
+                        }
+                    } catch (_) {}
+
+                    // 2. HTTP REST fallback
+                    if (ep.url) {
+                        try {
+                            const res = await fetch(`${ep.url}/api/orders/broadcast`, {
+                                method: 'POST',
+                                headers: this.getReqHeaders(ep),
+                                body: JSON.stringify({
+                                    account_ids: accIds,
+                                    symbol: cleanSym,
+                                    type: type.toUpperCase(),
+                                    base_lots: Number(baseLots),
+                                    sl: Number(sl) || 0.0,
+                                    tp: Number(tp) || 0.0
+                                })
+                            });
+                            const data = await res.json();
+                            return { ep, data };
+                        } catch (err) {
+                            return { ep, data: { success: false, error: err.message, results: [] } };
+                        }
                     }
+                    return { ep, data: { success: false, error: 'Endpoint unreachable', results: [] } };
                 });
 
                 const settled = await Promise.allSettled(requests);
