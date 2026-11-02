@@ -213,8 +213,13 @@
             if (!acc) {
                 return `Broker: MetaTrader 5\nStatus: Disconnected\nAccounts Configured: ${accounts.length}\nClick to configure MT5 fleet`;
             }
-            const balanceStr = acc.balance != null ? `$${Number(acc.balance).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
-            const equityStr = acc.equity != null ? `$${Number(acc.equity).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
+            const siblings = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+            const bestBal = Math.max(...siblings.map(s => Number(s.balance || 0)), Number(acc.balance || 0));
+            const bestEq = Math.max(...siblings.map(s => Number(s.equity || 0)), Number(acc.equity || 0));
+            const displayBal = bestBal > 0 ? bestBal : acc.balance;
+            const displayEq = bestEq > 0 ? bestEq : acc.equity;
+            const balanceStr = displayBal != null ? `$${Number(displayBal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
+            const equityStr = displayEq != null ? `$${Number(displayEq).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
             const epName = acc.endpointName ? `Host Bridge: ${acc.endpointName}\n` : '';
             const endpoints = window.MT5API.getEndpoints ? window.MT5API.getEndpoints().filter(e => e.enabled) : [];
             const onlineCount = endpoints.filter(e => e.status === 'online').length;
@@ -795,22 +800,50 @@
             const vault = window.MT5API ? window.MT5API.getClientVault() : [];
             const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
 
-            // Deduplicate accounts so each physical MT5 account (login + server) appears as exactly ONE unified card
-            const uniqueAccountsMap = new Map();
+            // Group all accounts by physical login::server
+            const accountsByPhysicalKey = new Map();
             accounts.forEach(acc => {
                 const key = `${String(acc.login || '').trim()}::${String(acc.server || '').trim().toLowerCase()}`;
-                if (!uniqueAccountsMap.has(key)) {
-                    uniqueAccountsMap.set(key, acc);
-                } else {
-                    const prev = uniqueAccountsMap.get(key);
-                    if (activeAcc && activeAcc.id === acc.id) {
-                        uniqueAccountsMap.set(key, acc);
-                    } else if (!prev.is_connected && acc.is_connected) {
-                        uniqueAccountsMap.set(key, acc);
-                    }
+                if (!accountsByPhysicalKey.has(key)) {
+                    accountsByPhysicalKey.set(key, []);
                 }
+                accountsByPhysicalKey.get(key).push(acc);
             });
-            const dedupedAccounts = Array.from(uniqueAccountsMap.values());
+
+            // Build unified deduplicated accounts selecting the healthiest representative with real broker metrics
+            const dedupedAccounts = Array.from(accountsByPhysicalKey.entries()).map(([key, instances]) => {
+                const connectedInstances = instances.filter(i => i.is_connected);
+                const instancesWithBal = instances.filter(i => Number(i.balance || 0) > 0);
+                const activeInstance = activeAcc ? instances.find(i => i.id === activeAcc.id) : null;
+
+                // Representative instance: prefer active account, or connected instance with balance > 0, then any with balance > 0, then connected, then first
+                const primary = activeInstance || 
+                                connectedInstances.find(i => Number(i.balance || 0) > 0) ||
+                                instancesWithBal[0] ||
+                                connectedInstances[0] ||
+                                instances[0];
+
+                const bestBal = Math.max(...instances.map(i => Number(i.balance || 0)));
+                const bestEq = Math.max(...instances.map(i => Number(i.equity || 0)));
+                const anyConnected = instances.some(i => i.is_connected);
+
+                const vaultEntry = vault.find(v => String(v.login) === String(primary.login) && (v.server || '').toLowerCase() === (primary.server || '').toLowerCase());
+                const isPasswordSaved = Boolean(
+                    (vaultEntry && vaultEntry.password) ||
+                    instances.some(i => i.has_password || i.auth_mode === 'stored_credentials') ||
+                    primary.has_password ||
+                    primary.auth_mode === 'stored_credentials'
+                );
+
+                return {
+                    ...primary,
+                    balance: bestBal > 0 ? bestBal : primary.balance,
+                    equity: bestEq > 0 ? bestEq : primary.equity,
+                    is_connected: anyConnected,
+                    has_password: isPasswordSaved,
+                    auth_mode: isPasswordSaved ? 'stored_credentials' : 'desktop_attached'
+                };
+            });
 
             const totalBalance = dedupedAccounts.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
             const totalEquity = dedupedAccounts.reduce((sum, a) => sum + (Number(a.equity) || 0), 0);
@@ -890,7 +923,7 @@
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 ${multiHostBadge}
-                                ${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? `
+                                ${!Boolean(acc.has_password || acc.auth_mode === 'stored_credentials' || (vaultEntry && vaultEntry.password) || activeInstances.some(i => i.has_password || i.auth_mode === 'stored_credentials')) ? `
                                     <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: Pre-authenticated in MT5 GUI (No password stored in bridge)">🖥️ Pre-Logged In</span>
                                 ` : `
                                     <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Password Saved: Credentials securely vaulted in RAM/DPAPI (Auto-login enabled)">🔑 Saved Password</span>
@@ -1926,16 +1959,31 @@
             accounts.forEach(acc => {
                 const balEl = modal.querySelector(`.mt5-card-bal[data-id="${acc.id}"]`);
                 const eqEl = modal.querySelector(`.mt5-card-eq[data-id="${acc.id}"]`);
-                if (balEl) balEl.textContent = `$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                if (eqEl) eqEl.textContent = `$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                if (!balEl && !eqEl) return;
+
+                const siblings = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+                const bestBal = Math.max(...siblings.map(s => Number(s.balance || 0)), Number(acc.balance || 0));
+                const bestEq = Math.max(...siblings.map(s => Number(s.equity || 0)), Number(acc.equity || 0));
+                const balVal = bestBal > 0 ? bestBal : Number(acc.balance || 0);
+                const eqVal = bestEq > 0 ? bestEq : Number(acc.equity || 0);
+
+                if (balEl) balEl.textContent = `$${balVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                if (eqEl) eqEl.textContent = `$${eqVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
             });
         }
 
         updateLiveDetailsFinancials() {
             const modal = document.getElementById(this.modalId);
             if (!modal || this.viewMode !== 'details' || !this.detailsAccountId) return;
-            const acc = window.MT5API ? window.MT5API.accounts.find(a => String(a.id) === String(this.detailsAccountId)) : null;
+            const allAccounts = window.MT5API ? window.MT5API.accounts : [];
+            const acc = allAccounts.find(a => String(a.id) === String(this.detailsAccountId));
             if (!acc) return;
+
+            const siblings = allAccounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+            const bestBal = Math.max(...siblings.map(s => Number(s.balance || 0)), Number(acc.balance || 0));
+            const bestEq = Math.max(...siblings.map(s => Number(s.equity || 0)), Number(acc.equity || 0));
+            const bal = bestBal > 0 ? bestBal : Number(acc.balance || 0);
+            const eq = bestEq > 0 ? bestEq : Number(acc.equity || bal);
 
             const balEl = modal.querySelector('#mt5-cockpit-balance');
             const eqEl = modal.querySelector('#mt5-cockpit-equity');
@@ -1943,8 +1991,6 @@
             const usedEl = modal.querySelector('#mt5-cockpit-used-margin');
             const barEl = modal.querySelector('#mt5-cockpit-margin-bar');
 
-            const bal = Number(acc.balance || 0);
-            const eq = Number(acc.equity || bal);
             const pnl = eq - bal;
             const pnlPct = bal > 0 ? ((pnl / bal) * 100).toFixed(2) : '0.00';
             const margin = Number(acc.margin || 0);
@@ -2437,9 +2483,25 @@
             const isActive = activeAcc && activeAcc.id === acc.id;
             const isPaused = window.MT5API ? window.MT5API.isAccountPaused(acc.id) : false;
 
-            const bal = acc.balance != null ? Number(acc.balance) : 0;
-            const eq = acc.equity != null ? Number(acc.equity) : 0;
-            const freeMargin = acc.free_margin != null ? Number(acc.free_margin) : 0;
+            const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
+            const vault = window.MT5API ? window.MT5API.getClientVault() : [];
+            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && (v.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+            const allInstancesWithAcc = [acc, ...activeInstances];
+
+            const isPasswordSaved = Boolean(
+                acc.has_password ||
+                acc.auth_mode === 'stored_credentials' ||
+                (vaultEntry && vaultEntry.password) ||
+                allInstancesWithAcc.some(i => i.has_password || i.auth_mode === 'stored_credentials')
+            );
+
+            const maxBal = Math.max(...allInstancesWithAcc.map(a => Number(a.balance || 0)));
+            const maxEq = Math.max(...allInstancesWithAcc.map(a => Number(a.equity || 0)));
+            const bal = maxBal > 0 ? maxBal : (acc.balance != null ? Number(acc.balance) : 0);
+            const eq = maxEq > 0 ? maxEq : (acc.equity != null ? Number(acc.equity) : 0);
+            const maxFreeMargin = Math.max(...allInstancesWithAcc.map(a => Number(a.free_margin || 0)));
+            const freeMargin = maxFreeMargin > 0 ? maxFreeMargin : (acc.free_margin != null ? Number(acc.free_margin) : 0);
             const margin = acc.margin != null ? Number(acc.margin) : 0;
             const marginLvl = acc.margin_level != null ? Number(acc.margin_level) : null;
             const pnl = eq - bal;
@@ -2480,11 +2542,6 @@
             const grossLoss = Math.abs(closedLosses.reduce((sum, h) => sum + Number(h.profit || 0), 0));
             const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
 
-            const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
-            const vault = window.MT5API ? window.MT5API.getClientVault() : [];
-            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && (v.server || '').toLowerCase() === (acc.server || '').toLowerCase());
-
-            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
             const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
 
             const combinedEpIds = new Set([
@@ -2613,7 +2670,7 @@
                             <span>•</span>
                             <span>Status: <strong style="color: ${isPaused ? theme.warning : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
                             <span>•</span>
-                            <span>Auth: <strong style="color: ${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? '#00bcd4' : '#089981'}; font-weight: 700;">${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? '🖥️ Pre-Logged In (Desktop Session)' : '🔑 Password Saved (Auto-Login)'}</strong></span>
+                            <span>Auth: <strong style="color: ${isPasswordSaved ? '#089981' : '#00bcd4'}; font-weight: 700;">${isPasswordSaved ? '🔑 Password Saved (Auto-Login)' : '🖥️ Pre-Logged In (Desktop Session)'}</strong></span>
                             <span>•</span>
                             <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
                         </div>

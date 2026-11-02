@@ -381,10 +381,13 @@
                         let score = 0;
                         // MT5 terminal is connected and live
                         if (cand.is_connected) score += 1000;
+                        // Live financial data from broker (> 0 balance) gets strong priority over empty/zero instances
+                        if (Number(cand.balance || 0) > 0) score += 500;
+                        if (Number(cand.equity || 0) > 0) score += 100;
                         // Account is not paused in standby mode
                         if (!cand.is_paused && !this.isAccountPaused(cand.id)) score += 200;
                         // Direct match with requested account instance
-                        if (cand.id === acc.id) score += 50;
+                        if (cand.id === acc.id) score += 25;
                         // Lower ping bonus (0 to 50 pts)
                         const ping = typeof ep.ping === 'number' ? ep.ping : 50;
                         score += Math.max(0, 50 - Math.min(50, ping));
@@ -889,19 +892,36 @@
 
         getActiveAccount() {
             if (!this.activeAccountId && this.accounts.length > 0) {
+                const firstConnectedWithBal = this.accounts.find(a => a.is_connected && !a.is_paused && Number(a.balance || 0) > 0);
                 const firstConnected = this.accounts.find(a => a.is_connected && !a.is_paused);
-                return firstConnected || this.accounts[0];
+                return firstConnectedWithBal || firstConnected || this.accounts[0];
             }
             const direct = this.accounts.find(a => a.id === this.activeAccountId);
             if (direct) {
                 const directEp = direct.endpointId ? this.endpoints.find(e => e.id === direct.endpointId) : null;
                 const isDirectEpOffline = !directEp || !directEp.enabled || directEp.status === 'offline';
+                const directBal = Number(direct.balance || 0);
 
-                // If direct active account is currently disconnected/offline, failover to online sibling instance
-                if (!direct.is_connected || isDirectEpOffline) {
-                    const accLogin = String(direct.login || '').trim();
-                    const accServer = (direct.server || '').trim().toLowerCase();
-                    if (accLogin) {
+                // If direct active account is disconnected/offline, OR has zero balance while an online sibling has positive balance
+                const accLogin = String(direct.login || '').trim();
+                const accServer = (direct.server || '').trim().toLowerCase();
+                if (accLogin) {
+                    const siblingWithBal = this.accounts.find(a => 
+                        String(a.login || '').trim() === accLogin &&
+                        (a.server || '').trim().toLowerCase() === accServer &&
+                        (a.endpointId !== direct.endpointId || a.id !== direct.id) &&
+                        a.is_connected &&
+                        !a.is_paused &&
+                        Number(a.balance || 0) > 0 &&
+                        (() => {
+                            const sEp = this.endpoints.find(e => e.id === a.endpointId);
+                            return sEp && sEp.enabled && sEp.status !== 'offline';
+                        })()
+                    );
+                    if (siblingWithBal && (directBal === 0 || !direct.is_connected || isDirectEpOffline)) {
+                        return siblingWithBal;
+                    }
+                    if (!direct.is_connected || isDirectEpOffline) {
                         const onlineSibling = this.accounts.find(a => 
                             String(a.login || '').trim() === accLogin &&
                             (a.server || '').trim().toLowerCase() === accServer &&
