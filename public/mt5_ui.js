@@ -1422,7 +1422,12 @@
             this.historySortField = 'time';
             this.historySortDir = 'desc';
 
-            if (!forceRefresh && this._accountDetailsCache.has(accountId)) {
+            if (forceRefresh) {
+                this._accountDetailsCache.delete(accountId);
+                const cleanId = String(accountId).replace(/^mt5_/, '');
+                this._accountDetailsCache.delete(cleanId);
+                this._accountDetailsCache.delete(`mt5_${cleanId}`);
+            } else if (this._accountDetailsCache.has(accountId)) {
                 const cachedData = this._accountDetailsCache.get(accountId);
                 if (cachedData && cachedData.symbols && cachedData.symbols.length > 2) {
                     this.detailsData = cachedData;
@@ -1434,7 +1439,11 @@
             }
 
             // Immediately pre-populate with known account info, localStorage symbols & history so user NEVER waits!
-            const existingAcc = window.MT5API ? (window.MT5API.accounts.find(a => String(a.id) === String(accountId)) || window.MT5API.getActiveAccount()) : null;
+            let existingAcc = window.MT5API ? (window.MT5API.accounts.find(a => String(a.id) === String(accountId)) || window.MT5API.getActiveAccount()) : null;
+            if (!existingAcc && window.MT5API && window.MT5API.accounts) {
+                const cleanId = String(accountId).replace(/^mt5_/, '');
+                existingAcc = window.MT5API.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+            }
             let cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
             let storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
 
@@ -1498,7 +1507,10 @@
                     const data = await window.MT5API.fetchAccountFullDetails(accountId, onProgress);
                     if (data) {
                         this.detailsData = data;
-                        this._accountDetailsCache.set(accountId, data);
+                        if (data.account && data.account.id) {
+                            this.detailsAccountId = data.account.id;
+                        }
+                        this._accountDetailsCache.set(this.detailsAccountId, data);
                     }
                 }
             } catch (err) {
@@ -1515,9 +1527,20 @@
                     const srv = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     if (this.detailsSubTab === 'tickers') this.updateTickerListView(modal, theme, srv);
                     if (this.detailsSubTab === 'history') this.updateHistoryListView(modal, theme);
+                    if (this.detailsSubTab === 'positions') this.updatePositionsListView(modal, theme, srv);
                     const tabTickers = modal.querySelector('.mt5-subtab-btn[data-subtab="tickers"]');
                     if (tabTickers && this.detailsData && this.detailsData.symbols) {
                         tabTickers.innerHTML = `<span>📈</span> Market Watch & Tickers (${this.detailsData.symbols.length})`;
+                    }
+                    const tabPos = modal.querySelector('#mt5-tab-positions-count');
+                    if (tabPos && this.detailsData && this.detailsData.positions) {
+                        tabPos.textContent = `💼 Active Positions (${this.detailsData.positions.length})`;
+                    }
+                    if (this.detailsData && this.detailsData.account) {
+                        const nickEl = modal.querySelector('#mt5-details-account-nickname');
+                        if (nickEl && this.detailsData.account.nickname) nickEl.textContent = this.detailsData.account.nickname;
+                        const loginEl = modal.querySelector('#mt5-details-account-login');
+                        if (loginEl && this.detailsData.account.login) loginEl.textContent = `#${this.detailsData.account.login}`;
                     }
                 }
             }
@@ -1905,7 +1928,7 @@
             // Update badge on Active Positions tab
             const posBadge = modal.querySelector('#mt5-tab-positions-count');
             if (posBadge) {
-                posBadge.textContent = `Active Positions (${positions.length})`;
+                posBadge.textContent = `💼 Active Positions (${positions.length})`;
             }
 
             // If user is currently looking at Active Positions tab, update table live without rebuilding whole modal
@@ -1919,18 +1942,9 @@
                     // Preserve scroll position
                     const innerBox = container.querySelector('div[style*="overflow"]');
                     const prevScroll = innerBox ? innerBox.scrollTop : 0;
-                    container.innerHTML = this.getPositionsTableHtml(positions, theme, srv);
+                    this.updatePositionsListView(modal, theme, srv);
                     const newInnerBox = container.querySelector('div[style*="overflow"]');
                     if (newInnerBox) newInnerBox.scrollTop = prevScroll;
-
-                    // Re-bind chart buttons in positions container
-                    container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
-                        btn.onclick = (e) => {
-                            const sym = e.currentTarget.getAttribute('data-symbol');
-                            const server = e.currentTarget.getAttribute('data-server');
-                            this.loadSymbolOnChart(sym, server);
-                        };
-                    });
                 }
             }
         }
@@ -2115,17 +2129,20 @@
                                 const typeColor = isBuy ? theme.success : theme.error;
                                 const profit = Number(p.profit || 0);
                                 const profitColor = profit >= 0 ? theme.success : theme.error;
+                                const lots = p.lots != null ? p.lots : (p.volume != null ? p.volume : '-');
+                                const openPrice = p.open_price != null ? p.open_price : (p.price_open != null ? p.price_open : '-');
+                                const currentPrice = p.current_price != null ? p.current_price : (p.price_current != null ? p.price_current : '-');
                                 return `
                                     <tr style="border-bottom: 1px solid ${theme.border};">
                                         <td style="padding: 7px 10px; font-family: monospace; color: ${theme.textMuted};">#${p.ticket}</td>
                                         <td style="padding: 7px 10px; font-weight: 700; color: ${theme.text}; font-family: monospace;">${p.symbol}</td>
                                         <td style="padding: 7px 10px; font-weight: 700; color: ${typeColor};">${isBuy ? 'BUY' : 'SELL'}</td>
-                                        <td style="padding: 7px 10px;">${p.volume}</td>
-                                        <td style="padding: 7px 10px;">${p.price_open}</td>
-                                        <td style="padding: 7px 10px;">${p.price_current}</td>
+                                        <td style="padding: 7px 10px;">${lots}</td>
+                                        <td style="padding: 7px 10px;">${openPrice}</td>
+                                        <td style="padding: 7px 10px;">${currentPrice}</td>
                                         <td style="padding: 7px 10px; color: ${theme.textMuted};">${p.sl || '0'} / ${p.tp || '0'}</td>
                                         <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: ${profitColor}; font-family: monospace;">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</td>
-                                        <td style="padding: 7px 10px; text-align: center;">
+                                        <td style="padding: 7px 10px; text-align: center; white-space: nowrap;">
                                             <button class="mt5-btn-chart-symbol" data-symbol="${p.symbol}" data-server="${server || ''}" style="
                                                 padding: 2px 7px;
                                                 border-radius: 4px;
@@ -2133,6 +2150,17 @@
                                                 font-weight: 600;
                                                 cursor: pointer;
                                             ">📈 Chart</button>
+                                            <button class="mt5-btn-close-pos" data-ticket="${p.ticket}" data-account="${p.account_id || ''}" style="
+                                                padding: 2px 7px;
+                                                border-radius: 4px;
+                                                font-size: 10px;
+                                                font-weight: 600;
+                                                cursor: pointer;
+                                                background: ${theme.errorSoft};
+                                                color: ${theme.error};
+                                                border: 1px solid ${theme.errorBorder};
+                                                margin-left: 4px;
+                                            ">✖ Close</button>
                                         </td>
                                     </tr>
                                 `;
@@ -2241,6 +2269,53 @@
                     pill.style.color = theme.textMuted;
                     pill.style.borderColor = theme.border;
                 }
+            });
+        }
+
+        updatePositionsListView(modal, theme, server) {
+            const container = modal.querySelector('#mt5-positions-items-container');
+            if (!container || !this.detailsData) return;
+            const positions = this.detailsData.positions || [];
+            container.innerHTML = this.getPositionsTableHtml(positions, theme, server);
+
+            // Re-bind chart buttons inside the updated positions list
+            container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
+                btn.onclick = (e) => {
+                    const sym = e.currentTarget.getAttribute('data-symbol');
+                    const srv = e.currentTarget.getAttribute('data-server');
+                    if (sym) this.loadSymbolOnChart(sym, srv);
+                };
+            });
+
+            // Re-bind close position buttons inside the updated positions list
+            container.querySelectorAll('.mt5-btn-close-pos').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const ticket = e.currentTarget.getAttribute('data-ticket');
+                    const aid = e.currentTarget.getAttribute('data-account') || this.detailsAccountId;
+                    if (!ticket) return;
+                    if (confirm(`Close active position #${ticket}?`)) {
+                        btn.disabled = true;
+                        btn.textContent = 'Closing...';
+                        try {
+                            if (window.MT5API && typeof window.MT5API.closePosition === 'function') {
+                                const res = await window.MT5API.closePosition({ ticket: Number(ticket), accountId: aid });
+                                if (res && res.success) {
+                                    if (typeof window.MT5API.fetchPositions === 'function') {
+                                        const newPos = await window.MT5API.fetchPositions(aid);
+                                        this.handleLivePositionUpdate(newPos);
+                                    }
+                                } else {
+                                    alert(`Failed to close position #${ticket}: ${res ? res.error : 'Unknown error'}`);
+                                }
+                            }
+                        } catch (err) {
+                            alert(`Error closing position: ${err.message}`);
+                        } finally {
+                            btn.disabled = false;
+                            btn.textContent = '✖ Close';
+                        }
+                    }
+                };
             });
         }
 
@@ -2359,7 +2434,7 @@
                                 <span>←</span> Fleet
                             </button>
                             <div style="display: flex; align-items: center; gap: 6px;">
-                                <strong style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${acc.nickname}</strong>
+                                <strong id="mt5-details-account-nickname" style="font-size: 13.5px; font-weight: 700; color: ${theme.text};">${acc.nickname}</strong>
                                 <span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: ${theme.textMuted}; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.08);">
                                     ${acc.broker_name || (acc.server.includes('FivePercent') ? 'The5ers' : acc.server)}
                                 </span>
@@ -2439,7 +2514,7 @@
                         <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px; border-top: 1px solid ${theme.border}; font-size: 10.5px; color: ${theme.textMuted};">
                             <span>Server: <strong style="color: ${theme.text};">${acc.server}</strong></span>
                             <span>•</span>
-                            <span>Login: <strong style="color: ${theme.text}; font-family: monospace;">#${acc.login}</strong></span>
+                            <span>Login: <strong id="mt5-details-account-login" style="color: ${theme.text}; font-family: monospace;">#${acc.login}</strong></span>
                             <span>•</span>
                             <span>Ping: <strong style="color: ${theme.text};">${acc.ping_ms || (window.MT5API ? window.MT5API.pingMs : 0)}ms</strong></span>
                             <span>•</span>
@@ -2776,9 +2851,17 @@
             // Refresh Account Details
             const btnRefreshDetails = modal.querySelector('#mt5-btn-refresh-details');
             if (btnRefreshDetails) {
-                btnRefreshDetails.onclick = (e) => {
+                btnRefreshDetails.onclick = async (e) => {
                     const id = e.currentTarget.getAttribute('data-id');
-                    if (id) this.openAccountDetails(id, true);
+                    if (id) {
+                        btnRefreshDetails.innerHTML = '<span>🔄</span> Syncing...';
+                        if (window.MT5API && typeof window.MT5API.syncAccounts === 'function') {
+                            try {
+                                await window.MT5API.syncAccounts(true);
+                            } catch (_) {}
+                        }
+                        await this.openAccountDetails(id, true);
+                    }
                 };
             }
 
@@ -2909,6 +2992,37 @@
                     const sym = e.currentTarget.getAttribute('data-symbol');
                     const server = e.currentTarget.getAttribute('data-server');
                     this.loadSymbolOnChart(sym, server);
+                };
+            });
+
+            // Close Active Position (from positions tab)
+            modal.querySelectorAll('.mt5-btn-close-pos').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const ticket = e.currentTarget.getAttribute('data-ticket');
+                    const aid = e.currentTarget.getAttribute('data-account') || this.detailsAccountId;
+                    if (!ticket) return;
+                    if (confirm(`Close active position #${ticket}?`)) {
+                        btn.disabled = true;
+                        btn.textContent = 'Closing...';
+                        try {
+                            if (window.MT5API && typeof window.MT5API.closePosition === 'function') {
+                                const res = await window.MT5API.closePosition({ ticket: Number(ticket), accountId: aid });
+                                if (res && res.success) {
+                                    if (typeof window.MT5API.fetchPositions === 'function') {
+                                        const newPos = await window.MT5API.fetchPositions(aid);
+                                        this.handleLivePositionUpdate(newPos);
+                                    }
+                                } else {
+                                    alert(`Failed to close position #${ticket}: ${res ? res.error : 'Unknown error'}`);
+                                }
+                            }
+                        } catch (err) {
+                            alert(`Error closing position: ${err.message}`);
+                        } finally {
+                            btn.disabled = false;
+                            btn.textContent = '✖ Close';
+                        }
+                    }
                 };
             });
             if (btnClose) btnClose.onclick = () => this.closeModal();

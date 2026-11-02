@@ -352,7 +352,11 @@
 
         getEndpointForAccount(accountId) {
             if (accountId && this.accounts) {
-                const acc = this.accounts.find(a => String(a.id) === String(accountId));
+                let acc = this.accounts.find(a => String(a.id) === String(accountId));
+                if (!acc) {
+                    const cleanId = String(accountId).replace(/^mt5_/, '');
+                    acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+                }
                 if (acc) {
                     let targetEp = null;
                     if (acc.endpointId) {
@@ -1128,15 +1132,26 @@
         }
 
         async fetchAccountFullDetails(accountId, onProgress = null) {
-            const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
+            // First synchronize accounts from bridge so we have the absolute latest login, server, balance, equity
+            try {
+                await this.syncAccounts(true);
+            } catch (_) {}
+
+            let acc = this.accounts.find(a => String(a.id) === String(accountId));
+            if (!acc) {
+                const cleanId = String(accountId).replace(/^mt5_/, '');
+                acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+            }
+            if (!acc) acc = this.getActiveAccount();
             if (!acc) return null;
+            const targetId = acc.id;
 
             if (onProgress) onProgress(1, 'Connecting to MT5 Profile', `Checking #${acc.login} (${acc.server})...`, 25);
 
             let symbols = [];
             if (!this._accountSymbolsCache) this._accountSymbolsCache = new Map();
-            if (this._accountSymbolsCache.has(accountId)) {
-                const cached = this._accountSymbolsCache.get(accountId);
+            if (this._accountSymbolsCache.has(targetId)) {
+                const cached = this._accountSymbolsCache.get(targetId);
                 if (Array.isArray(cached) && cached.length > 2) {
                     symbols = cached;
                 }
@@ -1144,14 +1159,14 @@
 
             if (symbols.length <= 2) {
                 try {
-                    const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
+                    const localSyms = localStorage.getItem(`mt5_symbols_${targetId}`);
                     if (localSyms) {
                         const parsed = JSON.parse(localSyms);
                         if (Array.isArray(parsed) && parsed.length > 2) {
                             symbols = parsed;
-                            this._accountSymbolsCache.set(accountId, symbols);
+                            this._accountSymbolsCache.set(targetId, symbols);
                         } else {
-                            localStorage.removeItem(`mt5_symbols_${accountId}`);
+                            localStorage.removeItem(`mt5_symbols_${targetId}`);
                         }
                     }
                 } catch (_) {}
@@ -1160,9 +1175,9 @@
             if (symbols.length <= 2) {
                 if (onProgress) onProgress(2, 'Loading Supported Tickers', 'Querying broker symbols and market watch...', 50);
                 try {
-                    const ep = this.getEndpointForAccount(accountId);
+                    const ep = this.getEndpointForAccount(targetId);
                     if (ep && ep.url) {
-                        const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                        const accParam = `?account_id=${encodeURIComponent(targetId)}`;
                         const res = await fetch(`${ep.url}/api/symbols${accParam}`, {
                             headers: this.getReqHeaders(ep)
                         });
@@ -1170,25 +1185,25 @@
                             const data = await res.json();
                             if (data.symbols && data.symbols.length > 2) {
                                 symbols = data.symbols;
-                                this._accountSymbolsCache.set(accountId, symbols);
+                                this._accountSymbolsCache.set(targetId, symbols);
                                 try {
-                                    localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(symbols));
+                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(symbols));
                                 } catch (_) {}
                             }
                         }
                     }
                 } catch (e) {}
             } else {
-                const ep = this.getEndpointForAccount(accountId);
+                const ep = this.getEndpointForAccount(targetId);
                 if (ep && ep.url) {
-                    const accParam = `?account_id=${encodeURIComponent(accountId)}`;
+                    const accParam = `?account_id=${encodeURIComponent(targetId)}`;
                     fetch(`${ep.url}/api/symbols${accParam}`, { headers: this.getReqHeaders(ep) })
                         .then(r => r.ok ? r.json() : null)
                         .then(data => {
                             if (data && data.symbols && data.symbols.length > 2) {
-                                this._accountSymbolsCache.set(accountId, data.symbols);
+                                this._accountSymbolsCache.set(targetId, data.symbols);
                                 try {
-                                    localStorage.setItem(`mt5_symbols_${accountId}`, JSON.stringify(data.symbols));
+                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(data.symbols));
                                 } catch (_) {}
                             }
                         }).catch(() => {});
@@ -1198,15 +1213,16 @@
             if (onProgress) onProgress(3, 'Fetching Active Positions', 'Retrieving open trades and floating PnL...', 75);
             let positions = [];
             try {
-                positions = await this.fetchPositions(accountId);
+                positions = await this.fetchPositions(targetId);
             } catch (_) {
                 positions = acc.positions || [];
             }
+            acc.positions = positions;
 
             if (onProgress) onProgress(4, 'Synchronizing Order History', 'Loading closed trade deals and performance metrics...', 90);
             let history = [];
             try {
-                history = await this.fetchOrderHistory(accountId);
+                history = await this.fetchOrderHistory(targetId);
             } catch (_) {}
 
             let lastTradeTime = null;
@@ -2635,7 +2651,9 @@
                     if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
                         const pos = wsRes.positions;
                         this.processPositionDiff(accountId, pos);
-                        if (!this.activeAccountId || this.activeAccountId === accountId) {
+                        const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
+                        if (acc) acc.positions = pos;
+                        if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                             this.positions = pos;
                             this.notifyPositionListeners();
                         }
@@ -2654,7 +2672,9 @@
                             const data = await res.json();
                             const pos = data.positions || [];
                             this.processPositionDiff(accountId, pos);
-                            if (!this.activeAccountId || this.activeAccountId === accountId) {
+                            const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
+                            if (acc) acc.positions = pos;
+                            if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                                 this.positions = pos;
                                 this.notifyPositionListeners();
                             }
@@ -2662,7 +2682,7 @@
                         }
                     } catch (e) {}
                 }
-                const acc = this.accounts.find(a => String(a.id) === String(accountId));
+                const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
                 return (acc && acc.positions) ? acc.positions : [];
             }
 
