@@ -756,6 +756,7 @@
                         const accountsList = data.accounts || [];
                         accountsList.forEach(acc => {
                             const isPaused = this.isAccountPaused(acc.id);
+                            const oldAcc = (this.accounts || []).find(a => String(a.id) === String(acc.id) || String(a.login) === String(acc.login));
                             allAccounts.push({
                                 ...acc,
                                 endpointId: ep.id,
@@ -763,7 +764,11 @@
                                 endpointUrl: ep.url,
                                 endpointApiKey: ep.apiKey,
                                 is_paused: isPaused,
-                                is_connected: !isPaused && ep.status === 'online'
+                                is_connected: !isPaused && ep.status === 'online',
+                                positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
+                                has_password: Boolean(acc.has_password),
+                                auth_mode: acc.auth_mode || (acc.has_password ? 'stored_credentials' : 'desktop_attached'),
+                                auth_label: acc.auth_label || (acc.has_password ? 'Password Saved (Auto-Login)' : 'Pre-Logged In (Desktop Session)')
                             });
                         });
                     } else if (ep) {
@@ -2623,6 +2628,7 @@
             const accountsList = data.accounts;
             const updatedEpAccounts = accountsList.map(acc => {
                 const isPaused = this.isAccountPaused(acc.id);
+                const oldAcc = (this.accounts || []).find(a => String(a.id) === String(acc.id) || String(a.login) === String(acc.login));
                 return {
                     ...acc,
                     endpointId: ep.id,
@@ -2630,7 +2636,11 @@
                     endpointUrl: ep.url,
                     endpointApiKey: ep.apiKey,
                     is_paused: isPaused,
-                    is_connected: !isPaused && ep.status === 'online'
+                    is_connected: !isPaused && ep.status === 'online',
+                    positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
+                    has_password: Boolean(acc.has_password),
+                    auth_mode: acc.auth_mode || (acc.has_password ? 'stored_credentials' : 'desktop_attached'),
+                    auth_label: acc.auth_label || (acc.has_password ? 'Password Saved (Auto-Login)' : 'Pre-Logged In (Desktop Session)')
                 };
             });
 
@@ -2661,6 +2671,9 @@
                 const ep = this.getEndpointForAccount(accountId);
                 if (!ep) return [];
 
+                const cleanLogin = String(accountId).replace(/^mt5_/, '');
+                const matchAcc = (a) => String(a.id) === String(accountId) || String(a.login) === cleanLogin || String(a.id).replace(/^mt5_/, '') === cleanLogin;
+
                 // 1. Try WebSocket RPC first
                 try {
                     const wsRes = await this.wsRequest(ep.id, {
@@ -2670,7 +2683,7 @@
                     if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
                         const pos = wsRes.positions;
                         this.processPositionDiff(accountId, pos);
-                        const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
+                        const acc = this.accounts.find(matchAcc);
                         if (acc) acc.positions = pos;
                         if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                             this.positions = pos;
@@ -2691,7 +2704,7 @@
                             const data = await res.json();
                             const pos = data.positions || [];
                             this.processPositionDiff(accountId, pos);
-                            const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
+                            const acc = this.accounts.find(matchAcc);
                             if (acc) acc.positions = pos;
                             if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                                 this.positions = pos;
@@ -2701,7 +2714,7 @@
                         }
                     } catch (e) {}
                 }
-                const acc = this.accounts.find(a => String(a.id) === String(accountId) || String(a.login) === String(accountId));
+                const acc = this.accounts.find(matchAcc);
                 return (acc && acc.positions) ? acc.positions : [];
             }
 
