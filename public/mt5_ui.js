@@ -700,6 +700,9 @@
         }
 
         getFleetHtml(theme, accounts, activeAcc) {
+            if (this.viewMode === 'delete_select') {
+                return this.getDeleteBridgeSelectorHtml(theme);
+            }
             if (this.viewMode === 'routing') {
                 return this.getBridgeRoutingHtml(theme);
             }
@@ -1300,6 +1303,64 @@
             this.routingAccount = acc;
             this.viewMode = 'routing';
             this.renderModal();
+        }
+
+        getDeleteBridgeSelectorHtml(theme) {
+            const acc = this.deleteTargetAccount;
+            const login = acc ? acc.login : '';
+            const server = acc ? acc.server : '';
+            const nick = acc ? acc.nickname : '';
+            const endpoints = this.deleteTargetEndpoints || [];
+
+            return `
+                <div style="display: flex; flex-direction: column; gap: 12px; padding: 4px 0;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 6px; border-bottom: 1px solid ${theme.border};">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 16px;">🗑️</span>
+                            <div>
+                                <strong style="font-size: 13px; color: ${theme.error};">Wipe & Delete Account #${login}</strong>
+                                <div style="font-size: 11px; color: ${theme.textMuted};">${nick} • ${server}</div>
+                            </div>
+                        </div>
+                        <button id="mt5-btn-cancel-delete-select" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; font-size: 11px; cursor: pointer; font-weight: 600;">✕ Cancel</button>
+                    </div>
+
+                    <div style="background: ${theme.errorSoft}; border: 1px solid ${theme.errorBorder}; border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: ${theme.error}; line-height: 1.4;">
+                        ⚠️ <strong>Multi-Bridge Account Detected</strong><br>
+                        This account is currently active across <strong>${endpoints.length} connected bridges</strong>.
+                        Select which bridge instance(s) to terminate and wipe clean from disk:
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin: 4px 0;">
+                        ${endpoints.map(ep => `
+                            <label style="display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; padding: 8px 12px; background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" class="mt5-delete-bridge-sel" value="${ep.id}" checked style="cursor: pointer; width: 16px; height: 16px; accent-color: ${theme.error};">
+                                    <div>
+                                        <strong style="color: ${theme.text}; font-size: 12px;">${ep.name}</strong>
+                                        <span style="display: block; font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace;">${ep.url}</span>
+                                    </div>
+                                </div>
+                                <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(239,68,68,0.1); color: ${theme.error}; font-weight: 600;">Will Wipe Clean</span>
+                            </label>
+                        `).join('')}
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px solid ${theme.border};">
+                        <button id="mt5-btn-cancel-delete-view" type="button" style="background: ${theme.cardBg}; color: ${theme.text}; border: 1px solid ${theme.border}; padding: 6px 12px; border-radius: 5px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+                            Cancel
+                        </button>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="mt5-btn-wipe-selected-bridges" type="button" style="background: ${theme.error}; color: #fff; border: none; padding: 6px 14px; border-radius: 5px; font-size: 11.5px; font-weight: 700; cursor: pointer;">
+                                Wipe Selected Bridge(s)
+                            </button>
+                            <button id="mt5-btn-wipe-all-bridges" type="button" style="background: #991b1b; color: #fff; border: 1px solid #ef4444; padding: 6px 14px; border-radius: 5px; font-size: 11.5px; font-weight: 700; cursor: pointer;" title="Terminates and completely wipes instances from ALL bridges">
+                                💥 Wipe from ALL Bridges
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         getBridgeRoutingHtml(theme) {
@@ -3285,17 +3346,85 @@
                 };
             });
 
-            // Delete account
+            // Delete account (with Multi-Bridge Wipe Selector)
             modal.querySelectorAll('.mt5-btn-delete-acc').forEach(b => {
                 b.onclick = async (e) => {
                     if (this.switchingAccountId) return;
                     const id = e.target.getAttribute('data-id');
-                    if (id && confirm('Disconnect this MT5 account?')) {
-                        await window.MT5API.deleteAccount(id);
+                    if (!id || !window.MT5API) return;
+
+                    const targetAcc = (window.MT5API.accounts || []).find(a => String(a.id) === String(id) || String(a.login) === String(id));
+                    const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : '';
+                    const targetServer = targetAcc ? (targetAcc.server || '').trim().toLowerCase() : '';
+                    const accNick = targetAcc ? targetAcc.nickname : (targetLogin ? `MT5 #${targetLogin}` : id);
+
+                    const matchingAccs = (window.MT5API.accounts || []).filter(a => {
+                        if (String(a.id) === String(id) || String(a.login) === String(id)) return true;
+                        if (targetLogin && String(a.login || '').trim() === targetLogin) {
+                            if (!targetServer || !a.server || (a.server || '').trim().toLowerCase() === targetServer) return true;
+                        }
+                        return false;
+                    });
+
+                    const hostingEndpoints = [];
+                    for (const m of matchingAccs) {
+                        const ep = (window.MT5API.endpoints || []).find(e => e.id === m.endpointId || e.url === m.endpointUrl);
+                        if (ep && !hostingEndpoints.some(e => e.id === ep.id)) {
+                            hostingEndpoints.push(ep);
+                        }
+                    }
+
+                    if (hostingEndpoints.length > 1) {
+                        // Multi-bridge account: open bridge selection view
+                        this.deleteTargetAccount = targetAcc;
+                        this.deleteTargetEndpoints = hostingEndpoints;
+                        this.viewMode = 'delete_select';
                         this.renderModal();
+                    } else {
+                        const epName = hostingEndpoints[0]?.name || 'Bridge Server';
+                        if (confirm(`Wipe clean MT5 instance and permanently delete Account #${targetLogin || id} (${accNick}) from ${epName}?`)) {
+                            await window.MT5API.deleteAccount(id);
+                            this.renderModal();
+                        }
                     }
                 };
             });
+
+            // Multi-bridge delete view button handlers
+            const btnCancelDel1 = modal.querySelector('#mt5-btn-cancel-delete-select');
+            if (btnCancelDel1) btnCancelDel1.onclick = () => { this.viewMode = 'list'; this.renderModal(); };
+            const btnCancelDel2 = modal.querySelector('#mt5-btn-cancel-delete-view');
+            if (btnCancelDel2) btnCancelDel2.onclick = () => { this.viewMode = 'list'; this.renderModal(); };
+
+            const btnWipeSelected = modal.querySelector('#mt5-btn-wipe-selected-bridges');
+            if (btnWipeSelected) {
+                btnWipeSelected.onclick = async () => {
+                    const checked = Array.from(modal.querySelectorAll('.mt5-delete-bridge-sel:checked')).map(cb => cb.value);
+                    if (checked.length === 0) {
+                        alert('Please select at least one bridge server to delete from.');
+                        return;
+                    }
+                    btnWipeSelected.disabled = true;
+                    btnWipeSelected.innerText = 'Wiping...';
+                    await window.MT5API.deleteAccount(this.deleteTargetAccount.id, checked);
+                    this.viewMode = 'list';
+                    this.renderModal();
+                };
+            }
+
+            const btnWipeAll = modal.querySelector('#mt5-btn-wipe-all-bridges');
+            if (btnWipeAll) {
+                btnWipeAll.onclick = async () => {
+                    if (!confirm(`Are you sure you want to permanently wipe clean all MT5 instances for Account #${this.deleteTargetAccount?.login} across ALL bridge servers?`)) {
+                        return;
+                    }
+                    btnWipeAll.disabled = true;
+                    btnWipeAll.innerText = 'Wiping All...';
+                    await window.MT5API.deleteAccount(this.deleteTargetAccount.id, null);
+                    this.viewMode = 'list';
+                    this.renderModal();
+                };
+            }
 
             // Multi-account copy check toggles (synchronize physical accounts across all bridges)
             modal.querySelectorAll('.mt5-check-multi').forEach(c => {
@@ -3445,22 +3574,7 @@
                     return;
                 }
 
-                // Check if a connected bridge has verified working credentials to sync from
-                if (window.MT5API && window.MT5API.syncWorkingPasswordFromConnectedBridges) {
-                    if (bannerText) bannerText.innerText = '🔍 Checking connected bridges for verified working session...';
-                    if (statusBanner) statusBanner.style.display = 'flex';
-                    if (pwdBox) pwdBox.style.display = 'none';
-
-                    const probe = await window.MT5API.syncWorkingPasswordFromConnectedBridges(accLogin, accServer);
-                    if (probe && probe.success && probe.sourceBridge) {
-                        if (pwdBox) pwdBox.style.display = 'none';
-                        if (statusBanner) statusBanner.style.display = 'flex';
-                        if (bannerText) bannerText.innerText = `🟢 Verified working session active on ${probe.sourceBridge}! Password will sync automatically.`;
-                        return;
-                    }
-                }
-
-                // No password in vault and no connected bridge has it -> prompt user
+                // No password in vault -> prompt user
                 if (pwdBox) pwdBox.style.display = 'flex';
                 if (statusBanner) statusBanner.style.display = 'none';
             };
