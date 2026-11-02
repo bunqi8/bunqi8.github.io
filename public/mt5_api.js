@@ -2354,7 +2354,7 @@
                             this.syncEndpointFromGist(ep.id);
                         }
                         setTimeout(() => {
-                            if (this.tickListeners && this.tickListeners.size > 0 && ep.enabled) {
+                            if (ep.enabled) {
                                 this.ensureWebSocket();
                             }
                         }, 2500);
@@ -2380,9 +2380,7 @@
             });
             this.wsSockets.clear();
             this.ws = null;
-            if (this.tickListeners && this.tickListeners.size > 0) {
-                this.ensureWebSocket();
-            }
+            this.ensureWebSocket();
         }
 
         // --- Orders & Positions Execution ---
