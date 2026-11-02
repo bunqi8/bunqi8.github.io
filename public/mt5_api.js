@@ -2475,10 +2475,29 @@
                                 });
                             } else if (msg.type === 'positions') {
                                 const newPositions = msg.positions || [];
-                                const accId = msg.account_id || (this.getActiveAccount() ? this.getActiveAccount().id : null);
-                                this.processPositionDiff(accId, newPositions);
-                                if (!accId || (this.getActiveAccount() && this.getActiveAccount().id === accId)) {
-                                    this.positions = newPositions;
+                                // Isolate positions strictly to the accounts belonging to this specific endpoint
+                                const epAccounts = (this.accounts || []).filter(a => a.endpointId === ep.id);
+                                if (epAccounts.length > 0) {
+                                    epAccounts.forEach(acc => {
+                                        const cleanLogin = String(acc.login || '').trim();
+                                        const accPositions = newPositions.filter(p => {
+                                            const pAid = String(p.account_id || '').trim();
+                                            return pAid === String(acc.id) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
+                                        });
+                                        this.processPositionDiff(acc.id, accPositions);
+                                        acc.positions = accPositions;
+                                    });
+                                } else {
+                                    const activeAcc = this.getActiveAccount();
+                                    if (activeAcc && activeAcc.endpointId === ep.id) {
+                                        this.processPositionDiff(activeAcc.id, newPositions);
+                                        activeAcc.positions = newPositions;
+                                    }
+                                }
+
+                                const curActive = this.getActiveAccount();
+                                if (curActive && curActive.endpointId === ep.id) {
+                                    this.positions = curActive.positions || [];
                                     this.notifyPositionListeners();
                                 }
                             } else if (msg.type === 'accounts') {
@@ -3046,21 +3065,40 @@
         }
 
         processPositionDiff(accountId, newPositions = []) {
-            const acc = this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount();
+            let acc = this.accounts.find(a => String(a.id) === String(accountId));
+            if (!acc) {
+                const cleanId = String(accountId).replace(/^mt5_/, '');
+                acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+            }
+            if (!acc) acc = this.getActiveAccount();
+            const targetId = acc ? acc.id : String(accountId || 'default');
             const accName = acc ? acc.nickname : `Account #${accountId || ''}`;
-            const accIdStr = String(accountId || (acc ? acc.id : 'default'));
 
             if (!this._accountPositionsMap) this._accountPositionsMap = new Map();
-            const prevPositions = this._accountPositionsMap.get(accIdStr);
+            const prevPositions = this._accountPositionsMap.get(targetId);
 
             if (!prevPositions) {
-                // Initial baseline snapshot for this specific account
+                // Initial baseline snapshot for this specific account - DO NOT notify on first load!
                 const map = new Map();
                 newPositions.forEach(p => {
                     map.set(String(p.ticket), p);
                 });
-                this._accountPositionsMap.set(accIdStr, map);
+                this._accountPositionsMap.set(targetId, map);
                 return;
+            }
+
+            // Flap & Glitch Guard: If previous snapshot had positions, and newPositions is suddenly empty,
+            // require 2 consecutive empty snapshots before firing position closure!
+            if (prevPositions.size > 0 && newPositions.length === 0) {
+                if (!this._emptySnapshotCounters) this._emptySnapshotCounters = new Map();
+                const emptyCounter = this._emptySnapshotCounters.get(targetId) || 0;
+                if (emptyCounter < 1) {
+                    this._emptySnapshotCounters.set(targetId, emptyCounter + 1);
+                    return; // Wait for next tick to verify closure
+                }
+            }
+            if (this._emptySnapshotCounters) {
+                this._emptySnapshotCounters.delete(targetId);
             }
 
             const currentTickets = new Set();
@@ -3077,8 +3115,8 @@
                         ticket: p.ticket,
                         symbol: p.symbol,
                         side: p.type,
-                        lots: p.lots,
-                        price: p.open_price,
+                        lots: p.lots != null ? p.lots : p.volume,
+                        price: p.open_price != null ? p.open_price : p.price_open,
                         sl: p.sl,
                         tp: p.tp,
                         accountName: accName,
@@ -3087,14 +3125,14 @@
                 } else {
                     // Check for SL/TP modification
                     const oldP = prevPositions.get(ticketKey);
-                    if (oldP && (Number(oldP.sl) !== Number(p.sl) || Number(oldP.tp) !== Number(p.tp))) {
+                    if (oldP && (Number(oldP.sl || 0) !== Number(p.sl || 0) || Number(oldP.tp || 0) !== Number(p.tp || 0))) {
                         this.notifyNotificationListeners({
                             type: 'modified',
                             action: 'Order Modified',
                             ticket: p.ticket,
                             symbol: p.symbol,
                             side: p.type,
-                            lots: p.lots,
+                            lots: p.lots != null ? p.lots : p.volume,
                             oldSl: oldP.sl,
                             newSl: p.sl,
                             oldTp: oldP.tp,
@@ -3116,7 +3154,7 @@
                         ticket: oldP.ticket,
                         symbol: oldP.symbol,
                         side: oldP.type,
-                        lots: oldP.lots,
+                        lots: oldP.lots != null ? oldP.lots : oldP.volume,
                         profit: oldP.profit,
                         accountName: accName,
                         time: Date.now()
@@ -3129,7 +3167,7 @@
             newPositions.forEach(p => {
                 updatedMap.set(String(p.ticket), p);
             });
-            this._accountPositionsMap.set(accIdStr, updatedMap);
+            this._accountPositionsMap.set(targetId, updatedMap);
         }
     }
 

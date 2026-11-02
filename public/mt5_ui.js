@@ -1951,6 +1951,16 @@
 
         showNotification(notif) {
             if (!notif) return;
+
+            // Debounce / deduplicate toasts: suppress identical notifications for the same ticket within 15 seconds
+            if (!this._recentToastDedup) this._recentToastDedup = new Map();
+            const toastKey = `${notif.type}_${notif.ticket}_${notif.action}`;
+            const now = Date.now();
+            if (this._recentToastDedup.has(toastKey) && (now - this._recentToastDedup.get(toastKey) < 15000)) {
+                return;
+            }
+            this._recentToastDedup.set(toastKey, now);
+
             let container = document.getElementById('mt5-notifications-container');
             if (!container) {
                 container = document.createElement('div');
@@ -1968,6 +1978,12 @@
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 `;
                 document.body.appendChild(container);
+            }
+
+            // Cap visible toast stack to max 3 notifications (auto-remove oldest)
+            while (container.children.length >= 3) {
+                const oldest = container.firstChild;
+                if (oldest) oldest.remove();
             }
 
             const toast = document.createElement('div');
