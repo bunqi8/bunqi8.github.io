@@ -1456,10 +1456,29 @@ const Datafeed = {
 
                 let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
 
-                // If fetchBars returned empty (e.g. server in middle of restart), quick retry once after 350ms
-                if ((!mt5Bars || mt5Bars.length === 0) && (firstDataRequest || (window.MT5API && window.MT5API.wasDisconnected))) {
+                // If fetchBars returned empty on firstDataRequest, retry up to 3 times with progressive backoff (accommodates worker restart & MT5 sync)
+                if ((!mt5Bars || mt5Bars.length === 0) && firstDataRequest) {
+                    const retryDelays = [400, 800, 1400];
+                    for (const delayMs of retryDelays) {
+                        console.log(`[datafeed] Retrying initial bar fetch for ${cleanSym} in ${delayMs}ms (worker sync)...`);
+                        await new Promise(r => setTimeout(r, delayMs));
+                        mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
+                        if (mt5Bars && mt5Bars.length > 0) break;
+                    }
+                } else if ((!mt5Bars || mt5Bars.length === 0) && window.MT5API && window.MT5API.wasDisconnected) {
                     await new Promise(r => setTimeout(r, 350));
                     mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
+                }
+
+                // If still empty on firstDataRequest, NEVER poison the chart with noData: true! Report retryable status via onErrorCallback.
+                if (firstDataRequest && (!mt5Bars || mt5Bars.length === 0)) {
+                    console.warn(`[datafeed] MT5 bridge returned 0 bars for ${cleanSym} on firstDataRequest. Reporting synchronizing state rather than poisoning noData.`);
+                    if (typeof onErrorCallback === 'function') {
+                        onErrorCallback('MT5 terminal synchronizing data, please retry');
+                        return;
+                    }
+                    onHistoryCallback([], { noData: false });
+                    return;
                 }
 
                 // If still empty when scrolling back (not firstDataRequest), look back up to 4 days prior to bridge weekend gap
@@ -1570,8 +1589,15 @@ const Datafeed = {
                 }
 
                 // If rawTo is at or before inception date, history is truly exhausted.
-                console.log(`[datafeed] True inception date reached for ${cleanSym} (${earliestDateStr}). History exhausted.`);
-                onHistoryCallback([], { noData: true });
+                if (rawTo <= earliestTimeSec) {
+                    console.log(`[datafeed] True inception date reached for ${cleanSym} (${earliestDateStr}). History exhausted.`);
+                    onHistoryCallback([], { noData: true });
+                    return;
+                }
+
+                // Mid-range gap fallback: jump back 1 day towards inception
+                const midGapHop = Math.max(earliestTimeSec, rawTo - 86400);
+                onHistoryCallback([], { noData: true, nextTime: midGapHop * 1000 });
                 return;
             } catch (err) {
                 console.warn('[datafeed] MT5 fetchBars error:', err);
