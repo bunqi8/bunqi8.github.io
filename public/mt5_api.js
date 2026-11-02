@@ -25,6 +25,10 @@
             this.ws = null;
             this.activeSymbol = 'EURUSD';
             this.tickListeners = new Map();
+            // Compatibility shim for Set-like .add() invocations across legacy UI modules
+            this.tickListeners.add = (cb) => {
+                if (typeof cb === 'function') this.tickListeners.set(cb, {});
+            };
             this.accountListeners = new Set();
             this.positionListeners = new Set();
             this.notificationListeners = new Set();
@@ -3211,6 +3215,16 @@
 
         offPing(cb) {
             this.pingListeners.delete(cb);
+        }
+
+        onTick(cb) {
+            if (typeof cb === 'function') {
+                this.tickListeners.set(cb, {});
+            }
+        }
+
+        offTick(cb) {
+            this.tickListeners.delete(cb);
         }
 
         notifyPingListeners(endpointId, pingMs) {
