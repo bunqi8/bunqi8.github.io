@@ -95,8 +95,14 @@
                 if (typeof window.MT5API.onAccountUpdate === 'function') {
                     window.MT5API.onAccountUpdate(() => this.onBrokerStateChange());
                 }
-                if (window.MT5API.tickListeners) {
-                    window.MT5API.tickListeners.add((tick) => this.onTick(tick));
+                if (typeof window.MT5API.onTick === 'function') {
+                    window.MT5API.onTick((tick) => this.onTick(tick));
+                } else if (window.MT5API.tickListeners) {
+                    if (typeof window.MT5API.tickListeners.add === 'function') {
+                        window.MT5API.tickListeners.add((tick) => this.onTick(tick));
+                    } else if (typeof window.MT5API.tickListeners.set === 'function') {
+                        window.MT5API.tickListeners.set((tick) => this.onTick(tick), {});
+                    }
                 }
             }
 
