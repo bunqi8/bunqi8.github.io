@@ -704,9 +704,12 @@
             if (this.viewMode === 'add') {
                 const endpoints = window.MT5API ? window.MT5API.getEndpoints().filter(e => e.enabled) : [];
                 const localVmEndpoints = endpoints.filter(ep => this.isLocalVmBridge(ep));
-                const defaultTargetIds = localVmEndpoints.length > 0 
-                    ? localVmEndpoints.map(ep => ep.id) 
-                    : [window.MT5API?.activeEndpointId || endpoints[0]?.id];
+                const defaultTargetIds = this.preselectedBridgeId
+                    ? [this.preselectedBridgeId]
+                    : (localVmEndpoints.length > 0 
+                        ? localVmEndpoints.map(ep => ep.id) 
+                        : [window.MT5API?.activeEndpointId || endpoints[0]?.id]);
+                this.preselectedBridgeId = null;
 
                 return `
                     <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -827,16 +830,23 @@
                 const activeInstances = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
                 const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
 
-                // Bridge routing badges for this account
-                const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
-                let allowedEpIds = [];
-                if (vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0) {
-                    allowedEpIds = vaultEntry.targetEndpoints;
-                } else if (vaultEntry && vaultEntry.endpointId) {
-                    allowedEpIds = [vaultEntry.endpointId];
-                } else if (acc.endpointId) {
-                    allowedEpIds = [acc.endpointId];
-                }
+                // Bridge routing badges for this account: union of active instances and client vault configuration
+                const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && (v.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+                const combinedEpIds = new Set([
+                    ...activeEpIds,
+                    ...(vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0
+                        ? vaultEntry.targetEndpoints
+                        : (vaultEntry && vaultEntry.endpointId ? [vaultEntry.endpointId] : []))
+                ]);
+                const allowedEpIds = Array.from(combinedEpIds.size > 0 ? combinedEpIds : [acc.endpointId]);
+
+                const routedEp = window.MT5API?.getEndpointForAccount(acc.id) || hostEp;
+                const isMultiHost = activeInstances.length > 1;
+                const multiHostBadge = isMultiHost ? `
+                    <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(147, 51, 234, 0.12); color: #a855f7; border: 1px solid rgba(147, 51, 234, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Redundant Multi-Bridge HA: Hosted across ${activeInstances.length} bridge servers with automatic transparent failover">
+                        🛡️ Multi-Bridge HA (${activeInstances.length} Hosts)
+                    </span>
+                ` : '';
 
                 const allowedBridgeBadges = allowedEpIds.map(epId => {
                     const ep = allEndpoints.find(e => e.id === epId);
@@ -845,13 +855,14 @@
                     const isOnline = ep.status === 'online';
                     const isLocal = this.isLocalVmBridge(ep);
                     const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+                    const isRouted = routedEp && routedEp.id === ep.id;
 
                     const badgeColor = isConn && isOnline ? theme.success : (isOnline ? theme.primary : theme.error);
-                    const badgeBg = isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft);
-                    const badgeBorder = isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder);
+                    const badgeBg = isRouted ? (theme.isDark ? 'rgba(41,98,255,0.22)' : 'rgba(41,98,255,0.12)') : (isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft));
+                    const badgeBorder = isRouted ? theme.primary : (isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder));
 
-                    return `<span style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;" title="${ep.name}: ${isConn && isOnline ? 'Connected' : (isOnline ? 'Standby' : 'Offline')}">
-                        ${bIcon} ${ep.name} (${isConn && isOnline ? '🟢' : (isOnline ? '⚪' : '🔴')})
+                    return `<span style="font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; ${isRouted ? 'box-shadow: 0 0 4px rgba(41,98,255,0.3);' : ''}" title="${ep.name}: ${isRouted ? '⚡ Active Execution Route • ' : ''}${isConn && isOnline ? 'Connected' : (isOnline ? 'Standby' : 'Offline')}">
+                        ${isRouted ? '⚡' : bIcon} ${ep.name} (${isConn && isOnline ? '🟢' : (isOnline ? '⚪' : '🔴')})
                     </span>`;
                 }).filter(Boolean).join('');
 
@@ -878,6 +889,7 @@
                                 <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
+                                ${multiHostBadge}
                                 ${(!acc.has_password || acc.auth_mode === 'desktop_attached') ? `
                                     <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: Pre-authenticated in MT5 GUI (No password stored in bridge)">🖥️ Pre-Logged In</span>
                                 ` : `
@@ -894,7 +906,7 @@
                                     : `<button class="mt5-btn-pause-acc" data-id="${acc.id}" style="background: ${theme.warningSoft}; color: ${theme.warning}; border: 1px solid ${theme.warningBorder}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">⏸️ Pause</button>`
                                 }
                                 <button class="mt5-btn-view-details mt5-ghost-btn" data-id="${acc.id}" style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="View financial details">📋 Details</button>
-                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid ${theme.errorBorder}; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Delete account">✕</button>
+                                <button class="mt5-btn-delete-acc" data-id="${acc.id}" style="background: transparent; color: ${theme.error}; border: 1px solid ${theme.errorBorder}; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Delete account across all bridges">✕</button>
                             </div>
                         </div>
 
@@ -906,7 +918,7 @@
                                 <span style="color: ${pnl >= 0 ? theme.success : theme.error}; font-weight: 600;">
                                     ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}
                                 </span>
-                                <span style="color: ${theme.textMuted}; font-size: 9.5px;">Host: <strong style="color: ${theme.text};">${hostBridgeNames || acc.endpointName || 'Bridge'}</strong></span>
+                                <span style="color: ${theme.textMuted}; font-size: 9.5px;">Route: <strong style="color: ${theme.primary};">⚡ ${routedEp?.name || acc.endpointName || 'Bridge'}</strong></span>
                             </div>
 
                             <div style="display: flex; align-items: center; gap: 3px; font-size: 9.5px;">
@@ -1012,10 +1024,17 @@
                                 <span style="font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</span>
                                 ${isPrimary ? `<span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700; flex-shrink: 0;">PRIMARY</span>` : ''}
                                 ${statusBadge}
-                                <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace; flex-shrink: 0;">👥 ${hostedAccs.length} acc</span>
+                                ${hostedAccs.length === 0 ? `
+                                    <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255,152,0,0.12); color: #ff9800; border: 1px solid rgba(255,152,0,0.25); font-weight: 600;">Standby • 0 Acc</span>
+                                ` : `
+                                    <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace; flex-shrink: 0;">👥 ${hostedAccs.length} acc</span>
+                                `}
                             </div>
 
                             <div style="display: flex; gap: 4px; align-items: center; flex-shrink: 0;">
+                                ${hostedAccs.length === 0 ? `
+                                    <button type="button" class="mt5-btn-deploy-to-bridge" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Deploy or connect an MT5 account to this bridge">➕ Deploy Acc</button>
+                                ` : ''}
                                 <button type="button" class="mt5-btn-ping-endpoint" data-id="${ep.id}" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Ping this server">🔄 Ping</button>
                                 ${hasGist ? `<button type="button" class="mt5-btn-sync-single-gist" data-id="${ep.id}" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Sync latest rotated URL from this bridge's Gist">⚡ Sync</button>` : ''}
                                 <button type="button" class="mt5-btn-edit-endpoint" data-id="${ep.id}" style="background: ${isEditing ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.08)'}; color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 21px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;" title="Edit Bridge Server URL, API Key, and Gist Settings">${isEditing ? '✕ Close' : '✏️ Edit'}</button>
@@ -1035,6 +1054,22 @@
                             ` : `<span style="color: ${theme.textMuted}; flex-shrink: 0;">• Direct / Static</span>`}
                             <span style="color: ${theme.textMuted}; flex-shrink: 0;">• Key: ${ep.apiKey ? '••••' : 'None'}</span>
                         </div>
+
+                        ${hostedAccs.length > 0 ? `
+                            <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 3px; padding-top: 3px; border-top: 1px solid rgba(120,120,120,0.08);">
+                                <span style="font-size: 9.5px; color: ${theme.textMuted}; font-weight: 600;">Hosted:</span>
+                                ${hostedAccs.map(a => `
+                                    <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(120,123,134,0.1); color: ${theme.text}; border: 1px solid rgba(120,123,134,0.2); font-family: monospace;">
+                                        #${a.login} (${a.nickname || a.broker_name || 'MT5'})
+                                    </span>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 3px; padding: 3px 7px; border-radius: 4px; background: rgba(255,152,0,0.06); border: 1px dashed rgba(255,152,0,0.25);">
+                                <span style="font-size: 9.5px; color: ${theme.warning}; font-weight: 500;">Standby Gateway • 0 Accounts Configured</span>
+                                <button type="button" class="mt5-btn-deploy-to-bridge" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; height: 19px; padding: 0 7px; border-radius: 3px; font-size: 9.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;">➕ Deploy Account</button>
+                            </div>
+                        `}
 
                         ${isEditing ? `
                             <div class="mt5-ep-edit-container" data-id="${ep.id}" style="margin-top: 6px; padding-top: 8px; border-top: 1px dashed ${theme.border}; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: 100%;">
@@ -2447,19 +2482,19 @@
 
             const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const vault = window.MT5API ? window.MT5API.getClientVault() : [];
-            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && v.server === acc.server);
+            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && (v.server || '').toLowerCase() === (acc.server || '').toLowerCase());
 
-            let allowedEpIds = [];
-            if (vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0) {
-                allowedEpIds = vaultEntry.targetEndpoints;
-            } else if (vaultEntry && vaultEntry.endpointId) {
-                allowedEpIds = [vaultEntry.endpointId];
-            } else if (acc.endpointId) {
-                allowedEpIds = [acc.endpointId];
-            }
-
-            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && a.server === acc.server);
+            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
             const activeEpIds = new Set(activeInstances.map(a => a.endpointId));
+
+            const combinedEpIds = new Set([
+                ...activeEpIds,
+                ...(vaultEntry && Array.isArray(vaultEntry.targetEndpoints) && vaultEntry.targetEndpoints.length > 0
+                    ? vaultEntry.targetEndpoints
+                    : (vaultEntry && vaultEntry.endpointId ? [vaultEntry.endpointId] : []))
+            ]);
+            const allowedEpIds = Array.from(combinedEpIds.size > 0 ? combinedEpIds : [acc.endpointId]);
+            const routedEp = window.MT5API?.getEndpointForAccount(acc.id);
 
             const detailsBridgeBadges = allowedEpIds.map(epId => {
                 const ep = allEndpoints.find(e => e.id === epId);
@@ -2468,14 +2503,15 @@
                 const isOnline = ep.status === 'online';
                 const isLocal = this.isLocalVmBridge(ep);
                 const bIcon = isLocal ? '💻' : (ep.name.toLowerCase().includes('oracle') ? '☁️' : '⚡');
+                const isRouted = routedEp && routedEp.id === ep.id;
 
                 const badgeColor = isConn && isOnline ? theme.success : (isOnline ? theme.primary : theme.error);
-                const badgeBg = isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft);
-                const badgeBorder = isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder);
-                const statusText = isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline');
+                const badgeBg = isRouted ? (theme.isDark ? 'rgba(41,98,255,0.22)' : 'rgba(41,98,255,0.12)') : (isConn && isOnline ? theme.successSoft : (isOnline ? theme.primarySoft : theme.errorSoft));
+                const badgeBorder = isRouted ? theme.primary : (isConn && isOnline ? theme.successBorder : (isOnline ? theme.primaryBorder : theme.errorBorder));
+                const statusText = isRouted ? '⚡ Active Route' : (isConn && isOnline ? '🟢 Connected' : (isOnline ? '⚪ Ready' : '🔴 Offline'));
 
-                return `<span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
-                    ${bIcon} ${ep.name} (${statusText})
+                return `<span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; ${isRouted ? 'box-shadow: 0 0 4px rgba(41,98,255,0.3);' : ''}">
+                    ${isRouted ? '⚡' : bIcon} ${ep.name} (${statusText})
                 </span>`;
             }).filter(Boolean).join('') || `<span style="font-size: 10px; color: ${theme.textMuted};">${acc.endpointName || 'Bridge Server'}</span>`;
 
@@ -2587,6 +2623,11 @@
                     <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 7px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
                         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;">
                             <span style="font-size: 10.5px; font-weight: 600; color: ${theme.textMuted};">🔗 Bridge Routing:</span>
+                            ${activeInstances.length > 1 ? `
+                                <span style="font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(147, 51, 234, 0.12); color: #a855f7; border: 1px solid rgba(147, 51, 234, 0.3); font-weight: 700;" title="High-Availability: Redundant instances active across ${activeInstances.length} bridge servers">
+                                    🛡️ Multi-Bridge HA (${activeInstances.length} Hosts)
+                                </span>
+                            ` : ''}
                             ${detailsBridgeBadges}
                         </div>
                         <button class="mt5-btn-config-bridges mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" data-id="${acc.id}" style="
@@ -3199,15 +3240,20 @@
                 };
             });
 
-            // Multi-account copy check toggles
+            // Multi-account copy check toggles (synchronize physical accounts across all bridges)
             modal.querySelectorAll('.mt5-check-multi').forEach(c => {
                 c.onchange = (e) => {
                     const id = e.target.getAttribute('data-id');
                     if (!window.MT5API) return;
+                    const targetAcc = (window.MT5API.accounts || []).find(a => String(a.id) === String(id));
+                    const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : '';
+                    const siblings = targetLogin ? (window.MT5API.accounts || []).filter(a => String(a.login || '').trim() === targetLogin) : [];
+                    const idsToUpdate = new Set([id, ...(targetLogin ? [targetLogin] : []), ...siblings.map(a => String(a.id))]);
+
                     if (e.target.checked) {
-                        window.MT5API.multiAccountSelection.add(id);
+                        idsToUpdate.forEach(i => window.MT5API.multiAccountSelection.add(i));
                     } else {
-                        window.MT5API.multiAccountSelection.delete(id);
+                        idsToUpdate.forEach(i => window.MT5API.multiAccountSelection.delete(i));
                     }
                     window.MT5API.saveConfig();
                 };
@@ -3229,22 +3275,50 @@
                 };
             }
 
-            // Toggle select all unpaused accounts
+            // Toggle select all unpaused accounts (deduplicated by physical login::server)
             const btnToggleSelectAll = modal.querySelector('#mt5-btn-toggle-select-all');
             if (btnToggleSelectAll && window.MT5API) {
                 btnToggleSelectAll.onclick = () => {
                     const accounts = window.MT5API.accounts || [];
-                    const unpaused = accounts.filter(a => !window.MT5API.isAccountPaused(a.id));
+                    const uniqueAccountsMap = new Map();
+                    accounts.forEach(acc => {
+                        const key = `${String(acc.login || '').trim()}::${String(acc.server || '').trim().toLowerCase()}`;
+                        if (!uniqueAccountsMap.has(key)) uniqueAccountsMap.set(key, acc);
+                    });
+                    const deduped = Array.from(uniqueAccountsMap.values());
+                    const unpaused = deduped.filter(a => !window.MT5API.isAccountPaused(a.id));
                     const allSelected = unpaused.length > 0 && unpaused.every(a => window.MT5API.multiAccountSelection.has(a.id));
+
                     if (allSelected) {
-                        unpaused.forEach(a => window.MT5API.multiAccountSelection.delete(a.id));
+                        unpaused.forEach(a => {
+                            const siblings = accounts.filter(s => String(s.login) === String(a.login));
+                            siblings.forEach(s => window.MT5API.multiAccountSelection.delete(String(s.id)));
+                            window.MT5API.multiAccountSelection.delete(String(a.id));
+                            if (a.login) window.MT5API.multiAccountSelection.delete(String(a.login));
+                        });
                     } else {
-                        unpaused.forEach(a => window.MT5API.multiAccountSelection.add(a.id));
+                        unpaused.forEach(a => {
+                            const siblings = accounts.filter(s => String(s.login) === String(a.login));
+                            siblings.forEach(s => window.MT5API.multiAccountSelection.add(String(s.id)));
+                            window.MT5API.multiAccountSelection.add(String(a.id));
+                            if (a.login) window.MT5API.multiAccountSelection.add(String(a.login));
+                        });
                     }
                     window.MT5API.saveConfig();
                     this.renderModal();
                 };
             }
+
+            // Deploy account to standby bridge gateway
+            modal.querySelectorAll('.mt5-btn-deploy-to-bridge').forEach(btn => {
+                btn.onclick = () => {
+                    const epId = btn.getAttribute('data-id');
+                    this.preselectedBridgeId = epId;
+                    this.activeTab = 'fleet';
+                    this.viewMode = 'add';
+                    this.renderModal();
+                };
+            });
 
             // Open Bridge Routing view for an account
             modal.querySelectorAll('.mt5-btn-config-bridges').forEach(b => {
