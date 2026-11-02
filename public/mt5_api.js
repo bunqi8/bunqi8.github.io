@@ -1652,7 +1652,13 @@
             }
         }
 
-        async addAccount(accountData, endpointTarget = null) {
+        async addAccount(accountData, endpointTarget = null, onProgress = null) {
+            const report = (step, text, pct) => {
+                if (typeof onProgress === 'function') {
+                    try { onProgress({ step, text, pct }); } catch (_) {}
+                }
+            };
+
             try {
                 let targets = [];
                 if (Array.isArray(endpointTarget)) {
@@ -1668,15 +1674,21 @@
                     return { success: false, error: 'No bridge endpoint available to add account to.' };
                 }
 
+                report(1, 'Encrypting account credentials with E2E AES-256-GCM...', 15);
+
                 let lastSuccessAccount = null;
                 const errors = [];
                 const successfulTargets = [];
 
-                for (const epId of targets) {
+                for (let i = 0; i < targets.length; i++) {
+                    const epId = targets[i];
                     const ep = this.endpoints.find(e => e.id === epId);
                     if (!ep || !ep.url) continue;
 
                     try {
+                        const basePct = 20 + Math.floor((i / targets.length) * 60);
+                        report(2, `Sending encrypted configuration to ${ep.name}...`, basePct);
+
                         const bridgeApiKey = ep.apiKey || this.apiKey || 'mt5_secret_key_2026';
                         const encryptedPasswordForBridge = await this.encryptE2EPayload(accountData.password, bridgeApiKey);
                         const payload = {
@@ -1684,11 +1696,25 @@
                             password: encryptedPasswordForBridge
                         };
 
-                        const res = await fetch(`${ep.url}/api/accounts/add`, {
-                            method: 'POST',
-                            headers: this.getReqHeaders(ep),
-                            body: JSON.stringify(payload)
-                        });
+                        report(3, `Provisioning isolated MT5 directory on ${ep.name}...`, basePct + 15);
+                        report(4, `Launching terminal & authenticating with ${accountData.server}...`, basePct + 30);
+
+                        // 35-second client-side timeout ensures UI never hangs indefinitely
+                        let res;
+                        try {
+                            res = await fetch(`${ep.url}/api/accounts/add`, {
+                                method: 'POST',
+                                headers: this.getReqHeaders(ep),
+                                body: JSON.stringify(payload),
+                                signal: AbortSignal.timeout(35000)
+                            });
+                        } catch (fetchErr) {
+                            if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
+                                throw new Error(`Connection timed out after 35s while ${ep.name} was initializing MT5.`);
+                            }
+                            throw fetchErr;
+                        }
+
                         const data = await res.json();
                         if (data.success) {
                             lastSuccessAccount = data.account;
@@ -1702,9 +1728,11 @@
                 }
 
                 if (successfulTargets.length > 0) {
+                    report(5, 'Saving credentials to client vault & syncing fleet catalog...', 90);
                     // Master Client Vault: Persist securely in browser's local storage bounded to these bridges
                     await this.saveAccountToClientVault(accountData, successfulTargets);
                     await this.syncAccounts(true);
+                    report(5, 'Account connected and verified successfully!', 100);
                     return { success: true, account: lastSuccessAccount, targets: successfulTargets };
                 }
 

@@ -795,6 +795,38 @@
                                     Connect & Save Account
                                 </button>
                             </div>
+
+                            <!-- Dedicated Real-Time Provisioning & Connection Card -->
+                            <div id="mt5-add-progress-box" style="display: none; margin-top: 6px; background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 12px; box-sizing: border-box;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span id="mt5-add-progress-spinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid ${theme.primary}; border-top-color: transparent; border-radius: 50%; animation: mt5spin 0.8s linear infinite;"></span>
+                                        <strong style="font-size: 11.5px; color: ${theme.text};" id="mt5-add-progress-title">Connecting to Bridge Host...</strong>
+                                    </div>
+                                    <span id="mt5-add-progress-timer" style="font-family: monospace; font-size: 10.5px; font-weight: 700; color: ${theme.primary}; background: rgba(41,98,255,0.1); padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(41,98,255,0.2);">⏱️ 00:00s</span>
+                                </div>
+                                <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-bottom: 10px;">
+                                    <div id="mt5-add-progress-bar" style="height: 100%; width: 10%; background: linear-gradient(90deg, #2962ff, #00b0ff); transition: width 0.35s ease; border-radius: 3px;"></div>
+                                </div>
+                                <div id="mt5-add-steps-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                                    <div id="mt5-add-step-1" style="display: flex; align-items: center; gap: 8px; color: ${theme.textMuted}; transition: color 0.2s;">
+                                        <span class="step-icon">🔒</span> <span class="step-label">Encrypt credentials with E2E AES-256-GCM</span>
+                                    </div>
+                                    <div id="mt5-add-step-2" style="display: flex; align-items: center; gap: 8px; color: ${theme.textMuted}; transition: color 0.2s;">
+                                        <span class="step-icon">📡</span> <span class="step-label">Dispatch account payload to target bridge host(s)</span>
+                                    </div>
+                                    <div id="mt5-add-step-3" style="display: flex; align-items: center; gap: 8px; color: ${theme.textMuted}; transition: color 0.2s;">
+                                        <span class="step-icon">📂</span> <span class="step-label">Provision isolated 1:1 MT5 instance directory</span>
+                                    </div>
+                                    <div id="mt5-add-step-4" style="display: flex; align-items: center; gap: 8px; color: ${theme.textMuted}; transition: color 0.2s;">
+                                        <span class="step-icon">🚀</span> <span class="step-label">Launch MT5 terminal & establish broker handshake</span>
+                                    </div>
+                                    <div id="mt5-add-step-5" style="display: flex; align-items: center; gap: 8px; color: ${theme.textMuted}; transition: color 0.2s;">
+                                        <span class="step-icon">💾</span> <span class="step-label">Sync catalog & store in secure client vault</span>
+                                    </div>
+                                </div>
+                                <div id="mt5-add-error-container" style="display: none; margin-top: 10px;"></div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -3300,20 +3332,136 @@
                     return;
                 }
 
-                btnSaveAcc.disabled = true;
-                btnSaveAcc.innerText = 'Connecting to selected bridge(s)...';
+                const theme = this.getTheme();
+                const progressBox = modal.querySelector('#mt5-add-progress-box');
+                const progressBar = modal.querySelector('#mt5-add-progress-bar');
+                const titleEl = modal.querySelector('#mt5-add-progress-title');
+                const timerEl = modal.querySelector('#mt5-add-progress-timer');
+                const errorBox = modal.querySelector('#mt5-add-error-container');
+                const btnCancelAdd = modal.querySelector('#mt5-btn-cancel-add');
+
+                // Disable inputs & lock form during deployment
+                const formInputs = modal.querySelectorAll('#mt5-in-nickname, #mt5-in-server, #mt5-in-login, #mt5-in-password, #mt5-in-mult, #mt5-in-risk, .mt5-check-target-bridge');
+                formInputs.forEach(el => el.disabled = true);
+                btnSaveAcc.style.display = 'none';
+                if (btnCancelAdd) btnCancelAdd.style.display = 'none';
+
+                if (progressBox) progressBox.style.display = 'block';
+                if (errorBox) {
+                    errorBox.style.display = 'none';
+                    errorBox.innerHTML = '';
+                }
+                if (progressBar) {
+                    progressBar.style.width = '12%';
+                    progressBar.style.background = 'linear-gradient(90deg, #2962ff, #00b0ff)';
+                }
+                if (titleEl) {
+                    titleEl.innerText = `Connecting Account #${login} to Bridge(s)...`;
+                    titleEl.style.color = theme.text;
+                }
+                const spinner = modal.querySelector('#mt5-add-progress-spinner');
+                if (spinner) spinner.style.display = 'inline-block';
+
+                // Real-time elapsed stopwatch timer
+                let elapsedSec = 0;
+                const timerInterval = setInterval(() => {
+                    elapsedSec++;
+                    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+                    const ss = String(elapsedSec % 60).padStart(2, '0');
+                    if (timerEl) timerEl.innerText = `⏱️ ${mm}:${ss}s`;
+                }, 1000);
+
+                const updateStepUI = (stepNum, status, labelOverride = '') => {
+                    const row = modal.querySelector(`#mt5-add-step-${stepNum}`);
+                    if (!row) return;
+                    const iconEl = row.querySelector('.step-icon');
+                    const labelEl = row.querySelector('.step-label');
+                    if (labelOverride && labelEl) labelEl.innerText = labelOverride;
+
+                    if (status === 'active') {
+                        row.style.color = theme.primary;
+                        row.style.fontWeight = '600';
+                        if (iconEl) iconEl.innerHTML = `<span style="display: inline-block; width: 12px; height: 12px; border: 2px solid ${theme.primary}; border-top-color: transparent; border-radius: 50%; animation: mt5spin 0.8s linear infinite; vertical-align: middle;"></span>`;
+                    } else if (status === 'done') {
+                        row.style.color = theme.success;
+                        row.style.fontWeight = '600';
+                        if (iconEl) iconEl.innerHTML = `<span style="color: ${theme.success}; font-weight: 700; font-size: 13px;">✓</span>`;
+                    } else if (status === 'error') {
+                        row.style.color = theme.error;
+                        row.style.fontWeight = '600';
+                        if (iconEl) iconEl.innerHTML = `<span style="color: ${theme.error}; font-weight: 700; font-size: 13px;">✗</span>`;
+                    }
+                };
+
+                updateStepUI(1, 'active');
+
                 const res = await window.MT5API.addAccount({
                     nickname, server, login, password,
                     lot_multiplier: multiplier,
                     risk_percent: risk
-                }, selectedBridgeIds);
+                }, selectedBridgeIds, (p) => {
+                    if (p.pct && progressBar) progressBar.style.width = `${Math.min(100, Math.max(10, p.pct))}%`;
+                    if (p.step) {
+                        for (let s = 1; s < p.step; s++) updateStepUI(s, 'done');
+                        updateStepUI(p.step, 'active', p.text);
+                    }
+                });
+
+                clearInterval(timerInterval);
+
                 if (res.success) {
-                    this.viewMode = 'list';
-                    this.renderModal();
+                    for (let s = 1; s <= 5; s++) updateStepUI(s, 'done');
+                    if (progressBar) {
+                        progressBar.style.width = '100%';
+                        progressBar.style.background = '#089981';
+                    }
+                    if (titleEl) {
+                        titleEl.innerHTML = `✓ Account #${login} Connected & Initialized!`;
+                        titleEl.style.color = theme.success;
+                    }
+                    if (spinner) spinner.style.display = 'none';
+
+                    setTimeout(() => {
+                        this.viewMode = 'list';
+                        this.renderModal();
+                    }, 800);
                 } else {
-                    btnSaveAcc.disabled = false;
-                    btnSaveAcc.innerText = 'Connect & Save Account';
-                    alert(`Failed to add account: ${res.error}`);
+                    for (let s = 1; s <= 5; s++) {
+                        const row = modal.querySelector(`#mt5-add-step-${s}`);
+                        if (row && row.querySelector('.step-icon')?.innerHTML.includes('mt5spin')) {
+                            updateStepUI(s, 'error');
+                        }
+                    }
+                    if (titleEl) {
+                        titleEl.innerText = `Failed to Connect Account #${login}`;
+                        titleEl.style.color = theme.error;
+                    }
+                    if (spinner) spinner.style.display = 'none';
+
+                    if (errorBox) {
+                        errorBox.style.display = 'block';
+                        errorBox.innerHTML = `
+                            <div style="background: rgba(242,54,69,0.12); border: 1px solid rgba(242,54,69,0.3); border-radius: 4px; padding: 8px 10px; color: ${theme.error}; font-size: 11px; margin-bottom: 8px; line-height: 1.4;">
+                                <strong>⚠️ Connection Unsuccessful:</strong><br>
+                                <span style="font-size: 10.5px; word-break: break-all;">${res.error || 'Server rejected connection or broker timed out.'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: flex-end; gap: 6px;">
+                                <button id="mt5-btn-retry-add" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 5px 14px; border-radius: 4px; font-weight: 600; font-size: 11px; cursor: pointer;">
+                                    ← Edit Credentials & Try Again
+                                </button>
+                            </div>
+                        `;
+                        const btnRetry = errorBox.querySelector('#mt5-btn-retry-add');
+                        if (btnRetry) btnRetry.onclick = () => {
+                            // Re-enable form fields for editing
+                            formInputs.forEach(el => el.disabled = false);
+                            btnSaveAcc.style.display = 'inline-block';
+                            btnSaveAcc.disabled = false;
+                            btnSaveAcc.innerText = 'Connect & Save Account';
+                            if (btnCancelAdd) btnCancelAdd.style.display = 'inline-block';
+                            if (progressBox) progressBox.style.display = 'none';
+                        };
+                    }
                 }
             };
 
