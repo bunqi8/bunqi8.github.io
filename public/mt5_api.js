@@ -1714,71 +1714,6 @@
             }
         }
 
-        async syncWorkingPasswordFromConnectedBridges(login, server) {
-            const targetLogin = String(login || '').trim();
-            const targetServer = (server || '').trim().toLowerCase();
-
-            // Find all matching instances across connected accounts
-            const matchingInstances = (this.accounts || []).filter(a => {
-                const aLogin = String(a.login || '').trim();
-                const aServer = (a.server || '').trim().toLowerCase();
-                return aLogin === targetLogin && (aServer === targetServer || aServer.includes(targetServer) || targetServer.includes(aServer));
-            });
-
-            // Gather candidate endpoints: first from existing instances, then any online endpoint
-            const candidateEndpoints = [];
-            for (const inst of matchingInstances) {
-                const ep = this.endpoints.find(e => e.id === inst.endpointId && e.enabled && e.status === 'online');
-                if (ep && !candidateEndpoints.some(c => c.ep.id === ep.id)) {
-                    candidateEndpoints.push({ ep, accountId: inst.id });
-                }
-            }
-            for (const ep of this.endpoints) {
-                if (ep.enabled && ep.status === 'online' && !candidateEndpoints.some(c => c.ep.id === ep.id)) {
-                    candidateEndpoints.push({ ep, accountId: targetLogin });
-                }
-            }
-
-            for (const { ep, accountId } of candidateEndpoints) {
-                try {
-                    const res = await fetch(`${ep.url}/api/accounts/${accountId}/credentials`, {
-                        headers: this.getReqHeaders(ep),
-                        signal: AbortSignal.timeout(4000)
-                    });
-                    if (!res.ok) continue;
-                    const data = await res.json();
-                    if (data && data.success && data.verified_working && data.password) {
-                        const bridgeApiKey = ep.apiKey || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY';
-                        const plainPassword = await this.decryptE2EPayload(data.password, bridgeApiKey);
-
-                        // Found verified working credentials! Save into local vault encrypted with device token
-                        await this.saveAccountToClientVault({
-                            login: data.login || targetLogin,
-                            server: data.server || targetServer,
-                            nickname: data.nickname,
-                            lot_multiplier: data.lot_multiplier,
-                            risk_percent: data.risk_percent,
-                            password: plainPassword
-                        });
-                        console.log(`[MT5API] ✓ Successfully synced verified working password for account #${targetLogin} from bridge '${ep.name}' with E2E payload decryption.`);
-                        return {
-                            success: true,
-                            verified_working: true,
-                            password: plainPassword,
-                            sourceBridge: ep.name
-                        };
-                    }
-                } catch (e) {
-                    // Try next endpoint
-                }
-            }
-
-            return {
-                success: false,
-                error: `No connected bridge currently has a verified active MT5 session for account #${targetLogin}.`
-            };
-        }
-
         async updateAccountBridgeRouting(login, server, newEndpointIds, manualPassword = '') {
             try {
                 const targetLogin = String(login || '').trim();
@@ -1797,21 +1732,11 @@
                 const errors = [];
                 const added = [];
                 const removed = [];
-                let syncedFromBridge = null;
 
                 // 1. Resolve password from manual input or local encrypted vault
                 let password = (manualPassword || '').trim();
                 if (!password) {
                     password = await this.getAccountPasswordFromVault(targetLogin, targetServer);
-                }
-
-                // 2. If adding new bridge and still no password in vault, attempt auto-sync from existing connected bridge!
-                if (toAdd.length > 0 && !password) {
-                    const syncRes = await this.syncWorkingPasswordFromConnectedBridges(targetLogin, targetServer);
-                    if (syncRes.success && syncRes.password) {
-                        password = syncRes.password;
-                        syncedFromBridge = syncRes.sourceBridge;
-                    }
                 }
 
                 if (toAdd.length > 0 && !password) {
@@ -1918,7 +1843,7 @@
             }
         }
 
-        async deleteAccount(id) {
+        async deleteAccount(id, targetEndpointIds = null) {
             try {
                 const targetAcc = (this.accounts || []).find(a => String(a.id) === String(id) || String(a.login) === String(id));
                 const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : '';
@@ -1933,11 +1858,19 @@
                     return false;
                 });
 
+                // Filter by targetEndpointIds if provided
+                const targetEndpointsFilter = Array.isArray(targetEndpointIds) && targetEndpointIds.length > 0
+                    ? targetEndpointIds
+                    : null;
+
                 // Dispatch DELETE to all bridge endpoints hosting this account
                 const deletePromises = [];
                 const contactedEpIds = new Set();
 
                 for (const m of matchingAccs) {
+                    if (targetEndpointsFilter && !targetEndpointsFilter.includes(m.endpointId)) {
+                        continue;
+                    }
                     const ep = this.endpoints.find(e => e.id === m.endpointId || e.url === m.endpointUrl);
                     if (ep && ep.url && !contactedEpIds.has(ep.id)) {
                         contactedEpIds.add(ep.id);
@@ -1952,7 +1885,7 @@
                 }
 
                 // Fallback: If no instances found, attempt delete on default/mapped endpoint
-                if (contactedEpIds.size === 0) {
+                if (contactedEpIds.size === 0 && !targetEndpointsFilter) {
                     const ep = this.getEndpointForAccount(id);
                     if (ep && ep.url) {
                         deletePromises.push(
@@ -1966,24 +1899,33 @@
 
                 await Promise.allSettled(deletePromises);
 
-                // Clean from client vault
-                try {
-                    const raw = localStorage.getItem('mt5_client_vault');
-                    if (raw) {
-                        const vault = JSON.parse(raw);
-                        const filtered = vault.filter(v => {
-                            if (String(v.id) === String(id) || String(v.login) === String(id)) return false;
-                            if (targetLogin && String(v.login) === targetLogin) {
-                                if (!targetServer || !v.server || (v.server || '').toLowerCase() === targetServer) return false;
-                            }
-                            return true;
-                        });
-                        localStorage.setItem('mt5_client_vault', JSON.stringify(filtered));
-                    }
-                } catch (_) {}
+                // Check if any instances of this account remain on any bridge
+                const remainingInstances = (this.accounts || []).filter(a => {
+                    if (contactedEpIds.has(a.endpointId)) return false;
+                    if (targetLogin && String(a.login) === targetLogin) return true;
+                    return false;
+                });
+
+                // Clean from client vault only if deleted from all bridges
+                if (!targetEndpointsFilter || remainingInstances.length === 0) {
+                    try {
+                        const raw = localStorage.getItem('mt5_client_vault');
+                        if (raw) {
+                            const vault = JSON.parse(raw);
+                            const filtered = vault.filter(v => {
+                                if (String(v.id) === String(id) || String(v.login) === String(id)) return false;
+                                if (targetLogin && String(v.login) === targetLogin) {
+                                    if (!targetServer || !v.server || (v.server || '').toLowerCase() === targetServer) return false;
+                                }
+                                return true;
+                            });
+                            localStorage.setItem('mt5_client_vault', JSON.stringify(filtered));
+                        }
+                    } catch (_) {}
+                }
 
                 // Clean from local state and caches
-                const deletedIds = new Set([String(id), ...(targetLogin ? [targetLogin] : []), ...matchingAccs.map(a => String(a.id))]);
+                const deletedIds = new Set([String(id), ...(targetLogin ? [targetLogin] : []), ...matchingAccs.filter(a => contactedEpIds.has(a.endpointId)).map(a => String(a.id))]);
                 deletedIds.forEach(did => {
                     this.pausedAccountIds.delete(did);
                     this.multiAccountSelection.delete(did);
@@ -1995,8 +1937,7 @@
                     this.activeAccountId = null;
                 }
 
-                this.accounts = this.accounts.filter(a => !deletedIds.has(String(a.id)) && (!targetLogin || String(a.login) !== targetLogin));
-
+                this.accounts = this.accounts.filter(a => !deletedIds.has(String(a.id)));
                 await this.syncAccounts(true);
                 return true;
             } catch (e) {
