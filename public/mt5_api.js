@@ -358,40 +358,55 @@
                     acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
                 }
                 if (acc) {
-                    let targetEp = null;
-                    if (acc.endpointId) {
-                        targetEp = this.endpoints.find(e => e.id === acc.endpointId);
-                    } else if (acc.endpointUrl) {
-                        targetEp = this.endpoints.find(e => e.url === acc.endpointUrl);
-                    }
-
-                    // 1. Direct path: If target endpoint is online and healthy, route to it immediately
-                    if (targetEp && targetEp.enabled && targetEp.status !== 'offline') {
-                        return targetEp;
-                    }
-
-                    // 2. High-Availability Automatic Failover:
-                    // If target endpoint is offline, look for any sibling bridge hosting the EXACT SAME physical account (login + server) that is currently online!
                     const accLogin = String(acc.login || '').trim();
                     const accServer = (acc.server || '').trim().toLowerCase();
-                    if (accLogin) {
-                        const onlineSibling = this.accounts.find(a => 
-                            String(a.login || '').trim() === accLogin &&
-                            (a.server || '').trim().toLowerCase() === accServer &&
-                            a.endpointId !== acc.endpointId &&
-                            a.is_connected
-                        );
-                        if (onlineSibling && onlineSibling.endpointId) {
-                            const siblingEp = this.endpoints.find(e => e.id === onlineSibling.endpointId);
-                            if (siblingEp && siblingEp.enabled && siblingEp.status !== 'offline') {
-                                console.log(`[MT5API] 🔀 Failover: Account #${accLogin} on '${targetEp ? targetEp.name : 'Unknown'}' is offline. Transparently routing to online sibling bridge '${siblingEp.name}'!`);
-                                return siblingEp;
-                            }
+
+                    // Collect all candidate instances for this physical account across all bridges
+                    const candidates = this.accounts.filter(a => {
+                        if (String(a.id) === String(acc.id)) return true;
+                        if (accLogin && String(a.login || '').trim() === accLogin) {
+                            if (!accServer || !a.server || (a.server || '').trim().toLowerCase() === accServer) return true;
+                        }
+                        return false;
+                    });
+
+                    // Multi-Candidate Scoring: Route to the healthiest online bridge
+                    let bestCandidate = null;
+                    let bestScore = -1;
+
+                    for (const cand of candidates) {
+                        const ep = this.endpoints.find(e => e.id === cand.endpointId || e.url === cand.endpointUrl);
+                        if (!ep || !ep.enabled || ep.status === 'offline') continue;
+
+                        let score = 0;
+                        // MT5 terminal is connected and live
+                        if (cand.is_connected) score += 1000;
+                        // Account is not paused in standby mode
+                        if (!cand.is_paused && !this.isAccountPaused(cand.id)) score += 200;
+                        // Direct match with requested account instance
+                        if (cand.id === acc.id) score += 50;
+                        // Lower ping bonus (0 to 50 pts)
+                        const ping = typeof ep.ping === 'number' ? ep.ping : 50;
+                        score += Math.max(0, 50 - Math.min(50, ping));
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestCandidate = { cand, ep };
                         }
                     }
 
-                    // 3. Fallback: Return original endpoint if no online sibling exists
-                    if (targetEp) return targetEp;
+                    if (bestCandidate && bestCandidate.ep) {
+                        if (acc.endpointId && bestCandidate.ep.id !== acc.endpointId) {
+                            console.log(`[MT5API] 🔀 HA Sibling Route: Routing account #${accLogin} via healthiest online bridge '${bestCandidate.ep.name}' (score: ${bestScore}).`);
+                        }
+                        return bestCandidate.ep;
+                    }
+
+                    // Direct endpoint fallback if candidates were not online
+                    if (acc.endpointId) {
+                        const directEp = this.endpoints.find(e => e.id === acc.endpointId);
+                        if (directEp) return directEp;
+                    }
                 }
             }
             return this.getActiveEndpoint();
@@ -623,27 +638,41 @@
 
         isAccountPaused(accountId) {
             if (!this.pausedAccountIds) return false;
-            return this.pausedAccountIds.has(String(accountId));
+            const strId = String(accountId);
+            if (this.pausedAccountIds.has(strId)) return true;
+            // Also check if physical login is paused
+            const acc = (this.accounts || []).find(a => String(a.id) === strId || String(a.login) === strId);
+            if (acc && acc.login && this.pausedAccountIds.has(String(acc.login))) return true;
+            return false;
         }
 
         toggleAccountPause(accountId) {
             if (!this.pausedAccountIds) this.pausedAccountIds = new Set();
             const idStr = String(accountId);
-            if (this.pausedAccountIds.has(idStr)) {
-                this.pausedAccountIds.delete(idStr);
-                console.log(`[MT5API] ✓ Account ${idStr} resumed to Online mode.`);
+            const isPaused = this.isAccountPaused(idStr);
+
+            // Find all matching instances and logins to keep everything synchronized across all bridges
+            const acc = (this.accounts || []).find(a => String(a.id) === idStr || String(a.login) === idStr);
+            const targetLogin = acc ? String(acc.login || '').trim() : '';
+            const matchingAccs = acc ? (this.accounts || []).filter(a => String(a.login || '').trim() === targetLogin) : [];
+            const idsToUpdate = new Set([idStr, ...(targetLogin ? [targetLogin] : []), ...matchingAccs.map(a => String(a.id))]);
+
+            if (isPaused) {
+                idsToUpdate.forEach(id => this.pausedAccountIds.delete(id));
+                console.log(`[MT5API] ✓ Account ${idStr} (and siblings) resumed to Online mode.`);
             } else {
-                this.pausedAccountIds.add(idStr);
-                // Uncheck from multi-account trading when paused
-                if (this.multiAccountSelection) {
-                    this.multiAccountSelection.delete(idStr);
-                }
-                console.log(`[MT5API] ⏸️ Account ${idStr} paused (Standby mode).`);
+                idsToUpdate.forEach(id => {
+                    this.pausedAccountIds.add(id);
+                    if (this.multiAccountSelection) {
+                        this.multiAccountSelection.delete(id);
+                    }
+                });
+                console.log(`[MT5API] ⏸️ Account ${idStr} (and siblings) paused (Standby mode).`);
             }
             this.saveConfig();
             this.syncAccounts(true);
             this.notifyAccountListeners();
-            return !this.pausedAccountIds.has(idStr);
+            return !this.isAccountPaused(idStr);
         }
 
         initAutoSync() {
@@ -865,17 +894,24 @@
             }
             const direct = this.accounts.find(a => a.id === this.activeAccountId);
             if (direct) {
+                const directEp = direct.endpointId ? this.endpoints.find(e => e.id === direct.endpointId) : null;
+                const isDirectEpOffline = !directEp || !directEp.enabled || directEp.status === 'offline';
+
                 // If direct active account is currently disconnected/offline, failover to online sibling instance
-                if (!direct.is_connected) {
+                if (!direct.is_connected || isDirectEpOffline) {
                     const accLogin = String(direct.login || '').trim();
                     const accServer = (direct.server || '').trim().toLowerCase();
                     if (accLogin) {
                         const onlineSibling = this.accounts.find(a => 
                             String(a.login || '').trim() === accLogin &&
                             (a.server || '').trim().toLowerCase() === accServer &&
-                            a.id !== direct.id &&
+                            (a.endpointId !== direct.endpointId || a.id !== direct.id) &&
                             a.is_connected &&
-                            !a.is_paused
+                            !a.is_paused &&
+                            (() => {
+                                const sEp = this.endpoints.find(e => e.id === a.endpointId);
+                                return sEp && sEp.enabled && sEp.status !== 'offline';
+                            })()
                         );
                         if (onlineSibling) {
                             return onlineSibling;
@@ -1018,8 +1054,12 @@
                 }
 
                 this.activeAccountId = id;
+                const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : '';
+                const targetServer = targetAcc ? (targetAcc.server || '').trim().toLowerCase() : '';
                 this.accounts.forEach(a => {
-                    a.is_active = (String(a.id) === String(id));
+                    const matchId = String(a.id) === String(id);
+                    const matchPhysical = targetLogin && String(a.login || '').trim() === targetLogin && (!targetServer || (a.server || '').trim().toLowerCase() === targetServer);
+                    a.is_active = matchId || matchPhysical;
                 });
 
                 this.notifyAccountListeners();
@@ -1860,26 +1900,87 @@
 
         async deleteAccount(id) {
             try {
-                const ep = this.getEndpointForAccount(id);
-                if (ep && ep.url) {
-                    await fetch(`${ep.url}/api/accounts/${id}`, {
-                        method: 'DELETE',
-                        headers: this.getReqHeaders(ep)
-                    });
+                const targetAcc = (this.accounts || []).find(a => String(a.id) === String(id) || String(a.login) === String(id));
+                const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : '';
+                const targetServer = targetAcc ? (targetAcc.server || '').trim().toLowerCase() : '';
+
+                // Find all matching instances across all bridges
+                const matchingAccs = (this.accounts || []).filter(a => {
+                    if (String(a.id) === String(id) || String(a.login) === String(id)) return true;
+                    if (targetLogin && String(a.login || '').trim() === targetLogin) {
+                        if (!targetServer || !a.server || (a.server || '').trim().toLowerCase() === targetServer) return true;
+                    }
+                    return false;
+                });
+
+                // Dispatch DELETE to all bridge endpoints hosting this account
+                const deletePromises = [];
+                const contactedEpIds = new Set();
+
+                for (const m of matchingAccs) {
+                    const ep = this.endpoints.find(e => e.id === m.endpointId || e.url === m.endpointUrl);
+                    if (ep && ep.url && !contactedEpIds.has(ep.id)) {
+                        contactedEpIds.add(ep.id);
+                        const deleteUrl = `${ep.url}/api/accounts/${encodeURIComponent(m.id)}`;
+                        deletePromises.push(
+                            fetch(deleteUrl, {
+                                method: 'DELETE',
+                                headers: this.getReqHeaders(ep)
+                            }).catch(err => console.warn(`[MT5API] Bridge ${ep.name} delete error:`, err))
+                        );
+                    }
                 }
-                // Also clean from client vault
+
+                // Fallback: If no instances found, attempt delete on default/mapped endpoint
+                if (contactedEpIds.size === 0) {
+                    const ep = this.getEndpointForAccount(id);
+                    if (ep && ep.url) {
+                        deletePromises.push(
+                            fetch(`${ep.url}/api/accounts/${encodeURIComponent(id)}`, {
+                                method: 'DELETE',
+                                headers: this.getReqHeaders(ep)
+                            }).catch(err => console.warn(`[MT5API] Bridge ${ep.name} delete fallback error:`, err))
+                        );
+                    }
+                }
+
+                await Promise.allSettled(deletePromises);
+
+                // Clean from client vault
                 try {
                     const raw = localStorage.getItem('mt5_client_vault');
                     if (raw) {
                         const vault = JSON.parse(raw);
-                        const filtered = vault.filter(a => String(a.id) !== String(id) && String(a.login) !== String(id));
+                        const filtered = vault.filter(v => {
+                            if (String(v.id) === String(id) || String(v.login) === String(id)) return false;
+                            if (targetLogin && String(v.login) === targetLogin) {
+                                if (!targetServer || !v.server || (v.server || '').toLowerCase() === targetServer) return false;
+                            }
+                            return true;
+                        });
                         localStorage.setItem('mt5_client_vault', JSON.stringify(filtered));
                     }
                 } catch (_) {}
+
+                // Clean from local state and caches
+                const deletedIds = new Set([String(id), ...(targetLogin ? [targetLogin] : []), ...matchingAccs.map(a => String(a.id))]);
+                deletedIds.forEach(did => {
+                    this.pausedAccountIds.delete(did);
+                    this.multiAccountSelection.delete(did);
+                    if (this._accountSymbolsCache) this._accountSymbolsCache.delete(did);
+                    localStorage.removeItem(`mt5_symbols_${did}`);
+                });
+
+                if (this.activeAccountId && deletedIds.has(String(this.activeAccountId))) {
+                    this.activeAccountId = null;
+                }
+
+                this.accounts = this.accounts.filter(a => !deletedIds.has(String(a.id)) && (!targetLogin || String(a.login) !== targetLogin));
+
                 await this.syncAccounts(true);
                 return true;
             } catch (e) {
-                console.error('[MT5API] Failed to delete account:', e);
+                console.error('[MT5API] Failed to delete account across bridges:', e);
             }
             return false;
         }
@@ -2501,9 +2602,20 @@
                                 }
 
                                 const curActive = this.getActiveAccount();
-                                if (curActive && curActive.endpointId === ep.id) {
-                                    this.positions = curActive.positions || [];
-                                    this.notifyPositionListeners();
+                                if (curActive) {
+                                    const curLogin = String(curActive.login || '').trim();
+                                    const matchingAcc = (this.accounts || []).find(a => 
+                                        a.endpointId === ep.id && 
+                                        (String(a.id) === String(curActive.id) || (curLogin && String(a.login).trim() === curLogin))
+                                    );
+                                    if (matchingAcc && matchingAcc.positions) {
+                                        this.positions = matchingAcc.positions;
+                                        curActive.positions = matchingAcc.positions;
+                                        this.notifyPositionListeners();
+                                    } else if (curActive.endpointId === ep.id) {
+                                        this.positions = curActive.positions || [];
+                                        this.notifyPositionListeners();
+                                    }
                                 }
                             } else if (msg.type === 'accounts') {
                                 this.handleWebSocketAccountsUpdate(ep.id, msg);
@@ -2658,6 +2770,17 @@
                 this.activeAccountId = firstActive ? firstActive.id : (this.accounts[0] ? this.accounts[0].id : null);
             }
 
+            // Sync is_active across sibling physical instances
+            const curActive = this.getActiveAccount();
+            const curLogin = curActive ? String(curActive.login || '').trim() : '';
+            if (curLogin) {
+                this.accounts.forEach(a => {
+                    if (String(a.login || '').trim() === curLogin) {
+                        a.is_active = true;
+                    }
+                });
+            }
+
             try {
                 localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
             } catch (_) {}
@@ -2763,14 +2886,30 @@
                 }
             }
 
+            // Deduplicate positions across multi-bridge reports by ticket
+            const seenTickets = new Set();
+            const dedupedPositions = [];
+            for (const p of combinedPositions) {
+                const key = p.ticket != null ? String(p.ticket) : `${p.symbol}_${p.type}_${p.time}`;
+                if (!seenTickets.has(key)) {
+                    seenTickets.add(key);
+                    dedupedPositions.push(p);
+                }
+            }
+
             const activeAcc = this.getActiveAccount();
             if (activeAcc) {
-                this.positions = combinedPositions.filter(p => String(p.account_id) === String(activeAcc.id) || !p.account_id);
+                const actId = String(activeAcc.id);
+                const actLogin = String(activeAcc.login || '').trim();
+                this.positions = dedupedPositions.filter(p => {
+                    const pAid = String(p.account_id || '').trim();
+                    return pAid === actId || (actLogin && (pAid === actLogin || pAid.replace(/^mt5_/, '') === actLogin)) || !p.account_id;
+                });
             } else {
-                this.positions = combinedPositions;
+                this.positions = dedupedPositions;
             }
             this.notifyPositionListeners();
-            return combinedPositions;
+            return dedupedPositions;
         }
 
         async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
@@ -2929,11 +3068,25 @@
                 if (activeAccountIds.length === 0) {
                     return { success: false, error: 'No active accounts selected for order broadcast (selected accounts are paused in standby mode).' };
                 }
+
+                // Physical deduplication: If multiple bridges host the SAME physical account (login + server),
+                // execute on that account ONCE using its best/healthiest bridge route to prevent double orders on the broker!
+                const seenPhysical = new Set();
+                const dedupedAccountIds = [];
+                for (const accId of activeAccountIds) {
+                    const acc = this.accounts.find(a => String(a.id) === String(accId) || String(a.login) === String(accId));
+                    const physKey = acc && acc.login ? `${String(acc.login).trim()}::${String(acc.server || '').trim().toLowerCase()}` : String(accId);
+                    if (!seenPhysical.has(physKey)) {
+                        seenPhysical.add(physKey);
+                        dedupedAccountIds.push(acc ? acc.id : accId);
+                    }
+                }
+
                 const cleanSym = (symbol || 'EURUSD').split(':').pop();
 
-                // Group accounts by endpoint
+                // Group deduped accounts by their optimal bridge endpoint
                 const endpointMap = new Map();
-                for (const accId of activeAccountIds) {
+                for (const accId of dedupedAccountIds) {
                     const ep = this.getEndpointForAccount(accId);
                     if (!ep || !ep.url) continue;
                     if (!endpointMap.has(ep.id)) {
