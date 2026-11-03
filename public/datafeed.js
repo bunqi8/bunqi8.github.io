@@ -996,7 +996,7 @@ const Datafeed = {
                     minmov: 1,
                     pricescale: priceScale,
                     has_intraday: true,
-                    has_no_volume: false,
+                    visible_plots_set: 'ohlcv',
                     has_empty_bars: false,
                     has_daily: true,
                     has_weekly_and_monthly: true,
