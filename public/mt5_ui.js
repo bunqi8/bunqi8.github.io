@@ -1276,6 +1276,53 @@
                 }
             }
 
+            // Also synchronize directly into active/saved endpoint in window.MT5API in real time
+            if (window.MT5API && Array.isArray(window.MT5API.endpoints) && window.MT5API.endpoints.length > 0) {
+                let targetEp = null;
+                if (this.editingEndpointId) {
+                    targetEp = window.MT5API.endpoints.find(e => e.id === this.editingEndpointId);
+                }
+                if (!targetEp && extracted.gistId) {
+                    targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === extracted.gistId);
+                }
+                if (!targetEp && extracted.name) {
+                    targetEp = window.MT5API.endpoints.find(e => (e.name || '').toLowerCase() === (extracted.name || '').toLowerCase());
+                }
+                if (!targetEp && window.MT5API.endpoints.length === 1) {
+                    targetEp = window.MT5API.endpoints[0];
+                }
+
+                if (targetEp) {
+                    let epUpdated = false;
+                    if (extracted.url && targetEp.url !== extracted.url) {
+                        targetEp.url = extracted.url;
+                        epUpdated = true;
+                    }
+                    if (extracted.apiKey && targetEp.apiKey !== extracted.apiKey) {
+                        targetEp.apiKey = extracted.apiKey;
+                        epUpdated = true;
+                    }
+                    if (extracted.shieldToken && targetEp.shieldToken !== extracted.shieldToken) {
+                        targetEp.shieldToken = extracted.shieldToken;
+                        epUpdated = true;
+                    }
+                    if (extracted.gistId && targetEp.gistId !== extracted.gistId) {
+                        targetEp.gistId = extracted.gistId;
+                        epUpdated = true;
+                    }
+                    if (extracted.gistToken && targetEp.gistToken !== extracted.gistToken) {
+                        targetEp.gistToken = extracted.gistToken;
+                        epUpdated = true;
+                    }
+                    if (epUpdated) {
+                        window.MT5API.saveConfig();
+                        window.MT5API.testSingleEndpoint(targetEp.id).then(() => {
+                            if (this.isOpen) this.renderModal();
+                        });
+                    }
+                }
+            }
+
             return updatedFields;
         }
 
@@ -1344,73 +1391,196 @@
                 overlay.style.left = '0';
                 overlay.style.width = '100vw';
                 overlay.style.height = '100vh';
-                overlay.style.background = 'rgba(0, 0, 0, 0.7)';
-                overlay.style.backdropFilter = 'blur(4px)';
+                overlay.style.background = 'rgba(0, 0, 0, 0.75)';
+                overlay.style.backdropFilter = 'blur(6px)';
+                overlay.style.webkitBackdropFilter = 'blur(6px)';
                 overlay.style.display = 'flex';
                 overlay.style.alignItems = 'center';
                 overlay.style.justifyContent = 'center';
-                overlay.style.zIndex = '100000';
+                overlay.style.zIndex = '2000000'; // Higher than main modal (999999)
+
+                const isDark = theme.isDark !== false;
+                const modalBg = theme.cardBg || (isDark ? '#131722' : '#ffffff');
+                const borderColor = theme.border || (isDark ? '#2a2e39' : '#e0e3eb');
+                const textColor = theme.text || (isDark ? '#d1d4dc' : '#131722');
+                const textMutedColor = theme.textMuted || '#787b86';
+                const inputBgColor = theme.inputBg || (isDark ? '#1e222d' : '#f8f9fd');
+                const inputBorderColor = theme.inputBorder || (isDark ? '#363c4e' : '#d1d4dc');
+                const primaryColor = theme.primary || '#2962ff';
 
                 overlay.innerHTML = `
                     <div style="
-                        background: ${theme.surface};
-                        border: 1px solid ${theme.border};
-                        border-radius: 8px;
-                        width: 90%;
-                        max-width: 420px;
-                        padding: 20px;
-                        box-shadow: 0 16px 40px rgba(0,0,0,0.6);
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        color: ${theme.text};
+                        background: ${modalBg};
+                        border: 1px solid ${borderColor};
+                        border-radius: 10px;
+                        width: 92%;
+                        max-width: 440px;
+                        padding: 22px 24px;
+                        box-shadow: 0 24px 60px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.06);
+                        font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+                        color: ${textColor};
                         box-sizing: border-box;
+                        animation: mt5FadeInScale 0.18s cubic-bezier(0.16, 1, 0.3, 1);
                     ">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <div style="font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
-                                <span>🔑</span> Unlock Encrypted Bridge QR
+                        <style>
+                            @keyframes mt5FadeInScale {
+                                from { opacity: 0; transform: scale(0.96); }
+                                to { opacity: 1; transform: scale(1); }
+                            }
+                            #mt5-qr-input-passphrase:focus {
+                                border-color: ${primaryColor} !important;
+                                box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.25) !important;
+                            }
+                            #mt5-qr-btn-close:hover {
+                                background: rgba(120, 123, 134, 0.18) !important;
+                                color: ${textColor} !important;
+                            }
+                            #mt5-qr-btn-submit:hover:not(:disabled) {
+                                background: #1e53e5 !important;
+                            }
+                            #mt5-qr-btn-cancel:hover {
+                                background: rgba(120, 123, 134, 0.1) !important;
+                            }
+                        </style>
+
+                        <!-- Modal Header -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 8px;
+                                    background: rgba(41, 98, 255, 0.15);
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-size: 16px;
+                                    flex-shrink: 0;
+                                ">🔐</div>
+                                <div>
+                                    <div style="font-size: 14.5px; font-weight: 700; color: ${textColor}; letter-spacing: 0.2px; line-height: 1.2;">
+                                        Unlock Encrypted Bridge QR
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                                        <span style="
+                                            font-size: 9.5px;
+                                            font-weight: 600;
+                                            color: #2962ff;
+                                            background: rgba(41, 98, 255, 0.12);
+                                            padding: 1px 6px;
+                                            border-radius: 3px;
+                                            border: 1px solid rgba(41, 98, 255, 0.25);
+                                            letter-spacing: 0.3px;
+                                        ">AES-256-GCM VAULT</span>
+                                    </div>
+                                </div>
                             </div>
-                            <button id="mt5-qr-btn-close" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; font-size: 16px;">✕</button>
-                        </div>
-                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 14px; line-height: 1.4;">
-                            This QR code is protected with AES-256-GCM. Enter the <strong>2-Word Passphrase</strong> shown in <code style="font-size: 10px; background: rgba(120,123,134,0.15); padding: 1px 4px; border-radius: 3px;">BRIDGE_INFO.txt</code> on your Desktop.
-                        </div>
-                        <div style="margin-bottom: 14px;">
-                            <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 5px; color: ${theme.textSecondary};">2-Word Passphrase (e.g. blazing-stag)</label>
-                            <input id="mt5-qr-input-passphrase" type="text" placeholder="e.g. blazing-stag" style="
-                                width: 100%;
-                                height: 34px;
-                                background: ${theme.bg};
-                                border: 1px solid ${theme.border};
-                                border-radius: 5px;
-                                color: ${theme.text};
-                                padding: 0 10px;
-                                font-size: 12px;
-                                box-sizing: border-box;
-                                outline: none;
-                            " />
-                        </div>
-                        <div id="mt5-qr-unlock-status" style="display: none; font-size: 11px; margin-bottom: 12px; padding: 6px 10px; border-radius: 4px;"></div>
-                        <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                            <button id="mt5-qr-btn-cancel" style="
+                            <button id="mt5-qr-btn-close" type="button" style="
                                 background: transparent;
-                                border: 1px solid ${theme.border};
-                                color: ${theme.textMuted};
-                                padding: 6px 14px;
-                                border-radius: 4px;
-                                font-size: 11px;
-                                cursor: pointer;
-                            ">Cancel</button>
-                            <button id="mt5-qr-btn-submit" style="
-                                background: #00c853;
                                 border: none;
-                                color: #000;
-                                font-weight: 700;
-                                padding: 6px 16px;
-                                border-radius: 4px;
+                                color: ${textMutedColor};
+                                cursor: pointer;
+                                font-size: 14px;
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 6px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                transition: all 0.15s ease;
+                            " title="Close">✕</button>
+                        </div>
+
+                        <!-- Info Description -->
+                        <div style="
+                            font-size: 11.5px;
+                            color: ${textMutedColor};
+                            margin-bottom: 16px;
+                            line-height: 1.5;
+                            background: rgba(120, 123, 134, 0.08);
+                            padding: 9px 12px;
+                            border-radius: 6px;
+                            border: 1px solid rgba(120, 123, 134, 0.14);
+                        ">
+                            This QR code is end-to-end encrypted. Enter the <strong>2-Word Passphrase</strong> shown in <code style="
                                 font-size: 11px;
+                                font-family: monospace;
+                                background: rgba(120,123,134,0.18);
+                                padding: 2px 5px;
+                                border-radius: 4px;
+                                color: ${textColor};
+                                font-weight: 600;
+                            ">BRIDGE_INFO.txt</code> on your Desktop to decrypt and auto-connect.
+                        </div>
+
+                        <!-- Passphrase Input -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="
+                                display: block;
+                                font-size: 10.5px;
+                                font-weight: 600;
+                                margin-bottom: 6px;
+                                color: ${theme.textDim || textMutedColor};
+                                text-transform: uppercase;
+                                letter-spacing: 0.5px;
+                            ">2-Word Passphrase</label>
+                            <div style="position: relative; display: flex; align-items: center;">
+                                <input id="mt5-qr-input-passphrase" type="text" placeholder="e.g. shadow-dragon" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="
+                                    width: 100%;
+                                    height: 38px;
+                                    background: ${inputBgColor};
+                                    border: 1px solid ${inputBorderColor};
+                                    border-radius: 6px;
+                                    color: ${textColor};
+                                    padding: 0 12px;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    letter-spacing: 0.5px;
+                                    box-sizing: border-box;
+                                    outline: none;
+                                    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+                                " />
+                            </div>
+                        </div>
+
+                        <!-- Status Alert Container -->
+                        <div id="mt5-qr-unlock-status" style="
+                            display: none;
+                            font-size: 11.5px;
+                            margin-bottom: 16px;
+                            padding: 8px 12px;
+                            border-radius: 6px;
+                            line-height: 1.4;
+                            box-sizing: border-box;
+                        "></div>
+
+                        <!-- Actions -->
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; align-items: center;">
+                            <button id="mt5-qr-btn-cancel" type="button" style="
+                                background: transparent;
+                                border: 1px solid ${borderColor};
+                                color: ${textMutedColor};
+                                padding: 7px 16px;
+                                border-radius: 6px;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                transition: all 0.15s ease;
+                            ">Cancel</button>
+                            <button id="mt5-qr-btn-submit" type="button" style="
+                                background: ${primaryColor};
+                                border: none;
+                                color: #ffffff;
+                                font-weight: 700;
+                                padding: 7px 18px;
+                                border-radius: 6px;
+                                font-size: 11.5px;
                                 cursor: pointer;
                                 display: inline-flex;
                                 align-items: center;
                                 gap: 6px;
+                                box-shadow: 0 2px 8px rgba(41, 98, 255, 0.35);
+                                transition: all 0.15s ease;
                             ">
                                 <span>🔓</span> Unlock & Auto-Connect
                             </button>
@@ -1426,7 +1596,7 @@
                 const btnClose = overlay.querySelector('#mt5-qr-btn-close');
                 const statusDiv = overlay.querySelector('#mt5-qr-unlock-status');
 
-                setTimeout(() => { if (inp) inp.focus(); }, 50);
+                setTimeout(() => { if (inp) inp.focus(); }, 60);
 
                 const closeOverlay = () => {
                     overlay.remove();
@@ -1435,16 +1605,21 @@
 
                 btnCancel.onclick = closeOverlay;
                 btnClose.onclick = closeOverlay;
+                overlay.onclick = (e) => {
+                    if (e.target === overlay) closeOverlay();
+                };
 
                 const doUnlock = async () => {
                     const pass = inp ? inp.value.trim() : '';
                     if (!pass) {
                         inp.style.borderColor = '#f23645';
+                        inp.focus();
                         return;
                     }
 
                     btnSubmit.disabled = true;
-                    btnSubmit.innerHTML = '<span>⏳</span> Deriving Key...';
+                    btnSubmit.style.opacity = '0.7';
+                    btnSubmit.innerHTML = '<span>⏳</span> Decrypting Vault...';
                     if (statusDiv) statusDiv.style.display = 'none';
 
                     try {
@@ -1452,8 +1627,9 @@
                         if (res.success) {
                             if (statusDiv) {
                                 statusDiv.style.display = 'block';
-                                statusDiv.style.background = 'rgba(0,200,83,0.15)';
-                                statusDiv.style.color = '#00c853';
+                                statusDiv.style.background = 'rgba(8, 153, 129, 0.14)';
+                                statusDiv.style.border = '1px solid rgba(8, 153, 129, 0.35)';
+                                statusDiv.style.color = '#089981';
                                 statusDiv.innerHTML = '✓ Decrypted successfully! Auto-connecting...';
                             }
 
