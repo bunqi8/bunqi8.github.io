@@ -2017,6 +2017,73 @@
             return { endpoint_url: blob };
         }
 
+        normalizePassphrase(str) {
+            if (!str || typeof str !== 'string') return '';
+            return str.toLowerCase().trim().replace(/[\s_\-]+/g, '-').replace(/^-+|-+$/g, '');
+        }
+
+        async derivePassphraseKey(passphrase, salt) {
+            const norm = this.normalizePassphrase(passphrase);
+            if (!norm) return null;
+            const enc = new TextEncoder();
+            const keyMaterial = await window.crypto.subtle.importKey(
+                'raw',
+                enc.encode(norm),
+                { name: 'PBKDF2' },
+                false,
+                ['deriveKey']
+            );
+            return await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 600000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['decrypt']
+            );
+        }
+
+        async decryptQRVault(blob, passphrase) {
+            if (!blob || typeof blob !== 'string') return { success: false, error: 'Invalid QR code data' };
+            const cleanBlob = blob.trim();
+            if (!cleanBlob.startsWith('qr:v1:')) {
+                return { success: false, error: 'Unsupported QR code format (expected qr:v1:...)' };
+            }
+            try {
+                const parts = cleanBlob.split(':');
+                if (parts.length !== 5) {
+                    return { success: false, error: 'Malformed QR vault structure' };
+                }
+                const salt = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
+                const iv = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0));
+                const ct = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0));
+
+                const key = await this.derivePassphraseKey(passphrase, salt);
+                if (!key) return { success: false, error: 'Empty or invalid passphrase' };
+
+                const decrypted = await window.crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv },
+                    key,
+                    ct
+                );
+                const decStr = new TextDecoder().decode(decrypted);
+                const data = JSON.parse(decStr);
+                return {
+                    success: true,
+                    gistId: data.g || '',
+                    pat: data.p || '',
+                    apiKey: data.k || '',
+                    bridgeName: data.n || ''
+                };
+            } catch (err) {
+                return { success: false, error: 'Incorrect 2-word passphrase. Please check BRIDGE_INFO.txt on your Desktop.' };
+            }
+        }
+
         async saveAccountToClientVault(accountData, endpointTarget) {
             try {
                 const raw = localStorage.getItem('mt5_client_vault');

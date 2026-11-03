@@ -1280,20 +1280,259 @@
         }
 
         async decodeQrFromImage(imageFileOrBlob) {
-            try {
-                if (!('BarcodeDetector' in window)) {
-                    return null;
+            // 1. Try native Web Platform BarcodeDetector first
+            if ('BarcodeDetector' in window) {
+                try {
+                    const imgBitmap = await createImageBitmap(imageFileOrBlob);
+                    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+                    const barcodes = await detector.detect(imgBitmap);
+                    if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                        return barcodes[0].rawValue;
+                    }
+                } catch (e) {
+                    console.warn('[SmartPaste] BarcodeDetector scan failed:', e);
                 }
-                const imgBitmap = await createImageBitmap(imageFileOrBlob);
-                const detector = new BarcodeDetector({ formats: ['qr_code'] });
-                const barcodes = await detector.detect(imgBitmap);
-                if (barcodes && barcodes.length > 0) {
-                    return barcodes[0].rawValue;
+            }
+
+            // 2. Fallback to jsQR from CDN if native BarcodeDetector not available
+            try {
+                if (!window.jsQR) {
+                    const savedDefine = window.define;
+                    try {
+                        window.define = undefined;
+                        await new Promise((resolve, reject) => {
+                            const s = document.createElement('script');
+                            s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+                            s.onload = resolve;
+                            s.onerror = () => reject(new Error('Failed to load jsQR'));
+                            document.head.appendChild(s);
+                        });
+                    } finally {
+                        window.define = savedDefine;
+                    }
+                }
+
+                if (window.jsQR) {
+                    const imgBitmap = await createImageBitmap(imageFileOrBlob);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = imgBitmap.width;
+                    canvas.height = imgBitmap.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(imgBitmap, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const code = window.jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
+                    if (code && code.data) {
+                        return code.data;
+                    }
                 }
             } catch (e) {
-                console.warn('[SmartPaste] BarcodeDetector scan failed:', e);
+                console.warn('[SmartPaste] jsQR scan failed:', e);
             }
             return null;
+        }
+
+        async promptAndUnlockQR(modal, qrBlob) {
+            return new Promise((resolve) => {
+                const existing = document.getElementById('mt5-qr-unlock-overlay');
+                if (existing) existing.remove();
+
+                const theme = this.getTheme();
+                const overlay = document.createElement('div');
+                overlay.id = 'mt5-qr-unlock-overlay';
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100vw';
+                overlay.style.height = '100vh';
+                overlay.style.background = 'rgba(0, 0, 0, 0.7)';
+                overlay.style.backdropFilter = 'blur(4px)';
+                overlay.style.display = 'flex';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+                overlay.style.zIndex = '100000';
+
+                overlay.innerHTML = `
+                    <div style="
+                        background: ${theme.surface};
+                        border: 1px solid ${theme.border};
+                        border-radius: 8px;
+                        width: 90%;
+                        max-width: 420px;
+                        padding: 20px;
+                        box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        color: ${theme.text};
+                        box-sizing: border-box;
+                    ">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div style="font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                <span>🔑</span> Unlock Encrypted Bridge QR
+                            </div>
+                            <button id="mt5-qr-btn-close" style="background: transparent; border: none; color: ${theme.textMuted}; cursor: pointer; font-size: 16px;">✕</button>
+                        </div>
+                        <div style="font-size: 11px; color: ${theme.textMuted}; margin-bottom: 14px; line-height: 1.4;">
+                            This QR code is protected with AES-256-GCM. Enter the <strong>2-Word Passphrase</strong> shown in <code style="font-size: 10px; background: rgba(120,123,134,0.15); padding: 1px 4px; border-radius: 3px;">BRIDGE_INFO.txt</code> on your Desktop.
+                        </div>
+                        <div style="margin-bottom: 14px;">
+                            <label style="display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 5px; color: ${theme.textSecondary};">2-Word Passphrase (e.g. blazing-stag)</label>
+                            <input id="mt5-qr-input-passphrase" type="text" placeholder="e.g. blazing-stag" style="
+                                width: 100%;
+                                height: 34px;
+                                background: ${theme.bg};
+                                border: 1px solid ${theme.border};
+                                border-radius: 5px;
+                                color: ${theme.text};
+                                padding: 0 10px;
+                                font-size: 12px;
+                                box-sizing: border-box;
+                                outline: none;
+                            " />
+                        </div>
+                        <div id="mt5-qr-unlock-status" style="display: none; font-size: 11px; margin-bottom: 12px; padding: 6px 10px; border-radius: 4px;"></div>
+                        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                            <button id="mt5-qr-btn-cancel" style="
+                                background: transparent;
+                                border: 1px solid ${theme.border};
+                                color: ${theme.textMuted};
+                                padding: 6px 14px;
+                                border-radius: 4px;
+                                font-size: 11px;
+                                cursor: pointer;
+                            ">Cancel</button>
+                            <button id="mt5-qr-btn-submit" style="
+                                background: #00c853;
+                                border: none;
+                                color: #000;
+                                font-weight: 700;
+                                padding: 6px 16px;
+                                border-radius: 4px;
+                                font-size: 11px;
+                                cursor: pointer;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                            ">
+                                <span>🔓</span> Unlock & Auto-Connect
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(overlay);
+
+                const inp = overlay.querySelector('#mt5-qr-input-passphrase');
+                const btnSubmit = overlay.querySelector('#mt5-qr-btn-submit');
+                const btnCancel = overlay.querySelector('#mt5-qr-btn-cancel');
+                const btnClose = overlay.querySelector('#mt5-qr-btn-close');
+                const statusDiv = overlay.querySelector('#mt5-qr-unlock-status');
+
+                setTimeout(() => { if (inp) inp.focus(); }, 50);
+
+                const closeOverlay = () => {
+                    overlay.remove();
+                    resolve(false);
+                };
+
+                btnCancel.onclick = closeOverlay;
+                btnClose.onclick = closeOverlay;
+
+                const doUnlock = async () => {
+                    const pass = inp ? inp.value.trim() : '';
+                    if (!pass) {
+                        inp.style.borderColor = '#f23645';
+                        return;
+                    }
+
+                    btnSubmit.disabled = true;
+                    btnSubmit.innerHTML = '<span>⏳</span> Deriving Key...';
+                    if (statusDiv) statusDiv.style.display = 'none';
+
+                    try {
+                        const res = await window.MT5API.decryptQRVault(qrBlob, pass);
+                        if (res.success) {
+                            if (statusDiv) {
+                                statusDiv.style.display = 'block';
+                                statusDiv.style.background = 'rgba(0,200,83,0.15)';
+                                statusDiv.style.color = '#00c853';
+                                statusDiv.innerHTML = '✓ Decrypted successfully! Auto-connecting...';
+                            }
+
+                            // Populate modal fields
+                            const inGistId = modal.querySelector('#mt5-in-new-gist-id');
+                            const inGistToken = modal.querySelector('#mt5-in-new-gist-token');
+                            const inKey = modal.querySelector('#mt5-in-new-key');
+                            const inName = modal.querySelector('#mt5-in-new-name');
+
+                            if (inGistId && res.gistId) inGistId.value = res.gistId;
+                            if (inGistToken && res.pat) inGistToken.value = res.pat;
+                            if (inKey && res.apiKey) inKey.value = res.apiKey;
+                            if (inName && res.bridgeName && (!inName.value || inName.value === 'oracle_cloud')) {
+                                inName.value = res.bridgeName;
+                            }
+
+                            // Highlight inputs
+                            [inGistId, inGistToken, inKey].forEach(el => {
+                                if (el) {
+                                    el.style.borderColor = '#00c853';
+                                    el.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                    setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 3000);
+                                }
+                            });
+
+                            const pasteBadge = modal.querySelector('#mt5-paste-badge');
+                            const pasteHint = modal.querySelector('#mt5-paste-hint');
+                            if (pasteBadge) {
+                                pasteBadge.innerText = '✓ 2-Word QR Decrypted!';
+                                pasteBadge.style.display = 'inline-block';
+                                pasteBadge.style.background = 'rgba(0,200,83,0.15)';
+                                pasteBadge.style.color = '#00c853';
+                                pasteBadge.style.borderColor = 'rgba(0,200,83,0.35)';
+                            }
+                            if (pasteHint) {
+                                pasteHint.innerHTML = `<span style="color: #00c853; font-weight: 600;">🔒 QR Verified with 2-word passphrase! Auto-discovering endpoint...</span>`;
+                            }
+
+                            setTimeout(() => {
+                                overlay.remove();
+                                resolve(true);
+
+                                // Auto trigger fresh Gist sync
+                                const btnFetchFreshGist = modal.querySelector('#mt5-btn-fetch-fresh-gist');
+                                if (btnFetchFreshGist) {
+                                    btnFetchFreshGist.click();
+                                }
+                            }, 400);
+                        } else {
+                            if (statusDiv) {
+                                statusDiv.style.display = 'block';
+                                statusDiv.style.background = 'rgba(242,54,69,0.12)';
+                                statusDiv.style.color = '#f23645';
+                                statusDiv.innerHTML = `⚠️ ${res.error || 'Failed to decrypt QR code.'}`;
+                            }
+                            inp.style.borderColor = '#f23645';
+                            btnSubmit.disabled = false;
+                            btnSubmit.innerHTML = '<span>🔓</span> Unlock & Auto-Connect';
+                        }
+                    } catch (err) {
+                        if (statusDiv) {
+                            statusDiv.style.display = 'block';
+                            statusDiv.style.background = 'rgba(242,54,69,0.12)';
+                            statusDiv.style.color = '#f23645';
+                            statusDiv.innerHTML = `⚠️ Decryption error: ${err.message}`;
+                        }
+                        btnSubmit.disabled = false;
+                        btnSubmit.innerHTML = '<span>🔓</span> Unlock & Auto-Connect';
+                    }
+                };
+
+                btnSubmit.onclick = doUnlock;
+                inp.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        doUnlock();
+                    }
+                };
+            });
         }
 
         async ocrImageBlob(imageBlob, onProgress) {
@@ -1648,37 +1887,56 @@
                             box-sizing: border-box;
                             cursor: pointer;
                             transition: all 0.2s;
-                        " title="Click or focus here, then press Ctrl+V to paste BRIDGE_INFO text or screenshot">
+                        " title="Click or focus here, then press Ctrl+V to paste BRIDGE_INFO text or drop BRIDGE_QR.png">
                             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
                                 <span style="font-size: 16px; flex-shrink: 0;">📋</span>
                                 <div style="min-width: 0;">
                                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                        <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};">Smart Paste (Text or Screenshot)</span>
+                                        <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};">Instant Setup (2-Word QR Code or OCR)</span>
                                         <span id="mt5-paste-badge" style="display: none; font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.15); color: #089981; border: 1px solid rgba(8,153,129,0.3); font-weight: 600;">✓ Extracted</span>
                                     </div>
                                     <div style="font-size: 9.5px; color: ${theme.textMuted}; line-height: 1.3; margin-top: 1px;" id="mt5-paste-hint">
-                                        Press <strong>Ctrl+V</strong> anywhere. Supports full config or single fields one-by-one. Wipes clipboard clean immediately.
+                                        Press <strong>Ctrl+V</strong> anywhere, drop <strong>BRIDGE_QR.png</strong>, or paste text. Decrypts with 2-word passphrase.
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" id="mt5-btn-smart-paste" style="
-                                background: rgba(41,98,255,0.1);
-                                color: ${theme.primary};
-                                border: 1px solid rgba(41,98,255,0.3);
-                                height: 24px;
-                                padding: 0 10px;
-                                border-radius: 4px;
-                                font-size: 10px;
-                                font-weight: 600;
-                                cursor: pointer;
-                                white-space: nowrap;
-                                flex-shrink: 0;
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 4px;
-                            ">
-                                <span>⚡</span> Paste Clipboard
-                            </button>
+                            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                                <input type="file" id="mt5-file-qr-input" accept="image/*" style="display: none;" />
+                                <button type="button" id="mt5-btn-scan-qr" style="
+                                    background: rgba(0,200,83,0.12);
+                                    color: #00c853;
+                                    border: 1px solid rgba(0,200,83,0.35);
+                                    height: 24px;
+                                    padding: 0 9px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                " title="Upload BRIDGE_QR.png for 100% typo-proof instant setup">
+                                    <span>📷</span> Upload QR
+                                </button>
+                                <button type="button" id="mt5-btn-smart-paste" style="
+                                    background: rgba(41,98,255,0.1);
+                                    color: ${theme.primary};
+                                    border: 1px solid rgba(41,98,255,0.3);
+                                    height: 24px;
+                                    padding: 0 9px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                ">
+                                    <span>⚡</span> Paste (OCR)
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Cumulative Extracted Text / OCR Buffer -->
@@ -4274,9 +4532,18 @@
 
                 if (imageBlob) {
                     if (pasteHint) {
-                        pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Analyzing screenshot...</span>`;
+                        pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Analyzing image...</span>`;
                     }
                     extractedText = await this.decodeQrFromImage(imageBlob);
+                    if (extractedText && extractedText.startsWith('qr:v1:')) {
+                        if (pasteHint) {
+                            pasteHint.innerHTML = `<span style="color: #00c853;">🔑 Encrypted 2-Word QR detected! Opening unlock prompt...</span>`;
+                        }
+                        await this.promptAndUnlockQR(modal, extractedText);
+                        await this.wipeClipboardSafely();
+                        return;
+                    }
+
                     if (!extractedText) {
                         try {
                             extractedText = await this.ocrImageBlob(imageBlob, (statusMsg) => {
@@ -4298,6 +4565,12 @@
                         return;
                     }
                 } else if (text) {
+                    // Check if pasted raw text is a qr:v1: string
+                    if (typeof text === 'string' && text.trim().startsWith('qr:v1:')) {
+                        await this.promptAndUnlockQR(modal, text.trim());
+                        await this.wipeClipboardSafely();
+                        return;
+                    }
                     extracted = this.parseBridgeCredentialsText(text);
                 }
 
@@ -4335,6 +4608,20 @@
                 }
             };
 
+            // Upload QR Code Button & File Picker
+            const btnScanQr = modal.querySelector('#mt5-btn-scan-qr');
+            const fileQrInput = modal.querySelector('#mt5-file-qr-input');
+            if (btnScanQr && fileQrInput) {
+                btnScanQr.onclick = () => fileQrInput.click();
+                fileQrInput.onchange = async (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (file) {
+                        await handleSmartPasteData(null, file);
+                    }
+                    fileQrInput.value = '';
+                };
+            }
+
             if (smartPasteBox) {
                 // Focus styling
                 smartPasteBox.addEventListener('focus', () => {
@@ -4344,6 +4631,25 @@
                 smartPasteBox.addEventListener('blur', () => {
                     smartPasteBox.style.borderColor = 'rgba(41,98,255,0.35)';
                     smartPasteBox.style.background = 'rgba(41,98,255,0.04)';
+                });
+
+                // Drag & Drop BRIDGE_QR.png or screenshots onto the Smart Box
+                smartPasteBox.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    smartPasteBox.style.borderColor = '#00c853';
+                    smartPasteBox.style.background = 'rgba(0,200,83,0.08)';
+                });
+                smartPasteBox.addEventListener('dragleave', () => {
+                    smartPasteBox.style.borderColor = 'rgba(41,98,255,0.35)';
+                    smartPasteBox.style.background = 'rgba(41,98,255,0.04)';
+                });
+                smartPasteBox.addEventListener('drop', async (e) => {
+                    e.preventDefault();
+                    smartPasteBox.style.borderColor = 'rgba(41,98,255,0.35)';
+                    smartPasteBox.style.background = 'rgba(41,98,255,0.04)';
+                    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        await handleSmartPasteData(null, e.dataTransfer.files[0]);
+                    }
                 });
             }
 
