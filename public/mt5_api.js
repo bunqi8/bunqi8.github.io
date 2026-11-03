@@ -1127,8 +1127,10 @@
                                 is_connected: !isPaused && ep.status === 'online',
                                 positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                                 has_password: Boolean(acc.has_password),
-                                auth_mode: acc.auth_mode || (acc.has_password ? 'stored_credentials' : 'desktop_attached'),
-                                auth_label: acc.auth_label || (acc.has_password ? 'Password Saved (Auto-Login)' : 'Pre-Logged In (Desktop Session)')
+                                has_dpapi: Boolean(acc.has_dpapi),
+                                is_verified: Boolean(acc.is_connected && !isPaused),
+                                auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'stored_credentials' : 'desktop_attached')),
+                                auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
                             });
                         });
                     } else if (ep && ep.status !== 'unauthorized') {
@@ -1183,6 +1185,9 @@
 
             // Preload symbols & history across all accounts for 0ms instant details
             this.preloadAllAccountsData();
+
+            // Auto-heal accounts that have local browser vault password but missing Bridge DPAPI (after broker verification)
+            this.checkAndAutoHealLocalVaults().catch(() => {});
 
             // Sync positions for active account
             if (this.activeAccountId) {
@@ -1380,6 +1385,60 @@
                 const cached = this._accountSymbolsCache && this._accountSymbolsCache.get(accId);
                 if (!cached || cached.length <= 2) {
                     this.getSymbolsForAccount(accId).catch(() => {});
+                }
+            }
+        }
+
+        async checkAndAutoHealLocalVaults() {
+            if (!this.accounts || this.accounts.length === 0) return;
+            this._autoHealAttempts = this._autoHealAttempts || new Set();
+
+            const vault = this.getClientVault();
+            if (!vault || vault.length === 0) return;
+
+            for (const acc of this.accounts) {
+                // Only consider accounts connected on an active bridge that lack hardware DPAPI vault
+                if (!acc.is_connected || acc.has_dpapi) continue;
+
+                const targetLogin = Number(acc.login);
+                const targetServer = String(acc.server || '').trim();
+                const compositeKey = `${targetLogin}_${targetServer.toLowerCase()}`;
+
+                if (this._autoHealAttempts.has(compositeKey)) continue;
+
+                // Check if client vault has a password for this composite key
+                const vaultEntry = vault.find(v => {
+                    const vLogin = Number(v.login);
+                    const vServer = String(v.server || '').trim().toLowerCase();
+                    return vLogin === targetLogin && (vServer === targetServer.toLowerCase() || vServer.includes(targetServer.toLowerCase()) || targetServer.toLowerCase().includes(vServer));
+                });
+
+                if (!vaultEntry || !vaultEntry.password) continue;
+
+                this._autoHealAttempts.add(compositeKey);
+                console.log(`[MT5API] 🛡️ Detected Local Vault for #${targetLogin} on '${targetServer}' without Bridge DPAPI. Probing Broker Verification Gate for auto-heal...`);
+
+                try {
+                    const rawPass = await this.decryptVaultSecret(vaultEntry.password);
+                    if (!rawPass) continue;
+
+                    const res = await this.verifyAndUpdateBrokerPassword(targetLogin, targetServer, rawPass);
+                    if (res && res.verified) {
+                        console.log(`[MT5API] ✓ Auto-healed Account #${targetLogin} on '${targetServer}'! Broker verified & secured in Bridge DPAPI.`);
+                        acc.has_dpapi = true;
+                        acc.is_verified = true;
+                        acc.auth_mode = 'dpapi_vaulted';
+                        acc.auth_label = 'Bridge Secured (DPAPI)';
+
+                        if (window.MT5UI && typeof window.MT5UI.showFloatingSwitchToast === 'function') {
+                            window.MT5UI.showFloatingSwitchToast('Auto-Healed Account', `Account #${targetLogin} broker verified & secured in Bridge DPAPI`, 100, true);
+                        }
+                        this.notifyAccountListeners();
+                    } else {
+                        console.warn(`[MT5API] Auto-heal skipped for #${targetLogin} on '${targetServer}': Broker rejected vault password.`);
+                    }
+                } catch (e) {
+                    console.warn(`[MT5API] Auto-heal probe error for #${targetLogin}:`, e);
                 }
             }
         }
@@ -2387,6 +2446,109 @@
             }
         }
 
+        async verifyAndUpdateBrokerPassword(login, server, newPassword) {
+            try {
+                const targetLogin = Number(login);
+                const targetServer = String(server || '').trim();
+                const cleanPass = String(newPassword || '').trim();
+
+                if (!targetLogin || !targetServer || !cleanPass) {
+                    return { success: false, error: 'Login, server, and new password are required' };
+                }
+
+                // 1. Find all endpoints hosting this composite account key (login + server)
+                const matchingInstances = (this.accounts || []).filter(a => 
+                    Number(a.login) === targetLogin && 
+                    String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
+                );
+
+                if (matchingInstances.length === 0) {
+                    return { success: false, error: `Account #${targetLogin} on '${targetServer}' not found on any active bridge server` };
+                }
+
+                // 2. Select primary probe bridge
+                const primaryInst = matchingInstances.find(a => a.endpointId === this.activeEndpointId) || matchingInstances[0];
+                const primaryEp = (this.endpoints || []).find(e => e.id === primaryInst.endpointId);
+                if (!primaryEp || !primaryEp.url) {
+                    return { success: false, error: 'Host bridge is currently offline or unreachable' };
+                }
+
+                // 3. Broker Verification Gate: Probe primary bridge
+                const encPayload = await this.encryptE2EPayload(cleanPass, primaryEp.apiKey);
+                const probeRes = await fetch(`${primaryEp.url}/api/accounts/verify_credentials`, {
+                    method: 'POST',
+                    headers: this.getReqHeaders(primaryEp),
+                    body: JSON.stringify({
+                        login: targetLogin,
+                        server: targetServer,
+                        password: encPayload
+                    }),
+                    signal: AbortSignal.timeout(15000)
+                });
+
+                if (!probeRes.ok) {
+                    const errData = await probeRes.json().catch(() => ({}));
+                    return { 
+                        success: false, 
+                        error: errData.detail || errData.error || `Bridge returned HTTP ${probeRes.status}` 
+                    };
+                }
+
+                const probeData = await probeRes.json();
+                if (!probeData.verified) {
+                    return {
+                        success: false,
+                        verified: false,
+                        error: probeData.error || 'Broker rejected credentials. Existing working password preserved.'
+                    };
+                }
+
+                // 4. Broker verified! Update all remaining connected bridges for this composite key
+                for (const inst of matchingInstances) {
+                    if (inst.endpointId === primaryEp.id) continue;
+                    const ep = (this.endpoints || []).find(e => e.id === inst.endpointId);
+                    if (!ep || !ep.url) continue;
+                    try {
+                        const epPayload = await this.encryptE2EPayload(cleanPass, ep.apiKey);
+                        await fetch(`${ep.url}/api/accounts/add`, {
+                            method: 'POST',
+                            headers: this.getReqHeaders(ep),
+                            body: JSON.stringify({
+                                nickname: inst.nickname || `MT5 ${targetLogin}`,
+                                server: targetServer,
+                                login: targetLogin,
+                                password: epPayload,
+                                lot_multiplier: inst.lot_multiplier || 1.0,
+                                risk_percent: inst.risk_percent || 1.0
+                            })
+                        });
+                    } catch (epErr) {
+                        console.warn(`[MT5API] Could not replicate verified password to ${ep.name}:`, epErr);
+                    }
+                }
+
+                // 5. Update master client vault in browser
+                await this.saveAccountToClientVault({
+                    nickname: primaryInst.nickname || `MT5 ${targetLogin}`,
+                    server: targetServer,
+                    login: targetLogin,
+                    password: cleanPass
+                }, matchingInstances.map(i => i.endpointId));
+
+                // 6. Refresh fleet accounts catalog
+                await this.syncAccounts(true);
+
+                return {
+                    success: true,
+                    verified: true,
+                    broker: probeData.broker,
+                    balance: probeData.balance
+                };
+            } catch (err) {
+                return { success: false, error: `Verification request failed: ${err.message}` };
+            }
+        }
+
         async deleteAccount(id, targetEndpointIds = null) {
             try {
                 const targetAcc = (this.accounts || []).find(a => String(a.id) === String(id) || String(a.login) === String(id));
@@ -3287,8 +3449,10 @@
                     is_connected: !isPaused && ep.status === 'online',
                     positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                     has_password: Boolean(acc.has_password),
-                    auth_mode: acc.auth_mode || (acc.has_password ? 'stored_credentials' : 'desktop_attached'),
-                    auth_label: acc.auth_label || (acc.has_password ? 'Password Saved (Auto-Login)' : 'Pre-Logged In (Desktop Session)')
+                    has_dpapi: Boolean(acc.has_dpapi),
+                    is_verified: Boolean(acc.is_connected && !isPaused),
+                    auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'stored_credentials' : 'desktop_attached')),
+                    auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
                 };
             });
 
