@@ -871,8 +871,7 @@
                 const hasBridgeVault = Boolean(
                     primary.has_dpapi ||
                     primary.auth_mode === 'dpapi_vaulted' ||
-                    primary.has_password ||
-                    instances.some(i => i.has_dpapi || i.auth_mode === 'dpapi_vaulted' || i.has_password)
+                    instances.some(i => i.has_dpapi || i.auth_mode === 'dpapi_vaulted')
                 );
                 const isVerified = Boolean(anyConnected);
 
