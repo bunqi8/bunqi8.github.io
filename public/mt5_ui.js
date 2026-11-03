@@ -864,21 +864,47 @@
                 const bestEq = Math.max(...instances.map(i => Number(i.equity || 0)));
                 const anyConnected = instances.some(i => i.is_connected);
 
-                const vaultEntry = vault.find(v => String(v.login) === String(primary.login) && (v.server || '').toLowerCase() === (primary.server || '').toLowerCase());
-                const isPasswordSaved = Boolean(
-                    (vaultEntry && vaultEntry.password) ||
-                    instances.some(i => i.has_password || i.auth_mode === 'stored_credentials') ||
+                const targetLogin = String(primary.login).trim();
+                const targetServer = String(primary.server || '').trim().toLowerCase();
+                const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer);
+                const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
+                const hasBridgeVault = Boolean(
+                    primary.has_dpapi ||
+                    primary.auth_mode === 'dpapi_vaulted' ||
                     primary.has_password ||
-                    primary.auth_mode === 'stored_credentials'
+                    instances.some(i => i.has_dpapi || i.auth_mode === 'dpapi_vaulted' || i.has_password)
                 );
+                const isVerified = Boolean(anyConnected);
+
+                let vaultMode = 'session_only';
+                let vaultLabel = 'Session Only';
+                if (hasLocalVault && hasBridgeVault) {
+                    vaultMode = 'dual_vaulted';
+                    vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
+                } else if (!hasLocalVault && hasBridgeVault) {
+                    vaultMode = 'bridge_secured';
+                    vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
+                } else if (hasLocalVault && !hasBridgeVault) {
+                    vaultMode = 'local_vaulted';
+                    vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
+                } else {
+                    vaultMode = 'session_only';
+                    vaultLabel = isVerified ? '🖥️ Desktop Session ✓' : '⚠️ Session Only';
+                }
 
                 return {
                     ...primary,
                     balance: bestBal > 0 ? bestBal : primary.balance,
                     equity: bestEq > 0 ? bestEq : primary.equity,
                     is_connected: anyConnected,
-                    has_password: isPasswordSaved,
-                    auth_mode: isPasswordSaved ? 'stored_credentials' : 'desktop_attached'
+                    is_verified: isVerified,
+                    has_local_vault: hasLocalVault,
+                    has_bridge_vault: hasBridgeVault,
+                    has_password: Boolean(hasLocalVault || hasBridgeVault),
+                    vault_mode: vaultMode,
+                    vault_label: vaultLabel,
+                    auth_mode: vaultMode,
+                    auth_label: vaultLabel
                 };
             });
 
@@ -960,11 +986,17 @@
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 ${multiHostBadge}
-                                ${!Boolean(acc.has_password || acc.auth_mode === 'stored_credentials' || (vaultEntry && vaultEntry.password) || activeInstances.some(i => i.has_password || i.auth_mode === 'stored_credentials')) ? `
-                                    <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: Pre-authenticated in MT5 GUI (No password stored in bridge)">🖥️ Pre-Logged In</span>
-                                ` : `
-                                    <span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Password Saved: Credentials securely vaulted in RAM/DPAPI (Auto-login enabled)">🔑 Saved Password</span>
-                                `}
+                                ${(() => {
+                                    if (acc.vault_mode === 'dual_vaulted') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vaulted: Hardware DPAPI encrypted on bridge & backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🔒 Dual Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
+                                    } else if (acc.vault_mode === 'bridge_secured') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Bridge Secured: Hardware DPAPI encrypted on server (survives reboots). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">☁️ Bridge Secured ${acc.is_verified ? '✓' : ''}</span>`;
+                                    } else if (acc.vault_mode === 'local_vaulted') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(41, 98, 255, 0.12); color: #2962ff; border: 1px solid rgba(41, 98, 255, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Local Vaulted: Saved in browser vault. Running as live session on bridge.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">💻 Local Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
+                                    } else {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: No password stored in bridge DPAPI or browser vault. Volatile on terminal restart.">🖥️ Pre-Logged In</span>`;
+                                    }
+                                })()}
                                 <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace;">#${acc.login} • ${acc.server}</span>
                             </div>
 
@@ -3530,12 +3562,29 @@
             const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
             const allInstancesWithAcc = [acc, ...activeInstances];
 
-            const isPasswordSaved = Boolean(
-                acc.has_password ||
-                acc.auth_mode === 'stored_credentials' ||
-                (vaultEntry && vaultEntry.password) ||
-                allInstancesWithAcc.some(i => i.has_password || i.auth_mode === 'stored_credentials')
-            );
+            const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
+            const hasBridgeVault = Boolean(allInstancesWithAcc.some(i => i.has_dpapi) || acc.has_dpapi);
+            const isVerified = Boolean(allInstancesWithAcc.some(i => i.is_verified) || acc.is_verified);
+
+            let vaultMode = 'session_only';
+            let vaultLabel = isVerified ? '🖥️ Desktop Session ✓' : '⚠️ Session Only';
+            let vaultColor = '#ff9800';
+
+            if (hasLocalVault && hasBridgeVault) {
+                vaultMode = 'dual_vaulted';
+                vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
+                vaultColor = '#089981';
+            } else if (!hasLocalVault && hasBridgeVault) {
+                vaultMode = 'bridge_secured';
+                vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
+                vaultColor = '#00bcd4';
+            } else if (hasLocalVault && !hasBridgeVault) {
+                vaultMode = 'local_vaulted';
+                vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
+                vaultColor = '#2962ff';
+            }
+
+            const isPasswordSaved = Boolean(hasLocalVault || hasBridgeVault);
 
             const maxBal = Math.max(...allInstancesWithAcc.map(a => Number(a.balance || 0)));
             const maxEq = Math.max(...allInstancesWithAcc.map(a => Number(a.equity || 0)));
@@ -3711,9 +3760,95 @@
                             <span>•</span>
                             <span>Status: <strong style="color: ${isPaused ? theme.warning : theme.success};">${isPaused ? 'Standby (Paused)' : 'Online'}</strong></span>
                             <span>•</span>
-                            <span>Auth: <strong style="color: ${isPasswordSaved ? '#089981' : '#00bcd4'}; font-weight: 700;">${isPasswordSaved ? '🔑 Password Saved (Auto-Login)' : '🖥️ Pre-Logged In (Desktop Session)'}</strong></span>
+                            <span>Auth: <strong style="color: ${vaultColor}; font-weight: 700;">${vaultLabel}</strong></span>
                             <span>•</span>
                             <span>Added: <strong style="color: ${theme.text};">${acc.created_at ? new Date(acc.created_at * 1000).toLocaleDateString() : 'Active'}</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- Credential Security & Broker Handshake Card -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 9px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Title & Action Bar -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                            <div style="display: flex; align-items: center; gap: 7px;">
+                                <span style="font-size: 11px; font-weight: 700; color: ${theme.text};">🔐 Credential Security & Broker Handshake</span>
+                                <span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; background: ${vaultColor}1a; color: ${vaultColor}; border: 1px solid ${vaultColor}4d; font-weight: 700;">
+                                    ${vaultLabel}
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                ${!hasLocalVault ? `
+                                    <button class="mt5-btn-save-to-browser-vault mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" style="
+                                        padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; color: ${theme.primary}; border: 1px solid ${theme.primaryBorder};
+                                    " title="Save password in browser client vault">
+                                        📥 Back Up to Browser Vault
+                                    </button>
+                                ` : ''}
+                                ${(!hasBridgeVault && hasLocalVault) ? `
+                                    <button class="mt5-btn-verify-heal-dpapi" data-login="${acc.login}" data-server="${acc.server}" style="
+                                        padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; background: #2962ff; color: #fff; border: none;
+                                    " title="Test credentials with broker and vault in Bridge DPAPI">
+                                        ⚡ Auto-Heal to Bridge DPAPI
+                                    </button>
+                                ` : ''}
+                                <button id="mt5-btn-toggle-update-pwd" class="mt5-ghost-btn" style="
+                                    padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;
+                                ">
+                                    🔑 Update Broker Password
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Diagnostic Badges -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; font-size: 10px; padding: 5px 0; border-top: 1px solid ${theme.border};">
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>Bridge DPAPI:</span>
+                                ${hasBridgeVault ? `
+                                    <strong style="color: #089981;">☁️ Hardware DPAPI (Survives Reboots)</strong>
+                                ` : `
+                                    <strong style="color: #ff9800;">⚠️ Not Saved on Bridge (Session Only)</strong>
+                                `}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>Browser Vault:</span>
+                                ${hasLocalVault ? `
+                                    <strong style="color: #2962ff;">💻 Encrypted Client Vault</strong>
+                                ` : `
+                                    <strong style="color: ${theme.textMuted};">❌ Not in Browser Vault</strong>
+                                `}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>Broker Handshake:</span>
+                                ${isVerified ? `
+                                    <strong style="color: #089981;">🟢 Live Verified (#${acc.login} @ ${acc.server})</strong>
+                                ` : `
+                                    <strong style="color: #ff9800;">🟡 Pending Handshake</strong>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Collapsible Update Password Form (hidden by default) -->
+                        <div id="mt5-update-pwd-container" style="display: none; padding-top: 8px; border-top: 1px dashed ${theme.border};">
+                            <div style="font-size: 10px; color: ${theme.textMuted}; margin-bottom: 6px;">
+                                Broker Verification Gate: Tests credentials with broker first. If verified, updates Bridge DPAPI and Browser Vault. If rejected, preserves existing working credentials.
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                <div style="position: relative; display: flex; align-items: center; flex: 1; min-width: 170px;">
+                                    <input id="mt5-input-update-pwd" type="password" placeholder="Enter broker password..." style="
+                                        width: 100%; padding: 5px 30px 5px 8px; border-radius: 4px; font-size: 11px;
+                                        background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border};
+                                    " />
+                                    <button id="mt5-btn-toggle-pwd-visibility" type="button" style="
+                                        position: absolute; right: 6px; background: transparent; border: none; cursor: pointer; font-size: 11px; color: ${theme.textMuted};
+                                    " title="Toggle visibility">👁️</button>
+                                </div>
+                                <button id="mt5-btn-submit-verify-pwd" data-login="${acc.login}" data-server="${acc.server}" type="button" style="
+                                    background: ${theme.primary}; color: #fff; border: none; padding: 5px 12px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+                                ">
+                                    <span>🔒</span> Verify with Broker & Save
+                                </button>
+                            </div>
+                            <div id="mt5-update-pwd-feedback" style="display: none; font-size: 10px; margin-top: 6px;"></div>
                         </div>
                     </div>
 
@@ -4230,6 +4365,136 @@
                     }
                 };
             });
+            // Toggle Update Broker Password form
+            const btnTogglePwd = modal.querySelector('#mt5-btn-toggle-update-pwd');
+            const pwdContainer = modal.querySelector('#mt5-update-pwd-container');
+            if (btnTogglePwd && pwdContainer) {
+                btnTogglePwd.onclick = () => {
+                    const isHidden = pwdContainer.style.display === 'none' || !pwdContainer.style.display;
+                    pwdContainer.style.display = isHidden ? 'block' : 'none';
+                    btnTogglePwd.textContent = isHidden ? '✖ Cancel Update' : '🔑 Update Broker Password';
+                };
+            }
+
+            // Toggle Password Visibility
+            const btnToggleVis = modal.querySelector('#mt5-btn-toggle-pwd-visibility');
+            const inPwd = modal.querySelector('#mt5-input-update-pwd');
+            if (btnToggleVis && inPwd) {
+                btnToggleVis.onclick = () => {
+                    inPwd.type = inPwd.type === 'password' ? 'text' : 'password';
+                    btnToggleVis.textContent = inPwd.type === 'password' ? '👁️' : '🔒';
+                };
+            }
+
+            // Submit Password Broker Verification Gate
+            const btnSubmitPwd = modal.querySelector('#mt5-btn-submit-verify-pwd');
+            const feedbackEl = modal.querySelector('#mt5-update-pwd-feedback');
+            if (btnSubmitPwd && inPwd) {
+                btnSubmitPwd.onclick = async () => {
+                    const login = btnSubmitPwd.getAttribute('data-login');
+                    const server = btnSubmitPwd.getAttribute('data-server');
+                    const newPass = inPwd.value.trim();
+
+                    if (!newPass) {
+                        if (feedbackEl) {
+                            feedbackEl.style.display = 'block';
+                            feedbackEl.style.color = '#ef4444';
+                            feedbackEl.textContent = 'Please enter a password to verify.';
+                        }
+                        return;
+                    }
+
+                    btnSubmitPwd.disabled = true;
+                    btnSubmitPwd.innerHTML = '<span>🔄</span> Probing Broker...';
+                    if (feedbackEl) {
+                        feedbackEl.style.display = 'block';
+                        feedbackEl.style.color = '#60a5fa';
+                        feedbackEl.textContent = `Connecting to broker for #${login} @ ${server}...`;
+                    }
+
+                    try {
+                        const res = await window.MT5API.verifyAndUpdateBrokerPassword(login, server, newPass);
+                        if (res && res.verified) {
+                            if (feedbackEl) {
+                                feedbackEl.style.color = '#10b981';
+                                feedbackEl.textContent = '✓ Broker verified! Password permanently saved to Bridge DPAPI and Local Vault.';
+                            }
+                            this.showFloatingSwitchToast('Password Verified', `Account #${login} secured with broker & saved to Bridge DPAPI`, 100, true);
+                            setTimeout(() => {
+                                if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                            }, 800);
+                        } else {
+                            if (feedbackEl) {
+                                feedbackEl.style.color = '#ef4444';
+                                feedbackEl.textContent = `❌ ${res?.error || 'Broker rejected credentials. Working session preserved.'}`;
+                            }
+                            btnSubmitPwd.disabled = false;
+                            btnSubmitPwd.innerHTML = '<span>🔒</span> Verify with Broker & Save';
+                        }
+                    } catch (err) {
+                        if (feedbackEl) {
+                            feedbackEl.style.color = '#ef4444';
+                            feedbackEl.textContent = `Error: ${err.message}`;
+                        }
+                        btnSubmitPwd.disabled = false;
+                        btnSubmitPwd.innerHTML = '<span>🔒</span> Verify with Broker & Save';
+                    }
+                };
+            }
+
+            // Back Up to Browser Client Vault
+            modal.querySelectorAll('.mt5-btn-save-to-browser-vault').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const login = e.currentTarget.getAttribute('data-login');
+                    const server = e.currentTarget.getAttribute('data-server');
+                    const pass = prompt(`Enter password for Account #${login} to back up in this browser's encrypted vault:`);
+                    if (pass && pass.trim()) {
+                        await window.MT5API.saveAccountToClientVault({ login, server, password: pass.trim() });
+                        this.showFloatingSwitchToast('Browser Vault Updated', `Account #${login} backed up locally`, 100, true);
+                        if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                    }
+                };
+            });
+
+            // Auto-Heal to Bridge DPAPI (from Local Vault)
+            modal.querySelectorAll('.mt5-btn-verify-heal-dpapi').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const login = e.currentTarget.getAttribute('data-login');
+                    const server = e.currentTarget.getAttribute('data-server');
+                    btn.disabled = true;
+                    btn.innerHTML = '<span>🔄</span> Verifying...';
+
+                    let pass = await window.MT5API.getAccountPasswordFromVault(login, server);
+                    if (!pass) {
+                        pass = prompt(`Enter password for Account #${login} to verify with broker:`);
+                    }
+
+                    if (!pass || !pass.trim()) {
+                        btn.disabled = false;
+                        btn.innerHTML = '⚡ Auto-Heal to Bridge DPAPI';
+                        return;
+                    }
+
+                    try {
+                        const res = await window.MT5API.verifyAndUpdateBrokerPassword(login, server, pass.trim());
+                        if (res && res.verified) {
+                            this.showFloatingSwitchToast('Auto-Heal Success', `Account #${login} verified with broker & vaulted in Bridge DPAPI!`, 100, true);
+                            setTimeout(() => {
+                                if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                            }, 500);
+                        } else {
+                            alert(`Broker rejected password: ${res?.error || 'Invalid credentials'}`);
+                            btn.disabled = false;
+                            btn.innerHTML = '⚡ Auto-Heal to Bridge DPAPI';
+                        }
+                    } catch (err) {
+                        alert(`Auto-heal failed: ${err.message}`);
+                        btn.disabled = false;
+                        btn.innerHTML = '⚡ Auto-Heal to Bridge DPAPI';
+                    }
+                };
+            });
+
             if (btnClose) btnClose.onclick = () => this.closeModal();
 
             const tabFleet = modal.querySelector('#mt5-tab-fleet');
