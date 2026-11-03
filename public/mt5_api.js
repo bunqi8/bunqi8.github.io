@@ -324,11 +324,15 @@
 
                 const clean = decryptedUrl.trim().replace(/\/+$/, '');
                 const changed = clean !== ep.url;
-                if (changed || vaultData.shield_token) {
+                if (changed || vaultData.shield_token || vaultData.autoHealedKey) {
                     console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
                     ep.url = clean;
                     if (vaultData.shield_token) ep.shieldToken = vaultData.shield_token;
                     if (vaultData.shield_date) ep.shieldDate = vaultData.shield_date;
+                    if (vaultData.autoHealedKey) {
+                        console.log(`[MT5API] Auto-healed bridge ${ep.name} API key OCR typos: ${ep.apiKey} -> ${vaultData.autoHealedKey}`);
+                        ep.apiKey = vaultData.autoHealedKey;
+                    }
                     ep.status = 'unknown';
                     ep.ping = 0;
                     this.saveConfig();
@@ -822,6 +826,7 @@
                 let shieldDate = null;
                 let isOlder = false;
                 let bridgeName = null;
+                let autoHealedKey = null;
 
                 if (rawContent) {
                     try {
@@ -849,6 +854,7 @@
                                         shieldToken = vaultData.shield_token || null;
                                         shieldDate = vaultData.shield_date || null;
                                         if (vaultData.server_name) bridgeName = vaultData.server_name;
+                                        if (vaultData.autoHealedKey) autoHealedKey = vaultData.autoHealedKey;
                                     } else {
                                         decryptError = 'Invalid API Key: Unable to decrypt Gist vault. Please check for character typos (e.g. 1 vs l, _ vs -, 0 vs O). Click 👁️ to inspect your API Key.';
                                     }
@@ -892,6 +898,7 @@
                     shieldDate,
                     isOlder,
                     bridgeName,
+                    autoHealedKey,
                     decryptError,
                     owner: data.owner ? data.owner.login : 'anonymous'
                 };
@@ -1921,37 +1928,91 @@
             );
         }
 
+        generateOcrKeyVariations(str) {
+            if (!str || typeof str !== 'string') return [];
+            const clean = str.trim();
+            const list = [clean];
+            const confusions = {
+                '1': ['l', 'I'],
+                'l': ['1', 'I'],
+                'I': ['1', 'l'],
+                'F': ['f'],
+                'f': ['F'],
+                '-': ['_'],
+                '_': ['-'],
+                '0': ['O', 'o'],
+                'O': ['0', 'o'],
+                'o': ['0', 'O'],
+            };
+            for (let i = 0; i < clean.length; i++) {
+                const c = clean[i];
+                if (confusions[c]) {
+                    for (const rep of confusions[c]) {
+                        list.push(clean.substring(0, i) + rep + clean.substring(i + 1));
+                    }
+                }
+            }
+            // Pairwise combinations of single-character OCR substitutions
+            const n = list.length;
+            for (let j = 1; j < n; j++) {
+                for (let k = j + 1; k < n; k++) {
+                    let merged = clean.split('');
+                    for (let idx = 0; idx < clean.length; idx++) {
+                        if (list[j][idx] !== clean[idx]) merged[idx] = list[j][idx];
+                        if (list[k][idx] !== clean[idx]) merged[idx] = list[k][idx];
+                    }
+                    list.push(merged.join(''));
+                }
+            }
+            return [...new Set(list)];
+        }
+
         async decryptE2EVault(blob, apiKey) {
             if (!blob || typeof blob !== 'string') return null;
+            const inputKey = (apiKey || '').trim();
+
             if (blob.startsWith('e2e:v2:')) {
-                try {
-                    const parts = blob.split(':');
-                    if (parts.length !== 5) return null;
-                    const salt = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
-                    const iv = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0));
-                    const ct = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0));
-                    const key = await this.derivePBKDF2Key(apiKey, salt);
-                    if (!key) return null;
-                    const decrypted = await window.crypto.subtle.decrypt(
-                        { name: 'AES-GCM', iv },
-                        key,
-                        ct
-                    );
-                    const decStr = new TextDecoder().decode(decrypted);
+                const parts = blob.split(':');
+                if (parts.length !== 5) return null;
+                const salt = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
+                const iv = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0));
+                const ct = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0));
+
+                const candidates = this.generateOcrKeyVariations(inputKey);
+                for (const candKey of candidates) {
                     try {
-                        return JSON.parse(decStr);
-                    } catch (_) {
-                        return { endpoint_url: decStr };
-                    }
-                } catch (err) {
-                    return { error: 'AUTH_FAILED', message: err.message };
+                        const key = await this.derivePBKDF2Key(candKey, salt);
+                        if (!key) continue;
+                        const decrypted = await window.crypto.subtle.decrypt(
+                            { name: 'AES-GCM', iv },
+                            key,
+                            ct
+                        );
+                        const decStr = new TextDecoder().decode(decrypted);
+                        let result;
+                        try {
+                            result = JSON.parse(decStr);
+                        } catch (_) {
+                            result = { endpoint_url: decStr };
+                        }
+                        if (candKey !== inputKey) {
+                            result.autoHealedKey = candKey;
+                        }
+                        return result;
+                    } catch (_) {}
                 }
+                return { error: 'AUTH_FAILED', message: 'Decryption failed for all key candidates' };
             } else if (blob.startsWith('e2e:v1:')) {
-                const dec = await this.decryptE2EPayload(blob, apiKey);
-                if (!dec || !dec.startsWith('http')) {
-                    return { error: 'AUTH_FAILED', message: 'Decryption failed' };
+                const candidates = this.generateOcrKeyVariations(inputKey);
+                for (const candKey of candidates) {
+                    const dec = await this.decryptE2EPayload(blob, candKey);
+                    if (dec && dec.startsWith('http')) {
+                        const res = { endpoint_url: dec };
+                        if (candKey !== inputKey) res.autoHealedKey = candKey;
+                        return res;
+                    }
                 }
-                return { endpoint_url: dec };
+                return { error: 'AUTH_FAILED', message: 'Decryption failed' };
             }
             return { endpoint_url: blob };
         }
