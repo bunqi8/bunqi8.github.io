@@ -1249,16 +1249,22 @@
                 } catch (_) {}
             }
 
-            // 2. Load Tesseract.js dynamically on demand from CDN if not already loaded
+            // 2. Load Tesseract.js dynamically on demand from CDN if not already loaded (isolating from Monaco AMD loader)
             if (!window.Tesseract) {
                 if (onProgress) onProgress('Loading Optical Character Recognition (OCR)...');
-                await new Promise((resolve, reject) => {
-                    const s = document.createElement('script');
-                    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-                    s.onload = resolve;
-                    s.onerror = () => reject(new Error('Failed to load OCR engine'));
-                    document.head.appendChild(s);
-                });
+                const savedDefine = window.define;
+                try {
+                    window.define = undefined; // Temporarily isolate from Monaco's AMD define
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+                        s.onload = resolve;
+                        s.onerror = () => reject(new Error('Failed to load OCR engine'));
+                        document.head.appendChild(s);
+                    });
+                } finally {
+                    window.define = savedDefine; // Restore Monaco AMD loader
+                }
             }
 
             if (window.Tesseract) {
