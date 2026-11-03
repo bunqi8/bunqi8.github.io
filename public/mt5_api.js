@@ -343,15 +343,24 @@
 
         getActiveEndpoint() {
             if (!this.endpoints || this.endpoints.length === 0) return null;
+            // Only consider endpoints that are enabled, online, and NOT unauthorized
+            const viable = this.endpoints.filter(e => e.enabled && e.status === 'online' && e.status !== 'unauthorized');
+            if (viable.length === 0) return null;
+
+            // An endpoint is only active for general market queries IF it actually has added & enabled accounts!
+            const withAccounts = viable.filter(e => 
+                (this.accounts || []).some(a => (a.endpointId === e.id || a.endpointUrl === e.url) && !this.isAccountPaused(a.id))
+            );
+
             if (this.activeEndpointId) {
-                const matched = this.endpoints.find(e => e.id === this.activeEndpointId);
-                if (matched && matched.enabled && matched.status !== 'offline') return matched;
+                const matched = withAccounts.find(e => e.id === this.activeEndpointId);
+                if (matched) return matched;
             }
-            // Auto-failover: Pick the first online enabled endpoint
-            const firstOnline = this.endpoints.find(e => e.enabled && e.status !== 'offline');
-            if (firstOnline) return firstOnline;
-            const firstEnabled = this.endpoints.find(e => e.enabled);
-            return firstEnabled || this.endpoints[0] || null;
+
+            if (withAccounts.length > 0) return withAccounts[0];
+
+            // If no online bridge has added accounts, do NOT arbitrarily return an empty or offline bridge
+            return null;
         }
 
         getEndpointForAccount(accountId) {
@@ -362,6 +371,11 @@
                     acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
                 }
                 if (acc) {
+                    // Check if this account is paused
+                    if (acc.is_paused || this.isAccountPaused(acc.id)) {
+                        return null;
+                    }
+
                     const accLogin = String(acc.login || '').trim();
                     const accServer = (acc.server || '').trim().toLowerCase();
 
@@ -374,13 +388,13 @@
                         return false;
                     });
 
-                    // Multi-Candidate Scoring: Route to the healthiest online bridge
+                    // Multi-Candidate Scoring: Route strictly to the healthiest online, authorized bridge
                     let bestCandidate = null;
                     let bestScore = -1;
 
                     for (const cand of candidates) {
                         const ep = this.endpoints.find(e => e.id === cand.endpointId || e.url === cand.endpointUrl);
-                        if (!ep || !ep.enabled || ep.status === 'offline') continue;
+                        if (!ep || !ep.enabled || ep.status !== 'online' || ep.status === 'unauthorized') continue;
 
                         let score = 0;
                         // MT5 terminal is connected and live
@@ -409,13 +423,19 @@
                         return bestCandidate.ep;
                     }
 
-                    // Direct endpoint fallback if candidates were not online
+                    // Direct endpoint fallback: only if the specific direct endpoint is online and authorized!
                     if (acc.endpointId) {
                         const directEp = this.endpoints.find(e => e.id === acc.endpointId);
-                        if (directEp) return directEp;
+                        if (directEp && directEp.enabled && directEp.status === 'online' && directEp.status !== 'unauthorized') {
+                            return directEp;
+                        }
                     }
+
+                    // Target account has no online, authorized bridge currently connected: return null!
+                    return null;
                 }
             }
+            // If accountId was not provided, only route via an active endpoint that actually has added & enabled accounts!
             return this.getActiveEndpoint();
         }
 
@@ -723,17 +743,29 @@
             }
 
             const fetchPromises = enabledEndpoints.map(async (ep) => {
+                // If endpoint already failed with 401 Unauthorized, do not hammer it on background intervals unless forced by user action!
+                if (!force && ep.status === 'unauthorized') {
+                    return { ep, data: null, error: ep.error };
+                }
+
                 const start = performance.now();
                 try {
                     const res = await fetch(`${ep.url}/api/accounts`, {
                         headers: this.getReqHeaders(ep),
                         signal: AbortSignal.timeout(6000)
                     });
+                    if (res.status === 401) {
+                        ep.status = 'unauthorized';
+                        ep.error = '401 Unauthorized: Invalid or missing API key';
+                        console.warn(`[MT5API] ⚠️ Bridge '${ep.name}' rejected API key (401 Unauthorized). Background syncing paused for this bridge until key is updated.`);
+                        return { ep, data: null, error: ep.error };
+                    }
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const data = await res.json();
                     ep.ping = Math.round(performance.now() - start);
                     ep.status = 'online';
                     ep.error = null;
+                    ep.hasAccounts = Array.isArray(data.accounts) && data.accounts.length > 0;
                     return { ep, data };
                 } catch (err) {
                     // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
@@ -755,11 +787,17 @@
                                         headers: this.getReqHeaders(ep),
                                         signal: AbortSignal.timeout(6000)
                                     });
+                                    if (retryRes.status === 401) {
+                                        ep.status = 'unauthorized';
+                                        ep.error = '401 Unauthorized: Invalid or missing API key';
+                                        return { ep, data: null, error: ep.error };
+                                    }
                                     if (retryRes.ok) {
                                         const retryData = await retryRes.json();
                                         ep.ping = Math.round(performance.now() - retryStart);
                                         ep.status = 'online';
                                         ep.error = null;
+                                        ep.hasAccounts = Array.isArray(retryData.accounts) && retryData.accounts.length > 0;
                                         return { ep, data: retryData };
                                     }
                                 } catch (_) {}
@@ -769,8 +807,10 @@
                         }
                     }
 
-                    ep.status = 'offline';
-                    ep.error = err.message;
+                    if (ep.status !== 'unauthorized') {
+                        ep.status = 'offline';
+                        ep.error = err.message;
+                    }
                     if (force) console.warn(`[MT5API] Endpoint '${ep.name}' sync error:`, err.message);
                     return { ep, data: null, error: err.message };
                 }
@@ -807,9 +847,9 @@
                                 auth_label: acc.auth_label || (acc.has_password ? 'Password Saved (Auto-Login)' : 'Pre-Logged In (Desktop Session)')
                             });
                         });
-                    } else if (ep) {
+                    } else if (ep && ep.status !== 'unauthorized') {
                         // Bridge is offline/reconnecting: preserve existing cached accounts for this bridge
-                        // as standby (is_connected: false) so accounts never abruptly vanish from the fleet view!
+                        // as standby (is_connected: false) unless the bridge is unauthorized!
                         const cachedForEp = (this.accounts || []).filter(a => a.endpointId === ep.id);
                         cachedForEp.forEach(acc => {
                             allAccounts.push({
@@ -2172,8 +2212,9 @@
                 const acc = targetAccountId 
                     ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
                     : this.getActiveAccount();
+                if (!acc) return null;
                 const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                if (!ep) return null;
+                if (!ep || !ep.enabled || ep.status !== 'online') return null;
 
                 // 1. Try WebSocket RPC first
                 try {
@@ -2269,8 +2310,9 @@
                 const acc = targetAccountId 
                     ? (this.accounts.find(a => String(a.id) === String(targetAccountId)) || this.getActiveAccount())
                     : this.getActiveAccount();
+                if (!acc) return {};
                 const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                if (!ep) return {};
+                if (!ep || !ep.enabled || ep.status !== 'online') return {};
 
                 let quotes = null;
 
@@ -2320,8 +2362,10 @@
             const acc = accountId 
                 ? (this.accounts.find(a => String(a.id) === String(accountId)) || this.getActiveAccount())
                 : this.getActiveAccount();
+            if (!acc) return [];
             const targetAccId = acc ? acc.id : null;
             const ep = this.getEndpointForAccount(targetAccId);
+            if (!ep || !ep.enabled || ep.status !== 'online') return [];
 
             // 1. Try WebSocket RPC first
             if (ep) {
@@ -2460,8 +2504,9 @@
 
                 try {
                     const acc = this.getActiveAccount();
+                    if (!acc) return;
                     const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                    if (!ep || !ep.url) return;
+                    if (!ep || !ep.url || !ep.enabled || ep.status !== 'online') return;
                     const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
                     const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(this.activeSymbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
                     const res = await fetch(url, { headers: this.getReqHeaders(ep) });
@@ -2486,7 +2531,14 @@
         }
 
         ensureWebSocket() {
-            const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status !== 'offline');
+            // Only connect WebSockets to endpoints that are enabled, online or standby, NOT unauthorized,
+            // AND actually have added, unpaused accounts!
+            const enabledEndpoints = (this.endpoints || []).filter(e => 
+                e.enabled && 
+                e.status !== 'unauthorized' && 
+                e.status !== 'offline' &&
+                (this.accounts || []).some(a => (a.endpointId === e.id || a.endpointUrl === e.url) && !this.isAccountPaused(a.id))
+            );
             if (enabledEndpoints.length === 0) return;
 
             enabledEndpoints.forEach(ep => {
@@ -2834,11 +2886,16 @@
                 return (acc && acc.positions) ? acc.positions : [];
             }
 
-            // Global parallel sync: fetch positions from all online enabled endpoints
-            const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status !== 'offline');
-            if (enabledEndpoints.length === 0) return this.positions || [];
+            // Global parallel sync: fetch positions strictly from online enabled endpoints that have added accounts!
+            const viableEndpoints = (this.endpoints || []).filter(e => 
+                e.enabled && 
+                e.status === 'online' && 
+                e.status !== 'unauthorized' &&
+                (this.accounts || []).some(a => (a.endpointId === e.id || a.endpointUrl === e.url) && !this.isAccountPaused(a.id))
+            );
+            if (viableEndpoints.length === 0) return this.positions || [];
 
-            const allPromises = enabledEndpoints.map(async ep => {
+            const allPromises = viableEndpoints.map(async ep => {
                 // Try WebSocket RPC first
                 try {
                     const wsRes = await this.wsRequest(ep.id, { action: 'get_positions' }, 3000);

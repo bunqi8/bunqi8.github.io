@@ -1434,7 +1434,16 @@ const Datafeed = {
             if (!targetAcc && window.MT5API && typeof window.MT5API.getActiveAccount === 'function') {
                 targetAcc = window.MT5API.getActiveAccount();
             }
-            const accId = targetAcc ? targetAcc.id : 'default';
+            if (!targetAcc) {
+                console.warn(`[datafeed] No viable MT5 account added or connected for ${cleanSym}.`);
+                if (firstDataRequest && typeof onErrorCallback === 'function') {
+                    onErrorCallback('No MT5 account connected. Please add or enable an account in Bridge settings.');
+                    return;
+                }
+                onHistoryCallback([], { noData: true });
+                return;
+            }
+            const accId = targetAcc.id;
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
             // Retrieve cached inception start time for this symbol (guarantees we know if data has ended)
