@@ -274,16 +274,23 @@
             await this.ensureSecretsDecrypted();
             const ep = (this.endpoints || []).find(e => e.id === endpointId);
             const token = this.getEndpointGistToken(endpointId);
-            if (!ep || !ep.gistId || !token) {
-                return { success: false, reason: 'Gist ID or Token not configured for this bridge (configure per bridge or set Master Token)' };
+            if (!ep || !ep.gistId) {
+                return { success: false, reason: 'Gist ID not configured for this bridge' };
             }
 
             try {
-                const res = await fetch(`https://api.github.com/gists/${ep.gistId.trim()}`, {
-                    headers: {
-                        'Authorization': `token ${token.trim()}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
+                const url = `https://api.github.com/gists/${ep.gistId.trim()}?t=${Date.now()}`;
+                const headers = {
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                };
+                if (token && token.trim()) {
+                    headers['Authorization'] = `token ${token.trim()}`;
+                }
+                const res = await fetch(url, {
+                    headers,
+                    cache: 'no-store'
                 });
                 if (!res.ok) throw new Error(`GitHub Gist HTTP ${res.status}`);
                 const data = await res.json();
@@ -780,8 +787,14 @@
             }
 
             try {
-                const res = await fetch(`https://api.github.com/gists/${cleanGistId}`, {
-                    headers,
+                const gistFetchUrl = `https://api.github.com/gists/${cleanGistId}?t=${Date.now()}`;
+                const res = await fetch(gistFetchUrl, {
+                    headers: {
+                        ...headers,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    },
+                    cache: 'no-store',
                     signal: AbortSignal.timeout(8000)
                 });
 
@@ -2074,6 +2087,7 @@
                 const data = JSON.parse(decStr);
                 return {
                     success: true,
+                    url: data.u || '',
                     gistId: data.g || '',
                     pat: data.p || '',
                     apiKey: data.k || '',
