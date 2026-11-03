@@ -686,6 +686,163 @@
             }
         }
 
+        async testEndpointDetails({ url, apiKey, shieldToken = '' }) {
+            const cleanUrl = (url || '').trim().replace(/\/+$/, '');
+            if (!cleanUrl) return { success: false, skipped: true, error: 'Endpoint URL is required' };
+            const cleanKey = (apiKey || 'mt5_secret_key_2026').trim();
+
+            let autoShield = (shieldToken || '').trim();
+            if (!autoShield) {
+                try {
+                    const parsed = new URL(cleanUrl);
+                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                    if (pathPart && !pathPart.includes('/')) {
+                        autoShield = pathPart;
+                    }
+                } catch (_) {}
+            }
+
+            const dummyEp = {
+                url: cleanUrl,
+                apiKey: cleanKey,
+                shieldToken: autoShield
+            };
+
+            const start = performance.now();
+            try {
+                const res = await fetch(`${cleanUrl}/health`, {
+                    headers: this.getReqHeaders(dummyEp),
+                    signal: AbortSignal.timeout(8000)
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const ping = Math.round(performance.now() - start);
+
+                // Check API key against /api/accounts
+                try {
+                    const accRes = await fetch(`${cleanUrl}/api/accounts`, {
+                        headers: this.getReqHeaders(dummyEp),
+                        signal: AbortSignal.timeout(6000)
+                    });
+                    if (accRes.status === 401 || accRes.status === 403) {
+                        return {
+                            success: false,
+                            authFailed: true,
+                            ping,
+                            error: 'Bridge Online, but API Key is Invalid (HTTP 401 Unauthorized)'
+                        };
+                    }
+                    if (accRes.ok) {
+                        const accData = await accRes.json();
+                        const count = Array.isArray(accData.accounts) ? accData.accounts.length : 0;
+                        return {
+                            success: true,
+                            ping,
+                            accountsCount: count,
+                            data
+                        };
+                    }
+                } catch (authErr) {
+                    console.warn('[MT5API] Accounts check during test error:', authErr);
+                }
+                return { success: true, ping, data };
+            } catch (err) {
+                return { success: false, ping: 0, error: err.message };
+            }
+        }
+
+        async testGistAccess({ gistId, gistToken = '', apiKey = '' }) {
+            const cleanGistId = (gistId || '').trim();
+            if (!cleanGistId) {
+                return { success: false, skipped: true, error: 'Gist ID not provided' };
+            }
+
+            const masterToken = this.getMasterGistToken();
+            const token = (gistToken || '').trim() || masterToken;
+            const isUsingMaster = !(gistToken || '').trim() && Boolean(masterToken);
+
+            const headers = {
+                'Accept': 'application/vnd.github.v3+json'
+            };
+            if (token) {
+                headers['Authorization'] = `token ${token.trim()}`;
+            }
+
+            try {
+                const res = await fetch(`https://api.github.com/gists/${cleanGistId}`, {
+                    headers,
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                if (res.status === 401) {
+                    return {
+                        success: false,
+                        status: 401,
+                        error: `GitHub 401 Unauthorized: Invalid PAT token (${isUsingMaster ? 'Master Token' : 'Custom Token'})`
+                    };
+                }
+                if (res.status === 404) {
+                    return {
+                        success: false,
+                        status: 404,
+                        error: `Gist Not Found (HTTP 404): Ensure 32-char ID is correct and PAT has 'gist' scope.`
+                    };
+                }
+                if (!res.ok) {
+                    return {
+                        success: false,
+                        status: res.status,
+                        error: `GitHub API error (HTTP ${res.status})`
+                    };
+                }
+
+                const data = await res.json();
+                const files = data.files || {};
+                let rawContent = null;
+                if (files['bridge_endpoint.json'] && files['bridge_endpoint.json'].content) {
+                    rawContent = files['bridge_endpoint.json'].content;
+                } else if (files['mt5_bridges.json'] && files['mt5_bridges.json'].content) {
+                    rawContent = files['mt5_bridges.json'].content;
+                } else {
+                    const firstJson = Object.values(files).find(f => f.filename && f.filename.endsWith('.json') && f.content);
+                    if (firstJson) rawContent = firstJson.content;
+                }
+
+                let decrypted = false;
+                let decryptedUrl = null;
+                if (rawContent) {
+                    try {
+                        const parsed = JSON.parse(rawContent);
+                        let encUrl = parsed.url;
+                        if (!encUrl && parsed.bridges) {
+                            const m = Object.values(parsed.bridges).find(b => b && b.url);
+                            if (m) encUrl = m.url;
+                        }
+                        if (encUrl && apiKey) {
+                            const dec = await this.decryptE2EPayload(encUrl, apiKey);
+                            if (dec && dec.startsWith('http')) {
+                                decrypted = true;
+                                decryptedUrl = dec;
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                return {
+                    success: true,
+                    isUsingMaster,
+                    hasToken: Boolean(token),
+                    filesCount: Object.keys(files).length,
+                    hasPayload: Boolean(rawContent),
+                    decrypted,
+                    decryptedUrl,
+                    owner: data.owner ? data.owner.login : 'anonymous'
+                };
+            } catch (err) {
+                return { success: false, error: err.message };
+            }
+        }
+
         async testConnection() {
             const enabled = (this.endpoints || []).filter(e => e.enabled);
             if (enabled.length === 0) {
