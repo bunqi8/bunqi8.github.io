@@ -407,6 +407,7 @@
                                 window.MT5API.subscribeQuotes(newSym, this._mt5TickHandler);
                             }
                             this.lastLiveCandlePrice = null; // Reset for new symbol so live datafeed populates it
+                            this._waitingForDataLoaded = false;
                             this.clearAllNativeChartLines();
                             this.syncNativeChartLines();
                             this.renderHeader();
@@ -1131,6 +1132,39 @@
         // ==========================================
         // 4. INTERACTIVE ON-CHART TRADING LINES (Canvas Primitives)
         // ==========================================
+        isChartReadyForTradingPrimitives(chart) {
+            if (!chart || typeof chart.createPositionLine !== 'function') return false;
+            try {
+                const widget = chart._chartWidget;
+                if (!widget || typeof widget.model !== 'function') return false;
+                const model = widget.model();
+                if (!model) return false;
+
+                const mainSeries = typeof model.mainSeries === 'function' ? model.mainSeries() : null;
+                if (!mainSeries) return false;
+
+                const subModel = typeof model.model === 'function' ? model.model() : model;
+                if (subModel && typeof subModel.paneForSource === 'function') {
+                    const pane = subModel.paneForSource(mainSeries);
+                    if (!pane) return false;
+                }
+
+                // TradingView _createTradingPrimitive requires mainSeries().bars().last() to anchor the line
+                const bars = typeof mainSeries.bars === 'function' ? mainSeries.bars() : null;
+                if (!bars) return false;
+                if (typeof bars.isEmpty === 'function' && bars.isEmpty()) return false;
+                if (typeof bars.size === 'function' && bars.size() === 0) return false;
+                if (typeof bars.last === 'function') {
+                    const lastBar = bars.last();
+                    if (!lastBar || lastBar.value === undefined || lastBar.value === null) return false;
+                }
+
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
         syncNativeChartLines() {
             if (!window.tvWidget) return;
             let chart;
@@ -1138,6 +1172,30 @@
                 chart = window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart();
             } catch (_) { return; }
             if (!chart || typeof chart.createPositionLine !== 'function') return;
+
+            // Guard: Ensure chart canvas has loaded bars and mainSeries is ready for trading primitives
+            if (!this.isChartReadyForTradingPrimitives(chart)) {
+                if (!this._waitingForDataLoaded && typeof chart.onDataLoaded === 'function') {
+                    this._waitingForDataLoaded = true;
+                    try {
+                        const dl = chart.onDataLoaded();
+                        if (dl && typeof dl.subscribe === 'function') {
+                            dl.subscribe(null, () => {
+                                this._waitingForDataLoaded = false;
+                                this.syncNativeChartLines();
+                            }, true);
+                        } else {
+                            setTimeout(() => {
+                                this._waitingForDataLoaded = false;
+                                this.syncNativeChartLines();
+                            }, 400);
+                        }
+                    } catch (_) {
+                        this._waitingForDataLoaded = false;
+                    }
+                }
+                return;
+            }
 
             // Remove legacy HTML overlays
             try {
@@ -1210,8 +1268,11 @@
                         data.creatingPos = false;
                         this.applyPositionLineProperties(line, pos, data);
                     }).catch(err => {
-                        console.error("[TradeUI] Error creating position line:", err);
                         data.creatingPos = false;
+                        const isNullErr = err && (err.message === 'Value is null' || String(err).includes('Value is null'));
+                        if (!isNullErr) {
+                            console.error("[TradeUI] Error creating position line:", err);
+                        }
                     });
                 } else if (data.posLine) {
                     this.applyPositionLineProperties(data.posLine, pos, data);
@@ -1226,8 +1287,11 @@
                             data.creatingTp = false;
                             this.applyTpOrderProperties(line, pos, data);
                         }).catch(err => {
-                            console.error("[TradeUI] Error creating TP line:", err);
                             data.creatingTp = false;
+                            const isNullErr = err && (err.message === 'Value is null' || String(err).includes('Value is null'));
+                            if (!isNullErr) {
+                                console.error("[TradeUI] Error creating TP line:", err);
+                            }
                         });
                     } else if (data.tpLine) {
                         this.applyTpOrderProperties(data.tpLine, pos, data);
@@ -1248,8 +1312,11 @@
                             data.creatingSl = false;
                             this.applySlOrderProperties(line, pos, data);
                         }).catch(err => {
-                            console.error("[TradeUI] Error creating SL line:", err);
                             data.creatingSl = false;
+                            const isNullErr = err && (err.message === 'Value is null' || String(err).includes('Value is null'));
+                            if (!isNullErr) {
+                                console.error("[TradeUI] Error creating SL line:", err);
+                            }
                         });
                     } else if (data.slLine) {
                         this.applySlOrderProperties(data.slLine, pos, data);
@@ -1303,8 +1370,11 @@
                         data.creating = false;
                         this.applyPendingOrderLineProperties(line, ord, data);
                     }).catch(err => {
-                        console.error("[TradeUI] Error creating pending order line:", err);
                         data.creating = false;
+                        const isNullErr = err && (err.message === 'Value is null' || String(err).includes('Value is null'));
+                        if (!isNullErr) {
+                            console.error("[TradeUI] Error creating pending order line:", err);
+                        }
                     });
                 } else if (data.line) {
                     this.applyPendingOrderLineProperties(data.line, ord, data);
