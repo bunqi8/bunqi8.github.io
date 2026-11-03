@@ -1750,8 +1750,9 @@
                         <!-- Row 2: Gist ID, GitHub PAT Token -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
                             <div style="min-width: 0;">
-                                <div style="height: 18px; display: flex; align-items: center; margin-bottom: 3px;">
+                                <div style="height: 18px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px;">
                                     <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">Auto-Discovery Gist ID (from server BRIDGE_INFO.txt)</label>
+                                    <button type="button" id="mt5-btn-fetch-fresh-gist" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); border-radius: 3px; font-size: 9.5px; font-weight: 600; padding: 1px 6px; cursor: pointer; display: flex; align-items: center; gap: 3px;" title="Fetch fresh rotating Cloudflare URL from private Gist"><span>🔄</span> Fetch Fresh from Gist</button>
                                 </div>
                                 <input type="text" id="mt5-in-new-gist-id" placeholder="Optional: 32-char Gist ID generated on server" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
                             </div>
@@ -4463,6 +4464,96 @@
                 };
             }
 
+            // Fetch Fresh from Gist Button
+            const btnFetchFreshGist = modal.querySelector('#mt5-btn-fetch-fresh-gist');
+            if (btnFetchFreshGist) {
+                btnFetchFreshGist.onclick = async () => {
+                    const inUrl = modal.querySelector('#mt5-in-new-url');
+                    const inKey = modal.querySelector('#mt5-in-new-key');
+                    const inShield = modal.querySelector('#mt5-in-new-shield-token');
+                    const inName = modal.querySelector('#mt5-in-new-name');
+                    const inGistId = modal.querySelector('#mt5-in-new-gist-id');
+                    const inGistToken = modal.querySelector('#mt5-in-new-gist-token');
+                    const statusGist = modal.querySelector('#mt5-verify-status-gist');
+
+                    const gistId = inGistId ? inGistId.value.trim() : '';
+                    const gistToken = inGistToken ? inGistToken.value.trim() : '';
+                    const apiKey = inKey ? inKey.value.trim() : '';
+
+                    if (!gistId) {
+                        alert('Please enter your 32-character Gist ID from BRIDGE_INFO.txt first.');
+                        if (inGistId) inGistId.focus();
+                        return;
+                    }
+
+                    btnFetchFreshGist.disabled = true;
+                    btnFetchFreshGist.innerHTML = '<span>⏳</span> Fetching...';
+                    if (statusGist) {
+                        statusGist.style.display = 'block';
+                        statusGist.style.background = 'rgba(41,98,255,0.08)';
+                        statusGist.style.border = '1px solid rgba(41,98,255,0.3)';
+                        statusGist.style.color = '#2962ff';
+                        statusGist.innerHTML = '<span>🔄</span> Querying private GitHub Gist vault for fresh endpoint URL...';
+                    }
+
+                    try {
+                        const res = await window.MT5API.testGistAccess({ gistId, gistToken, apiKey });
+                        if (res.success && res.decryptedUrl) {
+                            if (inUrl) {
+                                inUrl.value = res.decryptedUrl;
+                                inUrl.style.borderColor = '#00c853';
+                                inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2500);
+                            }
+                            if (inShield && res.shieldToken) {
+                                inShield.value = res.shieldToken;
+                                inShield.style.borderColor = '#00c853';
+                                inShield.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                setTimeout(() => { inShield.style.borderColor = ''; inShield.style.boxShadow = ''; }, 2500);
+                            }
+                            if (inName && (!inName.value || inName.value === 'oracle_cloud') && res.bridgeName) {
+                                inName.value = res.bridgeName;
+                            }
+                            if (statusGist) {
+                                statusGist.style.background = 'rgba(0,200,83,0.1)';
+                                statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
+                                statusGist.style.color = '#00c853';
+                                statusGist.innerHTML = `<span>🟢</span> <strong>Fresh Endpoint Fetched:</strong> <code>${res.decryptedUrl}</code><br><span style="font-size: 9.5px; opacity: 0.9;">Auto-populated Endpoint URL & Shield Token. Verifying connection...</span>`;
+                            }
+                            // Auto-trigger verify
+                            const btnVerify = modal.querySelector('#mt5-btn-verify-add-bridge');
+                            if (btnVerify) {
+                                setTimeout(() => btnVerify.click(), 150);
+                            }
+                        } else if (res.decryptError) {
+                            if (statusGist) {
+                                statusGist.style.background = 'rgba(255,152,0,0.1)';
+                                statusGist.style.border = '1px solid rgba(255,152,0,0.35)';
+                                statusGist.style.color = '#ff9800';
+                                statusGist.innerHTML = `<span>⚠️</span> <strong>Gist Accessible, but Decryption Failed:</strong> ${res.decryptError}<br><span style="font-size: 9.5px; opacity: 0.9;">Ensure your API Key (Password) matches the secret in BRIDGE_INFO.txt.</span>`;
+                            }
+                        } else {
+                            if (statusGist) {
+                                statusGist.style.background = 'rgba(242,54,69,0.1)';
+                                statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusGist.style.color = '#f23645';
+                                statusGist.innerHTML = `<span>🔴</span> <strong>Gist Fetch Failed:</strong> ${res.error || 'No endpoint URL found in Gist.'}`;
+                            }
+                        }
+                    } catch (err) {
+                        if (statusGist) {
+                            statusGist.style.background = 'rgba(242,54,69,0.1)';
+                            statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
+                            statusGist.style.color = '#f23645';
+                            statusGist.innerHTML = `<span>🔴</span> <strong>Error:</strong> ${err.message}`;
+                        }
+                    } finally {
+                        btnFetchFreshGist.disabled = false;
+                        btnFetchFreshGist.innerHTML = '<span>🔄</span> Fetch Fresh from Gist';
+                    }
+                };
+            }
+
             // Verify Add Bridge Credentials Button (verify without adding)
             const btnVerifyAdd = modal.querySelector('#mt5-btn-verify-add-bridge');
             if (btnVerifyAdd) {
@@ -4515,30 +4606,27 @@
                             gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
                         ]);
 
-                        // Auto-Heal: If bridge test failed (e.g. OCR typo in URL) but Gist was decrypted, test with exact Gist URL!
-                        if (!bridgeRes.success && gistRes.decrypted && gistRes.decryptedUrl) {
+                        // Auto-Heal: If bridge test failed (e.g. OCR typo in URL) or was skipped, but Gist provided fresh URL, test with exact Gist URL!
+                        if (!bridgeRes.success && gistRes.decryptedUrl) {
                             try {
                                 const healedRes = await window.MT5API.testEndpointDetails({
                                     url: gistRes.decryptedUrl,
                                     apiKey,
-                                    shieldToken
+                                    shieldToken: gistRes.shieldToken || shieldToken
                                 });
-                                if (healedRes.success) {
-                                    bridgeRes = healedRes;
-                                    bridgeRes.healedFromGist = true;
-                                    if (inUrl) {
-                                        inUrl.value = gistRes.decryptedUrl;
-                                        inUrl.style.borderColor = '#00c853';
-                                        inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
-                                        setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2000);
-                                    }
-                                    if (inShield) {
-                                        try {
-                                            const p = new URL(gistRes.decryptedUrl);
-                                            const part = p.pathname.replace(/^\/+|\/+$/g, '');
-                                            if (part) inShield.value = part;
-                                        } catch (_) {}
-                                    }
+                                bridgeRes = healedRes;
+                                bridgeRes.healedFromGist = true;
+                                if (inUrl) {
+                                    inUrl.value = gistRes.decryptedUrl;
+                                    inUrl.style.borderColor = '#00c853';
+                                    inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                    setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2500);
+                                }
+                                if (inShield && gistRes.shieldToken) {
+                                    inShield.value = gistRes.shieldToken;
+                                    inShield.style.borderColor = '#00c853';
+                                    inShield.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                    setTimeout(() => { inShield.style.borderColor = ''; inShield.style.boxShadow = ''; }, 2500);
                                 }
                             } catch (_) {}
                         }
@@ -4582,7 +4670,14 @@
                                 statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
                                 statusGist.style.color = '#00c853';
                                 const tokenSource = gistRes.isUsingMaster ? 'Master PAT' : (gistRes.hasToken ? 'Custom PAT' : 'Public');
-                                const decText = gistRes.decrypted ? ' • E2E payload decrypted with API key ✓' : (gistRes.hasPayload ? ' • Bridge JSON payload found' : '');
+                                let decText = '';
+                                if (gistRes.decryptedUrl) {
+                                    decText = ' • Fresh Endpoint URL verified ✓';
+                                } else if (gistRes.decryptError) {
+                                    decText = ` • <span style="color: #ff9800; font-weight: 600;">Decryption Failed: ${gistRes.decryptError}</span>`;
+                                } else if (gistRes.hasPayload) {
+                                    decText = ' • Bridge JSON payload found';
+                                }
                                 statusGist.innerHTML = `<span>🟢</span> <strong>Gist Verified:</strong> Accessible via ${tokenSource}${decText}.`;
                             } else {
                                 statusGist.style.background = 'rgba(242,54,69,0.1)';
@@ -4599,14 +4694,22 @@
                                 summaryBadge.style.background = 'rgba(0,200,83,0.12)';
                                 summaryBadge.style.color = '#00c853';
                                 summaryBadge.innerHTML = '✓ All Verified & Ready to Add';
+                            } else if (bridgeRes.authFailed) {
+                                summaryBadge.style.background = 'rgba(255,152,0,0.12)';
+                                summaryBadge.style.color = '#ff9800';
+                                summaryBadge.innerHTML = '⚠️ Bridge Online, but API Key Invalid';
                             } else if (bridgeRes.success && !gistRes.success) {
                                 summaryBadge.style.background = 'rgba(255,152,0,0.12)';
                                 summaryBadge.style.color = '#ff9800';
                                 summaryBadge.innerHTML = '⚠️ Bridge Online, but Gist Failed';
-                            } else if (!url && gistRes.success) {
+                            } else if (!bridgeRes.success && gistRes.success && gistRes.decryptError) {
                                 summaryBadge.style.background = 'rgba(255,152,0,0.12)';
                                 summaryBadge.style.color = '#ff9800';
-                                summaryBadge.innerHTML = '⚠️ Gist Accessible, but Endpoint URL Empty';
+                                summaryBadge.innerHTML = '⚠️ Check API Key (Decryption Failed)';
+                            } else if (!url && !bridgeRes.success) {
+                                summaryBadge.style.background = 'rgba(255,152,0,0.12)';
+                                summaryBadge.style.color = '#ff9800';
+                                summaryBadge.innerHTML = '⚠️ Endpoint URL Empty or Unreachable';
                             } else {
                                 summaryBadge.style.background = 'rgba(242,54,69,0.12)';
                                 summaryBadge.style.color = '#f23645';

@@ -303,21 +303,24 @@
                 if (!rawContent) throw new Error('No valid JSON endpoint data found in Gist');
                 const parsed = JSON.parse(rawContent);
 
-                // Extract encrypted URL: supports single bridge object or multi-bridge map
-                let encryptedUrl = parsed.url;
-                if (!encryptedUrl && parsed.bridges) {
-                    const matching = Object.values(parsed.bridges).find(b => b && b.url);
-                    if (matching) encryptedUrl = matching.url;
+                // Extract URL: supports plaintext endpoint_url or encrypted url
+                let candidateUrl = parsed.endpoint_url || parsed.url;
+                if (!candidateUrl && parsed.bridges) {
+                    const matching = Object.values(parsed.bridges).find(b => b && (b.endpoint_url || b.url));
+                    if (matching) candidateUrl = matching.endpoint_url || matching.url;
                 }
 
-                if (!encryptedUrl) throw new Error('No encrypted URL payload found in Gist');
+                if (!candidateUrl) throw new Error('No URL field in Gist payload');
 
-                const decryptedUrl = await this.decryptE2EPayload(encryptedUrl, ep.apiKey);
-                if (!decryptedUrl || !decryptedUrl.startsWith('http')) {
-                    throw new Error('Failed to decrypt Gist URL payload. Check the bridge API key.');
+                let targetUrl = candidateUrl;
+                if (typeof candidateUrl === 'string' && candidateUrl.startsWith('e2e:v1:')) {
+                    targetUrl = await this.decryptE2EPayload(candidateUrl, ep.apiKey);
+                    if (!targetUrl || !targetUrl.startsWith('http')) {
+                        throw new Error('Failed to decrypt Gist URL payload. Check the bridge API key.');
+                    }
                 }
 
-                const clean = decryptedUrl.trim().replace(/\/+$/, '');
+                const clean = targetUrl.trim().replace(/\/+$/, '');
                 const changed = clean !== ep.url;
                 if (changed) {
                     console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
@@ -810,22 +813,54 @@
 
                 let decrypted = false;
                 let decryptedUrl = null;
+                let decryptError = null;
+                let shieldToken = null;
+                let bridgeName = null;
+
                 if (rawContent) {
                     try {
                         const parsed = JSON.parse(rawContent);
-                        let encUrl = parsed.url;
-                        if (!encUrl && parsed.bridges) {
-                            const m = Object.values(parsed.bridges).find(b => b && b.url);
-                            if (m) encUrl = m.url;
-                        }
-                        if (encUrl && apiKey) {
-                            const dec = await this.decryptE2EPayload(encUrl, apiKey);
-                            if (dec && dec.startsWith('http')) {
-                                decrypted = true;
-                                decryptedUrl = dec;
+                        bridgeName = parsed.bridge || (parsed.bridges ? Object.keys(parsed.bridges)[0] : null);
+                        if (parsed.shield_token) shieldToken = parsed.shield_token;
+
+                        let candidateUrl = parsed.endpoint_url || parsed.url;
+                        if (!candidateUrl && parsed.bridges) {
+                            const m = Object.values(parsed.bridges).find(b => b && (b.endpoint_url || b.url));
+                            if (m) {
+                                candidateUrl = m.endpoint_url || m.url;
+                                if (m.shield_token) shieldToken = m.shield_token;
                             }
                         }
-                    } catch (_) {}
+
+                        if (candidateUrl && typeof candidateUrl === 'string') {
+                            if (candidateUrl.startsWith('http')) {
+                                decrypted = true;
+                                decryptedUrl = candidateUrl.trim().replace(/\/+$/, '');
+                            } else if (candidateUrl.startsWith('e2e:v1:')) {
+                                if (apiKey) {
+                                    const dec = await this.decryptE2EPayload(candidateUrl, apiKey);
+                                    if (dec && dec.startsWith('http')) {
+                                        decrypted = true;
+                                        decryptedUrl = dec.trim().replace(/\/+$/, '');
+                                    } else {
+                                        decryptError = 'API key does not match server encryption key (OperationError)';
+                                    }
+                                } else {
+                                    decryptError = 'Gist payload is encrypted; API key required to decrypt';
+                                }
+                            }
+                        }
+
+                        if (decryptedUrl && !shieldToken) {
+                            try {
+                                const p = new URL(decryptedUrl);
+                                const part = p.pathname.replace(/^\/+|\/+$/g, '');
+                                if (part && part.startsWith('gw_')) shieldToken = part;
+                            } catch (_) {}
+                        }
+                    } catch (parseErr) {
+                        decryptError = 'Invalid Gist JSON: ' + parseErr.message;
+                    }
                 }
 
                 return {
@@ -836,6 +871,9 @@
                     hasPayload: Boolean(rawContent),
                     decrypted,
                     decryptedUrl,
+                    shieldToken,
+                    bridgeName,
+                    decryptError,
                     owner: data.owner ? data.owner.login : 'anonymous'
                 };
             } catch (err) {
@@ -1826,8 +1864,8 @@
                 );
                 return new TextDecoder().decode(decrypted);
             } catch (e) {
-                console.warn('[MT5API] E2E payload decryption failed:', e);
-                return payload;
+                console.warn('[MT5API] E2E payload decryption failed:', e.message || e);
+                return '';
             }
         }
 
