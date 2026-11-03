@@ -1470,6 +1470,44 @@
                                 inName.value = res.bridgeName;
                             }
 
+                            // If an existing bridge card is currently open in inline edit mode, update its fields too
+                            if (this.editingEndpointId) {
+                                const editCard = modal.querySelector(`.mt5-endpoint-card[data-id="${this.editingEndpointId}"]`);
+                                if (editCard) {
+                                    const editKey = editCard.querySelector('.mt5-in-edit-key');
+                                    if (editKey && res.apiKey) editKey.value = res.apiKey;
+                                    const editGistId = editCard.querySelector('.mt5-in-edit-gist-id');
+                                    if (editGistId && res.gistId) editGistId.value = res.gistId;
+                                    const editGistToken = editCard.querySelector('.mt5-in-edit-gist-token');
+                                    if (editGistToken && res.pat) editGistToken.value = res.pat;
+                                }
+                            }
+
+                            // Automatically synchronize new API key into saved bridge endpoint in MT5API config
+                            if (window.MT5API && Array.isArray(window.MT5API.endpoints)) {
+                                let targetEp = null;
+                                if (this.editingEndpointId) {
+                                    targetEp = window.MT5API.endpoints.find(e => e.id === this.editingEndpointId);
+                                }
+                                if (!targetEp && res.gistId) {
+                                    targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === res.gistId);
+                                }
+                                if (!targetEp && res.bridgeName) {
+                                    targetEp = window.MT5API.endpoints.find(e => (e.name || '').toLowerCase() === (res.bridgeName || '').toLowerCase());
+                                }
+                                if (!targetEp && window.MT5API.endpoints.length === 1) {
+                                    targetEp = window.MT5API.endpoints[0];
+                                }
+
+                                if (targetEp) {
+                                    targetEp.apiKey = res.apiKey;
+                                    if (res.pat) targetEp.gistToken = res.pat;
+                                    if (res.gistId) targetEp.gistId = res.gistId;
+                                    window.MT5API.saveConfig();
+                                    console.log(`[SmartPaste] Synchronized fresh API Key into saved bridge '${targetEp.name}' from unlocked QR code!`);
+                                }
+                            }
+
                             // Highlight inputs
                             [inGistId, inGistToken, inKey].forEach(el => {
                                 if (el) {
@@ -4839,6 +4877,23 @@
                             const btnVerify = modal.querySelector('#mt5-btn-verify-add-bridge');
                             if (btnVerify) {
                                 setTimeout(() => btnVerify.click(), 150);
+                            }
+
+                            // If this bridge was already registered, update its URL & shieldToken in storage immediately
+                            if (window.MT5API && Array.isArray(window.MT5API.endpoints)) {
+                                let matchingEp = window.MT5API.endpoints.find(e => (gistId && e.gistId === gistId) || (apiKey && e.apiKey === apiKey));
+                                if (!matchingEp && window.MT5API.endpoints.length === 1) {
+                                    matchingEp = window.MT5API.endpoints[0];
+                                }
+                                if (matchingEp && res.decryptedUrl) {
+                                    matchingEp.url = res.decryptedUrl;
+                                    if (res.shieldToken) matchingEp.shieldToken = res.shieldToken;
+                                    if (apiKey) matchingEp.apiKey = apiKey;
+                                    window.MT5API.saveConfig();
+                                    window.MT5API.testSingleEndpoint(matchingEp.id).then(() => {
+                                        this.renderModal();
+                                    });
+                                }
                             }
                         } else if (res.decryptError) {
                             if (statusGist) {
