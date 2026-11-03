@@ -1153,16 +1153,31 @@
                 }
             }
 
-            // Merge in local client vault accounts if not present in any bridge report
+            // Merge in local client vault accounts if not present in any bridge report,
+            // and attach local vault metadata to matching bridge accounts
             const localVault = this.getClientVault();
             if (localVault && Array.isArray(localVault)) {
                 localVault.forEach(v => {
                     const vLogin = String(v.login || '').trim();
                     const vServer = String(v.server || '').trim().toLowerCase();
                     if (!vLogin) return;
-                    const existsOnBridge = allAccounts.some(a => String(a.login || '').trim() === vLogin && String(a.server || '').trim().toLowerCase() === vServer);
-                    if (!existsOnBridge) {
-                        const isStaged = Boolean(v.staged_offline || v.is_verified === false);
+                    const bridgeMatches = allAccounts.filter(a => String(a.login || '').trim() === vLogin && String(a.server || '').trim().toLowerCase() === vServer);
+                    const isRejected = Boolean(v.verification_failed);
+                    const isStaged = Boolean(v.staged_offline || v.is_verified === false);
+
+                    if (bridgeMatches.length > 0) {
+                        bridgeMatches.forEach(bm => {
+                            bm.has_local_vault = true;
+                            bm.is_local_vault_verified = !isStaged && !isRejected;
+                            bm.is_staged_offline = isStaged && !isRejected;
+                            bm.is_verification_failed = isRejected;
+                            bm.last_error = isRejected ? (v.last_error || 'Broker rejected credentials') : bm.last_error;
+                            if (isRejected && !bm.has_dpapi && !bm.has_native_vault) {
+                                bm.auth_mode = 'local_rejected';
+                                bm.auth_label = '❌ Rejected by Broker';
+                            }
+                        });
+                    } else {
                         allAccounts.push({
                             id: `local_${vLogin}_${vServer}`,
                             login: Number(vLogin) || vLogin,
@@ -1171,15 +1186,17 @@
                             is_connected: false,
                             is_paused: false,
                             has_local_vault: true,
-                            is_local_vault_verified: !isStaged,
-                            is_staged_offline: isStaged,
+                            is_local_vault_verified: !isStaged && !isRejected,
+                            is_staged_offline: isStaged && !isRejected,
+                            is_verification_failed: isRejected,
+                            last_error: isRejected ? (v.last_error || 'Broker rejected credentials') : null,
                             is_verified: false,
                             has_password: true,
                             has_dpapi: false,
                             has_native_vault: false,
                             survives_reboot: false,
-                            auth_mode: isStaged ? 'local_staged_offline' : 'local_vaulted',
-                            auth_label: isStaged ? 'Staged Offline (Unverified)' : 'Local Vaulted',
+                            auth_mode: isRejected ? 'local_rejected' : (isStaged ? 'local_staged_offline' : 'local_vaulted'),
+                            auth_label: isRejected ? '❌ Rejected by Broker' : (isStaged ? 'Staged Offline (Unverified)' : 'Local Vaulted'),
                             balance: 0,
                             equity: 0,
                             currency: 'USD',
@@ -1473,6 +1490,8 @@
                         // Update local vault entry explicitly
                         vaultEntry.is_verified = true;
                         vaultEntry.staged_offline = false;
+                        vaultEntry.verification_failed = false;
+                        vaultEntry.last_error = null;
                         vaultEntry.verified_at = Date.now();
                         try {
                             const raw = localStorage.getItem('mt5_client_vault');
@@ -1481,6 +1500,8 @@
                             if (vIdx >= 0) {
                                 vList[vIdx].is_verified = true;
                                 vList[vIdx].staged_offline = false;
+                                vList[vIdx].verification_failed = false;
+                                vList[vIdx].last_error = null;
                                 vList[vIdx].verified_at = Date.now();
                                 localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
                             }
@@ -1489,6 +1510,7 @@
                         if (matchingAcc) {
                             matchingAcc.has_dpapi = true;
                             matchingAcc.is_verified = true;
+                            matchingAcc.is_verification_failed = false;
                             matchingAcc.auth_mode = 'dpapi_vaulted';
                             matchingAcc.auth_label = 'Bridge Secured (DPAPI)';
                         }
@@ -1499,15 +1521,35 @@
                             window.MT5UI.showFloatingSwitchToast(toastTitle, toastMsg, 100, true);
                         }
                         this.notifyAccountListeners();
-                    } else {
-                        console.warn(`[MT5API] Auto-heal skipped for #${targetLogin} on '${targetServer}': Broker rejected vault password.`);
-                        if (isStagedOffline) {
-                            vaultEntry.verification_failed = true;
-                            vaultEntry.last_error = res?.error || 'Broker rejected credentials';
+                    } else if (res && res.verified === false) {
+                        console.warn(`[MT5API] Auto-heal rejected for #${targetLogin} on '${targetServer}': Broker rejected vault password.`);
+                        vaultEntry.verification_failed = true;
+                        vaultEntry.last_error = res?.error || 'Broker rejected credentials';
+                        try {
+                            const raw = localStorage.getItem('mt5_client_vault');
+                            const vList = raw ? JSON.parse(raw) : [];
+                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer.toLowerCase());
+                            if (vIdx >= 0) {
+                                vList[vIdx].verification_failed = true;
+                                vList[vIdx].last_error = vaultEntry.last_error;
+                                localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
+                            }
+                        } catch (_) {}
+
+                        if (matchingAcc) {
+                            matchingAcc.is_verification_failed = true;
+                            matchingAcc.last_error = vaultEntry.last_error;
+                            matchingAcc.auth_mode = 'local_rejected';
+                            matchingAcc.auth_label = '❌ Rejected by Broker';
                         }
+                        this.notifyAccountListeners();
+                    } else {
+                        // Transient connection or network issue: allow retry on next reconnect
+                        this._autoHealAttempts.delete(compositeKey);
                     }
                 } catch (e) {
                     console.warn(`[MT5API] Auto-heal probe error for #${targetLogin}:`, e);
+                    this._autoHealAttempts.delete(compositeKey);
                 }
             }
         }
@@ -2256,6 +2298,9 @@
                 const stagedOffline = accountData.staged_offline !== undefined
                     ? Boolean(accountData.staged_offline)
                     : (existing && existing.staged_offline !== undefined ? Boolean(existing.staged_offline) : false);
+                const verificationFailed = accountData.verification_failed !== undefined
+                    ? Boolean(accountData.verification_failed)
+                    : (isVerified ? false : (existing && existing.verification_failed !== undefined ? Boolean(existing.verification_failed) : false));
 
                 const item = {
                     nickname: accountData.nickname || (existing ? existing.nickname : ''),
@@ -2268,6 +2313,8 @@
                     endpointId: targets[0] || (existing ? existing.endpointId : null),
                     is_verified: isVerified,
                     staged_offline: stagedOffline,
+                    verification_failed: verificationFailed,
+                    last_error: verificationFailed ? (accountData.last_error || (existing ? existing.last_error : '')) : null,
                     verified_at: accountData.verified_at || (existing ? existing.verified_at : (isVerified ? Date.now() : null)),
                     staged_at: accountData.staged_at || (existing ? existing.staged_at : (stagedOffline ? Date.now() : null)),
                     saved_at: Date.now()
@@ -2278,6 +2325,12 @@
                     vault.push(item);
                 }
                 localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+
+                // Clear auto-heal attempt lock when credentials are updated/saved
+                const compositeKey = `${targetLogin}_${targetServer}`;
+                if (this._autoHealAttempts && this._autoHealAttempts.has(compositeKey)) {
+                    this._autoHealAttempts.delete(compositeKey);
+                }
             } catch (e) {
                 console.error('[MT5API] Failed to save to client vault:', e);
             }
@@ -2673,9 +2726,31 @@
                     };
                 }
 
-                // 4. Broker verified! Update all remaining connected bridges for this composite key
+                // 4. Broker verified! Ensure primary bridge and all other bridges have this account saved
+                const hasOnPrimary = matchingInstances.some(inst => inst.endpointId === primaryEp.id);
+                if (!hasOnPrimary && primaryEp) {
+                    try {
+                        const epPayload = await this.encryptE2EPayload(cleanPass, primaryEp.apiKey);
+                        await fetch(`${primaryEp.url}/api/accounts/add`, {
+                            method: 'POST',
+                            headers: this.getReqHeaders(primaryEp),
+                            body: JSON.stringify({
+                                nickname: primaryInst ? primaryInst.nickname : `MT5 ${targetLogin}`,
+                                server: targetServer,
+                                login: targetLogin,
+                                password: epPayload,
+                                lot_multiplier: 1.0,
+                                risk_percent: 1.0
+                            })
+                        });
+                    } catch (addErr) {
+                        console.warn(`[MT5API] Could not auto-provision verified account to ${primaryEp.name}:`, addErr);
+                    }
+                }
+
+                // Replicate to all other connected bridges for this composite key
                 for (const inst of matchingInstances) {
-                    if (inst.endpointId === primaryEp.id) continue;
+                    if (inst.endpointId === primaryEp.id || inst.endpointId === 'local') continue;
                     const ep = (this.endpoints || []).find(e => e.id === inst.endpointId);
                     if (!ep || !ep.url) continue;
                     try {
@@ -2697,27 +2772,6 @@
                     }
                 }
 
-                // If this account was not previously registered on primary bridge, provision it now
-                if (matchingInstances.length === 0 && primaryEp) {
-                    try {
-                        const epPayload = await this.encryptE2EPayload(cleanPass, primaryEp.apiKey);
-                        await fetch(`${primaryEp.url}/api/accounts/add`, {
-                            method: 'POST',
-                            headers: this.getReqHeaders(primaryEp),
-                            body: JSON.stringify({
-                                nickname: `MT5 ${targetLogin}`,
-                                server: targetServer,
-                                login: targetLogin,
-                                password: epPayload,
-                                lot_multiplier: 1.0,
-                                risk_percent: 1.0
-                            })
-                        });
-                    } catch (addErr) {
-                        console.warn(`[MT5API] Could not auto-provision verified account to ${primaryEp.name}:`, addErr);
-                    }
-                }
-
                 // 5. Update master client vault in browser with verified status
                 const targetEndpoints = matchingInstances.length > 0 
                     ? matchingInstances.map(i => i.endpointId) 
@@ -2730,6 +2784,8 @@
                     password: cleanPass,
                     is_verified: true,
                     staged_offline: false,
+                    verification_failed: false,
+                    last_error: null,
                     verified_at: Date.now()
                 }, targetEndpoints);
 
