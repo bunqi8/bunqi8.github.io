@@ -1491,6 +1491,8 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- Verification Status: Bridge Server -->
+                                <div class="mt5-edit-verify-status-bridge" data-id="${ep.id}" style="display: none; margin-top: -2px; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; line-height: 1.35; box-sizing: border-box;"></div>
 
                                 <!-- Row 2: Morphed Gist ID, Masked GitHub PAT Token -->
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
@@ -1515,6 +1517,8 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- Verification Status: Gist Discovery -->
+                                <div class="mt5-edit-verify-status-gist" data-id="${ep.id}" style="display: none; margin-top: -2px; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; line-height: 1.35; box-sizing: border-box;"></div>
 
                                 <!-- Row 3: Origin Zero-Trust Shield Token -->
                                 <div style="background: rgba(41,98,255,0.03); border: 1px dashed rgba(41,98,255,0.25); border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;">
@@ -1531,9 +1535,15 @@
                                 </div>
 
                                 <!-- Row 4: Action Buttons -->
-                                <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
-                                    <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
-                                    <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap;">
+                                    <div class="mt5-edit-verify-summary" data-id="${ep.id}" style="display: none; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 3px;"></div>
+                                    <div style="display: flex; gap: 6px; align-items: center; margin-left: auto;">
+                                        <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                                        <button type="button" class="mt5-btn-verify-edit-ep" data-id="${ep.id}" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.35); padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Test and verify without saving">
+                                            <span>🔍</span> Verify
+                                        </button>
+                                        <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
+                                    </div>
                                 </div>
                             </div>
                         ` : ''}
@@ -1715,6 +1725,9 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Verification Status: Bridge Server -->
+                        <div id="mt5-verify-status-bridge" style="display: none; margin-top: -2px; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; line-height: 1.35; box-sizing: border-box;"></div>
+
                         <!-- Row 2: Gist ID, GitHub PAT Token -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
                             <div style="min-width: 0;">
@@ -1734,6 +1747,9 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Verification Status: Gist Discovery -->
+                        <div id="mt5-verify-status-gist" style="display: none; margin-top: -2px; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; line-height: 1.35; box-sizing: border-box;"></div>
+
                         <!-- Row 3: Origin Zero-Trust Shield Token (Method 2) -->
                         <div style="background: rgba(41,98,255,0.03); border: 1px dashed rgba(41,98,255,0.25); border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;">
                             <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -1747,11 +1763,17 @@
                                 <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                             </div>
                         </div>
-                        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
-                            <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
-                            <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                                <span>➕</span> Add Bridge Server
-                            </button>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap;">
+                            <div id="mt5-verify-summary-badge" style="display: none; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 3px;"></div>
+                            <div style="display: flex; gap: 6px; align-items: center; margin-left: auto;">
+                                <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
+                                <button id="mt5-btn-verify-add-bridge" type="button" style="background: rgba(41,98,255,0.1); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.35); padding: 4px 11px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Test and verify credentials without adding">
+                                    <span>🔍</span> Verify Credentials
+                                </button>
+                                <button id="mt5-btn-add-endpoint" type="button" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                                    <span>➕</span> Add Bridge Server
+                                </button>
+                            </div>
                         </div>
                     </div>
                     ` : ''}
@@ -4422,6 +4444,141 @@
                 };
             }
 
+            // Verify Add Bridge Credentials Button (verify without adding)
+            const btnVerifyAdd = modal.querySelector('#mt5-btn-verify-add-bridge');
+            if (btnVerifyAdd) {
+                btnVerifyAdd.onclick = async () => {
+                    const inUrl = modal.querySelector('#mt5-in-new-url');
+                    const inKey = modal.querySelector('#mt5-in-new-key');
+                    const inShield = modal.querySelector('#mt5-in-new-shield-token');
+                    const inGistId = modal.querySelector('#mt5-in-new-gist-id');
+                    const inGistToken = modal.querySelector('#mt5-in-new-gist-token');
+
+                    const statusBridge = modal.querySelector('#mt5-verify-status-bridge');
+                    const statusGist = modal.querySelector('#mt5-verify-status-gist');
+                    const summaryBadge = modal.querySelector('#mt5-verify-summary-badge');
+
+                    const url = inUrl ? inUrl.value.trim() : '';
+                    const apiKey = inKey ? inKey.value.trim() : '';
+                    const shieldToken = inShield ? inShield.value.trim() : '';
+                    const gistId = inGistId ? inGistId.value.trim() : '';
+                    const gistToken = inGistToken ? inGistToken.value.trim() : '';
+
+                    if (!url && !gistId) {
+                        alert('Please enter an Endpoint URL or Gist ID to verify.');
+                        return;
+                    }
+
+                    btnVerifyAdd.disabled = true;
+                    btnVerifyAdd.innerHTML = '<span>⏳</span> Verifying...';
+
+                    if (statusBridge) {
+                        statusBridge.style.display = 'block';
+                        statusBridge.style.background = 'rgba(41,98,255,0.08)';
+                        statusBridge.style.border = '1px solid rgba(41,98,255,0.3)';
+                        statusBridge.style.color = '#2962ff';
+                        statusBridge.innerHTML = '<span>🔄</span> Testing bridge health & API key authentication...';
+                    }
+                    if (statusGist) {
+                        statusGist.style.display = 'block';
+                        statusGist.style.background = 'rgba(41,98,255,0.08)';
+                        statusGist.style.border = '1px solid rgba(41,98,255,0.3)';
+                        statusGist.style.color = '#2962ff';
+                        statusGist.innerHTML = '<span>🔄</span> Checking GitHub Gist access & permissions...';
+                    }
+                    if (summaryBadge) {
+                        summaryBadge.style.display = 'none';
+                    }
+
+                    try {
+                        const [bridgeRes, gistRes] = await Promise.all([
+                            url && window.MT5API ? window.MT5API.testEndpointDetails({ url, apiKey, shieldToken }) : Promise.resolve({ success: false, skipped: true }),
+                            gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
+                        ]);
+
+                        // Render Bridge Status
+                        if (statusBridge) {
+                            if (!url) {
+                                statusBridge.style.background = 'rgba(120,123,134,0.08)';
+                                statusBridge.style.border = '1px solid rgba(120,123,134,0.3)';
+                                statusBridge.style.color = '#888';
+                                statusBridge.innerHTML = '<span>⚪</span> <strong>Bridge Server:</strong> Endpoint URL not provided (skipped).';
+                            } else if (bridgeRes.success) {
+                                statusBridge.style.background = 'rgba(0,200,83,0.1)';
+                                statusBridge.style.border = '1px solid rgba(0,200,83,0.35)';
+                                statusBridge.style.color = '#00c853';
+                                const accsText = bridgeRes.accountsCount !== undefined ? ` • <strong>${bridgeRes.accountsCount}</strong> MT5 account${bridgeRes.accountsCount === 1 ? '' : 's'} detected` : ' • API Key authenticated';
+                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}.`;
+                            } else if (bridgeRes.authFailed) {
+                                statusBridge.style.background = 'rgba(242,54,69,0.1)';
+                                statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusBridge.style.color = '#f23645';
+                                statusBridge.innerHTML = `<span>🔴</span> <strong>Bridge Online (${bridgeRes.ping}ms)</strong>, but <strong>API Key Invalid</strong> (HTTP 401 Unauthorized).`;
+                            } else {
+                                statusBridge.style.background = 'rgba(242,54,69,0.1)';
+                                statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusBridge.style.color = '#f23645';
+                                statusBridge.innerHTML = `<span>🔴</span> <strong>Bridge Unreachable:</strong> ${bridgeRes.error || 'Connection failed'}`;
+                            }
+                        }
+
+                        // Render Gist Status
+                        if (statusGist) {
+                            if (!gistId) {
+                                statusGist.style.background = 'rgba(120,123,134,0.08)';
+                                statusGist.style.border = '1px solid rgba(120,123,134,0.3)';
+                                statusGist.style.color = '#888';
+                                statusGist.innerHTML = '<span>⚪</span> <strong>Gist Auto-Discovery:</strong> Not configured (optional for static URLs).';
+                            } else if (gistRes.success) {
+                                statusGist.style.background = 'rgba(0,200,83,0.1)';
+                                statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
+                                statusGist.style.color = '#00c853';
+                                const tokenSource = gistRes.isUsingMaster ? 'Master PAT' : (gistRes.hasToken ? 'Custom PAT' : 'Public');
+                                const decText = gistRes.decrypted ? ' • E2E payload decrypted with API key ✓' : (gistRes.hasPayload ? ' • Bridge JSON payload found' : '');
+                                statusGist.innerHTML = `<span>🟢</span> <strong>Gist Verified:</strong> Accessible via ${tokenSource}${decText}.`;
+                            } else {
+                                statusGist.style.background = 'rgba(242,54,69,0.1)';
+                                statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusGist.style.color = '#f23645';
+                                statusGist.innerHTML = `<span>🔴</span> <strong>Gist Access Failed:</strong> ${gistRes.error || 'Failed to access Gist'}`;
+                            }
+                        }
+
+                        // Render Summary Badge
+                        if (summaryBadge) {
+                            summaryBadge.style.display = 'inline-block';
+                            if (bridgeRes.success && (!gistId || gistRes.success)) {
+                                summaryBadge.style.background = 'rgba(0,200,83,0.12)';
+                                summaryBadge.style.color = '#00c853';
+                                summaryBadge.innerHTML = '✓ All Verified & Ready to Add';
+                            } else if (bridgeRes.success && !gistRes.success) {
+                                summaryBadge.style.background = 'rgba(255,152,0,0.12)';
+                                summaryBadge.style.color = '#ff9800';
+                                summaryBadge.innerHTML = '⚠️ Bridge Online, but Gist Failed';
+                            } else if (!url && gistRes.success) {
+                                summaryBadge.style.background = 'rgba(255,152,0,0.12)';
+                                summaryBadge.style.color = '#ff9800';
+                                summaryBadge.innerHTML = '⚠️ Gist Accessible, but Endpoint URL Empty';
+                            } else {
+                                summaryBadge.style.background = 'rgba(242,54,69,0.12)';
+                                summaryBadge.style.color = '#f23645';
+                                summaryBadge.innerHTML = '✕ Verification Failed';
+                            }
+                        }
+                    } catch (err) {
+                        if (summaryBadge) {
+                            summaryBadge.style.display = 'inline-block';
+                            summaryBadge.style.background = 'rgba(242,54,69,0.12)';
+                            summaryBadge.style.color = '#f23645';
+                            summaryBadge.innerHTML = '✕ Error: ' + err.message;
+                        }
+                    } finally {
+                        btnVerifyAdd.disabled = false;
+                        btnVerifyAdd.innerHTML = '<span>🔍</span> Verify Credentials';
+                    }
+                };
+            }
+
             // Add Bridge Endpoint
             const btnAddEp = modal.querySelector('#mt5-btn-add-endpoint');
             if (btnAddEp) {
@@ -4662,6 +4819,141 @@
                 btn.onclick = () => {
                     this.editingEndpointId = null;
                     this.renderModal();
+                };
+            });
+
+            // Verify Edit Endpoint (verify without saving)
+            modal.querySelectorAll('.mt5-btn-verify-edit-ep').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const card = e.currentTarget.closest('.mt5-endpoint-card');
+                    if (!id || !card || !window.MT5API) return;
+
+                    const inUrl = card.querySelector('.mt5-in-edit-url');
+                    const inKey = card.querySelector('.mt5-in-edit-key');
+                    const inShield = card.querySelector('.mt5-in-edit-shield-token');
+                    const inGistId = card.querySelector('.mt5-in-edit-gist-id');
+                    const inGistToken = card.querySelector('.mt5-in-edit-gist-token');
+
+                    const statusBridge = card.querySelector('.mt5-edit-verify-status-bridge');
+                    const statusGist = card.querySelector('.mt5-edit-verify-status-gist');
+                    const summaryBadge = card.querySelector('.mt5-edit-verify-summary');
+
+                    const existingEp = (window.MT5API.endpoints || []).find(ep => ep.id === id);
+
+                    const url = inUrl ? inUrl.value.trim() : '';
+                    let apiKey = inKey ? inKey.value.trim() : '';
+                    if (!apiKey && existingEp && existingEp.apiKey) apiKey = existingEp.apiKey;
+
+                    let shieldToken = inShield ? inShield.value.trim() : '';
+                    if (!shieldToken && existingEp && existingEp.shieldToken) shieldToken = existingEp.shieldToken;
+
+                    let gistId = inGistId ? inGistId.value.trim() : '';
+                    if (gistId.includes('••••') || (existingEp && gistId === this.morphGistId(existingEp.gistId))) {
+                        gistId = inGistId.getAttribute('data-raw') || (existingEp ? existingEp.gistId : '');
+                    }
+
+                    let gistToken = inGistToken ? inGistToken.value.trim() : '';
+                    if (!gistToken && existingEp && existingEp.gistToken) gistToken = existingEp.gistToken;
+
+                    if (!url && !gistId) {
+                        alert('Please enter an Endpoint URL or Gist ID to verify.');
+                        return;
+                    }
+
+                    btn.disabled = true;
+                    btn.innerHTML = '<span>⏳</span> Verifying...';
+
+                    if (statusBridge) {
+                        statusBridge.style.display = 'block';
+                        statusBridge.style.background = 'rgba(41,98,255,0.08)';
+                        statusBridge.style.border = '1px solid rgba(41,98,255,0.3)';
+                        statusBridge.style.color = '#2962ff';
+                        statusBridge.innerHTML = '<span>🔄</span> Testing bridge health & API key authentication...';
+                    }
+                    if (statusGist) {
+                        statusGist.style.display = 'block';
+                        statusGist.style.background = 'rgba(41,98,255,0.08)';
+                        statusGist.style.border = '1px solid rgba(41,98,255,0.3)';
+                        statusGist.style.color = '#2962ff';
+                        statusGist.innerHTML = '<span>🔄</span> Checking GitHub Gist access...';
+                    }
+
+                    try {
+                        const [bridgeRes, gistRes] = await Promise.all([
+                            url && window.MT5API ? window.MT5API.testEndpointDetails({ url, apiKey, shieldToken }) : Promise.resolve({ success: false, skipped: true }),
+                            gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
+                        ]);
+
+                        if (statusBridge) {
+                            if (!url) {
+                                statusBridge.style.background = 'rgba(120,123,134,0.08)';
+                                statusBridge.style.border = '1px solid rgba(120,123,134,0.3)';
+                                statusBridge.style.color = '#888';
+                                statusBridge.innerHTML = '<span>⚪</span> <strong>Bridge Server:</strong> Endpoint URL is empty.';
+                            } else if (bridgeRes.success) {
+                                statusBridge.style.background = 'rgba(0,200,83,0.1)';
+                                statusBridge.style.border = '1px solid rgba(0,200,83,0.35)';
+                                statusBridge.style.color = '#00c853';
+                                const accsText = bridgeRes.accountsCount !== undefined ? ` • <strong>${bridgeRes.accountsCount}</strong> MT5 account${bridgeRes.accountsCount === 1 ? '' : 's'} detected` : ' • API Key authenticated';
+                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}.`;
+                            } else if (bridgeRes.authFailed) {
+                                statusBridge.style.background = 'rgba(242,54,69,0.1)';
+                                statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusBridge.style.color = '#f23645';
+                                statusBridge.innerHTML = `<span>🔴</span> <strong>Bridge Online (${bridgeRes.ping}ms)</strong>, but <strong>API Key Invalid</strong> (HTTP 401 Unauthorized).`;
+                            } else {
+                                statusBridge.style.background = 'rgba(242,54,69,0.1)';
+                                statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusBridge.style.color = '#f23645';
+                                statusBridge.innerHTML = `<span>🔴</span> <strong>Bridge Unreachable:</strong> ${bridgeRes.error || 'Connection failed'}`;
+                            }
+                        }
+
+                        if (statusGist) {
+                            if (!gistId) {
+                                statusGist.style.background = 'rgba(120,123,134,0.08)';
+                                statusGist.style.border = '1px solid rgba(120,123,134,0.3)';
+                                statusGist.style.color = '#888';
+                                statusGist.innerHTML = '<span>⚪</span> <strong>Gist Auto-Discovery:</strong> Not configured.';
+                            } else if (gistRes.success) {
+                                statusGist.style.background = 'rgba(0,200,83,0.1)';
+                                statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
+                                statusGist.style.color = '#00c853';
+                                const tokenSource = gistRes.isUsingMaster ? 'Master PAT' : (gistRes.hasToken ? 'Custom PAT' : 'Public');
+                                const decText = gistRes.decrypted ? ' • E2E payload decrypted ✓' : (gistRes.hasPayload ? ' • Bridge payload found' : '');
+                                statusGist.innerHTML = `<span>🟢</span> <strong>Gist Verified:</strong> Accessible via ${tokenSource}${decText}.`;
+                            } else {
+                                statusGist.style.background = 'rgba(242,54,69,0.1)';
+                                statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusGist.style.color = '#f23645';
+                                statusGist.innerHTML = `<span>🔴</span> <strong>Gist Access Failed:</strong> ${gistRes.error || 'Failed to access Gist'}`;
+                            }
+                        }
+
+                        if (summaryBadge) {
+                            summaryBadge.style.display = 'inline-block';
+                            if (bridgeRes.success && (!gistId || gistRes.success)) {
+                                summaryBadge.style.background = 'rgba(0,200,83,0.12)';
+                                summaryBadge.style.color = '#00c853';
+                                summaryBadge.innerHTML = '✓ Verified';
+                            } else {
+                                summaryBadge.style.background = 'rgba(242,54,69,0.12)';
+                                summaryBadge.style.color = '#f23645';
+                                summaryBadge.innerHTML = '✕ Failed';
+                            }
+                        }
+                    } catch (err) {
+                        if (summaryBadge) {
+                            summaryBadge.style.display = 'inline-block';
+                            summaryBadge.style.background = 'rgba(242,54,69,0.12)';
+                            summaryBadge.style.color = '#f23645';
+                            summaryBadge.innerHTML = '✕ ' + err.message;
+                        }
+                    } finally {
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>🔍</span> Verify';
+                    }
                 };
             });
 
