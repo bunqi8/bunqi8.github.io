@@ -683,8 +683,7 @@
                 return { success: true, ping, data };
             } catch (err) {
                 // If offline and bridge has Gist configured, attempt Auto-Discovery recovery
-                const gistToken = this.getEndpointGistToken(endpointId);
-                if (ep.gistId && gistToken && !retry) {
+                if (ep.gistId && !retry) {
                     try {
                         const sync = await this.syncEndpointFromGist(endpointId);
                         if (sync.success && sync.changed) {
@@ -1053,8 +1052,7 @@
                     // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
                     // automatically check Gist for the newly generated URL and retry immediately!
                     const now = Date.now();
-                    const gistToken = this.getEndpointGistToken(ep.id);
-                    if (ep.gistId && gistToken && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
+                    if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
                         ep._lastGistAutoCheck = now;
                         try {
                             console.log(`[MT5API] 🔍 Endpoint '${ep.name}' unreachable (${err.message}). Auto-checking Gist for rotated tunnel URL...`);
@@ -3179,7 +3177,7 @@
                         }
 
                         // Auto-discover via bridge Gist if WebSocket dropped unexpectedly
-                        if (ep.gistId && ep.gistToken) {
+                        if (ep.gistId) {
                             this.syncEndpointFromGist(ep.id);
                         }
                         setTimeout(() => {
