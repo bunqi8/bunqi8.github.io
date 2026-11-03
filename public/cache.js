@@ -327,7 +327,9 @@ const SyncManager = {
             // Kick off CSV sync in background for all base tickers
             this.syncCsvExpiries(baseTickers).catch(e => console.error("CSV sync failed", e));
             
-            await Promise.all(baseTickers.map(async (baseTicker) => {
+            // Only query option trackers for equity/index datasets (MCX commodities do not have _tracker.csv on HF)
+            const trackerTickers = baseTickers.filter(t => !t.startsWith('MCX_'));
+            await Promise.all(trackerTickers.map(async (baseTicker) => {
                 try {
                     const trackerUrl = `https://huggingface.co/datasets/deep776/FYERS_${baseTicker}/resolve/main/${baseTicker}/${baseTicker}_tracker.csv`;
                     const trRes = await fetch(trackerUrl);
