@@ -1180,10 +1180,19 @@
             }
 
             // 7. Server / Host Name
-            if (text.includes('Oracle') || (extracted.url && extracted.url.includes('trycloudflare'))) {
-                extracted.name = 'Oracle Cloud VPS';
-            } else if (text.includes('VMware') || (extracted.url && extracted.url.includes('192.168'))) {
-                extracted.name = 'VMware VM';
+            const labeledNameMatch = text.match(/(?:Server \/ Fleet Bridge Name|Fleet Bridge Name|Server Name|Bridge Name)[^\n:]*:\s*([^\n\r]+)/i);
+            if (labeledNameMatch && labeledNameMatch[1]) {
+                const candName = labeledNameMatch[1].trim();
+                if (candName && !candName.toLowerCase().includes('not configured')) {
+                    extracted.name = candName;
+                }
+            }
+            if (!extracted.name) {
+                if (text.includes('Oracle') || (extracted.url && extracted.url.includes('trycloudflare'))) {
+                    extracted.name = 'Oracle Cloud VPS';
+                } else if (text.includes('VMware') || (extracted.url && extracted.url.includes('192.168'))) {
+                    extracted.name = 'VMware VM';
+                }
             }
 
             return extracted;
