@@ -1075,7 +1075,7 @@
             }
 
             // 2. URL parsing (labeled or standalone)
-            const labeledUrlMatch = text.match(/(?:ZERO-TRUST CLOAKED ENDPOINT URL|Endpoint URL|Cloudflare Secure Tunnel URL|URL)[^\n:]*:\s*([^\s\n]+)/i);
+            const labeledUrlMatch = text.match(/(?:ZERO-TRUST CLOAKED ENDPOINT URL|Cloaked Endpoint URL|Endpoint URL|Cloudflare Secure Tunnel URL|URL)[^\n:]*:\s*([^\s\n]+)/i);
             if (labeledUrlMatch && labeledUrlMatch[1].startsWith('http')) {
                 extracted.url = labeledUrlMatch[1].trim().replace(/\/+$/, '');
             } else {
@@ -1085,26 +1085,36 @@
                 }
             }
 
-            // Auto-extract shield token from URL path if cloaked
-            if (extracted.url) {
-                try {
-                    const parsedUrl = new URL(extracted.url);
-                    const pathPart = parsedUrl.pathname.replace(/^\/+|\/+$/g, '');
-                    if (pathPart && !pathPart.includes('/')) {
-                        extracted.shieldToken = pathPart;
-                    }
-                } catch (_) {}
-            }
-
             // 3. Shield Token (explicit or standalone)
             const labeledShieldMatch = text.match(/(?:Zero-Trust Shield Gateway Token|Shield Gateway Token|Shield Token|Shield)[^\n:]*:\s*([a-zA-Z0-9_-]+)/i);
             if (labeledShieldMatch && labeledShieldMatch[1]) {
                 extracted.shieldToken = labeledShieldMatch[1].trim();
-            } else if (!extracted.shieldToken) {
-                const standaloneShieldMatch = text.match(/\b(gw_[a-f0-9]{16,64})\b/i);
+            } else {
+                const standaloneShieldMatch = text.match(/\b(gw_[a-zA-Z0-9_-]{16,64})\b/i);
                 if (standaloneShieldMatch) {
                     extracted.shieldToken = standaloneShieldMatch[1].trim();
+                } else if (extracted.url) {
+                    try {
+                        const parsedUrl = new URL(extracted.url);
+                        const pathPart = parsedUrl.pathname.replace(/^\/+|\/+$/g, '');
+                        if (pathPart && !pathPart.includes('/')) {
+                            extracted.shieldToken = pathPart;
+                        }
+                    } catch (_) {}
                 }
+            }
+
+            // Cross-reference & heal Cloaked URL using Base Cloudflare Tunnel URL and Shield Token
+            const baseTunnelMatch = text.match(/(?:Base Cloudflare Tunnel URL|Base Tunnel URL)[^\n:]*:\s*(https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com)/i);
+            if (baseTunnelMatch && extracted.shieldToken) {
+                extracted.url = `${baseTunnelMatch[1].trim()}/${extracted.shieldToken}`;
+            } else if (extracted.url && extracted.shieldToken) {
+                try {
+                    const parsed = new URL(extracted.url);
+                    if (parsed.pathname.startsWith('/gw_') && parsed.pathname.substring(1) !== extracted.shieldToken) {
+                        extracted.url = `${parsed.origin}/${extracted.shieldToken}`;
+                    }
+                } catch (_) {}
             }
 
             // 4. Bridge API Key
@@ -4500,14 +4510,42 @@
                     }
 
                     try {
-                        const [bridgeRes, gistRes] = await Promise.all([
+                        let [bridgeRes, gistRes] = await Promise.all([
                             url && window.MT5API ? window.MT5API.testEndpointDetails({ url, apiKey, shieldToken }) : Promise.resolve({ success: false, skipped: true }),
                             gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
                         ]);
 
+                        // Auto-Heal: If bridge test failed (e.g. OCR typo in URL) but Gist was decrypted, test with exact Gist URL!
+                        if (!bridgeRes.success && gistRes.decrypted && gistRes.decryptedUrl) {
+                            try {
+                                const healedRes = await window.MT5API.testEndpointDetails({
+                                    url: gistRes.decryptedUrl,
+                                    apiKey,
+                                    shieldToken
+                                });
+                                if (healedRes.success) {
+                                    bridgeRes = healedRes;
+                                    bridgeRes.healedFromGist = true;
+                                    if (inUrl) {
+                                        inUrl.value = gistRes.decryptedUrl;
+                                        inUrl.style.borderColor = '#00c853';
+                                        inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                        setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2000);
+                                    }
+                                    if (inShield) {
+                                        try {
+                                            const p = new URL(gistRes.decryptedUrl);
+                                            const part = p.pathname.replace(/^\/+|\/+$/g, '');
+                                            if (part) inShield.value = part;
+                                        } catch (_) {}
+                                    }
+                                }
+                            } catch (_) {}
+                        }
+
                         // Render Bridge Status
                         if (statusBridge) {
-                            if (!url) {
+                            if (!url && !bridgeRes.healedFromGist) {
                                 statusBridge.style.background = 'rgba(120,123,134,0.08)';
                                 statusBridge.style.border = '1px solid rgba(120,123,134,0.3)';
                                 statusBridge.style.color = '#888';
@@ -4517,7 +4555,8 @@
                                 statusBridge.style.border = '1px solid rgba(0,200,83,0.35)';
                                 statusBridge.style.color = '#00c853';
                                 const accsText = bridgeRes.accountsCount !== undefined ? ` • <strong>${bridgeRes.accountsCount}</strong> MT5 account${bridgeRes.accountsCount === 1 ? '' : 's'} detected` : ' • API Key authenticated';
-                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}.`;
+                                const healedText = bridgeRes.healedFromGist ? ' <span style="background: rgba(0,200,83,0.2); padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px;">✓ URL Auto-Healed from Gist Vault</span>' : '';
+                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}${healedText}.`;
                             } else if (bridgeRes.authFailed) {
                                 statusBridge.style.background = 'rgba(242,54,69,0.1)';
                                 statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
@@ -4889,13 +4928,41 @@
                     }
 
                     try {
-                        const [bridgeRes, gistRes] = await Promise.all([
+                        let [bridgeRes, gistRes] = await Promise.all([
                             url && window.MT5API ? window.MT5API.testEndpointDetails({ url, apiKey, shieldToken }) : Promise.resolve({ success: false, skipped: true }),
                             gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
                         ]);
 
+                        // Auto-Heal: If bridge test failed (e.g. URL typo) but Gist was decrypted, test with exact Gist URL!
+                        if (!bridgeRes.success && gistRes.decrypted && gistRes.decryptedUrl) {
+                            try {
+                                const healedRes = await window.MT5API.testEndpointDetails({
+                                    url: gistRes.decryptedUrl,
+                                    apiKey,
+                                    shieldToken
+                                });
+                                if (healedRes.success) {
+                                    bridgeRes = healedRes;
+                                    bridgeRes.healedFromGist = true;
+                                    if (inUrl) {
+                                        inUrl.value = gistRes.decryptedUrl;
+                                        inUrl.style.borderColor = '#00c853';
+                                        inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                        setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2000);
+                                    }
+                                    if (inShield) {
+                                        try {
+                                            const p = new URL(gistRes.decryptedUrl);
+                                            const part = p.pathname.replace(/^\/+|\/+$/g, '');
+                                            if (part) inShield.value = part;
+                                        } catch (_) {}
+                                    }
+                                }
+                            } catch (_) {}
+                        }
+
                         if (statusBridge) {
-                            if (!url) {
+                            if (!url && !bridgeRes.healedFromGist) {
                                 statusBridge.style.background = 'rgba(120,123,134,0.08)';
                                 statusBridge.style.border = '1px solid rgba(120,123,134,0.3)';
                                 statusBridge.style.color = '#888';
@@ -4905,7 +4972,8 @@
                                 statusBridge.style.border = '1px solid rgba(0,200,83,0.35)';
                                 statusBridge.style.color = '#00c853';
                                 const accsText = bridgeRes.accountsCount !== undefined ? ` • <strong>${bridgeRes.accountsCount}</strong> MT5 account${bridgeRes.accountsCount === 1 ? '' : 's'} detected` : ' • API Key authenticated';
-                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}.`;
+                                const healedText = bridgeRes.healedFromGist ? ' <span style="background: rgba(0,200,83,0.2); padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px;">✓ URL Auto-Healed from Gist Vault</span>' : '';
+                                statusBridge.innerHTML = `<span>🟢</span> <strong>Bridge Online:</strong> Reachable in <strong>${bridgeRes.ping}ms</strong>${accsText}${healedText}.`;
                             } else if (bridgeRes.authFailed) {
                                 statusBridge.style.background = 'rgba(242,54,69,0.1)';
                                 statusBridge.style.border = '1px solid rgba(242,54,69,0.35)';
