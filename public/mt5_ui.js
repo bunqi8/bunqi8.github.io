@@ -1042,7 +1042,12 @@
 
         parseBridgeCredentialsText(rawText) {
             if (!rawText || typeof rawText !== 'string') return {};
-            const text = rawText.trim();
+            let text = rawText.trim()
+                .replace(/https?\s*:\s*\/\s*\//gi, (m) => m.toLowerCase().startsWith('https') ? 'https://' : 'http://')
+                .replace(/(https?:\/\/)\s+/gi, '$1')
+                .replace(/(\w+)\s*\.\s*(trycloudflare|com|net|io|org|app)\b/gi, '$1.$2')
+                .replace(/\s*\/\s*(gw_[a-f0-9_]+)/gi, '/$1')
+                .replace(/\b(gw_)\s*([a-f0-9_]+)\b/gi, '$1$2');
             const extracted = {};
 
             // 1. JSON parse attempt
@@ -1229,6 +1234,46 @@
                 console.warn('[SmartPaste] BarcodeDetector scan failed:', e);
             }
             return null;
+        }
+
+        async ocrImageBlob(imageBlob, onProgress) {
+            // 1. Try native Web Platform TextDetector first if available
+            if ('TextDetector' in window) {
+                try {
+                    const detector = new window.TextDetector();
+                    const imgBitmap = await createImageBitmap(imageBlob);
+                    const detections = await detector.detect(imgBitmap);
+                    if (detections && detections.length > 0) {
+                        return detections.map(d => d.rawValue).join('\n');
+                    }
+                } catch (_) {}
+            }
+
+            // 2. Load Tesseract.js dynamically on demand from CDN if not already loaded
+            if (!window.Tesseract) {
+                if (onProgress) onProgress('Loading Optical Character Recognition (OCR)...');
+                await new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+                    s.onload = resolve;
+                    s.onerror = () => reject(new Error('Failed to load OCR engine'));
+                    document.head.appendChild(s);
+                });
+            }
+
+            if (window.Tesseract) {
+                if (onProgress) onProgress('Reading text from screenshot (OCR)...');
+                const result = await window.Tesseract.recognize(imageBlob, 'eng', {
+                    logger: m => {
+                        if (m && m.status === 'recognizing text' && onProgress) {
+                            const pct = Math.round((m.progress || 0) * 100);
+                            onProgress(`Reading text from screenshot (${pct}%)...`);
+                        }
+                    }
+                });
+                return result && result.data ? (result.data.text || '') : '';
+            }
+            return '';
         }
 
         async wipeClipboardSafely() {
@@ -4078,14 +4123,26 @@
 
                 if (imageBlob) {
                     if (pasteHint) {
-                        pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Scanning screenshot for QR code...</span>`;
+                        pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Analyzing screenshot...</span>`;
                     }
-                    const qrText = await this.decodeQrFromImage(imageBlob);
-                    if (qrText) {
-                        extracted = this.parseBridgeCredentialsText(qrText);
+                    let extractedText = await this.decodeQrFromImage(imageBlob);
+                    if (!extractedText) {
+                        try {
+                            extractedText = await this.ocrImageBlob(imageBlob, (statusMsg) => {
+                                if (pasteHint) {
+                                    pasteHint.innerHTML = `<span style="color: #2962ff;">🔍 ${statusMsg}</span>`;
+                                }
+                            });
+                        } catch (ocrErr) {
+                            console.warn('[SmartPaste] OCR recognition error:', ocrErr);
+                        }
+                    }
+
+                    if (extractedText && extractedText.trim()) {
+                        extracted = this.parseBridgeCredentialsText(extractedText);
                     } else {
                         if (pasteHint) {
-                            pasteHint.innerHTML = `<span style="color: #ffa500;">⚠️ Image detected without readable QR. Please copy & paste text directly from BRIDGE_INFO.txt.</span>`;
+                            pasteHint.innerHTML = `<span style="color: #ffa500;">⚠️ Could not detect clear text or QR in screenshot. Please copy text directly from BRIDGE_INFO.txt.</span>`;
                         }
                         return;
                     }
