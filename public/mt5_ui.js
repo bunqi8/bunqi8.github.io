@@ -4514,13 +4514,20 @@
                             if (inName && (!inName.value || inName.value === 'oracle_cloud') && res.bridgeName) {
                                 inName.value = res.bridgeName;
                             }
+                            if (inKey && res.autoHealedKey) {
+                                inKey.value = res.autoHealedKey;
+                                inKey.style.borderColor = '#00c853';
+                                inKey.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                setTimeout(() => { inKey.style.borderColor = ''; inKey.style.boxShadow = ''; }, 3000);
+                            }
                             if (statusGist) {
                                 statusGist.style.background = 'rgba(0,200,83,0.1)';
                                 statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
                                 statusGist.style.color = '#00c853';
                                 const dateBadge = res.shieldDate ? ` <span style="background: rgba(0,200,83,0.2); padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700; margin-left: 4px;">📅 Daily Shield: ${res.shieldDate}</span>` : '';
                                 const olderBadge = res.isOlder ? ` <span style="background: rgba(255,152,0,0.2); color: #ff9800; padding: 1px 5px; border-radius: 3px; font-size: 9px;">(Previous Day Token)</span>` : '';
-                                statusGist.innerHTML = `<span>🟢</span> <strong>Gist Vault Decrypted (PBKDF2/AES-GCM):</strong>${dateBadge}${olderBadge}<br><code style="font-size: 10px;">${res.decryptedUrl}</code><br><span style="font-size: 9.5px; opacity: 0.9;">Auto-populated Endpoint URL & Shield Token. Verifying connection...</span>`;
+                                const healedBadge = res.autoHealedKey ? ` <span style="background: rgba(0,200,83,0.25); padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700;">✓ API Key Auto-Corrected from OCR</span>` : '';
+                                statusGist.innerHTML = `<span>🟢</span> <strong>Gist Vault Decrypted (PBKDF2/AES-GCM):</strong>${dateBadge}${olderBadge}${healedBadge}<br><code style="font-size: 10px;">${res.decryptedUrl}</code><br><span style="font-size: 9.5px; opacity: 0.9;">Auto-populated Endpoint URL & Shield Token. Verifying connection...</span>`;
                             }
                             // Auto-trigger verify
                             const btnVerify = modal.querySelector('#mt5-btn-verify-add-bridge');
@@ -4613,12 +4620,30 @@
                             gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
                         ]);
 
-                        // Auto-Heal: If bridge test failed (e.g. OCR typo in URL) or was skipped, but Gist provided fresh URL, test with exact Gist URL!
-                        if (!bridgeRes.success && gistRes.decryptedUrl) {
+                        // Auto-Heal: If gist decrypted with auto-healed key, or provided fresh url/shield token:
+                        let effectiveKey = apiKey;
+                        if (gistRes.autoHealedKey) {
+                            effectiveKey = gistRes.autoHealedKey;
+                            if (inKey) {
+                                inKey.value = effectiveKey;
+                                inKey.style.borderColor = '#00c853';
+                                inKey.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                setTimeout(() => { inKey.style.borderColor = ''; inKey.style.boxShadow = ''; }, 3000);
+                            }
+                        }
+                        if (gistRes.decryptedUrl && inUrl && inUrl.value !== gistRes.decryptedUrl) {
+                            inUrl.value = gistRes.decryptedUrl;
+                        }
+                        if (gistRes.shieldToken && inShield && inShield.value !== gistRes.shieldToken) {
+                            inShield.value = gistRes.shieldToken;
+                        }
+
+                        // Auto-Heal & Re-test: If bridge test failed or was skipped or if key was auto-healed or gist provided fresh URL:
+                        if ((!bridgeRes.success || gistRes.autoHealedKey || (gistRes.decryptedUrl && gistRes.decryptedUrl !== url)) && gistRes.decryptedUrl) {
                             try {
                                 const healedRes = await window.MT5API.testEndpointDetails({
                                     url: gistRes.decryptedUrl,
-                                    apiKey,
+                                    apiKey: effectiveKey,
                                     shieldToken: gistRes.shieldToken || shieldToken
                                 });
                                 bridgeRes = healedRes;
@@ -4704,7 +4729,8 @@
                             if (bridgeRes.success && (!gistId || gistRes.success)) {
                                 summaryBadge.style.background = 'rgba(0,200,83,0.12)';
                                 summaryBadge.style.color = '#00c853';
-                                summaryBadge.innerHTML = '✓ All Verified & Ready to Add';
+                                const healedTag = gistRes.autoHealedKey ? ' (API Key Auto-Corrected from OCR)' : (bridgeRes.healedFromGist ? ' (URL Auto-Healed from Gist)' : '');
+                                summaryBadge.innerHTML = `✓ All Verified & Ready to Add${healedTag}`;
                             } else if (bridgeRes.authFailed) {
                                 summaryBadge.style.background = 'rgba(255,152,0,0.12)';
                                 summaryBadge.style.color = '#ff9800';
@@ -5047,13 +5073,23 @@
                             gistId && window.MT5API ? window.MT5API.testGistAccess({ gistId, gistToken, apiKey }) : Promise.resolve({ success: false, skipped: true })
                         ]);
 
-                        // Auto-Heal: If bridge test failed (e.g. URL typo) but Gist was decrypted, test with exact Gist URL!
-                        if (!bridgeRes.success && gistRes.decrypted && gistRes.decryptedUrl) {
+                        // Auto-Heal: If bridge test failed or key was auto-healed, test with fresh URL & key!
+                        let effectiveKey = apiKey;
+                        if (gistRes.autoHealedKey) {
+                            effectiveKey = gistRes.autoHealedKey;
+                            if (inKey) {
+                                inKey.value = effectiveKey;
+                                inKey.style.borderColor = '#00c853';
+                                inKey.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
+                                setTimeout(() => { inKey.style.borderColor = ''; inKey.style.boxShadow = ''; }, 3000);
+                            }
+                        }
+                        if ((!bridgeRes.success || gistRes.autoHealedKey) && gistRes.decrypted && gistRes.decryptedUrl) {
                             try {
                                 const healedRes = await window.MT5API.testEndpointDetails({
                                     url: gistRes.decryptedUrl,
-                                    apiKey,
-                                    shieldToken
+                                    apiKey: effectiveKey,
+                                    shieldToken: gistRes.shieldToken || shieldToken
                                 });
                                 if (healedRes.success) {
                                     bridgeRes = healedRes;
@@ -5064,12 +5100,8 @@
                                         inUrl.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
                                         setTimeout(() => { inUrl.style.borderColor = ''; inUrl.style.boxShadow = ''; }, 2000);
                                     }
-                                    if (inShield) {
-                                        try {
-                                            const p = new URL(gistRes.decryptedUrl);
-                                            const part = p.pathname.replace(/^\/+|\/+$/g, '');
-                                            if (part) inShield.value = part;
-                                        } catch (_) {}
+                                    if (inShield && gistRes.shieldToken) {
+                                        inShield.value = gistRes.shieldToken;
                                     }
                                 }
                             } catch (_) {}
