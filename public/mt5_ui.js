@@ -20,6 +20,7 @@
             this.switchProgress = null;
             this.editingEndpointId = null; // Endpoint currently open in edit mode
             this.showAddBridgeForm = false; // Toggle collapsible add bridge server drawer
+            this.accumulatedOcrText = ''; // Cumulative OCR / paste text buffer
 
             // Real-time live ping listener from bridge sockets
             if (window.MT5API && typeof window.MT5API.onPing === 'function') {
@@ -498,6 +499,7 @@
 
         closeModal() {
             this.isOpen = false;
+            this.accumulatedOcrText = '';
             const modal = document.getElementById(this.modalId);
             if (modal) modal.style.display = 'none';
         }
@@ -1119,15 +1121,45 @@
                 }
             }
 
-            // 5. Gist ID (32 hex characters)
-            const labeledGistMatch = text.match(/(?:Private GitHub Gist Rendezvous ID|Gist Rendezvous ID|Gist ID)[^\n:]*:\s*([a-f0-9]{32})/i);
+            // 5. Gist ID (32 hex characters with OCR typo healing)
+            const healHex = (str) => {
+                if (!str) return '';
+                return str.replace(/\s+/g, '')
+                          .replace(/o/gi, '0')
+                          .replace(/[lI|]/g, '1')
+                          .toLowerCase();
+            };
+
+            const labeledGistMatch = text.match(/(?:Private GitHub Gist Rendezvous ID|Gist Rendezvous ID|Gist ID)[^\n:]*:\s*([a-zA-Z0-9\s]{28,45})/i);
             if (labeledGistMatch && labeledGistMatch[1]) {
-                extracted.gistId = labeledGistMatch[1].trim();
-            } else {
-                const standaloneGistMatch = text.match(/\b([a-f0-9]{32})\b/);
+                const candGist = healHex(labeledGistMatch[1]);
+                const hex32 = candGist.match(/[a-f0-9]{32}/);
+                if (hex32) {
+                    extracted.gistId = hex32[0];
+                }
+            }
+            if (!extracted.gistId) {
+                // Check lines after any mention of "Gist"
+                const lines = text.split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].toLowerCase().includes('gist')) {
+                        for (let j = i; j <= Math.min(i + 3, lines.length - 1); j++) {
+                            const healedLine = healHex(lines[j]);
+                            const hexMatch = healedLine.match(/[a-f0-9]{32}/);
+                            if (hexMatch && hexMatch[0] !== (extracted.shieldToken || '').toLowerCase() && hexMatch[0] !== (extracted.apiKey || '').toLowerCase()) {
+                                extracted.gistId = hexMatch[0];
+                                break;
+                            }
+                        }
+                        if (extracted.gistId) break;
+                    }
+                }
+            }
+            if (!extracted.gistId) {
+                const standaloneGistMatch = text.match(/\b([a-f0-9]{32})\b/i);
                 if (standaloneGistMatch && (!extracted.apiKey || extracted.apiKey !== standaloneGistMatch[1])) {
                     if (!text.toLowerCase().includes('shield') && !text.toLowerCase().includes('key')) {
-                        extracted.gistId = standaloneGistMatch[1].trim();
+                        extracted.gistId = standaloneGistMatch[1].trim().toLowerCase();
                     }
                 }
             }
@@ -1268,8 +1300,28 @@
             }
 
             if (window.Tesseract) {
+                if (onProgress) onProgress('Preparing image for OCR...');
+                // Clean & upscale image via canvas to strip PNG iCCP chunks and sharpen OCR
+                let processedBlob = imageBlob;
+                try {
+                    const imgBitmap = await createImageBitmap(imageBlob);
+                    const canvas = document.createElement('canvas');
+                    const scale = imgBitmap.width < 1200 ? 2 : 1;
+                    canvas.width = imgBitmap.width * scale;
+                    canvas.height = imgBitmap.height * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(imgBitmap, 0, 0, canvas.width, canvas.height);
+                    processedBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95)) || imageBlob;
+                } catch (_) {
+                    processedBlob = imageBlob;
+                }
+
                 if (onProgress) onProgress('Reading text from screenshot (OCR)...');
-                const result = await window.Tesseract.recognize(imageBlob, 'eng', {
+                const result = await window.Tesseract.recognize(processedBlob, 'eng', {
                     logger: m => {
                         if (m && m.status === 'recognizing text' && onProgress) {
                             const pct = Math.round((m.progress || 0) * 100);
@@ -1589,6 +1641,46 @@
                             ">
                                 <span>⚡</span> Paste Clipboard
                             </button>
+                        </div>
+
+                        <!-- Cumulative Extracted Text / OCR Buffer -->
+                        <div id="mt5-ocr-preview-container" style="
+                            display: ${this.accumulatedOcrText ? 'flex' : 'none'};
+                            flex-direction: column;
+                            gap: 4px;
+                            background: rgba(41,98,255,0.03);
+                            border: 1px dashed rgba(41,98,255,0.3);
+                            border-radius: 5px;
+                            padding: 6px 8px;
+                            box-sizing: border-box;
+                        ">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <span style="font-size: 10px; font-weight: 700; color: ${theme.primary}; display: flex; align-items: center; gap: 4px;">
+                                    <span>📝</span> Extracted Text Buffer (Retained across pastes)
+                                </span>
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <button type="button" id="mt5-btn-copy-ocr-buffer" style="background: transparent; border: 1px solid ${theme.border}; color: ${theme.text}; font-size: 9.5px; padding: 1px 6px; border-radius: 3px; cursor: pointer;">📋 Copy All</button>
+                                    <button type="button" id="mt5-btn-clear-ocr-buffer" style="background: transparent; border: 1px solid rgba(242,54,69,0.3); color: ${theme.error}; font-size: 9.5px; padding: 1px 6px; border-radius: 3px; cursor: pointer;">✕ Clear Buffer</button>
+                                </div>
+                            </div>
+                            <textarea id="mt5-txt-ocr-buffer" placeholder="Pasted or OCR-extracted text will appear here..." style="
+                                width: 100%;
+                                height: 75px;
+                                box-sizing: border-box;
+                                padding: 4px 6px;
+                                background: ${theme.inputBg};
+                                color: ${theme.inputText};
+                                border: 1px solid ${theme.inputBorder};
+                                border-radius: 4px;
+                                font-size: 10px;
+                                font-family: monospace;
+                                resize: vertical;
+                                line-height: 1.35;
+                            ">${this.accumulatedOcrText || ''}</textarea>
+                            <div style="font-size: 9px; color: ${theme.textMuted}; display: flex; justify-content: space-between;">
+                                <span>Copy or edit any values manually if needed.</span>
+                                <span>Retained across multiple pastes until cleared.</span>
+                            </div>
                         </div>
                         <!-- Row 1: Server Name, Bridge Endpoint URL, API Key -->
                         <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
@@ -4114,6 +4206,7 @@
             if (btnCancelAddBridge) {
                 btnCancelAddBridge.onclick = () => {
                     this.showAddBridgeForm = false;
+                    this.accumulatedOcrText = '';
                     this.renderModal();
                 };
             }
@@ -4154,6 +4247,23 @@
                     }
                 } else if (text) {
                     extracted = this.parseBridgeCredentialsText(text);
+                }
+
+                // Append to cumulative OCR / Paste Text Buffer
+                const rawSnippet = (text || extractedText || '').trim();
+                if (rawSnippet) {
+                    if (this.accumulatedOcrText) {
+                        this.accumulatedOcrText += '\n\n--- [Paste ' + new Date().toLocaleTimeString() + '] ---\n' + rawSnippet;
+                    } else {
+                        this.accumulatedOcrText = rawSnippet;
+                    }
+                    const ocrContainer = modal.querySelector('#mt5-ocr-preview-container');
+                    const ocrTextarea = modal.querySelector('#mt5-txt-ocr-buffer');
+                    if (ocrContainer) ocrContainer.style.display = 'flex';
+                    if (ocrTextarea) {
+                        ocrTextarea.value = this.accumulatedOcrText;
+                        ocrTextarea.scrollTop = ocrTextarea.scrollHeight;
+                    }
                 }
 
                 const updatedFields = this.applySmartExtractedFields(modal, extracted);
@@ -4268,6 +4378,40 @@
                 };
             }
 
+            // Extracted OCR / Paste Text Buffer Controls
+            const btnClearOcr = modal.querySelector('#mt5-btn-clear-ocr-buffer');
+            if (btnClearOcr) {
+                btnClearOcr.onclick = () => {
+                    this.accumulatedOcrText = '';
+                    const ocrContainer = modal.querySelector('#mt5-ocr-preview-container');
+                    const ocrTextarea = modal.querySelector('#mt5-txt-ocr-buffer');
+                    if (ocrTextarea) ocrTextarea.value = '';
+                    if (ocrContainer) ocrContainer.style.display = 'none';
+                };
+            }
+
+            const btnCopyOcr = modal.querySelector('#mt5-btn-copy-ocr-buffer');
+            if (btnCopyOcr) {
+                btnCopyOcr.onclick = async () => {
+                    const ocrTextarea = modal.querySelector('#mt5-txt-ocr-buffer');
+                    const val = ocrTextarea ? ocrTextarea.value : (this.accumulatedOcrText || '');
+                    if (val) {
+                        try {
+                            await navigator.clipboard.writeText(val);
+                            btnCopyOcr.innerText = '✓ Copied';
+                            setTimeout(() => { btnCopyOcr.innerText = '📋 Copy All'; }, 1500);
+                        } catch (_) {}
+                    }
+                };
+            }
+
+            const ocrTextarea = modal.querySelector('#mt5-txt-ocr-buffer');
+            if (ocrTextarea) {
+                ocrTextarea.oninput = () => {
+                    this.accumulatedOcrText = ocrTextarea.value;
+                };
+            }
+
             // Add Bridge Endpoint
             const btnAddEp = modal.querySelector('#mt5-btn-add-endpoint');
             if (btnAddEp) {
@@ -4298,6 +4442,7 @@
                         });
                         if (res.success) {
                             this.showAddBridgeForm = false;
+                            this.accumulatedOcrText = '';
                             await this.wipeClipboardSafely();
                             if (gistId && effectiveToken) {
                                 await window.MT5API.syncEndpointFromGist(res.endpoint.id, true);
