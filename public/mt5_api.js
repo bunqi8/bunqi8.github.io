@@ -551,9 +551,22 @@
             if (updates.name !== undefined) ep.name = String(updates.name).trim();
             if (updates.url !== undefined) ep.url = String(updates.url).trim().replace(/\/+$/, '');
             if (updates.apiKey !== undefined) ep.apiKey = String(updates.apiKey).trim();
+            if (updates.shieldToken !== undefined) ep.shieldToken = String(updates.shieldToken).trim();
             if (updates.gistId !== undefined) ep.gistId = String(updates.gistId).trim();
             if (updates.gistToken !== undefined) ep.gistToken = String(updates.gistToken).trim();
             if (updates.enabled !== undefined) ep.enabled = Boolean(updates.enabled);
+
+            // Auto-detect shield token from URL path if not explicitly set
+            if (!ep.shieldToken && ep.url) {
+                try {
+                    const parsed = new URL(ep.url);
+                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                    if (pathPart && !pathPart.includes('/')) {
+                        ep.shieldToken = pathPart;
+                    }
+                } catch (_) {}
+            }
+
             this.saveConfig();
             this.syncAccounts(true);
             this.ensureWebSocket();

@@ -1203,7 +1203,21 @@
                                     </div>
                                 </div>
 
-                                <!-- Row 3: Action Buttons -->
+                                <!-- Row 3: Origin Zero-Trust Shield Token -->
+                                <div style="background: rgba(41,98,255,0.03); border: 1px dashed rgba(41,98,255,0.25); border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <label style="font-size: 10.5px; font-weight: 600; color: ${theme.primary}; display: flex; align-items: center; gap: 4px;">
+                                            <span>🛡️</span> Origin Zero-Trust Shield Token (Optional Path Cloak)
+                                        </label>
+                                        <span style="font-size: 9px; color: ${theme.textMuted};">Auto-detected if included in URL path</span>
+                                    </div>
+                                    <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                        <input type="password" class="mt5-in-edit-shield-token" value="${ep.shieldToken || ''}" placeholder="e.g. gw_184303e... (public scanners without this get blank 404)" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                        <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
+                                    </div>
+                                </div>
+
+                                <!-- Row 4: Action Buttons -->
                                 <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
                                     <button type="button" class="mt5-btn-cancel-edit-ep" data-id="${ep.id}" style="background: transparent; color: ${theme.textMuted}; border: 1px solid ${theme.border}; padding: 4px 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Cancel</button>
                                     <button type="button" class="mt5-btn-save-edit-ep" data-id="${ep.id}" style="background: ${theme.primary}; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">💾 Save & Test</button>
@@ -4057,6 +4071,7 @@
                     const inName = card.querySelector('.mt5-in-edit-name');
                     const inUrl = card.querySelector('.mt5-in-edit-url');
                     const inKey = card.querySelector('.mt5-in-edit-key');
+                    const inShieldToken = card.querySelector('.mt5-in-edit-shield-token');
                     const inGistId = card.querySelector('.mt5-in-edit-gist-id');
                     const inGistToken = card.querySelector('.mt5-in-edit-gist-token');
 
@@ -4065,6 +4080,11 @@
                     const apiKey = inKey ? inKey.value.trim() : '';
                     
                     const existingEp = window.MT5API.endpoints.find(x => x.id === id);
+                    let shieldToken = inShieldToken ? inShieldToken.value.trim() : '';
+                    if (!shieldToken && existingEp && existingEp.shieldToken) {
+                        shieldToken = existingEp.shieldToken;
+                    }
+
                     let gistId = inGistId ? inGistId.value.trim() : '';
                     if (gistId.includes('••••') || (existingEp && gistId === this.morphGistId(existingEp.gistId))) {
                         gistId = inGistId.getAttribute('data-raw') || (existingEp ? existingEp.gistId : '');
@@ -4084,7 +4104,7 @@
                     btn.innerText = 'Connecting...';
                     btn.disabled = true;
 
-                    window.MT5API.updateEndpoint(id, { name, url, apiKey, gistId, gistToken });
+                    window.MT5API.updateEndpoint(id, { name, url, apiKey, shieldToken, gistId, gistToken });
                     const res = await window.MT5API.testSingleEndpoint(id);
                     this.editingEndpointId = null;
                     this.renderModal();
