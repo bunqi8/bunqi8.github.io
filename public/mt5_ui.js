@@ -753,8 +753,8 @@
                                                         <span style="font-size: 13px; flex-shrink: 0;">${icon}</span>
                                                         <strong style="font-size: 11px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ep.name}</strong>
                                                     </div>
-                                                    <span style="font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: ${isOnline ? 'rgba(8,153,129,0.12)' : 'rgba(242,54,69,0.12)'}; color: ${isOnline ? theme.success : theme.error};">
-                                                        ${isOnline ? '🟢 Online' : '🔴 Offline'}
+                                                    <span style="font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: ${isOnline ? 'rgba(8,153,129,0.12)' : (ep.status === 'unauthorized' ? 'rgba(255,152,0,0.15)' : 'rgba(242,54,69,0.12)')}; color: ${isOnline ? theme.success : (ep.status === 'unauthorized' ? '#ff9800' : theme.error)};">
+                                                        ${isOnline ? '🟢 Online' : (ep.status === 'unauthorized' ? '🔑 401 Key Invalid' : '🔴 Offline')}
                                                     </span>
                                                 </label>
                                             `;
@@ -1060,6 +1060,8 @@
                 let statusBadge = '';
                 if (!isEnabled) {
                     statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(120,123,134,0.12); color: #787b86; border: 1px solid rgba(120,123,134,0.25); font-weight: 600;">⏸️ Off</span>`;
+                } else if (ep.status === 'unauthorized') {
+                    statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255,152,0,0.15); color: #ff9800; border: 1px solid rgba(255,152,0,0.4); font-weight: 600;" title="${ep.error || '401 Unauthorized: Invalid API Key. Click Edit to update key.'}">🔑 401 Key Invalid</span>`;
                 } else if (isOnline) {
                     statusBadge = `<span class="mt5-ping-badge" data-id="${ep.id}" style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.25); font-weight: 600;">🟢 Online (${ep.ping || 0}ms)</span>`;
                 } else if (isOffline) {
