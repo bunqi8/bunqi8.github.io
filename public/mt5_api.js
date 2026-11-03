@@ -303,28 +303,32 @@
                 if (!rawContent) throw new Error('No valid JSON endpoint data found in Gist');
                 const parsed = JSON.parse(rawContent);
 
-                // Extract URL: supports plaintext endpoint_url or encrypted url
-                let candidateUrl = parsed.endpoint_url || parsed.url;
-                if (!candidateUrl && parsed.bridges) {
-                    const matching = Object.values(parsed.bridges).find(b => b && (b.endpoint_url || b.url));
-                    if (matching) candidateUrl = matching.endpoint_url || matching.url;
+                // Extract encrypted vault or URL payload
+                let targetBlob = parsed.vault || parsed.payload || parsed.endpoint_url || parsed.url;
+                if (!targetBlob && parsed.bridges) {
+                    const matching = Object.values(parsed.bridges).find(b => b && (b.vault || b.payload || b.endpoint_url || b.url));
+                    if (matching) targetBlob = matching.vault || matching.payload || matching.endpoint_url || matching.url;
                 }
 
-                if (!candidateUrl) throw new Error('No URL field in Gist payload');
+                if (!targetBlob) throw new Error('No encrypted vault payload found in Gist');
 
-                let targetUrl = candidateUrl;
-                if (typeof candidateUrl === 'string' && candidateUrl.startsWith('e2e:v1:')) {
-                    targetUrl = await this.decryptE2EPayload(candidateUrl, ep.apiKey);
-                    if (!targetUrl || !targetUrl.startsWith('http')) {
-                        throw new Error('Failed to decrypt Gist URL payload. Check the bridge API key.');
-                    }
+                const vaultData = await this.decryptE2EVault(targetBlob, ep.apiKey);
+                if (!vaultData || vaultData.error) {
+                    throw new Error('Failed to decrypt Gist vault. Check the bridge API key.');
                 }
 
-                const clean = targetUrl.trim().replace(/\/+$/, '');
+                const decryptedUrl = vaultData.endpoint_url || vaultData.url || (typeof vaultData === 'string' ? vaultData : '');
+                if (!decryptedUrl || !decryptedUrl.startsWith('http')) {
+                    throw new Error('Invalid endpoint URL inside decrypted Gist vault.');
+                }
+
+                const clean = decryptedUrl.trim().replace(/\/+$/, '');
                 const changed = clean !== ep.url;
-                if (changed) {
+                if (changed || vaultData.shield_token) {
                     console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
                     ep.url = clean;
+                    if (vaultData.shield_token) ep.shieldToken = vaultData.shield_token;
+                    if (vaultData.shield_date) ep.shieldDate = vaultData.shield_date;
                     ep.status = 'unknown';
                     ep.ping = 0;
                     this.saveConfig();
@@ -815,38 +819,39 @@
                 let decryptedUrl = null;
                 let decryptError = null;
                 let shieldToken = null;
+                let shieldDate = null;
+                let isOlder = false;
                 let bridgeName = null;
 
                 if (rawContent) {
                     try {
                         const parsed = JSON.parse(rawContent);
                         bridgeName = parsed.bridge || (parsed.bridges ? Object.keys(parsed.bridges)[0] : null);
-                        if (parsed.shield_token) shieldToken = parsed.shield_token;
 
-                        let candidateUrl = parsed.endpoint_url || parsed.url;
-                        if (!candidateUrl && parsed.bridges) {
-                            const m = Object.values(parsed.bridges).find(b => b && (b.endpoint_url || b.url));
-                            if (m) {
-                                candidateUrl = m.endpoint_url || m.url;
-                                if (m.shield_token) shieldToken = m.shield_token;
-                            }
+                        let targetBlob = parsed.vault || parsed.payload || parsed.endpoint_url || parsed.url;
+                        if (!targetBlob && parsed.bridges) {
+                            const m = Object.values(parsed.bridges).find(b => b && (b.vault || b.payload || b.endpoint_url || b.url));
+                            if (m) targetBlob = m.vault || m.payload || m.endpoint_url || m.url;
                         }
 
-                        if (candidateUrl && typeof candidateUrl === 'string') {
-                            if (candidateUrl.startsWith('http')) {
+                        if (targetBlob && typeof targetBlob === 'string') {
+                            if (targetBlob.startsWith('http')) {
                                 decrypted = true;
-                                decryptedUrl = candidateUrl.trim().replace(/\/+$/, '');
-                            } else if (candidateUrl.startsWith('e2e:v1:')) {
-                                if (apiKey) {
-                                    const dec = await this.decryptE2EPayload(candidateUrl, apiKey);
-                                    if (dec && dec.startsWith('http')) {
-                                        decrypted = true;
-                                        decryptedUrl = dec.trim().replace(/\/+$/, '');
-                                    } else {
-                                        decryptError = 'API key does not match server encryption key (OperationError)';
-                                    }
+                                decryptedUrl = targetBlob.trim().replace(/\/+$/, '');
+                            } else if (targetBlob.startsWith('e2e:v2:') || targetBlob.startsWith('e2e:v1:')) {
+                                if (!apiKey) {
+                                    decryptError = 'Bridge API Key is required to decrypt this zero-trust Gist vault.';
                                 } else {
-                                    decryptError = 'Gist payload is encrypted; API key required to decrypt';
+                                    const vaultData = await this.decryptE2EVault(targetBlob, apiKey);
+                                    if (vaultData && !vaultData.error) {
+                                        decrypted = true;
+                                        decryptedUrl = (vaultData.endpoint_url || vaultData.url || (typeof vaultData === 'string' ? vaultData : '')).trim().replace(/\/+$/, '');
+                                        shieldToken = vaultData.shield_token || null;
+                                        shieldDate = vaultData.shield_date || null;
+                                        if (vaultData.server_name) bridgeName = vaultData.server_name;
+                                    } else {
+                                        decryptError = 'Invalid API Key: Unable to decrypt Gist vault. Please check for character typos (e.g. 1 vs l, _ vs -, 0 vs O). Click 👁️ to inspect your API Key.';
+                                    }
                                 }
                             }
                         }
@@ -857,6 +862,18 @@
                                 const part = p.pathname.replace(/^\/+|\/+$/g, '');
                                 if (part && part.startsWith('gw_')) shieldToken = part;
                             } catch (_) {}
+                        }
+
+                        if (shieldToken && !shieldDate && shieldToken.startsWith('gw_')) {
+                            const parts = shieldToken.split('_');
+                            if (parts.length >= 2 && parts[1].length === 11) {
+                                shieldDate = parts[1];
+                            }
+                        }
+
+                        if (shieldDate) {
+                            const todayStr = this.getCurrentDayStr();
+                            isOlder = Boolean(shieldDate < todayStr);
                         }
                     } catch (parseErr) {
                         decryptError = 'Invalid Gist JSON: ' + parseErr.message;
@@ -872,6 +889,8 @@
                     decrypted,
                     decryptedUrl,
                     shieldToken,
+                    shieldDate,
+                    isOlder,
                     bridgeName,
                     decryptError,
                     owner: data.owner ? data.owner.login : 'anonymous'
@@ -1867,6 +1886,74 @@
                 console.warn('[MT5API] E2E payload decryption failed:', e.message || e);
                 return '';
             }
+        }
+
+        getCurrentDayStr() {
+            const d = new Date();
+            const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+            const y = d.getUTCFullYear();
+            const m = months[d.getUTCMonth()];
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        async derivePBKDF2Key(secret, salt) {
+            if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) return null;
+            const sec = (secret || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+            const keyMaterial = await window.crypto.subtle.importKey(
+                'raw',
+                new TextEncoder().encode(sec),
+                { name: 'PBKDF2' },
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+            return await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 100000,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+
+        async decryptE2EVault(blob, apiKey) {
+            if (!blob || typeof blob !== 'string') return null;
+            if (blob.startsWith('e2e:v2:')) {
+                try {
+                    const parts = blob.split(':');
+                    if (parts.length !== 5) return null;
+                    const salt = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
+                    const iv = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0));
+                    const ct = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0));
+                    const key = await this.derivePBKDF2Key(apiKey, salt);
+                    if (!key) return null;
+                    const decrypted = await window.crypto.subtle.decrypt(
+                        { name: 'AES-GCM', iv },
+                        key,
+                        ct
+                    );
+                    const decStr = new TextDecoder().decode(decrypted);
+                    try {
+                        return JSON.parse(decStr);
+                    } catch (_) {
+                        return { endpoint_url: decStr };
+                    }
+                } catch (err) {
+                    return { error: 'AUTH_FAILED', message: err.message };
+                }
+            } else if (blob.startsWith('e2e:v1:')) {
+                const dec = await this.decryptE2EPayload(blob, apiKey);
+                if (!dec || !dec.startsWith('http')) {
+                    return { error: 'AUTH_FAILED', message: 'Decryption failed' };
+                }
+                return { endpoint_url: dec };
+            }
+            return { endpoint_url: blob };
         }
 
         async saveAccountToClientVault(accountData, endpointTarget) {
