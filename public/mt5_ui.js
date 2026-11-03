@@ -1124,13 +1124,15 @@
             // 5. Gist ID (32 hex characters with OCR typo healing)
             const healHex = (str) => {
                 if (!str) return '';
-                return str.replace(/\s+/g, '')
+                return str.replace(/[^a-zA-Z0-9]/g, '')
                           .replace(/o/gi, '0')
                           .replace(/[lI|]/g, '1')
+                          .replace(/s/gi, '5')
+                          .replace(/z/gi, '2')
                           .toLowerCase();
             };
 
-            const labeledGistMatch = text.match(/(?:Private GitHub Gist Rendezvous ID|Gist Rendezvous ID|Gist ID)[^\n:]*:\s*([a-zA-Z0-9\s]{28,45})/i);
+            const labeledGistMatch = text.match(/(?:Private GitHub Gist Rendezvous ID|Gist Rendezvous ID|Gist ID|Gist|Rendezvous)[^\n:]*:\s*([a-zA-Z0-9\s_.-]{20,50})/i);
             if (labeledGistMatch && labeledGistMatch[1]) {
                 const candGist = healHex(labeledGistMatch[1]);
                 const hex32 = candGist.match(/[a-f0-9]{32}/);
@@ -1139,14 +1141,16 @@
                 }
             }
             if (!extracted.gistId) {
-                // Check lines after any mention of "Gist"
+                // Check lines after any mention of "Gist" or "Rendezvous"
                 const lines = text.split('\n');
                 for (let i = 0; i < lines.length; i++) {
-                    if (lines[i].toLowerCase().includes('gist')) {
+                    const lineLower = lines[i].toLowerCase();
+                    if (lineLower.includes('gist') || lineLower.includes('rendezvous')) {
                         for (let j = i; j <= Math.min(i + 3, lines.length - 1); j++) {
                             const healedLine = healHex(lines[j]);
                             const hexMatch = healedLine.match(/[a-f0-9]{32}/);
-                            if (hexMatch && hexMatch[0] !== (extracted.shieldToken || '').toLowerCase() && hexMatch[0] !== (extracted.apiKey || '').toLowerCase()) {
+                            const shieldClean = (extracted.shieldToken || '').replace(/^gw_/, '').toLowerCase();
+                            if (hexMatch && hexMatch[0] !== shieldClean && hexMatch[0] !== (extracted.apiKey || '').toLowerCase()) {
                                 extracted.gistId = hexMatch[0];
                                 break;
                             }
@@ -1156,10 +1160,15 @@
                 }
             }
             if (!extracted.gistId) {
-                const standaloneGistMatch = text.match(/\b([a-f0-9]{32})\b/i);
-                if (standaloneGistMatch && (!extracted.apiKey || extracted.apiKey !== standaloneGistMatch[1])) {
-                    if (!text.toLowerCase().includes('shield') && !text.toLowerCase().includes('key')) {
-                        extracted.gistId = standaloneGistMatch[1].trim().toLowerCase();
+                const standaloneGistMatches = text.match(/\b([a-f0-9]{32})\b/gi);
+                if (standaloneGistMatches) {
+                    for (const m of standaloneGistMatches) {
+                        const cand = m.toLowerCase();
+                        const shieldClean = (extracted.shieldToken || '').replace(/^gw_/, '').toLowerCase();
+                        if (cand !== shieldClean && cand !== (extracted.apiKey || '').toLowerCase()) {
+                            extracted.gistId = cand;
+                            break;
+                        }
                     }
                 }
             }
@@ -4217,6 +4226,7 @@
 
             const handleSmartPasteData = async (text, imageBlob) => {
                 let extracted = {};
+                let extractedText = '';
                 const pasteBadge = modal.querySelector('#mt5-paste-badge');
                 const pasteHint = modal.querySelector('#mt5-paste-hint');
 
@@ -4224,7 +4234,7 @@
                     if (pasteHint) {
                         pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Analyzing screenshot...</span>`;
                     }
-                    let extractedText = await this.decodeQrFromImage(imageBlob);
+                    extractedText = await this.decodeQrFromImage(imageBlob);
                     if (!extractedText) {
                         try {
                             extractedText = await this.ocrImageBlob(imageBlob, (statusMsg) => {
@@ -4276,9 +4286,9 @@
                     if (pasteHint) {
                         pasteHint.innerHTML = `<span style="color: #00c853; font-weight: 600;">🔒 Clipboard wiped clean!</span> (${updatedFields.length} field${updatedFields.length > 1 ? 's' : ''} updated)`;
                     }
-                } else if (text) {
+                } else {
                     if (pasteHint) {
-                        pasteHint.innerHTML = `<span style="color: #ffa500;">No recognizable bridge fields found in pasted text.</span>`;
+                        pasteHint.innerHTML = `<span style="color: #ffa500;">⚠️ Could not auto-detect fields. Check extracted text in buffer below to copy manually.</span>`;
                     }
                 }
             };
