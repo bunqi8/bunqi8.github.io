@@ -1128,8 +1128,10 @@
                                 positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                                 has_password: Boolean(acc.has_password),
                                 has_dpapi: Boolean(acc.has_dpapi),
+                                has_native_vault: Boolean(acc.has_native_vault || acc.auth_mode === 'mt5_native_vault'),
+                                survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || acc.auth_mode === 'mt5_native_vault' || acc.has_password),
                                 is_verified: Boolean(acc.is_connected && !isPaused),
-                                auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'stored_credentials' : 'desktop_attached')),
+                                auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'mt5_native_vault' : 'desktop_attached')),
                                 auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
                             });
                         });
@@ -3450,8 +3452,10 @@
                     positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                     has_password: Boolean(acc.has_password),
                     has_dpapi: Boolean(acc.has_dpapi),
+                    has_native_vault: Boolean(acc.has_native_vault || acc.auth_mode === 'mt5_native_vault'),
+                    survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || acc.auth_mode === 'mt5_native_vault' || acc.has_password),
                     is_verified: Boolean(acc.is_connected && !isPaused),
-                    auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'stored_credentials' : 'desktop_attached')),
+                    auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'mt5_native_vault' : 'desktop_attached')),
                     auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
                 };
             });
