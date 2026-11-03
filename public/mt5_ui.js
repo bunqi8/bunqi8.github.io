@@ -1117,6 +1117,11 @@
                         <!-- Bottom Line: Endpoint URL & Sync Origin -->
                         <div style="display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 10.5px; color: ${theme.textMuted}; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
                             <span style="color: ${theme.text}; font-weight: 600; overflow: hidden; text-overflow: ellipsis;">${ep.url}</span>
+                            ${(ep.shieldToken || (ep.url && ep.url.replace(/^https?:\/\/[^\/]+/, '').length > 1)) ? `
+                                <span style="color: #00c853; font-weight: 600; flex-shrink: 0;" title="Origin Zero-Trust Shield & Path Cloaking Active">
+                                    • 🛡️ Cloaked
+                                </span>
+                            ` : ''}
                             ${ep.gistId ? `
                                 <span style="color:${theme.primary}; font-weight: 600; flex-shrink: 0;" title="Auto-Discovery Gist configured">
                                     • 🔄 Gist: ${this.morphGistId(ep.gistId)} ${bridgeToken ? '(Custom PAT)' : (hasMasterToken ? '(Master PAT)' : '(No PAT)')}
@@ -1314,6 +1319,19 @@
                                     <input type="password" id="mt5-in-new-gist-token" autocomplete="new-password" value="" placeholder="${hasMasterToken ? 'Inherited from Master Token (leave blank)' : 'ghp_... (or configure Master Token above)'}" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
                                     <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                                 </div>
+                            </div>
+                        </div>
+                        <!-- Row 3: Origin Zero-Trust Shield Token (Method 2) -->
+                        <div style="background: rgba(41,98,255,0.03); border: 1px dashed rgba(41,98,255,0.25); border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <label style="font-size: 10.5px; font-weight: 600; color: ${theme.primary}; display: flex; align-items: center; gap: 4px;">
+                                    <span>🛡️</span> Origin Zero-Trust Shield Token (Optional Path Cloak)
+                                </label>
+                                <span style="font-size: 9px; color: ${theme.textMuted};">Auto-detected if included in URL path (e.g. /gw_xxx)</span>
+                            </div>
+                            <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
+                                <input type="password" id="mt5-in-new-shield-token" value="" placeholder="e.g. gw_7f9a2b8e (public scanners without this get blank 404)" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 10.5px; font-family: monospace;">
+                                <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                             </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px;">
@@ -3795,6 +3813,7 @@
                     const name = (modal.querySelector('#mt5-in-new-name').value || '').trim();
                     let url = (modal.querySelector('#mt5-in-new-url').value || '').trim();
                     const apiKey = (modal.querySelector('#mt5-in-new-key').value || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+                    const shieldToken = (modal.querySelector('#mt5-in-new-shield-token')?.value || '').trim();
                     const gistId = (modal.querySelector('#mt5-in-new-gist-id')?.value || '').trim();
                     const gistToken = (modal.querySelector('#mt5-in-new-gist-token')?.value || '').trim();
                     const masterToken = window.MT5API ? window.MT5API.getMasterGistToken() : '';
@@ -3810,6 +3829,7 @@
                             name: name || url || 'MT5 Bridge',
                             url: url || 'https://discovering-endpoint',
                             apiKey,
+                            shieldToken,
                             gistId,
                             gistToken,
                             enabled: true
