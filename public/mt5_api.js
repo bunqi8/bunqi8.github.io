@@ -2087,11 +2087,9 @@
                 const data = JSON.parse(decStr);
                 return {
                     success: true,
-                    url: data.u || '',
                     gistId: data.g || '',
                     pat: data.p || '',
-                    apiKey: data.k || '',
-                    bridgeName: data.n || ''
+                    apiKey: data.k || ''
                 };
             } catch (err) {
                 return { success: false, error: 'Incorrect 2-word passphrase. Please check BRIDGE_INFO.txt on your Desktop.' };

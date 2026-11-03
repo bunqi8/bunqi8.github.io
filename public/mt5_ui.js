@@ -1633,49 +1633,32 @@
                                 statusDiv.innerHTML = '✓ Decrypted successfully! Auto-connecting...';
                             }
 
-                            // Extract shield token from url if present
-                            let extractedShieldToken = '';
-                            if (res.url) {
-                                try {
-                                    const parsed = new URL(res.url);
-                                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
-                                    if (pathPart && pathPart.startsWith('gw_')) {
-                                        extractedShieldToken = pathPart;
-                                    }
-                                } catch (_) {}
-                            }
-
-                            // Populate modal fields
+                            // Populate modal fields with the 3 credentials from QR
                             const inUrl = modal.querySelector('#mt5-in-new-url');
                             const inShield = modal.querySelector('#mt5-in-new-shield-token');
                             const inGistId = modal.querySelector('#mt5-in-new-gist-id');
                             const inGistToken = modal.querySelector('#mt5-in-new-gist-token');
                             const inKey = modal.querySelector('#mt5-in-new-key');
-                            const inName = modal.querySelector('#mt5-in-new-name');
 
-                            if (inUrl && res.url) inUrl.value = res.url;
-                            if (inShield && extractedShieldToken) inShield.value = extractedShieldToken;
+                            // Wipe any stale URL so the system strictly discovers the fresh URL from GitHub Gist
+                            if (inUrl) inUrl.value = '';
+                            if (inShield) inShield.value = '';
                             if (inGistId && res.gistId) inGistId.value = res.gistId;
                             if (inGistToken && res.pat) inGistToken.value = res.pat;
                             if (inKey && res.apiKey) inKey.value = res.apiKey;
-                            if (inName && res.bridgeName && (!inName.value || inName.value === 'oracle_cloud')) {
-                                inName.value = res.bridgeName;
-                            }
 
-                            // If an existing bridge card is currently open in inline edit mode, update its fields too
+                            // If an existing bridge card is currently open in inline edit mode, update its credentials too
                             if (this.editingEndpointId) {
                                 const editCard = modal.querySelector(`.mt5-endpoint-card[data-id="${this.editingEndpointId}"]`);
                                 if (editCard) {
-                                    const editUrl = editCard.querySelector('.mt5-in-edit-url');
-                                    if (editUrl && res.url) editUrl.value = res.url;
-                                    const editShield = editCard.querySelector('.mt5-in-edit-shield-token');
-                                    if (editShield && extractedShieldToken) editShield.value = extractedShieldToken;
                                     const editKey = editCard.querySelector('.mt5-in-edit-key');
                                     if (editKey && res.apiKey) editKey.value = res.apiKey;
                                     const editGistId = editCard.querySelector('.mt5-in-edit-gist-id');
                                     if (editGistId && res.gistId) editGistId.value = res.gistId;
                                     const editGistToken = editCard.querySelector('.mt5-in-edit-gist-token');
                                     if (editGistToken && res.pat) editGistToken.value = res.pat;
+                                    const editUrl = editCard.querySelector('.mt5-in-edit-url');
+                                    if (editUrl) editUrl.value = '';
                                 }
                             }
 
@@ -1688,31 +1671,22 @@
                                 if (!targetEp && res.gistId) {
                                     targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === res.gistId);
                                 }
-                                if (!targetEp && res.bridgeName) {
-                                    targetEp = window.MT5API.endpoints.find(e => (e.name || '').toLowerCase() === (res.bridgeName || '').toLowerCase());
-                                }
                                 if (!targetEp && window.MT5API.endpoints.length === 1) {
                                     targetEp = window.MT5API.endpoints[0];
                                 }
 
                                 if (targetEp) {
-                                    if (res.url) targetEp.url = res.url;
-                                    if (extractedShieldToken) targetEp.shieldToken = extractedShieldToken;
                                     targetEp.apiKey = res.apiKey;
                                     if (res.pat) targetEp.gistToken = res.pat;
                                     if (res.gistId) targetEp.gistId = res.gistId;
                                     targetEp.status = 'unknown';
                                     window.MT5API.saveConfig();
-                                    window.MT5API.reconnectWebSocket(targetEp.id);
-                                    window.MT5API.testSingleEndpoint(targetEp.id).then(() => {
-                                        this.renderModal();
-                                    });
-                                    console.log(`[SmartPaste] Synchronized fresh URL & API Key into saved bridge '${targetEp.name}' from unlocked QR code!`);
+                                    console.log(`[SmartPaste] Synchronized 3 QR credentials into saved bridge '${targetEp.name}'. Discovering fresh endpoint from GitHub Gist...`);
                                 }
                             }
 
                             // Highlight inputs
-                            [inUrl, inShield, inGistId, inGistToken, inKey].forEach(el => {
+                            [inGistId, inGistToken, inKey].forEach(el => {
                                 if (el) {
                                     el.style.borderColor = '#00c853';
                                     el.style.boxShadow = '0 0 8px rgba(0,200,83,0.4)';
@@ -1723,33 +1697,26 @@
                             const pasteBadge = modal.querySelector('#mt5-paste-badge');
                             const pasteHint = modal.querySelector('#mt5-paste-hint');
                             if (pasteBadge) {
-                                pasteBadge.innerText = '✓ 2-Word QR Decrypted!';
+                                pasteBadge.innerText = '✓ 2-Word QR Decrypted (3 Fields)';
                                 pasteBadge.style.display = 'inline-block';
                                 pasteBadge.style.background = 'rgba(0,200,83,0.15)';
                                 pasteBadge.style.color = '#00c853';
                                 pasteBadge.style.borderColor = 'rgba(0,200,83,0.35)';
                             }
                             if (pasteHint) {
-                                pasteHint.innerHTML = `<span style="color: #00c853; font-weight: 600;">🔒 QR Verified with 2-word passphrase! Auto-connecting...</span>`;
+                                pasteHint.innerHTML = `<span style="color: #2962ff; font-weight: 600;">🔒 3 Credentials Decrypted! Fetching endpoint & shield from GitHub Gist...</span>`;
                             }
 
                             setTimeout(() => {
                                 overlay.remove();
                                 resolve(true);
 
-                                if (res.url) {
-                                    const btnVerifyAdd = modal.querySelector('#mt5-btn-verify-add-bridge');
-                                    if (btnVerifyAdd) {
-                                        btnVerifyAdd.click();
-                                    }
-                                } else {
-                                    // Auto trigger fresh Gist sync if no direct URL in QR
-                                    const btnFetchFreshGist = modal.querySelector('#mt5-btn-fetch-fresh-gist');
-                                    if (btnFetchFreshGist) {
-                                        btnFetchFreshGist.click();
-                                    }
+                                // Auto trigger fresh Gist sync to strictly fetch endpoint URL and shield from GitHub
+                                const btnFetchFreshGist = modal.querySelector('#mt5-btn-fetch-fresh-gist');
+                                if (btnFetchFreshGist) {
+                                    btnFetchFreshGist.click();
                                 }
-                            }, 400);
+                            }, 350);
                         } else {
                             if (statusDiv) {
                                 statusDiv.style.display = 'block';
