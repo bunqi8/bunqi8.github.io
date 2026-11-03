@@ -172,6 +172,9 @@
                         if (ep.apiKey && (ep.apiKey.startsWith('enc:v1:') || ep.apiKey.startsWith('b64:v1:'))) {
                             ep.apiKey = await this.decryptVaultSecret(ep.apiKey);
                         }
+                        if (ep.shieldToken && (ep.shieldToken.startsWith('enc:v1:') || ep.shieldToken.startsWith('b64:v1:'))) {
+                            ep.shieldToken = await this.decryptVaultSecret(ep.shieldToken);
+                        }
                         if (ep.gistId && (ep.gistId.startsWith('enc:v1:') || ep.gistId.startsWith('b64:v1:'))) {
                             ep.gistId = await this.decryptVaultSecret(ep.gistId);
                         }
@@ -195,6 +198,7 @@
             try {
                 const encryptedEndpoints = await Promise.all((this.endpoints || []).map(async (e) => {
                     const encApiKey = e.apiKey ? await this.encryptVaultSecret(e.apiKey) : '';
+                    const encShieldToken = e.shieldToken ? await this.encryptVaultSecret(e.shieldToken) : '';
                     const encGistId = e.gistId ? await this.encryptVaultSecret(e.gistId) : '';
                     const encGistToken = e.gistToken ? await this.encryptVaultSecret(e.gistToken) : '';
                     return {
@@ -202,6 +206,7 @@
                         name: e.name,
                         url: e.url,
                         apiKey: encApiKey,
+                        shieldToken: encShieldToken,
                         gistId: encGistId,
                         gistToken: encGistToken,
                         enabled: e.enabled !== false,
@@ -472,6 +477,25 @@
                 h['Authorization'] = `Bearer ${key}`;
                 h['X-Bridge-Key'] = key;
             }
+
+            // Origin-Level Zero-Trust Shield Token
+            let shield = ep ? (ep.shieldToken || '') : '';
+            if (shield && (shield.startsWith('enc:v1:') || shield.startsWith('b64:v1:'))) {
+                shield = '';
+            }
+            // Auto-detect shield token from URL path if not explicitly provided
+            if (!shield && ep && ep.url) {
+                try {
+                    const parsed = new URL(ep.url);
+                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                    if (pathPart && !pathPart.includes('/')) {
+                        shield = pathPart;
+                    }
+                } catch (_) {}
+            }
+            if (shield) {
+                h['X-Shield-Token'] = shield;
+            }
             return h;
         }
 
@@ -479,18 +503,31 @@
             return this.getReqHeaders(this.getActiveEndpoint());
         }
 
-        addEndpoint({ name, url, apiKey, gistId = '', gistToken = '', enabled = true }) {
+        addEndpoint({ name, url, apiKey, shieldToken = '', gistId = '', gistToken = '', enabled = true }) {
             const cleanUrl = (url || '').trim().replace(/\/+$/, '');
             if (!cleanUrl) return { success: false, error: 'Endpoint URL is required' };
             const cleanKey = (apiKey || 'mt5_secret_key_2026').trim();
             const cleanName = (name || '').trim() || `Bridge Server ${this.endpoints.length + 1}`;
             const id = 'ep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
+            // Auto-extract shield token from URL path if provided as e.g. https://...trycloudflare.com/gw_secret
+            let autoShield = (shieldToken || '').trim();
+            if (!autoShield) {
+                try {
+                    const parsed = new URL(cleanUrl);
+                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                    if (pathPart && !pathPart.includes('/')) {
+                        autoShield = pathPart;
+                    }
+                } catch (_) {}
+            }
+
             const newEp = {
                 id,
                 name: cleanName,
                 url: cleanUrl,
                 apiKey: cleanKey,
+                shieldToken: autoShield,
                 gistId: (gistId || '').trim(),
                 gistToken: (gistToken || '').trim(),
                 enabled: enabled !== false,
@@ -2558,7 +2595,22 @@
                 try {
                     const wsProto = ep.url.startsWith('https') ? 'wss:' : 'ws:';
                     const host = ep.url.replace(/^https?:\/\//, '');
-                    const wsUrl = `${wsProto}//${host}/ws/quotes`;
+                    let wsUrl = `${wsProto}//${host}/ws/quotes`;
+
+                    // Origin Zero-Trust query parameter for WebSocket
+                    let shield = ep.shieldToken || '';
+                    if (!shield && ep.url) {
+                        try {
+                            const parsed = new URL(ep.url);
+                            const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                            if (pathPart && !pathPart.includes('/')) {
+                                shield = pathPart;
+                            }
+                        } catch (_) {}
+                    }
+                    if (shield && !shield.startsWith('enc:v1:')) {
+                        wsUrl += (wsUrl.includes('?') ? '&' : '?') + `shield_token=${encodeURIComponent(shield)}`;
+                    }
 
                     socket = new WebSocket(wsUrl);
                     this.wsSockets.set(ep.id, socket);
