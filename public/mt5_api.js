@@ -463,7 +463,11 @@
         getReqHeaders(endpointObj) {
             const ep = endpointObj || this.getActiveEndpoint();
             const h = { 'Content-Type': 'application/json' };
-            const key = ep ? ep.apiKey : (this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY');
+            let key = ep ? ep.apiKey : (this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY');
+            if (key && (key.startsWith('enc:v1:') || key.startsWith('b64:v1:'))) {
+                console.warn('[MT5API] getReqHeaders called with un-decrypted API key ciphertext! Omitting auth header.');
+                key = '';
+            }
             if (key && key !== 'none') {
                 h['Authorization'] = `Bearer ${key}`;
                 h['X-Bridge-Key'] = key;
@@ -703,8 +707,11 @@
         }
 
         initAutoSync() {
-            // Immediate account sync on page boot
-            this.syncAccounts();
+            // First ensure all config secrets (API keys, Gist tokens) are decrypted before kicking off the boot sync!
+            this.ensureSecretsDecrypted().then(() => {
+                this.syncAccounts();
+            });
+
             if (this.syncTimer) clearInterval(this.syncTimer);
             // Smart adaptive sync: only fallback to HTTP poll if any enabled bridge WebSocket is offline
             this.syncTimer = setInterval(() => {
@@ -734,6 +741,7 @@
 
         // --- Parallel Multi-Bridge Account Sync ---
         async syncAccounts(force = false) {
+            await this.ensureSecretsDecrypted();
             const enabledEndpoints = (this.endpoints || []).filter(e => e.enabled);
             if (enabledEndpoints.length === 0) {
                 this.isConnected = false;
