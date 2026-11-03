@@ -1040,6 +1040,207 @@
             return clean.slice(0, 4) + '••••••••••••' + clean.slice(-4);
         }
 
+        parseBridgeCredentialsText(rawText) {
+            if (!rawText || typeof rawText !== 'string') return {};
+            const text = rawText.trim();
+            const extracted = {};
+
+            // 1. JSON parse attempt
+            if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed && typeof parsed === 'object') {
+                        if (parsed.url || parsed.endpoint) extracted.url = String(parsed.url || parsed.endpoint).trim();
+                        if (parsed.apiKey || parsed.api_key || parsed.key || parsed.secret) {
+                            extracted.apiKey = String(parsed.apiKey || parsed.api_key || parsed.key || parsed.secret).trim();
+                        }
+                        if (parsed.shieldToken || parsed.shield_token || parsed.shield) {
+                            extracted.shieldToken = String(parsed.shieldToken || parsed.shield_token || parsed.shield).trim();
+                        }
+                        if (parsed.gistId || parsed.gist_id) extracted.gistId = String(parsed.gistId || parsed.gist_id).trim();
+                        if (parsed.gistToken || parsed.gist_token || parsed.token) {
+                            extracted.gistToken = String(parsed.gistToken || parsed.gist_token || parsed.token).trim();
+                        }
+                        if (parsed.name) extracted.name = String(parsed.name).trim();
+                        return extracted;
+                    }
+                } catch (_) {}
+            }
+
+            // 2. URL parsing (labeled or standalone)
+            const labeledUrlMatch = text.match(/(?:ZERO-TRUST CLOAKED ENDPOINT URL|Endpoint URL|Cloudflare Secure Tunnel URL|URL)[^\n:]*:\s*([^\s\n]+)/i);
+            if (labeledUrlMatch && labeledUrlMatch[1].startsWith('http')) {
+                extracted.url = labeledUrlMatch[1].trim().replace(/\/+$/, '');
+            } else {
+                const anyUrlMatch = text.match(/https?:\/\/[a-zA-Z0-9-._]+(?:\.[a-zA-Z0-9-._]+)*(?::\d+)?(?:\/[a-zA-Z0-9_.-]+)*/i);
+                if (anyUrlMatch) {
+                    extracted.url = anyUrlMatch[0].trim().replace(/\/+$/, '');
+                }
+            }
+
+            // Auto-extract shield token from URL path if cloaked
+            if (extracted.url) {
+                try {
+                    const parsedUrl = new URL(extracted.url);
+                    const pathPart = parsedUrl.pathname.replace(/^\/+|\/+$/g, '');
+                    if (pathPart && !pathPart.includes('/')) {
+                        extracted.shieldToken = pathPart;
+                    }
+                } catch (_) {}
+            }
+
+            // 3. Shield Token (explicit or standalone)
+            const labeledShieldMatch = text.match(/(?:Zero-Trust Shield Gateway Token|Shield Gateway Token|Shield Token|Shield)[^\n:]*:\s*([a-zA-Z0-9_-]+)/i);
+            if (labeledShieldMatch && labeledShieldMatch[1]) {
+                extracted.shieldToken = labeledShieldMatch[1].trim();
+            } else if (!extracted.shieldToken) {
+                const standaloneShieldMatch = text.match(/\b(gw_[a-f0-9]{16,64})\b/i);
+                if (standaloneShieldMatch) {
+                    extracted.shieldToken = standaloneShieldMatch[1].trim();
+                }
+            }
+
+            // 4. Bridge API Key
+            const labeledKeyMatch = text.match(/(?:Bridge API Key|API Key|Bearer API Secret Key|Secret)[^\n:]*:\s*([a-zA-Z0-9_-]+)/i);
+            if (labeledKeyMatch && labeledKeyMatch[1]) {
+                const candKey = labeledKeyMatch[1].trim();
+                if (candKey !== extracted.shieldToken && candKey !== extracted.gistId) {
+                    extracted.apiKey = candKey;
+                }
+            } else {
+                const standaloneKeyMatch = text.match(/\b(mor[a-zA-Z0-9_-]{20,}|mt5_secret_[a-zA-Z0-9_-]+)\b/);
+                if (standaloneKeyMatch) {
+                    extracted.apiKey = standaloneKeyMatch[1].trim();
+                }
+            }
+
+            // 5. Gist ID (32 hex characters)
+            const labeledGistMatch = text.match(/(?:Private GitHub Gist Rendezvous ID|Gist Rendezvous ID|Gist ID)[^\n:]*:\s*([a-f0-9]{32})/i);
+            if (labeledGistMatch && labeledGistMatch[1]) {
+                extracted.gistId = labeledGistMatch[1].trim();
+            } else {
+                const standaloneGistMatch = text.match(/\b([a-f0-9]{32})\b/);
+                if (standaloneGistMatch && (!extracted.apiKey || extracted.apiKey !== standaloneGistMatch[1])) {
+                    if (!text.toLowerCase().includes('shield') && !text.toLowerCase().includes('key')) {
+                        extracted.gistId = standaloneGistMatch[1].trim();
+                    }
+                }
+            }
+
+            // 6. GitHub PAT Token (ghp_... or github_pat_...)
+            const patMatch = text.match(/\b(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})\b/);
+            if (patMatch) {
+                extracted.gistToken = patMatch[1].trim();
+            }
+
+            // 7. Server / Host Name
+            if (text.includes('Oracle') || (extracted.url && extracted.url.includes('trycloudflare'))) {
+                extracted.name = 'Oracle Cloud VPS';
+            } else if (text.includes('VMware') || (extracted.url && extracted.url.includes('192.168'))) {
+                extracted.name = 'VMware VM';
+            }
+
+            return extracted;
+        }
+
+        applySmartExtractedFields(modal, extracted) {
+            if (!modal || !extracted || Object.keys(extracted).length === 0) return [];
+            const updatedFields = [];
+
+            const highlightField = (elem) => {
+                if (!elem) return;
+                elem.style.transition = 'box-shadow 0.3s, border-color 0.3s';
+                elem.style.borderColor = '#00c853';
+                elem.style.boxShadow = '0 0 8px rgba(0, 200, 83, 0.4)';
+                setTimeout(() => {
+                    elem.style.borderColor = '';
+                    elem.style.boxShadow = '';
+                }, 1800);
+            };
+
+            if (extracted.url) {
+                const inUrl = modal.querySelector('#mt5-in-new-url');
+                if (inUrl) {
+                    inUrl.value = extracted.url;
+                    highlightField(inUrl);
+                    updatedFields.push('Endpoint URL');
+                }
+            }
+
+            if (extracted.apiKey) {
+                const inKey = modal.querySelector('#mt5-in-new-key');
+                if (inKey) {
+                    inKey.value = extracted.apiKey;
+                    highlightField(inKey);
+                    updatedFields.push('API Key');
+                }
+            }
+
+            if (extracted.shieldToken) {
+                const inShield = modal.querySelector('#mt5-in-new-shield-token');
+                if (inShield) {
+                    inShield.value = extracted.shieldToken;
+                    highlightField(inShield);
+                    updatedFields.push('Shield Token');
+                }
+            }
+
+            if (extracted.gistId) {
+                const inGist = modal.querySelector('#mt5-in-new-gist-id');
+                if (inGist) {
+                    inGist.value = extracted.gistId;
+                    highlightField(inGist);
+                    updatedFields.push('Gist ID');
+                }
+            }
+
+            if (extracted.gistToken) {
+                const inToken = modal.querySelector('#mt5-in-new-gist-token');
+                if (inToken) {
+                    inToken.value = extracted.gistToken;
+                    highlightField(inToken);
+                    updatedFields.push('GitHub PAT');
+                }
+            }
+
+            if (extracted.name) {
+                const inName = modal.querySelector('#mt5-in-new-name');
+                if (inName && (!inName.value || inName.value.startsWith('Bridge Server') || inName.value.startsWith('Cloud Bridge'))) {
+                    inName.value = extracted.name;
+                    highlightField(inName);
+                }
+            }
+
+            return updatedFields;
+        }
+
+        async decodeQrFromImage(imageFileOrBlob) {
+            try {
+                if (!('BarcodeDetector' in window)) {
+                    return null;
+                }
+                const imgBitmap = await createImageBitmap(imageFileOrBlob);
+                const detector = new BarcodeDetector({ formats: ['qr_code'] });
+                const barcodes = await detector.detect(imgBitmap);
+                if (barcodes && barcodes.length > 0) {
+                    return barcodes[0].rawValue;
+                }
+            } catch (e) {
+                console.warn('[SmartPaste] BarcodeDetector scan failed:', e);
+            }
+            return null;
+        }
+
+        async wipeClipboardSafely() {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText('');
+                    return true;
+                }
+            } catch (_) {}
+            return false;
+        }
+
         getSettingsHtml(theme) {
             const endpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const activeEp = window.MT5API ? window.MT5API.getActiveEndpoint() : null;
@@ -1291,6 +1492,52 @@
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <strong style="font-size: 11px; font-weight: 700; color: ${theme.primary}; letter-spacing: 0.2px;">➕ CONNECT NEW BRIDGE SERVER</strong>
                             <button id="mt5-btn-cancel-add-bridge" type="button" style="background: transparent; border: none; color: ${theme.textMuted}; font-size: 11px; cursor: pointer;">✕</button>
+                        </div>
+
+                        <!-- Smart Paste / Burn Drop Zone -->
+                        <div id="mt5-smart-paste-box" tabindex="0" style="
+                            background: rgba(41,98,255,0.04);
+                            border: 1px dashed rgba(41,98,255,0.35);
+                            border-radius: 6px;
+                            padding: 6px 10px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            gap: 10px;
+                            box-sizing: border-box;
+                            cursor: pointer;
+                            transition: all 0.2s;
+                        " title="Click or focus here, then press Ctrl+V to paste BRIDGE_INFO text or screenshot">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                <span style="font-size: 16px; flex-shrink: 0;">📋</span>
+                                <div style="min-width: 0;">
+                                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                        <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};">Smart Paste (Text or Screenshot)</span>
+                                        <span id="mt5-paste-badge" style="display: none; font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.15); color: #089981; border: 1px solid rgba(8,153,129,0.3); font-weight: 600;">✓ Extracted</span>
+                                    </div>
+                                    <div style="font-size: 9.5px; color: ${theme.textMuted}; line-height: 1.3; margin-top: 1px;" id="mt5-paste-hint">
+                                        Press <strong>Ctrl+V</strong> anywhere. Supports full config or single fields one-by-one. Wipes clipboard clean immediately.
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" id="mt5-btn-smart-paste" style="
+                                background: rgba(41,98,255,0.1);
+                                color: ${theme.primary};
+                                border: 1px solid rgba(41,98,255,0.3);
+                                height: 24px;
+                                padding: 0 10px;
+                                border-radius: 4px;
+                                font-size: 10px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                white-space: nowrap;
+                                flex-shrink: 0;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                            ">
+                                <span>⚡</span> Paste Clipboard
+                            </button>
                         </div>
                         <!-- Row 1: Server Name, Bridge Endpoint URL, API Key -->
                         <div style="display: grid; grid-template-columns: 1.2fr 2fr 1fr; gap: 8px; width: 100%; box-sizing: border-box; align-items: start;">
@@ -3820,6 +4067,144 @@
                 };
             }
 
+            // Smart Paste & Clipboard Burn Handler
+            const smartPasteBox = modal.querySelector('#mt5-smart-paste-box');
+            const btnSmartPaste = modal.querySelector('#mt5-btn-smart-paste');
+
+            const handleSmartPasteData = async (text, imageBlob) => {
+                let extracted = {};
+                const pasteBadge = modal.querySelector('#mt5-paste-badge');
+                const pasteHint = modal.querySelector('#mt5-paste-hint');
+
+                if (imageBlob) {
+                    if (pasteHint) {
+                        pasteHint.innerHTML = `<span style="color: #2962ff;">🔄 Scanning screenshot for QR code...</span>`;
+                    }
+                    const qrText = await this.decodeQrFromImage(imageBlob);
+                    if (qrText) {
+                        extracted = this.parseBridgeCredentialsText(qrText);
+                    } else {
+                        if (pasteHint) {
+                            pasteHint.innerHTML = `<span style="color: #ffa500;">⚠️ Image detected without readable QR. Please copy & paste text directly from BRIDGE_INFO.txt.</span>`;
+                        }
+                        return;
+                    }
+                } else if (text) {
+                    extracted = this.parseBridgeCredentialsText(text);
+                }
+
+                const updatedFields = this.applySmartExtractedFields(modal, extracted);
+                if (updatedFields.length > 0) {
+                    await this.wipeClipboardSafely();
+                    if (pasteBadge) {
+                        pasteBadge.innerText = `✓ Extracted: ${updatedFields.join(', ')}`;
+                        pasteBadge.style.display = 'inline-block';
+                    }
+                    if (pasteHint) {
+                        pasteHint.innerHTML = `<span style="color: #00c853; font-weight: 600;">🔒 Clipboard wiped clean!</span> (${updatedFields.length} field${updatedFields.length > 1 ? 's' : ''} updated)`;
+                    }
+                } else if (text) {
+                    if (pasteHint) {
+                        pasteHint.innerHTML = `<span style="color: #ffa500;">No recognizable bridge fields found in pasted text.</span>`;
+                    }
+                }
+            };
+
+            if (smartPasteBox) {
+                // Focus styling
+                smartPasteBox.addEventListener('focus', () => {
+                    smartPasteBox.style.borderColor = '#2962ff';
+                    smartPasteBox.style.background = 'rgba(41,98,255,0.08)';
+                });
+                smartPasteBox.addEventListener('blur', () => {
+                    smartPasteBox.style.borderColor = 'rgba(41,98,255,0.35)';
+                    smartPasteBox.style.background = 'rgba(41,98,255,0.04)';
+                });
+            }
+
+            // Universal modal paste listener (Ctrl+V anywhere in modal)
+            const onModalPaste = async (e) => {
+                if (!modal.querySelector('#mt5-in-new-url')) return;
+
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                const isFormInput = activeTag === 'input' || activeTag === 'textarea';
+                if (isFormInput && document.activeElement !== smartPasteBox) {
+                    const raw = e.clipboardData ? e.clipboardData.getData('text') : '';
+                    if (raw && (raw.includes('BRIDGE_INFO') || raw.includes('trycloudflare') || raw.includes('gw_') || raw.includes('API Key'))) {
+                        e.preventDefault();
+                        await handleSmartPasteData(raw, null);
+                        return;
+                    }
+                    setTimeout(() => {
+                        const val = document.activeElement ? (document.activeElement.value || '') : '';
+                        if (val && val.includes('/gw_')) {
+                            const extracted = this.parseBridgeCredentialsText(val);
+                            this.applySmartExtractedFields(modal, extracted);
+                            this.wipeClipboardSafely();
+                        }
+                    }, 50);
+                    return;
+                }
+
+                if (e.clipboardData) {
+                    const items = e.clipboardData.items;
+                    let imgFile = null;
+                    if (items) {
+                        for (let i = 0; i < items.length; i++) {
+                            if (items[i].type.indexOf('image') !== -1) {
+                                imgFile = items[i].getAsFile();
+                                break;
+                            }
+                        }
+                    }
+                    if (imgFile) {
+                        e.preventDefault();
+                        await handleSmartPasteData(null, imgFile);
+                        return;
+                    }
+                    const text = e.clipboardData.getData('text');
+                    if (text) {
+                        e.preventDefault();
+                        await handleSmartPasteData(text, null);
+                    }
+                }
+            };
+            modal.addEventListener('paste', onModalPaste);
+
+            if (btnSmartPaste) {
+                btnSmartPaste.onclick = async () => {
+                    try {
+                        let text = '';
+                        let imageBlob = null;
+                        if (navigator.clipboard && navigator.clipboard.read) {
+                            try {
+                                const clipboardItems = await navigator.clipboard.read();
+                                for (const item of clipboardItems) {
+                                    for (const type of item.types) {
+                                        if (type.startsWith('image/')) {
+                                            imageBlob = await item.getType(type);
+                                            break;
+                                        }
+                                    }
+                                    if (imageBlob) break;
+                                }
+                            } catch (_) {}
+                        }
+                        if (!imageBlob && navigator.clipboard && navigator.clipboard.readText) {
+                            text = await navigator.clipboard.readText();
+                        }
+                        if (text || imageBlob) {
+                            await handleSmartPasteData(text, imageBlob);
+                        } else {
+                            alert('Clipboard is empty or browser blocked read access. Press Ctrl+V directly to paste!');
+                        }
+                    } catch (err) {
+                        console.warn('[SmartPaste] Button read failed:', err);
+                        alert('Browser requires manual paste: Click the box and press Ctrl+V!');
+                    }
+                };
+            }
+
             // Add Bridge Endpoint
             const btnAddEp = modal.querySelector('#mt5-btn-add-endpoint');
             if (btnAddEp) {
@@ -3850,6 +4235,7 @@
                         });
                         if (res.success) {
                             this.showAddBridgeForm = false;
+                            await this.wipeClipboardSafely();
                             if (gistId && effectiveToken) {
                                 await window.MT5API.syncEndpointFromGist(res.endpoint.id, true);
                             }
