@@ -868,6 +868,8 @@
                 const targetServer = String(primary.server || '').trim().toLowerCase();
                 const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer);
                 const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
+                const isVaultVerified = Boolean(vaultEntry && vaultEntry.is_verified !== false && !vaultEntry.staged_offline);
+                const isVaultStaged = Boolean(vaultEntry && (vaultEntry.staged_offline || vaultEntry.is_verified === false));
                 const hasBridgeDpapi = Boolean(
                     primary.has_dpapi ||
                     primary.auth_mode === 'dpapi_vaulted' ||
@@ -885,8 +887,13 @@
                 let vaultMode = 'session_only';
                 let vaultLabel = 'Session Only';
                 if (hasLocalVault && hasBridgeVault) {
-                    vaultMode = 'dual_vaulted';
-                    vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
+                    if (isVaultStaged) {
+                        vaultMode = 'dual_vaulted_staged';
+                        vaultLabel = '🔒 Dual (⚠️ Local Staged)';
+                    } else {
+                        vaultMode = 'dual_vaulted';
+                        vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
+                    }
                 } else if (!hasLocalVault && hasBridgeDpapi) {
                     vaultMode = 'bridge_secured';
                     vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
@@ -894,8 +901,13 @@
                     vaultMode = 'mt5_native_vault';
                     vaultLabel = isVerified ? '🖥️ MT5 Saved ✓' : '🖥️ MT5 Saved';
                 } else if (hasLocalVault && !hasBridgeVault) {
-                    vaultMode = 'local_vaulted';
-                    vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
+                    if (isVaultStaged) {
+                        vaultMode = 'local_staged_offline';
+                        vaultLabel = '⚠️ Staged Offline (Unverified)';
+                    } else {
+                        vaultMode = 'local_vaulted';
+                        vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
+                    }
                 } else {
                     vaultMode = 'session_only';
                     vaultLabel = isVerified ? '⚠️ Volatile Session ✓' : '⚠️ Session Only';
@@ -908,6 +920,8 @@
                     is_connected: anyConnected,
                     is_verified: isVerified,
                     has_local_vault: hasLocalVault,
+                    is_local_vault_verified: isVaultVerified,
+                    is_staged_offline: isVaultStaged,
                     has_bridge_vault: hasBridgeVault,
                     has_password: Boolean(hasLocalVault || hasBridgeVault),
                     vault_mode: vaultMode,
@@ -996,12 +1010,16 @@
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 ${multiHostBadge}
                                 ${(() => {
-                                    if (acc.vault_mode === 'dual_vaulted') {
+                                    if (acc.vault_mode === 'dual_vaulted_staged') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vault: Bridge secured, but local vault password is staged offline and awaiting broker verification.">🔒 Dual (⚠️ Local Staged)</span>`;
+                                    } else if (acc.vault_mode === 'dual_vaulted') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vaulted: Credentials saved on bridge (${acc.has_dpapi ? 'DPAPI' : 'MT5 Native'}, survives reboot) & backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🔒 Dual Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else if (acc.vault_mode === 'bridge_secured') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Bridge Secured: Hardware DPAPI encrypted in accounts.json on server (survives reboot). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">☁️ Bridge Secured ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else if (acc.vault_mode === 'mt5_native_vault') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="MT5 Native Vault: Password stored in MT5 terminal's encrypted vault (accounts.dat) on server (survives reboot). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🖥️ MT5 Saved ${acc.is_verified ? '✓' : ''}</span>`;
+                                    } else if (acc.vault_mode === 'local_staged_offline') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Staged Offline: Saved in encrypted browser vault without bridge verification. Will auto-verify with broker once bridge connects.">⚠️ Staged Offline (Unverified)</span>`;
                                     } else if (acc.vault_mode === 'local_vaulted') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(41, 98, 255, 0.12); color: #2962ff; border: 1px solid rgba(41, 98, 255, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Local Vaulted: Saved in browser vault. Running as live session on bridge.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">💻 Local Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else {
@@ -3574,6 +3592,8 @@
             const allInstancesWithAcc = [acc, ...activeInstances];
 
             const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
+            const isVaultVerified = Boolean(vaultEntry && vaultEntry.is_verified !== false && !vaultEntry.staged_offline);
+            const isVaultStaged = Boolean(vaultEntry && (vaultEntry.staged_offline || vaultEntry.is_verified === false));
             const hasBridgeDpapi = Boolean(allInstancesWithAcc.some(i => i.has_dpapi) || acc.has_dpapi);
             const hasBridgeNative = Boolean(
                 acc.has_native_vault ||
@@ -3589,9 +3609,15 @@
             let vaultColor = '#ff9800';
 
             if (hasLocalVault && hasBridgeVault) {
-                vaultMode = 'dual_vaulted';
-                vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
-                vaultColor = '#089981';
+                if (isVaultStaged) {
+                    vaultMode = 'dual_vaulted_staged';
+                    vaultLabel = '🔒 Dual (⚠️ Local Staged)';
+                    vaultColor = '#ff9800';
+                } else {
+                    vaultMode = 'dual_vaulted';
+                    vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
+                    vaultColor = '#089981';
+                }
             } else if (!hasLocalVault && hasBridgeDpapi) {
                 vaultMode = 'bridge_secured';
                 vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
@@ -3601,9 +3627,15 @@
                 vaultLabel = isVerified ? '🖥️ MT5 Saved ✓' : '🖥️ MT5 Saved';
                 vaultColor = '#00bcd4';
             } else if (hasLocalVault && !hasBridgeVault) {
-                vaultMode = 'local_vaulted';
-                vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
-                vaultColor = '#2962ff';
+                if (isVaultStaged) {
+                    vaultMode = 'local_staged_offline';
+                    vaultLabel = '⚠️ Staged Offline (Unverified)';
+                    vaultColor = '#ff9800';
+                } else {
+                    vaultMode = 'local_vaulted';
+                    vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
+                    vaultColor = '#2962ff';
+                }
             }
 
             const isPasswordSaved = Boolean(hasLocalVault || hasBridgeVault);
@@ -3805,7 +3837,19 @@
                                     " title="Save password in browser client vault">
                                         📥 Back Up to Browser Vault
                                     </button>
-                                ` : ''}
+                                ` : (isVaultStaged ? `
+                                    <button class="mt5-btn-save-to-browser-vault mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" style="
+                                        padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; color: #ff9800; border: 1px solid rgba(255,152,0,0.4);
+                                    " title="Password was staged offline. Click to test with broker or re-enter password.">
+                                        ⚠️ Re-verify Local Password
+                                    </button>
+                                ` : `
+                                    <button class="mt5-btn-save-to-browser-vault mt5-ghost-btn" data-login="${acc.login}" data-server="${acc.server}" style="
+                                        padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; color: ${theme.textMuted}; border: 1px solid ${theme.border};
+                                    " title="Update password saved in browser client vault">
+                                        ✏️ Update Local Vault
+                                    </button>
+                                `)}
                                 ${(!hasBridgeVault && hasLocalVault) ? `
                                     <button class="mt5-btn-verify-heal-dpapi" data-login="${acc.login}" data-server="${acc.server}" style="
                                         padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; background: #2962ff; color: #fff; border: none;
@@ -3843,9 +3887,13 @@
                             </div>
                             <div style="display: flex; align-items: center; gap: 5px;">
                                 <span>Browser Vault:</span>
-                                ${hasLocalVault ? `
-                                    <strong style="color: #2962ff;">💻 Encrypted Client Vault</strong>
-                                ` : `
+                                ${hasLocalVault ? (
+                                    isVaultStaged ? `
+                                        <strong style="color: #ff9800;" title="Password staged offline in browser. Awaiting bridge connection for broker verification.">💻 Encrypted Vault (⚠️ Staged Offline)</strong>
+                                    ` : `
+                                        <strong style="color: #089981;" title="Password broker verified and secured in AES-256-GCM vault.">💻 Encrypted Vault (✓ Broker Verified)</strong>
+                                    `
+                                ) : `
                                     <strong style="color: ${theme.textMuted};">❌ Not in Browser Vault</strong>
                                 `}
                             </div>
@@ -3853,9 +3901,11 @@
                                 <span>Broker Handshake:</span>
                                 ${isVerified ? `
                                     <strong style="color: #089981;">🟢 Live Verified (#${acc.login} @ ${acc.server})</strong>
+                                ` : (isVaultStaged ? `
+                                    <strong style="color: #ff9800;">🟡 Staged Offline (Awaiting Bridge)</strong>
                                 ` : `
                                     <strong style="color: #ff9800;">🟡 Pending Handshake</strong>
-                                `}
+                                `)}
                             </div>
                         </div>
 
@@ -4445,13 +4495,21 @@
                     }
 
                     try {
-                        const res = await window.MT5API.verifyAndUpdateBrokerPassword(login, server, newPass);
-                        if (res && res.verified) {
-                            if (feedbackEl) {
-                                feedbackEl.style.color = '#10b981';
-                                feedbackEl.textContent = '✓ Broker verified! Password permanently saved to Bridge DPAPI and Local Vault.';
+                        const res = await window.MT5API.verifyAndSaveLocalPassword(login, server, newPass);
+                        if (res && res.success) {
+                            if (res.verified) {
+                                if (feedbackEl) {
+                                    feedbackEl.style.color = '#10b981';
+                                    feedbackEl.textContent = '✓ Broker verified! Password permanently saved to Bridge DPAPI and Local Vault.';
+                                }
+                                this.showFloatingSwitchToast('Password Verified', `Account #${login} secured with broker & saved to Bridge DPAPI`, 100, true);
+                            } else if (res.staged_offline) {
+                                if (feedbackEl) {
+                                    feedbackEl.style.color = '#ff9800';
+                                    feedbackEl.textContent = '⚠️ Bridge offline. Password staged offline in Browser Vault. Will auto-verify once bridge connects.';
+                                }
+                                this.showFloatingSwitchToast('Staged Offline', `Account #${login} staged in Browser Vault (awaiting bridge connection)`, 100, true);
                             }
-                            this.showFloatingSwitchToast('Password Verified', `Account #${login} secured with broker & saved to Bridge DPAPI`, 100, true);
                             setTimeout(() => {
                                 if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
                             }, 800);
@@ -4474,16 +4532,37 @@
                 };
             }
 
-            // Back Up to Browser Client Vault
+            // Back Up to Browser Client Vault / Update Local Password
             modal.querySelectorAll('.mt5-btn-save-to-browser-vault').forEach(btn => {
                 btn.onclick = async (e) => {
                     const login = e.currentTarget.getAttribute('data-login');
                     const server = e.currentTarget.getAttribute('data-server');
-                    const pass = prompt(`Enter password for Account #${login} to back up in this browser's encrypted vault:`);
-                    if (pass && pass.trim()) {
-                        await window.MT5API.saveAccountToClientVault({ login, server, password: pass.trim() });
-                        this.showFloatingSwitchToast('Browser Vault Updated', `Account #${login} backed up locally`, 100, true);
-                        if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                    const pass = prompt(`Enter password for Account #${login} on '${server}' to save in Browser Vault:`);
+                    if (!pass || !pass.trim()) return;
+
+                    const cleanPass = pass.trim();
+                    const origBtnText = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span>🔄</span> Verifying...';
+
+                    try {
+                        const res = await window.MT5API.verifyAndSaveLocalPassword(login, server, cleanPass);
+                        if (res && res.success) {
+                            if (res.verified) {
+                                this.showFloatingSwitchToast('Broker Verified & Saved', `Account #${login} verified with broker & secured in Browser Vault + Bridge DPAPI!`, 100, true);
+                            } else if (res.staged_offline) {
+                                this.showFloatingSwitchToast('Staged Offline', `Account #${login} saved to Browser Vault (Unverified). Will verify once bridge connects.`, 100, true);
+                            }
+                            if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
+                        } else {
+                            alert(`❌ Broker Rejected Password:\n\n${res?.error || 'Invalid credentials'}\n\nPassword was NOT saved to Local Vault or Bridge.`);
+                            btn.disabled = false;
+                            btn.innerHTML = origBtnText;
+                        }
+                    } catch (err) {
+                        alert(`❌ Verification Error: ${err.message}`);
+                        btn.disabled = false;
+                        btn.innerHTML = origBtnText;
                     }
                 };
             });
@@ -4508,14 +4587,14 @@
                     }
 
                     try {
-                        const res = await window.MT5API.verifyAndUpdateBrokerPassword(login, server, pass.trim());
+                        const res = await window.MT5API.verifyAndSaveLocalPassword(login, server, pass.trim());
                         if (res && res.verified) {
                             this.showFloatingSwitchToast('Auto-Heal Success', `Account #${login} verified with broker & vaulted in Bridge DPAPI!`, 100, true);
                             setTimeout(() => {
                                 if (this.detailsAccountId) this.openAccountDetails(this.detailsAccountId, true);
                             }, 500);
                         } else {
-                            alert(`Broker rejected password: ${res?.error || 'Invalid credentials'}`);
+                            alert(`❌ Broker Rejected Password:\n\n${res?.error || 'Invalid credentials'}`);
                             btn.disabled = false;
                             btn.innerHTML = '⚡ Auto-Heal to Bridge DPAPI';
                         }

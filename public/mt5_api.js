@@ -1153,6 +1153,43 @@
                 }
             }
 
+            // Merge in local client vault accounts if not present in any bridge report
+            const localVault = this.getClientVault();
+            if (localVault && Array.isArray(localVault)) {
+                localVault.forEach(v => {
+                    const vLogin = String(v.login || '').trim();
+                    const vServer = String(v.server || '').trim().toLowerCase();
+                    if (!vLogin) return;
+                    const existsOnBridge = allAccounts.some(a => String(a.login || '').trim() === vLogin && String(a.server || '').trim().toLowerCase() === vServer);
+                    if (!existsOnBridge) {
+                        const isStaged = Boolean(v.staged_offline || v.is_verified === false);
+                        allAccounts.push({
+                            id: `local_${vLogin}_${vServer}`,
+                            login: Number(vLogin) || vLogin,
+                            server: v.server || '',
+                            nickname: v.nickname || `MT5 ${vLogin}`,
+                            is_connected: false,
+                            is_paused: false,
+                            has_local_vault: true,
+                            is_local_vault_verified: !isStaged,
+                            is_staged_offline: isStaged,
+                            is_verified: false,
+                            has_password: true,
+                            has_dpapi: false,
+                            has_native_vault: false,
+                            survives_reboot: false,
+                            auth_mode: isStaged ? 'local_staged_offline' : 'local_vaulted',
+                            auth_label: isStaged ? 'Staged Offline (Unverified)' : 'Local Vaulted',
+                            balance: 0,
+                            equity: 0,
+                            currency: 'USD',
+                            endpointId: v.endpointId || (Array.isArray(v.targetEndpoints) ? v.targetEndpoints[0] : null) || 'local',
+                            endpointName: 'Local Browser Vault'
+                        });
+                    }
+                });
+            }
+
             const wasPreviouslyConnected = this.isConnected;
             this.accounts = allAccounts;
             this.isConnected = anyOnline;
@@ -1392,33 +1429,38 @@
         }
 
         async checkAndAutoHealLocalVaults() {
-            if (!this.accounts || this.accounts.length === 0) return;
-            this._autoHealAttempts = this._autoHealAttempts || new Set();
-
             const vault = this.getClientVault();
             if (!vault || vault.length === 0) return;
+            this._autoHealAttempts = this._autoHealAttempts || new Set();
 
-            for (const acc of this.accounts) {
-                // Only consider accounts connected on an active bridge that lack hardware DPAPI vault
-                if (!acc.is_connected || acc.has_dpapi) continue;
+            const onlineEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status === 'online' && e.url);
+            if (onlineEndpoints.length === 0) return;
 
-                const targetLogin = Number(acc.login);
-                const targetServer = String(acc.server || '').trim();
+            for (const vaultEntry of vault) {
+                const targetLogin = Number(vaultEntry.login);
+                const targetServer = String(vaultEntry.server || '').trim();
+                if (!targetLogin || !targetServer || !vaultEntry.password) continue;
+
                 const compositeKey = `${targetLogin}_${targetServer.toLowerCase()}`;
 
+                const matchingAcc = (this.accounts || []).find(a => 
+                    Number(a.login) === targetLogin && 
+                    String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
+                );
+
+                const isStagedOffline = Boolean(vaultEntry.staged_offline || vaultEntry.is_verified === false);
+                const lacksDpapi = matchingAcc && !matchingAcc.has_dpapi;
+
+                // Needs auto-healing if:
+                // 1) Password was staged offline (needs broker verification)
+                // 2) Account is connected on bridge but missing hardware DPAPI
+                const needsHealing = isStagedOffline || lacksDpapi;
+                if (!needsHealing) continue;
+
                 if (this._autoHealAttempts.has(compositeKey)) continue;
-
-                // Check if client vault has a password for this composite key
-                const vaultEntry = vault.find(v => {
-                    const vLogin = Number(v.login);
-                    const vServer = String(v.server || '').trim().toLowerCase();
-                    return vLogin === targetLogin && (vServer === targetServer.toLowerCase() || vServer.includes(targetServer.toLowerCase()) || targetServer.toLowerCase().includes(vServer));
-                });
-
-                if (!vaultEntry || !vaultEntry.password) continue;
-
                 this._autoHealAttempts.add(compositeKey);
-                console.log(`[MT5API] 🛡️ Detected Local Vault for #${targetLogin} on '${targetServer}' without Bridge DPAPI. Probing Broker Verification Gate for auto-heal...`);
+
+                console.log(`[MT5API] 🛡️ Auto-Healing #${targetLogin} on '${targetServer}' (staged_offline=${isStagedOffline}, lacks_dpapi=${lacksDpapi}). Probing broker...`);
 
                 try {
                     const rawPass = await this.decryptVaultSecret(vaultEntry.password);
@@ -1427,17 +1469,42 @@
                     const res = await this.verifyAndUpdateBrokerPassword(targetLogin, targetServer, rawPass);
                     if (res && res.verified) {
                         console.log(`[MT5API] ✓ Auto-healed Account #${targetLogin} on '${targetServer}'! Broker verified & secured in Bridge DPAPI.`);
-                        acc.has_dpapi = true;
-                        acc.is_verified = true;
-                        acc.auth_mode = 'dpapi_vaulted';
-                        acc.auth_label = 'Bridge Secured (DPAPI)';
+
+                        // Update local vault entry explicitly
+                        vaultEntry.is_verified = true;
+                        vaultEntry.staged_offline = false;
+                        vaultEntry.verified_at = Date.now();
+                        try {
+                            const raw = localStorage.getItem('mt5_client_vault');
+                            const vList = raw ? JSON.parse(raw) : [];
+                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer.toLowerCase());
+                            if (vIdx >= 0) {
+                                vList[vIdx].is_verified = true;
+                                vList[vIdx].staged_offline = false;
+                                vList[vIdx].verified_at = Date.now();
+                                localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
+                            }
+                        } catch (_) {}
+
+                        if (matchingAcc) {
+                            matchingAcc.has_dpapi = true;
+                            matchingAcc.is_verified = true;
+                            matchingAcc.auth_mode = 'dpapi_vaulted';
+                            matchingAcc.auth_label = 'Bridge Secured (DPAPI)';
+                        }
 
                         if (window.MT5UI && typeof window.MT5UI.showFloatingSwitchToast === 'function') {
-                            window.MT5UI.showFloatingSwitchToast('Auto-Healed Account', `Account #${targetLogin} broker verified & secured in Bridge DPAPI`, 100, true);
+                            const toastTitle = isStagedOffline ? 'Offline Password Verified' : 'Auto-Healed Account';
+                            const toastMsg = `Account #${targetLogin} broker verified & secured in Bridge DPAPI`;
+                            window.MT5UI.showFloatingSwitchToast(toastTitle, toastMsg, 100, true);
                         }
                         this.notifyAccountListeners();
                     } else {
                         console.warn(`[MT5API] Auto-heal skipped for #${targetLogin} on '${targetServer}': Broker rejected vault password.`);
+                        if (isStagedOffline) {
+                            vaultEntry.verification_failed = true;
+                            vaultEntry.last_error = res?.error || 'Broker rejected credentials';
+                        }
                     }
                 } catch (e) {
                     console.warn(`[MT5API] Auto-heal probe error for #${targetLogin}:`, e);
@@ -2183,6 +2250,13 @@
                         : await this.encryptVaultSecret(existing.password);
                 }
 
+                const isVerified = accountData.is_verified !== undefined
+                    ? Boolean(accountData.is_verified)
+                    : (existing && existing.is_verified !== undefined ? Boolean(existing.is_verified) : true);
+                const stagedOffline = accountData.staged_offline !== undefined
+                    ? Boolean(accountData.staged_offline)
+                    : (existing && existing.staged_offline !== undefined ? Boolean(existing.staged_offline) : false);
+
                 const item = {
                     nickname: accountData.nickname || (existing ? existing.nickname : ''),
                     server: accountData.server || (existing ? existing.server : ''),
@@ -2192,6 +2266,10 @@
                     risk_percent: accountData.risk_percent !== undefined ? accountData.risk_percent : (existing ? existing.risk_percent : 1.0),
                     targetEndpoints: targets,
                     endpointId: targets[0] || (existing ? existing.endpointId : null),
+                    is_verified: isVerified,
+                    staged_offline: stagedOffline,
+                    verified_at: accountData.verified_at || (existing ? existing.verified_at : (isVerified ? Date.now() : null)),
+                    staged_at: accountData.staged_at || (existing ? existing.staged_at : (stagedOffline ? Date.now() : null)),
                     saved_at: Date.now()
                 };
                 if (idx >= 0) {
@@ -2202,6 +2280,87 @@
                 localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
             } catch (e) {
                 console.error('[MT5API] Failed to save to client vault:', e);
+            }
+        }
+
+        async verifyAndSaveLocalPassword(login, server, rawPassword) {
+            try {
+                const targetLogin = Number(login);
+                const targetServer = String(server || '').trim();
+                const cleanPass = String(rawPassword || '').trim();
+
+                if (!targetLogin || !targetServer || !cleanPass) {
+                    return { success: false, error: 'Login, server, and password are required.' };
+                }
+
+                // 1. Check if an active/online bridge endpoint exists
+                const onlineEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status === 'online' && e.url);
+                const hasOnlineBridge = onlineEndpoints.length > 0;
+
+                // 2. If a bridge is online, enforce the Broker Verification Gate
+                if (hasOnlineBridge) {
+                    console.log(`[MT5API] 🔒 Online bridge available (${onlineEndpoints.length}). Verifying credentials with broker for #${targetLogin}...`);
+
+                    const verifyRes = await this.verifyAndUpdateBrokerPassword(targetLogin, targetServer, cleanPass);
+
+                    if (verifyRes && verifyRes.verified) {
+                        return {
+                            success: true,
+                            verified: true,
+                            is_verified: true,
+                            staged_offline: false,
+                            broker: verifyRes.broker,
+                            balance: verifyRes.balance,
+                            message: 'Broker verified & saved to encrypted Local Vault and Bridge DPAPI!'
+                        };
+                    } else {
+                        // Broker rejected! DO NOT save to local vault or bridge!
+                        const errMsg = verifyRes?.error || 'Broker rejected credentials. Verification failed.';
+                        console.warn(`[MT5API] ❌ Broker verification rejected for #${targetLogin}:`, errMsg);
+                        return {
+                            success: false,
+                            verified: false,
+                            error: errMsg
+                        };
+                    }
+                } else {
+                    // 3. No bridge online: Offline Staging Fallback
+                    console.log(`[MT5API] ⚠️ No bridge online. Staging credentials offline in local encrypted vault for #${targetLogin}...`);
+
+                    const matchingInstances = (this.accounts || []).filter(a => 
+                        Number(a.login) === targetLogin && 
+                        String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
+                    );
+
+                    await this.saveAccountToClientVault({
+                        server: targetServer,
+                        login: targetLogin,
+                        password: cleanPass,
+                        is_verified: false,
+                        staged_offline: true,
+                        staged_at: Date.now()
+                    }, matchingInstances.map(i => i.endpointId));
+
+                    // Update in-memory account representation if present
+                    matchingInstances.forEach(inst => {
+                        inst.has_local_vault = true;
+                        inst.is_local_vault_verified = false;
+                        inst.is_staged_offline = true;
+                    });
+
+                    this.notifyAccountListeners();
+
+                    return {
+                        success: true,
+                        verified: false,
+                        is_verified: false,
+                        staged_offline: true,
+                        message: 'Saved to Local Vault (Staged Offline). Will auto-verify with broker once a bridge connects.'
+                    };
+                }
+            } catch (err) {
+                console.error('[MT5API] verifyAndSaveLocalPassword error:', err);
+                return { success: false, error: err.message };
             }
         }
 
@@ -2307,7 +2466,12 @@
                 if (successfulTargets.length > 0) {
                     report(5, 'Saving credentials to client vault & syncing fleet catalog...', 90);
                     // Master Client Vault: Persist securely in browser's local storage bounded to these bridges
-                    await this.saveAccountToClientVault(accountData, successfulTargets);
+                    await this.saveAccountToClientVault({
+                        ...accountData,
+                        is_verified: true,
+                        staged_offline: false,
+                        verified_at: Date.now()
+                    }, successfulTargets);
                     await this.syncAccounts(true);
                     report(5, 'Account connected and verified successfully!', 100);
                     return { success: true, account: lastSuccessAccount, targets: successfulTargets };
@@ -2464,15 +2628,19 @@
                     String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
                 );
 
-                if (matchingInstances.length === 0) {
-                    return { success: false, error: `Account #${targetLogin} on '${targetServer}' not found on any active bridge server` };
+                // 2. Select primary probe bridge
+                let primaryEp = null;
+                let primaryInst = null;
+                if (matchingInstances.length > 0) {
+                    primaryInst = matchingInstances.find(a => a.endpointId === this.activeEndpointId) || matchingInstances[0];
+                    primaryEp = (this.endpoints || []).find(e => e.id === primaryInst.endpointId);
+                }
+                if (!primaryEp || primaryEp.status !== 'online') {
+                    primaryEp = this.getActiveEndpoint() || (this.endpoints || []).find(e => e.enabled && e.status === 'online' && e.url);
                 }
 
-                // 2. Select primary probe bridge
-                const primaryInst = matchingInstances.find(a => a.endpointId === this.activeEndpointId) || matchingInstances[0];
-                const primaryEp = (this.endpoints || []).find(e => e.id === primaryInst.endpointId);
                 if (!primaryEp || !primaryEp.url) {
-                    return { success: false, error: 'Host bridge is currently offline or unreachable' };
+                    return { success: false, error: 'No online bridge server is available to verify credentials with broker' };
                 }
 
                 // 3. Broker Verification Gate: Probe primary bridge
@@ -2529,13 +2697,41 @@
                     }
                 }
 
-                // 5. Update master client vault in browser
+                // If this account was not previously registered on primary bridge, provision it now
+                if (matchingInstances.length === 0 && primaryEp) {
+                    try {
+                        const epPayload = await this.encryptE2EPayload(cleanPass, primaryEp.apiKey);
+                        await fetch(`${primaryEp.url}/api/accounts/add`, {
+                            method: 'POST',
+                            headers: this.getReqHeaders(primaryEp),
+                            body: JSON.stringify({
+                                nickname: `MT5 ${targetLogin}`,
+                                server: targetServer,
+                                login: targetLogin,
+                                password: epPayload,
+                                lot_multiplier: 1.0,
+                                risk_percent: 1.0
+                            })
+                        });
+                    } catch (addErr) {
+                        console.warn(`[MT5API] Could not auto-provision verified account to ${primaryEp.name}:`, addErr);
+                    }
+                }
+
+                // 5. Update master client vault in browser with verified status
+                const targetEndpoints = matchingInstances.length > 0 
+                    ? matchingInstances.map(i => i.endpointId) 
+                    : (primaryEp ? [primaryEp.id] : []);
+
                 await this.saveAccountToClientVault({
-                    nickname: primaryInst.nickname || `MT5 ${targetLogin}`,
+                    nickname: primaryInst ? primaryInst.nickname : `MT5 ${targetLogin}`,
                     server: targetServer,
                     login: targetLogin,
-                    password: cleanPass
-                }, matchingInstances.map(i => i.endpointId));
+                    password: cleanPass,
+                    is_verified: true,
+                    staged_offline: false,
+                    verified_at: Date.now()
+                }, targetEndpoints);
 
                 // 6. Refresh fleet accounts catalog
                 await this.syncAccounts(true);
