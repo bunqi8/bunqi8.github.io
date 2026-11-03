@@ -326,21 +326,25 @@
 
                 const clean = decryptedUrl.trim().replace(/\/+$/, '');
                 const changed = clean !== ep.url;
-                if (changed || vaultData.shield_token || vaultData.autoHealedKey) {
+                if (changed) {
                     console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
                     ep.url = clean;
-                    if (vaultData.shield_token) ep.shieldToken = vaultData.shield_token;
-                    if (vaultData.shield_date) ep.shieldDate = vaultData.shield_date;
-                    if (vaultData.autoHealedKey) {
-                        console.log(`[MT5API] Auto-healed bridge ${ep.name} API key OCR typos: ${ep.apiKey} -> ${vaultData.autoHealedKey}`);
-                        ep.apiKey = vaultData.autoHealedKey;
-                    }
+                }
+                if (vaultData.shield_token && vaultData.shield_token !== ep.shieldToken) {
+                    ep.shieldToken = vaultData.shield_token;
+                }
+                if (vaultData.shield_date) ep.shieldDate = vaultData.shield_date;
+                if (vaultData.autoHealedKey && vaultData.autoHealedKey !== ep.apiKey) {
+                    console.log(`[MT5API] Auto-healed bridge ${ep.name} API key OCR typos: ${ep.apiKey} -> ${vaultData.autoHealedKey}`);
+                    ep.apiKey = vaultData.autoHealedKey;
+                }
+                if (changed || (vaultData.shield_token && vaultData.shield_token !== ep.shieldToken)) {
                     ep.status = 'unknown';
                     ep.ping = 0;
                     this.saveConfig();
                     this.reconnectWebSocket(ep.id);
                     if (testEndpoint) {
-                        this.testSingleEndpoint(ep.id);
+                        await this.testSingleEndpoint(ep.id);
                     }
                 }
                 return { success: true, url: clean, changed };
@@ -1052,7 +1056,7 @@
                     // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
                     // automatically check Gist for the newly generated URL and retry immediately!
                     const now = Date.now();
-                    if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 20000))) {
+                    if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 4000))) {
                         ep._lastGistAutoCheck = now;
                         try {
                             console.log(`[MT5API] 🔍 Endpoint '${ep.name}' unreachable (${err.message}). Auto-checking Gist for rotated tunnel URL...`);
@@ -3176,15 +3180,19 @@
                             });
                         }
 
-                        // Auto-discover via bridge Gist if WebSocket dropped unexpectedly
+                        // Auto-discover via bridge Gist if WebSocket dropped unexpectedly (e.g. tunnel rotation)
                         if (ep.gistId) {
-                            this.syncEndpointFromGist(ep.id);
+                            setTimeout(() => {
+                                this.syncEndpointFromGist(ep.id, true).then(() => {
+                                    this.syncAccounts(true);
+                                    if (ep.enabled) this.ensureWebSocket();
+                                });
+                            }, 2500);
+                        } else {
+                            setTimeout(() => {
+                                if (ep.enabled) this.ensureWebSocket();
+                            }, 2500);
                         }
-                        setTimeout(() => {
-                            if (ep.enabled) {
-                                this.ensureWebSocket();
-                            }
-                        }, 2500);
                     };
 
                     socket.onerror = () => {
