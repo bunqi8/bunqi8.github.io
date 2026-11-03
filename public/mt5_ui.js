@@ -868,11 +868,18 @@
                 const targetServer = String(primary.server || '').trim().toLowerCase();
                 const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer);
                 const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
-                const hasBridgeVault = Boolean(
+                const hasBridgeDpapi = Boolean(
                     primary.has_dpapi ||
                     primary.auth_mode === 'dpapi_vaulted' ||
                     instances.some(i => i.has_dpapi || i.auth_mode === 'dpapi_vaulted')
                 );
+                const hasBridgeNative = Boolean(
+                    primary.has_native_vault ||
+                    primary.auth_mode === 'mt5_native_vault' ||
+                    instances.some(i => i.has_native_vault || i.auth_mode === 'mt5_native_vault' || i.has_password)
+                );
+                const hasBridgeVault = Boolean(hasBridgeDpapi || hasBridgeNative);
+                const survivesReboot = Boolean(hasBridgeDpapi || hasBridgeNative);
                 const isVerified = Boolean(anyConnected);
 
                 let vaultMode = 'session_only';
@@ -880,15 +887,18 @@
                 if (hasLocalVault && hasBridgeVault) {
                     vaultMode = 'dual_vaulted';
                     vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
-                } else if (!hasLocalVault && hasBridgeVault) {
+                } else if (!hasLocalVault && hasBridgeDpapi) {
                     vaultMode = 'bridge_secured';
                     vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
+                } else if (!hasLocalVault && hasBridgeNative) {
+                    vaultMode = 'mt5_native_vault';
+                    vaultLabel = isVerified ? '🖥️ MT5 Saved ✓' : '🖥️ MT5 Saved';
                 } else if (hasLocalVault && !hasBridgeVault) {
                     vaultMode = 'local_vaulted';
                     vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
                 } else {
                     vaultMode = 'session_only';
-                    vaultLabel = isVerified ? '🖥️ Desktop Session ✓' : '⚠️ Session Only';
+                    vaultLabel = isVerified ? '⚠️ Volatile Session ✓' : '⚠️ Session Only';
                 }
 
                 return {
@@ -987,13 +997,15 @@
                                 ${multiHostBadge}
                                 ${(() => {
                                     if (acc.vault_mode === 'dual_vaulted') {
-                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vaulted: Hardware DPAPI encrypted on bridge & backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🔒 Dual Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(8, 153, 129, 0.12); color: #089981; border: 1px solid rgba(8, 153, 129, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vaulted: Credentials saved on bridge (${acc.has_dpapi ? 'DPAPI' : 'MT5 Native'}, survives reboot) & backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🔒 Dual Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else if (acc.vault_mode === 'bridge_secured') {
-                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Bridge Secured: Hardware DPAPI encrypted on server (survives reboots). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">☁️ Bridge Secured ${acc.is_verified ? '✓' : ''}</span>`;
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Bridge Secured: Hardware DPAPI encrypted in accounts.json on server (survives reboot). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">☁️ Bridge Secured ${acc.is_verified ? '✓' : ''}</span>`;
+                                    } else if (acc.vault_mode === 'mt5_native_vault') {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 188, 212, 0.12); color: #00bcd4; border: 1px solid rgba(0, 188, 212, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="MT5 Native Vault: Password stored in MT5 terminal's encrypted vault (accounts.dat) on server (survives reboot). Not backed up in browser vault.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">🖥️ MT5 Saved ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else if (acc.vault_mode === 'local_vaulted') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(41, 98, 255, 0.12); color: #2962ff; border: 1px solid rgba(41, 98, 255, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Local Vaulted: Saved in browser vault. Running as live session on bridge.${acc.is_verified ? ' Live broker handshake verified.' : ' Awaiting broker handshake.'}">💻 Local Vaulted ${acc.is_verified ? '✓' : ''}</span>`;
                                     } else {
-                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Desktop Session Attached: No password stored in bridge DPAPI or browser vault. Volatile on terminal restart.">🖥️ Pre-Logged In</span>`;
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Volatile Session: No password stored on bridge disk or browser vault. Will lose connection on terminal restart or server reboot.">⚠️ Session Only</span>`;
                                     }
                                 })()}
                                 <span style="font-size: 10px; color: ${theme.textMuted}; font-family: monospace;">#${acc.login} • ${acc.server}</span>
@@ -3562,20 +3574,31 @@
             const allInstancesWithAcc = [acc, ...activeInstances];
 
             const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
-            const hasBridgeVault = Boolean(allInstancesWithAcc.some(i => i.has_dpapi) || acc.has_dpapi);
+            const hasBridgeDpapi = Boolean(allInstancesWithAcc.some(i => i.has_dpapi) || acc.has_dpapi);
+            const hasBridgeNative = Boolean(
+                acc.has_native_vault ||
+                acc.auth_mode === 'mt5_native_vault' ||
+                allInstancesWithAcc.some(i => i.has_native_vault || i.auth_mode === 'mt5_native_vault' || i.has_password)
+            );
+            const hasBridgeVault = Boolean(hasBridgeDpapi || hasBridgeNative);
+            const survivesReboot = Boolean(hasBridgeDpapi || hasBridgeNative);
             const isVerified = Boolean(allInstancesWithAcc.some(i => i.is_verified) || acc.is_verified);
 
             let vaultMode = 'session_only';
-            let vaultLabel = isVerified ? '🖥️ Desktop Session ✓' : '⚠️ Session Only';
+            let vaultLabel = isVerified ? '⚠️ Volatile Session ✓' : '⚠️ Session Only';
             let vaultColor = '#ff9800';
 
             if (hasLocalVault && hasBridgeVault) {
                 vaultMode = 'dual_vaulted';
                 vaultLabel = isVerified ? '🔒 Dual Vaulted ✓' : '🔒 Dual Vaulted';
                 vaultColor = '#089981';
-            } else if (!hasLocalVault && hasBridgeVault) {
+            } else if (!hasLocalVault && hasBridgeDpapi) {
                 vaultMode = 'bridge_secured';
                 vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
+                vaultColor = '#00bcd4';
+            } else if (!hasLocalVault && hasBridgeNative) {
+                vaultMode = 'mt5_native_vault';
+                vaultLabel = isVerified ? '🖥️ MT5 Saved ✓' : '🖥️ MT5 Saved';
                 vaultColor = '#00bcd4';
             } else if (hasLocalVault && !hasBridgeVault) {
                 vaultMode = 'local_vaulted';
@@ -3799,13 +3822,23 @@
                         </div>
 
                         <!-- Diagnostic Badges -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; font-size: 10px; padding: 5px 0; border-top: 1px solid ${theme.border};">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; font-size: 10px; padding: 5px 0; border-top: 1px solid ${theme.border};">
                             <div style="display: flex; align-items: center; gap: 5px;">
-                                <span>Bridge DPAPI:</span>
-                                ${hasBridgeVault ? `
-                                    <strong style="color: #089981;">☁️ Hardware DPAPI (Survives Reboots)</strong>
+                                <span>Bridge Storage:</span>
+                                ${hasBridgeDpapi ? `
+                                    <strong style="color: #089981;">☁️ Hardware DPAPI (accounts.json)</strong>
+                                ` : (hasBridgeNative ? `
+                                    <strong style="color: #00bcd4;">🖥️ MT5 Native Vault (accounts.dat)</strong>
                                 ` : `
-                                    <strong style="color: #ff9800;">⚠️ Not Saved on Bridge (Session Only)</strong>
+                                    <strong style="color: #ff9800;">⚠️ Volatile Session (No Disk Password)</strong>
+                                `)}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <span>Reboot Survival:</span>
+                                ${survivesReboot ? `
+                                    <strong style="color: #089981;">🟢 Survives Reboot (Auto-Login Ready)</strong>
+                                ` : `
+                                    <strong style="color: #ef4444;">🔴 Lost on Reboot (Needs Login)</strong>
                                 `}
                             </div>
                             <div style="display: flex; align-items: center; gap: 5px;">
