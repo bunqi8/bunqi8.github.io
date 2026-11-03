@@ -281,17 +281,12 @@
             try {
                 const url = `https://api.github.com/gists/${ep.gistId.trim()}?t=${Date.now()}`;
                 const headers = {
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
+                    'Accept': 'application/vnd.github.v3+json'
                 };
                 if (token && token.trim()) {
                     headers['Authorization'] = `token ${token.trim()}`;
                 }
-                const res = await fetch(url, {
-                    headers,
-                    cache: 'no-store'
-                });
+                const res = await fetch(url, { headers });
                 if (!res.ok) throw new Error(`GitHub Gist HTTP ${res.status}`);
                 const data = await res.json();
                 const files = data.files || {};
@@ -789,12 +784,7 @@
             try {
                 const gistFetchUrl = `https://api.github.com/gists/${cleanGistId}?t=${Date.now()}`;
                 const res = await fetch(gistFetchUrl, {
-                    headers: {
-                        ...headers,
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    },
-                    cache: 'no-store',
+                    headers,
                     signal: AbortSignal.timeout(8000)
                 });
 
