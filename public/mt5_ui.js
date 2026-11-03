@@ -4518,7 +4518,9 @@
                                 statusGist.style.background = 'rgba(0,200,83,0.1)';
                                 statusGist.style.border = '1px solid rgba(0,200,83,0.35)';
                                 statusGist.style.color = '#00c853';
-                                statusGist.innerHTML = `<span>🟢</span> <strong>Fresh Endpoint Fetched:</strong> <code>${res.decryptedUrl}</code><br><span style="font-size: 9.5px; opacity: 0.9;">Auto-populated Endpoint URL & Shield Token. Verifying connection...</span>`;
+                                const dateBadge = res.shieldDate ? ` <span style="background: rgba(0,200,83,0.2); padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700; margin-left: 4px;">📅 Daily Shield: ${res.shieldDate}</span>` : '';
+                                const olderBadge = res.isOlder ? ` <span style="background: rgba(255,152,0,0.2); color: #ff9800; padding: 1px 5px; border-radius: 3px; font-size: 9px;">(Previous Day Token)</span>` : '';
+                                statusGist.innerHTML = `<span>🟢</span> <strong>Gist Vault Decrypted (PBKDF2/AES-GCM):</strong>${dateBadge}${olderBadge}<br><code style="font-size: 10px;">${res.decryptedUrl}</code><br><span style="font-size: 9.5px; opacity: 0.9;">Auto-populated Endpoint URL & Shield Token. Verifying connection...</span>`;
                             }
                             // Auto-trigger verify
                             const btnVerify = modal.querySelector('#mt5-btn-verify-add-bridge');
@@ -4527,10 +4529,15 @@
                             }
                         } else if (res.decryptError) {
                             if (statusGist) {
-                                statusGist.style.background = 'rgba(255,152,0,0.1)';
-                                statusGist.style.border = '1px solid rgba(255,152,0,0.35)';
-                                statusGist.style.color = '#ff9800';
-                                statusGist.innerHTML = `<span>⚠️</span> <strong>Gist Accessible, but Decryption Failed:</strong> ${res.decryptError}<br><span style="font-size: 9.5px; opacity: 0.9;">Ensure your API Key (Password) matches the secret in BRIDGE_INFO.txt.</span>`;
+                                statusGist.style.background = 'rgba(242,54,69,0.1)';
+                                statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
+                                statusGist.style.color = '#f23645';
+                                statusGist.innerHTML = `<span>🔴</span> <strong>Gist Vault Decryption Failed:</strong> ${res.decryptError}<br><span style="font-size: 9.5px; opacity: 0.9;">The Gist vault is 100% encrypted with AES-256-GCM. Check your API Key (Password) for typos or copy it directly from BRIDGE_INFO.txt.</span>`;
+                            }
+                            if (inKey) {
+                                inKey.style.borderColor = '#f23645';
+                                inKey.style.boxShadow = '0 0 8px rgba(242,54,69,0.4)';
+                                setTimeout(() => { inKey.style.borderColor = ''; inKey.style.boxShadow = ''; }, 3000);
                             }
                         } else {
                             if (statusGist) {
@@ -4672,13 +4679,17 @@
                                 const tokenSource = gistRes.isUsingMaster ? 'Master PAT' : (gistRes.hasToken ? 'Custom PAT' : 'Public');
                                 let decText = '';
                                 if (gistRes.decryptedUrl) {
-                                    decText = ' • Fresh Endpoint URL verified ✓';
+                                    const dateText = gistRes.shieldDate ? ` • Shield Date: ${gistRes.shieldDate}` : '';
+                                    decText = ` • Encrypted Vault Decrypted ✓${dateText}`;
                                 } else if (gistRes.decryptError) {
-                                    decText = ` • <span style="color: #ff9800; font-weight: 600;">Decryption Failed: ${gistRes.decryptError}</span>`;
+                                    decText = ` • <span style="color: #f23645; font-weight: 600;">Decryption Failed (Invalid API Key)</span>`;
                                 } else if (gistRes.hasPayload) {
-                                    decText = ' • Bridge JSON payload found';
+                                    decText = ' • Encrypted vault found (API key required)';
                                 }
                                 statusGist.innerHTML = `<span>🟢</span> <strong>Gist Verified:</strong> Accessible via ${tokenSource}${decText}.`;
+                                if (gistRes.decryptError) {
+                                    statusGist.innerHTML += `<div style="margin-top: 4px; font-size: 9.5px; color: #f23645;">⚠️ ${gistRes.decryptError}</div>`;
+                                }
                             } else {
                                 statusGist.style.background = 'rgba(242,54,69,0.1)';
                                 statusGist.style.border = '1px solid rgba(242,54,69,0.35)';
