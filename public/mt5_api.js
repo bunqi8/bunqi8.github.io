@@ -53,25 +53,37 @@
             this.syncTimer = null;
             this.initAutoSync();
 
-            // Listen for system network recovery and tab visibility change
+            // Self-Healing 24/7 Watchdog: Heartbeat, zombie socket detector, and un-killable connection guardian
+            this._selfHealingTimer = null;
+            this.initSelfHealingWatchdog();
+
+            // Listen for system network recovery, tab visibility change, and window focus
             if (typeof window !== 'undefined') {
+                const triggerWake = () => {
+                    const elapsed = Date.now() - (this._lastVisibleTs || Date.now());
+                    if (elapsed > 3000) {
+                        const isMajorWake = elapsed > 15000;
+                        console.log(`[MT5API] ⚡ System resume event detected (${Math.round(elapsed / 1000)}s sleep)! Executing self-healing sync...`);
+                        this.executeSelfHealingWakeRoutine(isMajorWake);
+                    }
+                    this._lastVisibleTs = Date.now();
+                };
+
                 window.addEventListener('online', () => {
-                    console.log('[MT5API] Network back online! Reconnecting bridge sockets...');
-                    this.wasDisconnected = true;
-                    this.reconnectWebSocket();
+                    console.log('[MT5API] 🌐 Network back online! Reconnecting bridge sockets & syncing positions...');
+                    this.executeSelfHealingWakeRoutine(true);
                 });
 
                 document.addEventListener('visibilitychange', () => {
                     if (document.visibilityState === 'visible') {
-                        const elapsed = Date.now() - (this._lastVisibleTs || Date.now());
-                        if (elapsed > 8000) {
-                            console.log(`[MT5API] Tab resumed after ${Math.round(elapsed / 1000)}s! Verifying bridge sockets...`);
-                            this.ensureWebSocket();
-                        }
-                        this._lastVisibleTs = Date.now();
+                        triggerWake();
                     } else {
                         this._lastVisibleTs = Date.now();
                     }
+                });
+
+                window.addEventListener('focus', () => {
+                    triggerWake();
                 });
             }
         }
@@ -1042,6 +1054,148 @@
             });
         }
 
+        initSelfHealingWatchdog() {
+            if (this._selfHealingTimer) clearInterval(this._selfHealingTimer);
+
+            let lastWatchdogTick = Date.now();
+
+            this._selfHealingTimer = setInterval(async () => {
+                const now = Date.now();
+                const drift = now - lastWatchdogTick;
+                lastWatchdogTick = now;
+
+                // 1. Clock Drift Detection (Detects laptop sleep, suspended tab, or system freeze)
+                if (drift > 4500) {
+                    const isMajorWake = drift > 15000;
+                    console.log(`[MT5API] ⚡ System sleep or suspended tab detected (drift: ${Math.round(drift / 1000)}s). Executing self-healing wake routine...`);
+                    this.executeSelfHealingWakeRoutine(isMajorWake);
+                    return;
+                }
+
+                // 2. Active Socket Zombie & Health Check
+                const viableEndpoints = (this.endpoints || []).filter(e => e.enabled && e.status !== 'unauthorized');
+                for (const ep of viableEndpoints) {
+                    const sock = this.wsSockets.get(ep.id);
+                    if (!sock) {
+                        // Socket missing: auto-create
+                        this.ensureWebSocket();
+                        continue;
+                    }
+
+                    if (sock.readyState === WebSocket.OPEN) {
+                        const lastActivity = sock._lastActivityTime || sock._connectedAt || now;
+                        const silenceSec = (now - lastActivity) / 1000;
+
+                        // If socket has been completely silent (no ticks, no pongs) for > 8s:
+                        if (silenceSec > 8) {
+                            console.warn(`[MT5API] ⚠️ Zombie socket detected for '${ep.name}' (${Math.round(silenceSec)}s silence). Forcing self-healing reconnect...`);
+                            try {
+                                sock.onclose = null;
+                                sock.onerror = null;
+                                sock.close();
+                            } catch (_) {}
+                            this.wsSockets.delete(ep.id);
+                            if (this.ws === sock) this.ws = null;
+                            this.ensureWebSocket();
+                        }
+                    } else if (sock.readyState === WebSocket.CLOSING || sock.readyState === WebSocket.CLOSED) {
+                        // Clean up closed socket and reconnect
+                        this.wsSockets.delete(ep.id);
+                        if (this.ws === sock) this.ws = null;
+                        this.ensureWebSocket();
+                    }
+                }
+
+                // 3. Stalled Chart Stream Self-Healing
+                // If there are active chart listeners but zero ticks received in > 5 seconds:
+                if (this.tickListeners && this.tickListeners.size > 0) {
+                    const tickSilence = (now - (this._lastTickReceivedTime || now)) / 1000;
+                    if (tickSilence > 5) {
+                        this.triggerSelfHealingTickRecovery();
+                    }
+                }
+            }, 2500);
+        }
+
+        async executeSelfHealingWakeRoutine(isMajorWake = false) {
+            if (this._isSelfHealing) return;
+            this._isSelfHealing = true;
+            this.wasDisconnected = true;
+            console.log(`[MT5API] ⚡ Executing self-healing wake sequence (major: ${isMajorWake})...`);
+
+            try {
+                // 1. Terminate all stale sockets and cleanly reconnect
+                this.reconnectWebSocket();
+
+                // 2. Fetch fresh accounts status from bridges
+                try {
+                    await this.syncAccounts(true);
+                } catch (_) {}
+
+                // 3. Sync positions and floating PnL immediately
+                try {
+                    await this.fetchPositions();
+                } catch (_) {}
+
+                // 4. Trigger active chart recovery & candle gap backfill
+                this.refreshActiveChart(isMajorWake);
+            } finally {
+                setTimeout(() => {
+                    this._isSelfHealing = false;
+                }, 1500);
+            }
+        }
+
+        async triggerSelfHealingTickRecovery() {
+            if (!this.endpoints || this.endpoints.length === 0 || !this.tickListeners || this.tickListeners.size === 0) return;
+            const now = Date.now();
+            if (this._isRecoveringTicks || (now - (this._lastTickRecoveryAttempt || 0) < 3000)) return;
+            this._isRecoveringTicks = true;
+            this._lastTickRecoveryAttempt = now;
+
+            try {
+                // Group listeners by symbol + accountId so EVERY open chart gets ticks!
+                const targets = new Map();
+                this.tickListeners.forEach((info) => {
+                    if (info && info.symbol) {
+                        const key = `${info.symbol}_${info.accountId || ''}`;
+                        if (!targets.has(key)) {
+                            targets.set(key, { symbol: info.symbol, accountId: info.accountId, endpointId: info.endpointId });
+                        }
+                    }
+                });
+
+                for (const target of targets.values()) {
+                    let targetAcc = null;
+                    if (target.accountId && this.accounts) {
+                        targetAcc = this.accounts.find(a => String(a.id) === String(target.accountId));
+                    }
+                    if (!targetAcc) targetAcc = this.getActiveAccount();
+                    const ep = this.getEndpointForAccount(targetAcc ? targetAcc.id : null);
+                    if (!ep || !ep.url || !ep.enabled || ep.status !== 'online') continue;
+
+                    const accParam = targetAcc ? `&account_id=${encodeURIComponent(targetAcc.id)}` : '';
+                    const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(target.symbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
+                    const res = await fetch(url, { headers: this.getReqHeaders(ep), signal: AbortSignal.timeout(3000) });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.success) {
+                            this._lastTickReceivedTime = Date.now();
+                            const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
+                            this.tickListeners.forEach((info, cb) => {
+                                if (info && info.endpointId && ep && info.endpointId !== ep.id) return;
+                                if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) return;
+                                try { cb(tickMsg); } catch (_) {}
+                            });
+                        }
+                    }
+                }
+            } catch (_) {
+            } finally {
+                this._isRecoveringTicks = false;
+            }
+        }
+
         // --- Parallel Multi-Bridge Account Sync ---
         async syncAccounts(force = false) {
             await this.ensureSecretsDecrypted();
@@ -1288,7 +1442,7 @@
             this.notifyAccountListeners();
         }
 
-        async refreshActiveChart() {
+        async refreshActiveChart(forceReset = false) {
             let chart = null;
             let currentSymbol = null;
             if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
@@ -1313,16 +1467,18 @@
 
             this.ensureWebSocket();
 
-            // Self-Healing Chart Recovery: If chart has no bars rendered (e.g. initial race condition), auto-refresh it
-            if (window._tvLastBar) {
-                const unifiedKey = `${cleanTicker}_${this.activeResolution || '1'}`;
-                const hasBar = !!window._tvLastBar[unifiedKey];
-                if (!hasBar && typeof chart.setSymbol === 'function') {
-                    console.log(`[MT5API] 🔄 Auto-healing blank/stalled chart for ${currentSymbol}...`);
-                    try {
+            // Self-Healing Chart Recovery: If chart has no bars rendered (initial race condition / stalled chart), or forceReset requested:
+            const unifiedKey = `${cleanTicker}_${this.activeResolution || '1'}`;
+            const hasBar = !!(window._tvLastBar && window._tvLastBar[unifiedKey]);
+            if (!hasBar || forceReset) {
+                console.log(`[MT5API] 🔄 Auto-healing chart for ${currentSymbol} via resetData()...`);
+                try {
+                    if (typeof chart.resetData === 'function') {
+                        chart.resetData();
+                    } else if (typeof chart.setSymbol === 'function') {
                         chart.setSymbol(currentSymbol);
-                    } catch (_) {}
-                }
+                    }
+                } catch (_) {}
             }
         }
 
@@ -3450,37 +3606,49 @@
             if (this._fallbackTickTimer) return;
             this._fallbackTickTimer = setInterval(async () => {
                 if (!this.endpoints || this.endpoints.length === 0 || !this.tickListeners || this.tickListeners.size === 0) return;
-                if (!this.activeSymbol || !this.isMt5Symbol(this.activeSymbol)) return;
 
                 if (Date.now() - (this._lastTickReceivedTime || 0) < 1800) {
                     return;
                 }
 
-                try {
-                    const acc = this.getActiveAccount();
-                    if (!acc) return;
-                    const ep = this.getEndpointForAccount(acc ? acc.id : null);
-                    if (!ep || !ep.url || !ep.enabled || ep.status !== 'online') return;
-                    const accParam = acc ? `&account_id=${encodeURIComponent(acc.id)}` : '';
-                    const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(this.activeSymbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
-                    const res = await fetch(url, { headers: this.getReqHeaders(ep) });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.success) {
-                            this._lastTickReceivedTime = Date.now();
-                            const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
-                            this.tickListeners.forEach((info, cb) => {
-                                if (info && info.endpointId && ep && info.endpointId !== ep.id) {
-                                    return;
-                                }
-                                if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) {
-                                    return;
-                                }
-                                try { cb(tickMsg); } catch (_) {}
-                            });
+                // Group active listeners by unique symbol and accountId so every open chart gets ticks
+                const targets = new Map();
+                this.tickListeners.forEach((info) => {
+                    if (info && info.symbol) {
+                        const key = `${info.symbol}_${info.accountId || ''}`;
+                        if (!targets.has(key)) {
+                            targets.set(key, { symbol: info.symbol, accountId: info.accountId, endpointId: info.endpointId });
                         }
                     }
-                } catch (_) {}
+                });
+
+                for (const target of targets.values()) {
+                    try {
+                        let targetAcc = null;
+                        if (target.accountId && this.accounts) {
+                            targetAcc = this.accounts.find(a => String(a.id) === String(target.accountId));
+                        }
+                        if (!targetAcc) targetAcc = this.getActiveAccount();
+                        const ep = this.getEndpointForAccount(targetAcc ? targetAcc.id : null);
+                        if (!ep || !ep.url || !ep.enabled || ep.status !== 'online') continue;
+
+                        const accParam = targetAcc ? `&account_id=${encodeURIComponent(targetAcc.id)}` : '';
+                        const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(target.symbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
+                        const res = await fetch(url, { headers: this.getReqHeaders(ep), signal: AbortSignal.timeout(3000) });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data && data.success) {
+                                this._lastTickReceivedTime = Date.now();
+                                const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
+                                this.tickListeners.forEach((info, cb) => {
+                                    if (info && info.endpointId && ep && info.endpointId !== ep.id) return;
+                                    if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) return;
+                                    try { cb(tickMsg); } catch (_) {}
+                                });
+                            }
+                        }
+                    } catch (_) {}
+                }
             }, 1000);
         }
 
@@ -3538,6 +3706,8 @@
 
                     socket.onopen = () => {
                         if (socket.readyState !== WebSocket.OPEN) return;
+                        socket._connectedAt = Date.now();
+                        socket._lastActivityTime = Date.now();
 
                         // 1. Re-subscribe all active chart / quote listeners currently registered
                         let reSubscribedCount = 0;
@@ -3583,6 +3753,9 @@
                             } catch (_) {}
                         }
 
+                        // 3. Immediately sync positions & floating PnL on connection
+                        this.fetchPositions().catch(() => {});
+
                         // Send instant ping and schedule continuous 2.5s live ping heartbeat
                         sendLivePing();
                         if (pingTimer) clearInterval(pingTimer);
@@ -3590,6 +3763,7 @@
                     };
 
                     socket.onmessage = (evt) => {
+                        socket._lastActivityTime = Date.now();
                         try {
                             const msg = JSON.parse(evt.data);
 
@@ -3953,6 +4127,18 @@
                     seenTickets.add(key);
                     dedupedPositions.push(p);
                 }
+            }
+
+            // Distribute positions to respective accounts in this.accounts
+            if (this.accounts) {
+                this.accounts.forEach(a => {
+                    const aId = String(a.id);
+                    const aLogin = String(a.login || '').trim();
+                    a.positions = dedupedPositions.filter(p => {
+                        const pAid = String(p.account_id || '').trim();
+                        return pAid === aId || (aLogin && (pAid === aLogin || pAid.replace(/^mt5_/, '') === aLogin));
+                    });
+                });
             }
 
             const activeAcc = this.getActiveAccount();

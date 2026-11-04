@@ -1948,7 +1948,8 @@ const Datafeed = {
                 window._tvLastBar[cacheKey] = lastBar;
             }
 
-            const mt5Cb = (tick) => {
+            let isBackfillingGap = false;
+            const mt5Cb = async (tick) => {
                 if (!tick) return;
                 // Only process ticks for this exact symbol
                 const tickSym = (tick.symbol || '').split(':').pop().toUpperCase().trim();
@@ -2064,6 +2065,55 @@ const Datafeed = {
                             lastBar.close = Number(p.close);
                             lastBar.volume = Number(p.volume);
                             onRealtimeCallback({ ...lastBar });
+                        }
+                    }
+
+                    // Self-Healing Candle Gap Backfill:
+                    // If targetBarTime is more than 1 period ahead of lastBar.time, intermediate candles were missed
+                    // while client was sleeping, network disconnected, or bridge was restarting.
+                    // Fetch and replay missed candles sequentially to guarantee zero holes on chart.
+                    const hasGap = (targetBarTime - lastBar.time) > (tfMs * 1.5);
+                    if (hasGap) {
+                        if (isBackfillingGap) return;
+                        isBackfillingGap = true;
+                        try {
+                            const gapDelta = targetBarTime - lastBar.time;
+                            if (gapDelta > (300 * tfMs)) {
+                                // For very large gaps (>300 bars), trigger clean chart reset rather than massive sequential replay
+                                console.log(`[datafeed] Large candle gap (>300 bars) detected for ${cleanSym}. Triggering clean chart reset...`);
+                                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                                    const ch = window.tvWidget.activeChart();
+                                    if (ch && typeof ch.resetData === 'function') {
+                                        ch.resetData();
+                                        return;
+                                    }
+                                }
+                            } else if (window.MT5API && typeof window.MT5API.fetchBars === 'function') {
+                                const missedCount = Math.min(300, Math.ceil(gapDelta / tfMs) + 5);
+                                const gapFromSec = Math.floor(lastBar.time / 1000) + 1;
+                                const gapToSec = Math.ceil(targetBarTime / 1000) + 60;
+                                console.log(`[datafeed] ⚡ Self-healing candle gap detected for ${cleanSym} (${Math.round(gapDelta / tfMs)} missed bars). Backfilling sequentially...`);
+
+                                const gapBars = await window.MT5API.fetchBars(cleanSym, resolution, gapFromSec, gapToSec, missedCount, accId);
+                                if (Array.isArray(gapBars) && gapBars.length > 0) {
+                                    const validGapBars = gapBars
+                                        .filter(b => b.time > lastBar.time && b.time < targetBarTime && !isNaN(b.close))
+                                        .sort((a, b) => a.time - b.time);
+                                    for (const gb of validGapBars) {
+                                        onRealtimeCallback({ ...gb });
+                                        lastBar = { ...gb };
+                                        window._tvLastBar[unifiedKey] = lastBar;
+                                        window._tvLastBar[cacheKey] = lastBar;
+                                    }
+                                    if (validGapBars.length > 0) {
+                                        console.log(`[datafeed] ✓ Sequentially replayed ${validGapBars.length} gap candles for ${cleanSym}.`);
+                                    }
+                                }
+                            }
+                        } catch (gapErr) {
+                            console.warn('[datafeed] Non-critical gap backfill error:', gapErr);
+                        } finally {
+                            isBackfillingGap = false;
                         }
                     }
 
