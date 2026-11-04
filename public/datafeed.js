@@ -1534,6 +1534,19 @@ const Datafeed = {
                     }
                 }
 
+                if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.recordFeedEvent === 'function') {
+                    const isStitched = (parquetBars.length > 0 && mt5Bars.length > parquetBars.length);
+                    const isPqOnly = (parquetBars.length > 0 && !isStitched);
+                    window.MT5ParquetIndex.recordFeedEvent({
+                        source: isStitched ? 'stitched' : (isPqOnly ? 'parquet' : 'live'),
+                        symbol: cleanSym,
+                        resolution: resolution,
+                        parquetBars: parquetBars.length,
+                        liveBars: Math.max(0, mt5Bars.length - parquetBars.length),
+                        totalBars: mt5Bars.length
+                    });
+                }
+
                 // If fetchBars returned empty on firstDataRequest, retry up to 3 times with progressive backoff (accommodates worker restart & MT5 sync)
                 if ((!mt5Bars || mt5Bars.length === 0) && firstDataRequest) {
                     const retryDelays = [400, 800, 1400];
