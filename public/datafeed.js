@@ -382,7 +382,7 @@ async function resolveParquetUrlWithFallback(url) {
 }
 
 async function ensureParquetLoaded(url) {
-    if (!url || typeof url !== 'string' || url.endsWith('/undefined')) {
+    if (!url || typeof url !== 'string' || url.includes('/undefined')) {
         DFLog.warn('cache', `ensureParquetLoaded called with invalid URL: ${url}`);
         return null;
     }
@@ -2175,15 +2175,8 @@ const Datafeed = {
                         try {
                             const gapDelta = targetBarTime - lastBar.time;
                             if (gapDelta > (300 * tfMs)) {
-                                // For very large gaps (>300 bars), trigger clean chart reset rather than massive sequential replay
-                                console.log(`[datafeed] Large candle gap (>300 bars) detected for ${cleanSym}. Triggering clean chart reset...`);
-                                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                                    const ch = window.tvWidget.activeChart();
-                                    if (ch && typeof ch.resetData === 'function') {
-                                        ch.resetData();
-                                        return;
-                                    }
-                                }
+                                // For very large gaps (>300 bars), advance smoothly without destructive chart reset
+                                console.log(`[datafeed] Large candle gap (>300 bars) detected for ${cleanSym}. Advancing active candle smoothly to target time.`);
                             } else if (window.MT5API && typeof window.MT5API.fetchBars === 'function') {
                                 const missedCount = Math.min(300, Math.ceil(gapDelta / tfMs) + 5);
                                 const gapFromSec = Math.floor(lastBar.time / 1000) + 1;

@@ -95,6 +95,8 @@
                             } else {
                                 this.updateFleetCardsInPlace();
                             }
+                        } else if (this.viewMode === 'details') {
+                            this.updateLiveDetailsFinancials();
                         } else if (this.viewMode === 'bridges' || this.viewMode === 'routing') {
                             this.renderModal();
                         }
@@ -2970,6 +2972,17 @@
             this.detailsSyncing = !hasInstantCache;
             this.detailsProgress = hasInstantCache ? null : { step: 1, title: 'Connecting to MT5 Profile...', detail: `Checking account specs for #${existingAcc ? existingAcc.login : accountId}`, pct: 25 };
             
+            // Preload Hugging Face datasets in background across Bridge & Community authors
+            if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.preloadAllAuthorDatasets === 'function') {
+                window.MT5ParquetIndex.preloadAllAuthorDatasets().then(() => {
+                    if (this.isOpen && this.viewMode === 'details' && this.detailsSubTab === 'tickers') {
+                        const curModal = document.getElementById(this.modalId);
+                        const srv = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                        if (curModal) this.updateTickerListView(curModal, this.getTheme(), srv);
+                    }
+                }).catch(() => {});
+            }
+
             // Render modal in 0ms!
             this.renderModal();
 
@@ -3814,6 +3827,90 @@
                 const stepLot = s.lot_step != null ? s.lot_step : 0.01;
                 const desc = (s.description && s.description !== s.name) ? s.description : '';
 
+                // Query Hugging Face dataset status across Bridge & Community authors
+                const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
+                    ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name)
+                    : { isAvailable: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${s.name}` };
+
+                let hfBadgeHtml = '';
+                if (hfStatus.isAvailable) {
+                    const matching = hfStatus.matchingAuthors || [];
+                    const primaryUrl = matching[0]?.url || `https://huggingface.co/datasets/${hfStatus.primaryAuthor}/${hfStatus.repoName}`;
+                    const authorsStr = matching.map(m => m.author).join(', ') || hfStatus.primaryAuthor;
+                    const rangeText = (hfStatus.manifest && hfStatus.manifest.inception_date) 
+                        ? `From: ${hfStatus.manifest.inception_date} to Present` 
+                        : 'Inception to Present';
+
+                    const tooltipText = `Hugging Face Parquet Archival&#10;✓ Available on: ${authorsStr}&#10;Repo: ${hfStatus.repoName}&#10;Coverage: ${rangeText}&#10;Click to open Hugging Face dataset in new tab ↗`;
+
+                    const multiCount = matching.length > 1 ? `<span style="font-size: 8.5px; opacity: 0.85; margin-left: 2px;">(+${matching.length - 1})</span>` : '';
+
+                    hfBadgeHtml = `
+                        <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                            <a href="${primaryUrl}" target="_blank" rel="noopener noreferrer" class="mt5-hf-pill" style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 3px;
+                                padding: 1.5px 6px;
+                                border-radius: 3px;
+                                font-size: 9.5px;
+                                font-weight: 600;
+                                text-decoration: none;
+                                background: rgba(255, 172, 51, 0.12);
+                                color: #ff9800;
+                                border: 1px solid rgba(255, 172, 51, 0.35);
+                                white-space: nowrap;
+                                transition: all 0.12s ease;
+                            " title="${tooltipText}">
+                                <span>🤗</span>
+                                <span>${matching[0]?.author || hfStatus.primaryAuthor}</span>
+                                ${multiCount}
+                                <span style="font-size: 8.5px; opacity: 0.85;">↗</span>
+                            </a>
+                            ${matching.length > 1 ? matching.slice(1).map(m => `
+                                <a href="${m.url}" target="_blank" rel="noopener noreferrer" style="
+                                    display: inline-flex;
+                                    align-items: center;
+                                    padding: 1.5px 5px;
+                                    border-radius: 3px;
+                                    font-size: 9px;
+                                    font-weight: 500;
+                                    text-decoration: none;
+                                    background: ${theme.pillBg};
+                                    color: ${theme.textMuted};
+                                    border: 1px solid ${theme.border};
+                                    white-space: nowrap;
+                                    transition: all 0.12s ease;
+                                " title="Open fallback repository under '${m.author}' in new tab ↗">
+                                    <span>${m.author} ↗</span>
+                                </a>
+                            `).join('') : ''}
+                        </div>
+                    `;
+                } else {
+                    const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload`;
+                    hfBadgeHtml = `
+                        <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${s.name}" data-server="${server || ''}" style="
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 3px;
+                            padding: 1.5px 6px;
+                            border-radius: 3px;
+                            font-size: 9px;
+                            font-weight: 500;
+                            background: transparent;
+                            color: ${theme.textMuted};
+                            border: 1px dashed ${theme.border};
+                            cursor: pointer;
+                            white-space: nowrap;
+                            transition: all 0.12s ease;
+                        " title="${fallbackTooltip}">
+                            <span style="opacity: 0.6;">⚪</span>
+                            <span>Sync to HF</span>
+                        </button>
+                    `;
+                }
+
                 return `
                     <div class="mt5-ticker-row" style="
                         display: flex;
@@ -3826,9 +3923,10 @@
                         margin-bottom: 4px;
                         gap: 8px;
                     ">
-                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; flex-wrap: wrap;">
                             <strong style="font-size: 12.5px; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${s.name}</strong>
                             <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: ${theme.pillBg}; color: ${theme.textMuted}; border: 1px solid ${theme.border}; font-weight: 600; white-space: nowrap;">${cat}</span>
+                            ${hfBadgeHtml}
                             ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
@@ -3858,6 +3956,20 @@
             const container = modal.querySelector('#mt5-ticker-items-container');
             if (!container || !this.detailsData) return;
 
+            // Trigger background preloading of HF datasets for all authors if needed
+            if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.preloadAllAuthorDatasets === 'function') {
+                if (!this._hfPreloadStarted) {
+                    this._hfPreloadStarted = true;
+                    window.MT5ParquetIndex.preloadAllAuthorDatasets().then(() => {
+                        this._hfPreloadStarted = false;
+                        if (this.isOpen && this.viewMode === 'details' && this.detailsSubTab === 'tickers') {
+                            const curModal = document.getElementById(this.modalId);
+                            if (curModal) this.updateTickerListView(curModal, theme, server);
+                        }
+                    }).catch(() => { this._hfPreloadStarted = false; });
+                }
+            }
+
             let symbols = this.detailsData.symbols || [];
             if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
                 symbols = symbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
@@ -3880,6 +3992,20 @@
                     const sym = e.currentTarget.getAttribute('data-symbol');
                     const srv = e.currentTarget.getAttribute('data-server');
                     this.loadSymbolOnChart(sym, srv);
+                };
+            });
+
+            // Bind HF Prioritize Sync buttons
+            container.querySelectorAll('.mt5-btn-prioritize-hf').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const sym = e.currentTarget.getAttribute('data-symbol');
+                    const srv = e.currentTarget.getAttribute('data-server');
+                    btn.innerHTML = '<span>⚡</span> Queuing...';
+                    btn.disabled = true;
+                    if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
+                        await window.MT5API.triggerHFSync(sym, srv);
+                        btn.innerHTML = '<span style="color:#089981;">⚡ Prioritized</span>';
+                    }
                 };
             });
 
