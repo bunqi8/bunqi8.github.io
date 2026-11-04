@@ -138,6 +138,8 @@
 
         authorDatasetsCache: new Map(),
 
+        _authorDatasetsInFlight: new Map(),
+
         async fetchAuthorDatasets(author, force = false) {
             const clean = String(author || '').trim();
             if (!clean || clean === 'deep776') return [];
@@ -147,19 +149,34 @@
                 return cached.datasets;
             }
 
-            try {
-                const res = await fetch(`https://huggingface.co/api/datasets?author=${encodeURIComponent(clean)}`, { cache: 'no-cache' });
-                if (res.ok) {
-                    const list = await res.json();
-                    if (Array.isArray(list)) {
-                        this.authorDatasetsCache.set(clean, { datasets: list, fetchedAt: Date.now() });
-                        return list;
-                    }
-                }
-            } catch (e) {
-                console.debug(`[MT5Parquet] Could not fetch datasets for author ${clean}:`, e);
+            if (this._authorDatasetsInFlight.has(clean)) {
+                return this._authorDatasetsInFlight.get(clean);
             }
-            return cached ? cached.datasets : [];
+
+            const p = (async () => {
+                try {
+                    const res = await fetch(`https://huggingface.co/api/datasets?author=${encodeURIComponent(clean)}`, { cache: 'no-cache' });
+                    if (res.ok) {
+                        const list = await res.json();
+                        if (Array.isArray(list)) {
+                            const datasetMap = new Map();
+                            for (const d of list) {
+                                if (d && d.id) datasetMap.set(d.id, d);
+                            }
+                            this.authorDatasetsCache.set(clean, { datasets: list, datasetMap, fetchedAt: Date.now() });
+                            return list;
+                        }
+                    }
+                } catch (e) {
+                    console.debug(`[MT5Parquet] Could not fetch datasets for author ${clean}:`, e);
+                } finally {
+                    this._authorDatasetsInFlight.delete(clean);
+                }
+                return cached ? cached.datasets : [];
+            })();
+
+            this._authorDatasetsInFlight.set(clean, p);
+            return p;
         },
 
         async preloadAllAuthorDatasets() {
@@ -174,8 +191,9 @@
 
             for (const author of authors) {
                 const cached = this.authorDatasetsCache.get(author);
-                if (cached && Array.isArray(cached.datasets)) {
-                    const found = cached.datasets.find(d => d.id === `${author}/${repoName}`);
+                if (cached) {
+                    const fullId = `${author}/${repoName}`;
+                    const found = cached.datasetMap ? cached.datasetMap.get(fullId) : (Array.isArray(cached.datasets) ? cached.datasets.find(d => d.id === fullId) : null);
                     if (found) {
                         matching.push({
                             author,

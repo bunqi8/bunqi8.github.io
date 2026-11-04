@@ -3956,20 +3956,6 @@
             const container = modal.querySelector('#mt5-ticker-items-container');
             if (!container || !this.detailsData) return;
 
-            // Trigger background preloading of HF datasets for all authors if needed
-            if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.preloadAllAuthorDatasets === 'function') {
-                if (!this._hfPreloadStarted) {
-                    this._hfPreloadStarted = true;
-                    window.MT5ParquetIndex.preloadAllAuthorDatasets().then(() => {
-                        this._hfPreloadStarted = false;
-                        if (this.isOpen && this.viewMode === 'details' && this.detailsSubTab === 'tickers') {
-                            const curModal = document.getElementById(this.modalId);
-                            if (curModal) this.updateTickerListView(curModal, theme, server);
-                        }
-                    }).catch(() => { this._hfPreloadStarted = false; });
-                }
-            }
-
             let symbols = this.detailsData.symbols || [];
             if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
                 symbols = symbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
