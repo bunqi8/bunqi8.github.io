@@ -1995,7 +1995,10 @@
                                 symbols = data.symbols;
                                 this._accountSymbolsCache.set(targetId, symbols);
                                 try {
-                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(symbols));
+                                    const lean = symbols.length > 500
+                                        ? symbols.map(s => ({ name: s.name || s.symbol, category: s.category || s.type || 'Other', digits: s.digits, min_lot: s.min_lot, max_lot: s.max_lot, lot_step: s.lot_step, description: s.description }))
+                                        : symbols;
+                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(lean));
                                 } catch (_) {}
                             }
                         }
@@ -2011,7 +2014,10 @@
                             if (data && data.symbols && data.symbols.length > 2) {
                                 this._accountSymbolsCache.set(targetId, data.symbols);
                                 try {
-                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(data.symbols));
+                                    const lean = data.symbols.length > 500
+                                        ? data.symbols.map(s => ({ name: s.name || s.symbol, category: s.category || s.type || 'Other', digits: s.digits, min_lot: s.min_lot, max_lot: s.max_lot, lot_step: s.lot_step, description: s.description }))
+                                        : data.symbols;
+                                    localStorage.setItem(`mt5_symbols_${targetId}`, JSON.stringify(lean));
                                 } catch (_) {}
                             }
                         }).catch(() => {});
@@ -3251,7 +3257,10 @@
                         if (wsRes && wsRes.symbols && wsRes.symbols.length > 0) {
                             this._accountSymbolsCache.set(accId, wsRes.symbols);
                             try {
-                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(wsRes.symbols));
+                                const lean = wsRes.symbols.length > 500
+                                    ? wsRes.symbols.map(s => ({ name: s.name || s.symbol, category: s.category || s.type || 'Other', digits: s.digits, min_lot: s.min_lot, max_lot: s.max_lot, lot_step: s.lot_step, description: s.description }))
+                                    : wsRes.symbols;
+                                localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(lean));
                             } catch (_) {}
                             return wsRes.symbols;
                         }
@@ -3269,7 +3278,10 @@
                             if (syms.length > 0) {
                                 this._accountSymbolsCache.set(accId, syms);
                                 try {
-                                    localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(syms));
+                                    const lean = syms.length > 500
+                                        ? syms.map(s => ({ name: s.name || s.symbol, category: s.category || s.type || 'Other', digits: s.digits, min_lot: s.min_lot, max_lot: s.max_lot, lot_step: s.lot_step, description: s.description }))
+                                        : syms;
+                                    localStorage.setItem(`mt5_symbols_${accId}`, JSON.stringify(lean));
                                 } catch (_) {}
                                 return syms;
                             }
@@ -3890,12 +3902,11 @@
                                     if (matchingAcc && matchingAcc.positions) {
                                         this.positions = matchingAcc.positions;
                                         curActive.positions = matchingAcc.positions;
-                                        this.notifyPositionListeners();
                                     } else if (curActive.endpointId === ep.id) {
                                         this.positions = curActive.positions || [];
-                                        this.notifyPositionListeners();
                                     }
                                 }
+                                this.notifyPositionListeners();
                             } else if (msg.type === 'accounts') {
                                 this.handleWebSocketAccountsUpdate(ep.id, msg);
                             } else if (msg.type === 'hf_status' || (msg.type === 'connected' && msg.hf_status)) {
@@ -4107,8 +4118,8 @@
                         if (acc) acc.positions = pos;
                         if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                             this.positions = pos;
-                            this.notifyPositionListeners();
                         }
+                        this.notifyPositionListeners();
                         return pos;
                     }
                 } catch (_) {}
@@ -4128,8 +4139,8 @@
                             if (acc) acc.positions = pos;
                             if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                                 this.positions = pos;
-                                this.notifyPositionListeners();
                             }
+                            this.notifyPositionListeners();
                             return pos;
                         }
                     } catch (e) {}
