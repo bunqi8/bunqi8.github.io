@@ -225,7 +225,22 @@
             const endpoints = window.MT5API.getEndpoints ? window.MT5API.getEndpoints().filter(e => e.enabled) : [];
             const onlineCount = endpoints.filter(e => e.status === 'online').length;
             const bridgeMeshStr = endpoints.length > 1 ? `Bridges: ${onlineCount}/${endpoints.length} Online\n` : '';
-            return `Broker: MetaTrader 5\nAccount: ${acc.nickname || 'Default'} (#${acc.login || 'N/A'})\n${epName}${bridgeMeshStr}Server: ${acc.server || 'N/A'}\nStatus: ${isConn ? 'Connected' : 'Connecting...'}\nBalance: ${balanceStr}\nEquity: ${equityStr}\nFleet: ${accounts.length} Accounts Active\nClick to manage MT5 fleet`;
+            let feedStr = '';
+            if (window.MT5ParquetIndex && window.MT5ParquetIndex.lastFeedEvent) {
+                const ev = window.MT5ParquetIndex.lastFeedEvent;
+                if (ev.source === 'parquet') {
+                    feedStr = `\nFeed: ⚡ 0ms Parquet (${ev.parquetBars} bars cached)`;
+                } else if (ev.source === 'stitched') {
+                    feedStr = `\nFeed: ⚡ Parquet (${ev.parquetBars} bars) + 🔴 Live Tail (${ev.liveBars} bars)`;
+                } else if (ev.source === 'live') {
+                    feedStr = `\nFeed: 🔴 Live MT5 Bridge (${ev.totalBars} bars)`;
+                }
+            }
+            if (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.is_syncing) {
+                const s = window.MT5ParquetIndex.bridgeStatus;
+                feedStr += `\n📦 HF Syncing: ${s.current_symbol || ''} (${s.current_chunk || ''})`;
+            }
+            return `Broker: MetaTrader 5\nAccount: ${acc.nickname || 'Default'} (#${acc.login || 'N/A'})\n${epName}${bridgeMeshStr}Server: ${acc.server || 'N/A'}\nStatus: ${isConn ? 'Connected' : 'Connecting...'}\nBalance: ${balanceStr}\nEquity: ${equityStr}\nFleet: ${accounts.length} Accounts Active${feedStr}\nClick to manage MT5 fleet`;
         }
 
         injectButton(targetEl = null, iframeDoc = null) {
@@ -1907,6 +1922,9 @@
             const enabledEndpoints = endpoints.filter(e => e.enabled);
             const onlineEndpoints = endpoints.filter(e => e.enabled && e.status === 'online');
             const hasMasterToken = window.MT5API ? window.MT5API.hasMasterGistToken() : false;
+            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author) || window.HF_AUTHOR || 'deep776';
+            const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
+            const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
 
             const cards = endpoints.map((ep) => {
                 const isPrimary = ep.id === activeEpId;
@@ -2141,6 +2159,84 @@
                             ${hasMasterToken ? `
                                 <button id="mt5-btn-clear-master-token" type="button" style="background: transparent; color: ${theme.error}; border: 1px solid ${theme.errorBorder}; height: 24px; padding: 0 6px; border-radius: 4px; font-size: 10px; cursor: pointer;" title="Clear Master Token">✕ Clear</button>
                             ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Hugging Face Parquet Archival & Multi-Account Data Explorer -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; box-sizing: border-box;">
+                        <!-- Header & Action Buttons -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="font-size: 14px;">🤗</span>
+                                <strong style="font-size: 11px; color: ${theme.text}; letter-spacing: 0.2px;">HUGGING FACE PARQUET ARCHIVAL & DATA EXPLORER</strong>
+                                <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.25); font-weight: 600;">0ms DuckDB Offline Ready</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px;">
+                                <button id="mt5-btn-sync-current-symbol" type="button" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 23px; padding: 0 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Prioritize active chart symbol for immediate Parquet archival">
+                                    <span>⚡</span> Archive Chart Symbol
+                                </button>
+                                <button id="mt5-btn-refresh-hf-status" type="button" style="background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; height: 23px; padding: 0 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                    <span>🔄</span> Refresh Status
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Live Status & Progress Strip -->
+                        <div style="background: rgba(0,0,0,0.12); border: 1px solid ${theme.border}; border-radius: 4px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 10px; font-family: monospace;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
+                                    ${hfStatus.is_syncing ? '🔄 SYNCING IN BACKGROUND:' : '🟢 ARCHIVAL IDLE:'}
+                                </span>
+                                <span style="color: ${theme.text}; font-weight: 600;">
+                                    ${hfStatus.is_syncing ? `${hfStatus.current_symbol || 'Symbol'} (${hfStatus.current_chunk || 'chunk'})` : 'Active chart symbols sync autonomously to HF'}
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px; color: ${theme.textMuted}; font-size: 9.5px;">
+                                <span>📦 Chunks Uploaded: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
+                                <span>💾 Uploaded: <strong style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
+                                <span title="Local temporary files and terminal .hcc cache are purged immediately after push" style="color: #089981; font-weight: 600;">✓ 0 MB VPS Retention</span>
+                            </div>
+                        </div>
+
+                        <!-- Publisher & Token -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-top: 1px solid ${theme.border}; padding-top: 5px;">
+                            <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                                <span style="font-size: 10.5px; font-weight: 700; color: ${theme.text};">Active Publisher:</span>
+                                <span style="font-size: 10.5px; font-family: monospace; font-weight: 700; color: ${theme.primary}; background: rgba(41,98,255,0.1); padding: 1px 6px; border-radius: 3px;">
+                                    ${hfAuthor}
+                                </span>
+                                <span style="font-size: 9px; color: ${theme.textMuted};">(${hfAuthor}/MT5_{Server}_{Ticker})</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                                <input type="password" id="mt5-in-hf-write-token" autocomplete="new-password" placeholder="Update HF Write Token (hf_...)" style="width: 180px; height: 23px; padding: 2px 8px; font-size: 10px; font-family: monospace; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; box-sizing: border-box;">
+                                <button id="mt5-btn-save-hf-token" type="button" style="background: ${theme.primary}; color: #fff; border: none; height: 23px; padding: 0 9px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">Save Token</button>
+                            </div>
+                        </div>
+
+                        <!-- Multi-Account Discovery (Community / Secondary Accounts) -->
+                        <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px solid ${theme.border}; padding-top: 5px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 10.5px; font-weight: 700; color: ${theme.text};">Data Discovery Namespaces:</span>
+                                    <span style="font-size: 9px; color: ${theme.textMuted};">Searches repositories across all accounts in priority order</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <input type="text" id="mt5-in-discovery-username" placeholder="Add HF Username (e.g. trader-data)" style="width: 170px; height: 22px; padding: 2px 8px; font-size: 10px; font-family: monospace; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; box-sizing: border-box;">
+                                    <button id="mt5-btn-add-discovery-username" type="button" style="background: rgba(41,98,255,0.12); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); height: 22px; padding: 0 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer;">➕ Add</button>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;" id="mt5-discovery-authors-list">
+                                <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(41,98,255,0.15); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); font-weight: 700; font-family: monospace;">
+                                    ${hfAuthor} (Primary)
+                                </span>
+                                ${discoveryAuthors.map(author => `
+                                    <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; font-family: monospace; display: inline-flex; align-items: center; gap: 4px;">
+                                        ${author}
+                                        <button type="button" class="mt5-btn-remove-discovery-author" data-author="${author}" style="background: transparent; border: none; color: ${theme.error}; cursor: pointer; font-size: 9px; padding: 0; line-height: 1;" title="Remove this discovery namespace">✕</button>
+                                    </span>
+                                `).join('')}
+                                ${discoveryAuthors.length === 0 ? `<span style="font-size: 9px; color: ${theme.textMuted}; font-style: italic;">No secondary accounts added yet. Add public/community usernames above to discover more Parquet data.</span>` : ''}
+                            </div>
                         </div>
                     </div>
 
@@ -5891,6 +5987,112 @@
                         await window.MT5API.clearMasterGistToken();
                         this.renderModal();
                     }
+                };
+            }
+
+            // Save Hugging Face Write Token to Bridge
+            const btnSaveHfToken = modal.querySelector('#mt5-btn-save-hf-token');
+            if (btnSaveHfToken) {
+                btnSaveHfToken.onclick = async () => {
+                    const inToken = modal.querySelector('#mt5-in-hf-write-token');
+                    const token = inToken ? inToken.value.trim() : '';
+                    if (!token) {
+                        alert('Please enter a valid Hugging Face Write Token (hf_...).');
+                        return;
+                    }
+                    const ep = window.MT5API ? window.MT5API.getActiveEndpoint() : null;
+                    if (!ep || !ep.url) {
+                        alert('Please connect to an MT5 Bridge endpoint first to save your token.');
+                        return;
+                    }
+                    btnSaveHfToken.innerText = 'Saving...';
+                    btnSaveHfToken.disabled = true;
+                    try {
+                        const res = await fetch(`${ep.url}/api/hf/token`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-API-Key': ep.apiKey || '',
+                                'X-Shield-Token': ep.shieldToken || ''
+                            },
+                            body: JSON.stringify({ token })
+                        });
+                        const data = await res.json();
+                        if (data && data.success) {
+                            if (data.author) {
+                                window.HF_AUTHOR = data.author;
+                                try { localStorage.setItem('hf_author', data.author); } catch(_) {}
+                                if (window.MT5ParquetIndex) window.MT5ParquetIndex.setAuthor(data.author);
+                            }
+                            alert(`✓ Hugging Face Token saved on Bridge!\nAuthenticated Publisher: ${data.author || 'Active'}`);
+                            this.renderModal();
+                        } else {
+                            alert(`✕ Failed to save HF token: ${data.error || 'Check credentials'}`);
+                        }
+                    } catch (err) {
+                        alert(`✕ Network error saving HF token: ${err.message}`);
+                    } finally {
+                        btnSaveHfToken.innerText = 'Save Token';
+                        btnSaveHfToken.disabled = false;
+                    }
+                };
+            }
+
+            // Add Community / Secondary Discovery Username
+            const btnAddDiscovery = modal.querySelector('#mt5-btn-add-discovery-username');
+            if (btnAddDiscovery) {
+                btnAddDiscovery.onclick = () => {
+                    const inUser = modal.querySelector('#mt5-in-discovery-username');
+                    const username = inUser ? inUser.value.trim() : '';
+                    if (!username) return;
+                    if (window.MT5ParquetIndex) {
+                        const added = window.MT5ParquetIndex.addDiscoveryAuthor(username);
+                        if (added) {
+                            this.renderModal();
+                        } else {
+                            alert(`Namespace "${username}" is already in your discovery list.`);
+                        }
+                    }
+                };
+            }
+
+            // Remove Discovery Username
+            modal.querySelectorAll('.mt5-btn-remove-discovery-author').forEach(btn => {
+                btn.onclick = (e) => {
+                    const author = e.currentTarget.getAttribute('data-author');
+                    if (author && window.MT5ParquetIndex) {
+                        window.MT5ParquetIndex.removeDiscoveryAuthor(author);
+                        this.renderModal();
+                    }
+                };
+            });
+
+            // Trigger Archival for Active Chart Symbol
+            const btnSyncCurrent = modal.querySelector('#mt5-btn-sync-current-symbol');
+            if (btnSyncCurrent) {
+                btnSyncCurrent.onclick = async () => {
+                    const sym = (window.MT5API && window.MT5API.activeSymbol) || 'XAUUSD';
+                    const activeAcc = window.MT5API ? window.MT5API.getActiveAccount() : null;
+                    const server = activeAcc ? activeAcc.server : null;
+                    if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
+                        btnSyncCurrent.innerText = '⚡ Queuing...';
+                        await window.MT5API.triggerHFSync(sym, server);
+                        alert(`✓ Symbol "${sym}" prioritized for background Parquet archival!\nThe bridge will extract and upload to Hugging Face, then wipe temporary candles.`);
+                        if (window.MT5ParquetIndex) await window.MT5ParquetIndex.pollBridgeStatus();
+                        this.renderModal();
+                    }
+                };
+            }
+
+            // Refresh HF Status
+            const btnRefreshHf = modal.querySelector('#mt5-btn-refresh-hf-status');
+            if (btnRefreshHf) {
+                btnRefreshHf.onclick = async () => {
+                    btnRefreshHf.innerHTML = '<span>🔄</span> Checking...';
+                    if (window.MT5ParquetIndex) {
+                        await window.MT5ParquetIndex.pollBridgeStatus();
+                    }
+                    this.renderModal();
                 };
             }
 

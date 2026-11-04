@@ -1,6 +1,7 @@
 // ============================================================================
 // MT5 Hugging Face Parquet Archival & 0ms DuckDB Datafeed Engine
 // Brings 0ms historical charts and 100% offline backfill to MetaTrader 5 brokers.
+// Supports multi-username discovery across community & personal HF repositories.
 // ============================================================================
 
 (function () {
@@ -36,12 +37,74 @@
             try { return localStorage.getItem('hf_author') || 'deep776'; } catch(_) { return 'deep776'; }
         })(),
 
+        bridgeStatus: {
+            enabled: true,
+            is_syncing: false,
+            current_symbol: null,
+            current_server: null,
+            current_chunk: null,
+            completed_chunks: 0,
+            total_bytes_uploaded: 0,
+            author: null,
+            last_error: null,
+            last_sync_time: null
+        },
+
+        lastFeedEvent: {
+            source: 'none', // 'parquet' | 'live' | 'stitched'
+            symbol: null,
+            resolution: null,
+            parquetBars: 0,
+            liveBars: 0,
+            totalBars: 0,
+            timestamp: Date.now()
+        },
+
         setAuthor(newAuthor) {
             if (newAuthor && typeof newAuthor === 'string') {
                 this.author = newAuthor.trim();
                 try { localStorage.setItem('hf_author', this.author); } catch(_) {}
-                console.log(`[MT5Parquet] Author namespace updated to: ${this.author}`);
+                console.log(`[MT5Parquet] Primary author namespace updated to: ${this.author}`);
             }
+        },
+
+        getDiscoveryAuthors() {
+            try {
+                const raw = localStorage.getItem('hf_discovery_authors');
+                if (raw) {
+                    const list = JSON.parse(raw);
+                    if (Array.isArray(list)) return list.filter(Boolean);
+                }
+            } catch (_) {}
+            return [];
+        },
+
+        addDiscoveryAuthor(author) {
+            const clean = String(author || '').trim();
+            if (!clean) return false;
+            const list = this.getDiscoveryAuthors();
+            if (!list.includes(clean) && clean !== this.author) {
+                list.push(clean);
+                try { localStorage.setItem('hf_discovery_authors', JSON.stringify(list)); } catch(_) {}
+                console.log(`[MT5Parquet] Added discovery author: ${clean}`);
+                return true;
+            }
+            return false;
+        },
+
+        removeDiscoveryAuthor(author) {
+            const clean = String(author || '').trim();
+            let list = this.getDiscoveryAuthors();
+            list = list.filter(a => a !== clean);
+            try { localStorage.setItem('hf_discovery_authors', JSON.stringify(list)); } catch(_) {}
+            console.log(`[MT5Parquet] Removed discovery author: ${clean}`);
+        },
+
+        getAllAuthors() {
+            const primary = this.author || 'deep776';
+            const extra = this.getDiscoveryAuthors();
+            const set = new Set([primary, ...extra]);
+            return Array.from(set);
         },
 
         getRepoName(server, symbol) {
@@ -60,20 +123,24 @@
                 return cached.manifest;
             }
 
-            const author = this.author || 'deep776';
             const repoName = this.getRepoName(server, symbol);
-            const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
+            const authors = this.getAllAuthors();
 
-            try {
-                const res = await fetch(manifestUrl, { cache: 'no-cache' });
-                if (res.ok) {
-                    const manifest = await res.json();
-                    manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
-                    console.log(`[MT5Parquet] ✓ Loaded manifest for ${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
-                    return manifest;
+            // Multi-Namespace Search: Check primary author first, then discovery authors
+            for (const author of authors) {
+                const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
+                try {
+                    const res = await fetch(manifestUrl, { cache: 'no-cache' });
+                    if (res.ok) {
+                        const manifest = await res.json();
+                        manifest._author = author;
+                        manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
+                        console.log(`[MT5Parquet] ✓ Loaded manifest from ${author}/${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
+                        return manifest;
+                    }
+                } catch (err) {
+                    console.debug(`[MT5Parquet] ${author}/${repoName} manifest probe note:`, err.message);
                 }
-            } catch (err) {
-                console.debug(`[MT5Parquet] Manifest not found for ${repoName}:`, err.message);
             }
 
             return null;
@@ -84,7 +151,7 @@
             if (!manifest) return null;
 
             const isDwm = isDailyOrHigher(resolution);
-            const author = this.author || 'deep776';
+            const author = manifest._author || this.author || 'deep776';
             const repoName = this.getRepoName(server, symbol);
 
             const urls = [];
@@ -98,7 +165,6 @@
                     earliestSec = Math.min(earliestSec, cFrom);
                     latestSec = Math.max(latestSec, cTo);
 
-                    // Check overlap with requested [fromSec, toSec]
                     if (cTo >= fromSec && cFrom <= toSec) {
                         urls.push(`https://huggingface.co/datasets/${author}/${repoName}/resolve/main/${chunk.file}`);
                     }
@@ -121,7 +187,8 @@
                 isDwm,
                 earliestSec: earliestSec === Infinity ? 0 : earliestSec,
                 latestSec,
-                manifest
+                manifest,
+                author
             };
         },
 
@@ -225,12 +292,13 @@
                 }
 
                 const elapsed = (performance.now() - t0).toFixed(1);
-                console.log(`[MT5Parquet] ⚡ DuckDB query executed in ${elapsed}ms: ${finalBars.length} ${resolution} bars for ${symbol}`);
+                console.log(`[MT5Parquet] ⚡ DuckDB query executed in ${elapsed}ms: ${finalBars.length} ${resolution} bars for ${symbol} (Author: ${resolved.author})`);
 
                 return {
                     bars: finalBars,
                     earliestSec: resolved.earliestSec,
                     latestSec: resolved.latestSec,
+                    author: resolved.author,
                     fromParquet: true
                 };
             } catch (err) {
@@ -285,9 +353,39 @@
             }
 
             return Array.from(map.values()).sort((a, b) => a.time - b.time);
+        },
+
+        async pollBridgeStatus() {
+            try {
+                if (!window.MT5API) return this.bridgeStatus;
+                const ep = window.MT5API.getActiveEndpoint();
+                if (!ep || !ep.url) return this.bridgeStatus;
+
+                const res = await fetch(`${ep.url}/api/hf/status`, {
+                    headers: {
+                        'X-API-Key': ep.apiKey || '',
+                        'X-Shield-Token': ep.shieldToken || ''
+                    }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.status) {
+                        this.bridgeStatus = { ...this.bridgeStatus, ...data.status };
+                        if (data.author) {
+                            this.setAuthor(data.author);
+                        }
+                    }
+                }
+            } catch (_) {}
+            return this.bridgeStatus;
+        },
+
+        recordFeedEvent(event) {
+            this.lastFeedEvent = { ...this.lastFeedEvent, ...event, timestamp: Date.now() };
+            window.dispatchEvent(new CustomEvent('mt5_feed_event', { detail: this.lastFeedEvent }));
         }
     };
 
     window.MT5ParquetIndex = MT5ParquetIndex;
-    console.log("[MT5Parquet] MT5 Parquet & DuckDB offline engine initialized.");
+    console.log("[MT5Parquet] MT5 Parquet & DuckDB offline engine initialized with multi-namespace discovery.");
 })();
