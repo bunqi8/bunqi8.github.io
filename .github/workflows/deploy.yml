@@ -31,11 +31,25 @@ jobs:
           path: './public'
       - name: Inspect Pages API
         run: |
-          echo "=== GitHub Pages API Status ==="
+          mkdir -p debug_logs
           curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/pages || true
-          echo ""
+            https://api.github.com/repos/${{ github.repository }}/pages > debug_logs/pages.json || true
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/deployments > debug_logs/deployments.json || true
       - name: Deploy to GitHub Pages
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+      - name: Capture Deploy Step Output
+        if: always()
+        run: |
+          echo "Outcome: ${{ steps.deployment.outcome }}" > debug_logs/outcome.txt
+          echo "Conclusion: ${{ steps.deployment.conclusion }}" >> debug_logs/outcome.txt
+      - name: Upload Debug Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-pages-log
+          path: debug_logs
