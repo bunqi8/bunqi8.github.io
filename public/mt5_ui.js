@@ -1922,7 +1922,7 @@
             const enabledEndpoints = endpoints.filter(e => e.enabled);
             const onlineEndpoints = endpoints.filter(e => e.enabled && e.status === 'online');
             const hasMasterToken = window.MT5API ? window.MT5API.hasMasterGistToken() : false;
-            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author) || window.HF_AUTHOR || 'deep776';
+            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') || (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') || 'bnq-ii';
             const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
             const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
 

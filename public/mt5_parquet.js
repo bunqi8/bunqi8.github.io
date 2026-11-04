@@ -32,9 +32,25 @@
         return s.includes('D') || s.includes('W') || s.includes('M');
     }
 
+    // Cleanse any stale 'deep776' Fyers author from MT5 storage (deep776 is reserved strictly for Fyers)
+    try {
+        if (localStorage.getItem('hf_author') === 'deep776') {
+            localStorage.removeItem('hf_author');
+        }
+        const disc = localStorage.getItem('hf_discovery_authors');
+        if (disc && disc.includes('deep776')) {
+            const list = JSON.parse(disc).filter(x => x !== 'deep776');
+            localStorage.setItem('hf_discovery_authors', JSON.stringify(list));
+        }
+    } catch (_) {}
+
     const MT5ParquetIndex = {
-        author: window.HF_AUTHOR || (function() {
-            try { return localStorage.getItem('hf_author') || 'deep776'; } catch(_) { return 'deep776'; }
+        author: (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') || (function() {
+            try {
+                const stored = localStorage.getItem('hf_author');
+                if (stored && stored !== 'deep776') return stored;
+                return 'bnq-ii';
+            } catch(_) { return 'bnq-ii'; }
         })(),
 
         bridgeStatus: {
@@ -62,7 +78,9 @@
 
         setAuthor(newAuthor) {
             if (newAuthor && typeof newAuthor === 'string') {
-                this.author = newAuthor.trim();
+                const clean = newAuthor.trim();
+                if (clean === 'deep776') return; // deep776 is reserved strictly for Fyers
+                this.author = clean;
                 try { localStorage.setItem('hf_author', this.author); } catch(_) {}
                 console.log(`[MT5Parquet] Primary author namespace updated to: ${this.author}`);
             }
@@ -73,7 +91,7 @@
                 const raw = localStorage.getItem('hf_discovery_authors');
                 if (raw) {
                     const list = JSON.parse(raw);
-                    if (Array.isArray(list)) return list.filter(Boolean);
+                    if (Array.isArray(list)) return list.filter(a => a && a !== 'deep776');
                 }
             } catch (_) {}
             return [];
@@ -81,7 +99,7 @@
 
         addDiscoveryAuthor(author) {
             const clean = String(author || '').trim();
-            if (!clean) return false;
+            if (!clean || clean === 'deep776') return false;
             const list = this.getDiscoveryAuthors();
             if (!list.includes(clean) && clean !== this.author) {
                 list.push(clean);
@@ -101,8 +119,8 @@
         },
 
         getAllAuthors() {
-            const primary = this.author || 'deep776';
-            const extra = this.getDiscoveryAuthors();
+            const primary = (this.author && this.author !== 'deep776') ? this.author : 'bnq-ii';
+            const extra = this.getDiscoveryAuthors().filter(a => a && a !== 'deep776');
             const set = new Set([primary, ...extra]);
             return Array.from(set);
         },
@@ -128,6 +146,7 @@
 
             // Multi-Namespace Search: Check primary author first, then discovery authors
             for (const author of authors) {
+                if (!author || author === 'deep776') continue;
                 const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
                 try {
                     const res = await fetch(manifestUrl, { cache: 'no-cache' });
@@ -151,7 +170,7 @@
             if (!manifest) return null;
 
             const isDwm = isDailyOrHigher(resolution);
-            const author = manifest._author || this.author || 'deep776';
+            const author = manifest._author || ((this.author && this.author !== 'deep776') ? this.author : 'bnq-ii');
             const repoName = this.getRepoName(server, symbol);
 
             const urls = [];
