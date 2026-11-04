@@ -35,14 +35,27 @@ function setupCustomIndicatorsDialog(widget) {
                         try {
                             const resPromise = chart.createStudy(autoLoad, false, false);
                             if (resPromise && typeof resPromise.then === 'function') {
-                                await resPromise.catch(err => {
+                                await resPromise.catch(async err => {
                                     console.warn(`[AutoReload] Direct createStudy('${autoLoad}') failed:`, err);
-                                    // Fallback: try unversioned base name if autoLoad has version tag
-                                    const baseName = autoLoad.replace(/\s*\([vV]?\d+(\.\d+)*\)/, '').trim();
+                                    // Fallback 1: try unversioned base name
+                                    const baseName = autoLoad.replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').replace(/\s+[vV]\d+(\.\d+)*/i, '').trim();
                                     if (baseName && baseName.toLowerCase() !== autoLoadLower) {
-                                        return chart.createStudy(baseName, false, false).catch(e => {
-                                            console.warn(`[AutoReload] Fallback createStudy('${baseName}') failed:`, e);
+                                        try {
+                                            return await chart.createStudy(baseName, false, false);
+                                        } catch (_) {}
+                                    }
+                                    // Fallback 2: search registered studies in TradingView
+                                    try {
+                                        const rawList = (typeof widget.getStudiesList === 'function') ? (widget.getStudiesList() || []) : [];
+                                        const match = rawList.find(s => {
+                                            const sLow = (typeof s === 'string' ? s : (s.name || s.description || '')).toLowerCase();
+                                            return sLow === autoLoadLower || sLow.includes(autoLoadLower) || autoLoadLower.includes(sLow) || (baseName && sLow.includes(baseName.toLowerCase()));
                                         });
+                                        if (match) {
+                                            return await chart.createStudy(typeof match === 'string' ? match : (match.name || match.description), false, false);
+                                        }
+                                    } catch (e2) {
+                                        console.warn(`[AutoReload] Fallback createStudy failed:`, e2);
                                     }
                                 });
                             }
