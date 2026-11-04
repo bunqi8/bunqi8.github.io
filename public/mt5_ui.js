@@ -928,10 +928,21 @@
                 const anyConnected = instances.some(i => i.is_connected);
 
                 const targetLogin = String(primary.login).trim();
-                const targetServer = String(primary.server || '').trim().toLowerCase();
-                const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer);
+                const isMatch = (s1, s2) => window.MT5API?.isServerMatch ? window.MT5API.isServerMatch(s1, s2) : String(s1 || '').trim().toLowerCase() === String(s2 || '').trim().toLowerCase();
+                const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && isMatch(v.server, primary.server));
+
+                // If the account is connected on the broker, any previous local vault rejection is stale
+                if (anyConnected && vaultEntry && vaultEntry.verification_failed) {
+                    vaultEntry.verification_failed = false;
+                    vaultEntry.last_error = null;
+                    vaultEntry.is_verified = true;
+                    try {
+                        localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+                    } catch (_) {}
+                }
+
                 const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
-                const isVaultRejected = Boolean(vaultEntry && vaultEntry.verification_failed) || Boolean(primary.is_verification_failed);
+                const isVaultRejected = !anyConnected && (Boolean(vaultEntry && vaultEntry.verification_failed) || Boolean(primary.is_verification_failed));
                 const isVaultVerified = Boolean(vaultEntry && vaultEntry.is_verified !== false && !vaultEntry.staged_offline && !isVaultRejected);
                 const isVaultStaged = Boolean(vaultEntry && (vaultEntry.staged_offline || vaultEntry.is_verified === false) && !isVaultRejected);
                 const hasBridgeDpapi = Boolean(
@@ -1082,7 +1093,7 @@
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 ${multiHostBadge}
                                 ${(() => {
-                                    if (acc.vault_mode === 'local_rejected' || acc.is_verification_failed) {
+                                    if (!acc.is_connected && (acc.vault_mode === 'local_rejected' || acc.is_verification_failed)) {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(244, 67, 54, 0.15); color: #f44336; border: 1px solid rgba(244, 67, 54, 0.4); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="${acc.last_error || 'Broker rejected staged password. Click Details to update.'}">❌ Pwd Rejected by Broker</span>`;
                                     } else if (acc.vault_mode === 'awaiting_credentials' || (!acc.is_connected && !acc.has_dpapi && !acc.has_local_vault)) {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.15); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.4); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Awaiting Password: No valid password stored. Click Details to enter password and connect.">🔑 Needs Password</span>`;
@@ -3967,11 +3978,23 @@
 
             const allEndpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const vault = window.MT5API ? window.MT5API.getClientVault() : [];
-            const vaultEntry = vault.find(v => String(v.login) === String(acc.login) && (v.server || '').toLowerCase() === (acc.server || '').toLowerCase());
-            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
+            const targetLogin = String(acc.login).trim();
+            const isMatch = (s1, s2) => window.MT5API?.isServerMatch ? window.MT5API.isServerMatch(s1, s2) : String(s1 || '').trim().toLowerCase() === String(s2 || '').trim().toLowerCase();
+            const vaultEntry = vault.find(v => String(v.login).trim() === targetLogin && isMatch(v.server, acc.server));
+            const activeInstances = (window.MT5API?.accounts || []).filter(a => String(a.login).trim() === targetLogin && isMatch(a.server, acc.server));
             const allInstancesWithAcc = [acc, ...activeInstances];
+            const anyLiveConnected = Boolean(acc.is_connected || allInstancesWithAcc.some(i => i.is_connected));
 
-            const isVaultRejected = Boolean(vaultEntry && vaultEntry.verification_failed) || Boolean(acc.is_verification_failed);
+            if (anyLiveConnected && vaultEntry && vaultEntry.verification_failed) {
+                vaultEntry.verification_failed = false;
+                vaultEntry.last_error = null;
+                vaultEntry.is_verified = true;
+                try {
+                    localStorage.setItem('mt5_client_vault', JSON.stringify(vault));
+                } catch (_) {}
+            }
+
+            const isVaultRejected = !anyLiveConnected && (Boolean(vaultEntry && vaultEntry.verification_failed) || Boolean(acc.is_verification_failed));
             const hasLocalVault = Boolean(vaultEntry && vaultEntry.password);
             const isVaultVerified = Boolean(vaultEntry && vaultEntry.is_verified !== false && !vaultEntry.staged_offline && !isVaultRejected);
             const isVaultStaged = Boolean(vaultEntry && (vaultEntry.staged_offline || vaultEntry.is_verified === false) && !isVaultRejected);
