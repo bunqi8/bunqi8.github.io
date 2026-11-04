@@ -7,6 +7,52 @@
 (function(window) {
     'use strict';
 
+    // Curated Benchmark US Equities, Benchmark ETFs, and Mega-Caps (~500 High-Volume Symbols)
+    const MAJOR_US_SET = new Set([
+        // Top Benchmark ETFs
+        "SPY", "QQQ", "DIA", "IWM", "VOO", "VTI", "VEA", "VWO", "EEM", "EFA", 
+        "XLK", "XLF", "XLE", "XLI", "XLV", "XLP", "XLY", "XLU", "XLB", "XLC", 
+        "SMH", "SOXX", "ARKK", "TQQQ", "SQQQ", "TLT", "IEF", "HYG", "LQD", 
+        "GLD", "SLV", "USO", "UNG", "UVXY", "VIXY", "BITO",
+
+        // Mega-Cap & Large-Cap Tech
+        "AAPL", "MSFT", "NVDA", "GOOGL", "GOOG", "AMZN", "META", "TSLA", "AVGO", "ORCL", 
+        "ADBE", "CRM", "AMD", "CSCO", "INTC", "QCOM", "TXN", "AMAT", "INTU", "IBM", 
+        "NOW", "MU", "PANW", "AMGN", "LRCX", "ADI", "KLAC", "SNPS", "CDNS", "NXPI", 
+        "MRVL", "FTNT", "ABNB", "CRWD", "PLTR", "COIN", "UBER", "DASH", "SHOP", "SQ", 
+        "PYPL", "HOOD", "RIVN", "LCID", "NIO", "BABA", "JD", "PDD", "TSM", "ASML", 
+        "ARM", "BIDU", "NET", "DDOG", "ZS", "MDB", "TEAM", "HUBS", "DOCU", "OKTA", 
+        "TWLO", "RBLX", "U", "SMCI", "DELL", "HPE", "WDC", "STX",
+
+        // Financials & Payments
+        "JPM", "BAC", "WFC", "C", "MS", "GS", "BLK", "SCHW", "AXP", "V", "MA", 
+        "ICE", "CME", "SPGI", "MCO", "MMC", "AON", "PGR", "TRV", "ALL", "CB", "MET", "PRU", "AFL",
+
+        // Healthcare & Pharma
+        "LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "PFE", "DHR", "BMY", 
+        "ISRG", "GILD", "VRTX", "REGN", "MDT", "ELV", "CI", "CVS", "SYK", "BDX", 
+        "BSX", "ZTS", "EW", "HCA", "MCK", "COR", "CAH", "MRNA", "BNTX",
+
+        // Consumer & Retail
+        "WMT", "COST", "HD", "PG", "KO", "PEP", "MCD", "NKE", "SBUX", "TGT", 
+        "LOW", "TJX", "BKNG", "MAR", "HLT", "CMG", "YUM", "CL", "KMB", "MO", "PM", "STZ", "EL", "DECK", "LULU",
+
+        // Industrials & Aerospace
+        "GE", "CAT", "UNP", "HON", "RTX", "BA", "LMT", "DE", "UPS", "FDX", 
+        "NSC", "CSX", "ETN", "ITW", "PH", "GD", "NOC", "TDG", "CMI", "PCAR", "EMR", "ROP", "JCI", "TT",
+
+        // Energy & Utilities
+        "XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "WMB", 
+        "KMI", "HES", "BKR", "HAL", "NEE", "DUK", "SO", "AEP", "SRE", "D", "EXC", "XEL", "CEG", "VST", "NRG",
+
+        // Basic Materials & Real Estate
+        "LIN", "APD", "SHW", "ECL", "FCX", "NEM", "NUE", "DOW", "CTVA", 
+        "PLD", "AMT", "EQIX", "CCI", "PSA", "O", "SPG", "WELL", "DLR", "WY",
+
+        // Popular / High-Volume Trading Names
+        "GME", "AMC", "SOFI", "MARA", "RIOT", "CLSK", "MSTR", "DJT", "SOUN", "IONQ", "RGTI", "QS", "NKLA"
+    ]);
+
     class MT5UI {
         constructor() {
             this.btnId = 'header-toolbar-mt5-broker-btn';
@@ -21,6 +67,9 @@
             this.editingEndpointId = null; // Endpoint currently open in edit mode
             this.showAddBridgeForm = false; // Toggle collapsible add bridge server drawer
             this.accumulatedOcrText = ''; // Cumulative OCR / paste text buffer
+
+            // Universe Mode: 'MAJOR' (~666 liquid universe) or 'ALL' (12,197)
+            this.tickerUniverseMode = 'MAJOR';
 
             // Real-time live ping listener from bridge sockets
             if (window.MT5API && typeof window.MT5API.onPing === 'function') {
@@ -2971,12 +3020,23 @@
             `;
         }
 
+        isMajorSymbol(s, server = '') {
+            if (!s) return false;
+            const cat = s.category || s.type || '';
+            if (['Forex', 'Metals', 'Indexes', 'Commodities', 'Crypto'].includes(cat)) return true;
+            const sym = (s.name || s.symbol || '').toUpperCase().replace('.US', '').replace('.', '-');
+            if (MAJOR_US_SET.has(sym)) return true;
+            if (['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'XAU', 'XAG', 'BTC', 'ETH', 'US30', 'NAS100', 'SP500', 'US500', 'GER40', 'UK100', 'JP225'].some(k => sym.includes(k))) return true;
+            return false;
+        }
+
         async openAccountDetails(accountId, forceRefresh = false) {
             this.viewMode = 'details';
             this.detailsAccountId = accountId;
             this.tickerSearchQuery = '';
             this.tickerCategoryFilter = 'ALL';
             this.tickerSyncFilter = 'ALL';
+            this.tickerUniverseMode = 'MAJOR';
             this.tickerVisibleCount = 100;
             this.historySearchQuery = '';
             this.historyTypeFilter = 'ALL';
@@ -3213,6 +3273,12 @@
             const targetSymbol = brokerExchange ? `${brokerExchange}:${cleanSym}` : cleanSym;
 
             console.log(`[MT5UI] Loading symbol on chart: ${targetSymbol}`);
+
+            // Background archival priority trigger for on-demand tickers (chart renders live without waiting)
+            if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
+                const srv = targetAcc ? targetAcc.server : (brokerServer || '');
+                window.MT5API.triggerHFSync(cleanSym, srv).catch(() => {});
+            }
 
             // Clear caches for this symbol so fresh bars are requested
             if (window._barsCache) {
@@ -4056,25 +4122,25 @@
                     </div>
                 `;
             } else {
-                const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload from inception to present`;
+                const fallbackTooltip = `Hugging Face Archival&#10;⚡ On-Demand Archival&#10;Click to prioritize background extraction & upload from inception to present`;
                 hfBadgeHtml = `
                     <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${symbol}" data-server="${server || ''}" style="
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
-                        padding: 1.5px 6px;
-                        border-radius: 3px;
-                        font-size: 9px;
-                        font-weight: 500;
-                        background: transparent;
-                        color: ${theme.textMuted};
-                        border: 1px dashed ${theme.border};
+                        gap: 4px;
+                        padding: 2px 7px;
+                        border-radius: 4px;
+                        font-size: 9.5px;
+                        font-weight: 600;
+                        background: rgba(255, 152, 0, 0.08);
+                        color: #ff9800;
+                        border: 1px dashed rgba(255, 152, 0, 0.45);
                         cursor: pointer;
                         white-space: nowrap;
                         transition: all 0.12s ease;
                     " title="${fallbackTooltip}">
-                        <span style="opacity: 0.6;">⚪</span>
-                        <span>Sync to HF ⚡</span>
+                        <span>⚡</span>
+                        <span>On-Demand (Sync)</span>
                     </button>
                 `;
             }
@@ -4189,6 +4255,12 @@
             if (!container || !this.detailsData) return;
 
             let symbols = this.detailsData.symbols || [];
+
+            // Apply Universe Filter ('MAJOR' ~666 vs 'ALL' 12,197)
+            if (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') {
+                symbols = symbols.filter(s => this.isMajorSymbol(s, server));
+            }
+
             if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
                 symbols = symbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
             }
@@ -4310,6 +4382,15 @@
                 } else if (sf === 'UNSYNCED') {
                     btn.textContent = `⚪ Unsynced (${totalCount - syncedCount})`;
                 }
+            });
+
+            // Update Universe Scope Buttons active state
+            modal.querySelectorAll('.mt5-universe-btn').forEach(btn => {
+                const u = btn.getAttribute('data-universe') || 'MAJOR';
+                const isAct = u === (this.tickerUniverseMode || 'MAJOR');
+                btn.style.background = isAct ? theme.primary : theme.pillBg;
+                btn.style.color = isAct ? '#ffffff' : theme.textMuted;
+                btn.style.borderColor = isAct ? theme.primary : theme.border;
             });
         }
 
@@ -4479,8 +4560,12 @@
 
             const categoryList = Object.keys(categories);
 
+            // Universe filtering ('MAJOR' ~666 vs 'ALL' 12,197)
+            const majorSymbols = symbols.filter(s => this.isMajorSymbol(s, acc.server));
+            const majorSymbolsCount = majorSymbols.length;
+
             // Filter symbols for tickers tab view
-            let filteredSymbols = symbols;
+            let filteredSymbols = (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') ? majorSymbols : symbols;
             if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
                 filteredSymbols = filteredSymbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
             }
@@ -4943,6 +5028,56 @@
                                 </div>
                             </div>
 
+                            <!-- Universe Scope Toggle: Major Benchmark (~666) vs All Symbols (12,197) -->
+                            <div style="
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                gap: 8px;
+                                flex-wrap: wrap;
+                                padding: 2px 0;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <button type="button" class="mt5-universe-btn" data-universe="MAJOR" style="
+                                        background: ${(!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') ? theme.primary : theme.pillBg};
+                                        color: ${(!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${(!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') ? theme.primary : theme.border};
+                                        padding: 3px 10px;
+                                        border-radius: 4px;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 4px;
+                                        transition: all 0.12s ease;
+                                    ">
+                                        <span>⭐</span> Major Universe (${majorSymbolsCount.toLocaleString()})
+                                    </button>
+                                    <button type="button" class="mt5-universe-btn" data-universe="ALL" style="
+                                        background: ${this.tickerUniverseMode === 'ALL' ? theme.primary : theme.pillBg};
+                                        color: ${this.tickerUniverseMode === 'ALL' ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${this.tickerUniverseMode === 'ALL' ? theme.primary : theme.border};
+                                        padding: 3px 10px;
+                                        border-radius: 4px;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 4px;
+                                        transition: all 0.12s ease;
+                                    ">
+                                        <span>🌐</span> All Symbols (${symbols.length.toLocaleString()})
+                                    </button>
+                                </div>
+                                <div style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">
+                                    ${(!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') 
+                                        ? '✓ Core Forex/Metals/Indices & Top 500 Equities auto-sync daily' 
+                                        : '⚡ 11,500+ long-tail equities sync on-demand when charted'}
+                                </div>
+                            </div>
+
                             <!-- Search & Category Filters -->
                             <div style="display: flex; flex-direction: column; gap: 5px;">
                                 <div style="position: relative;">
@@ -5221,6 +5356,17 @@
                     this.detailsSubTab = 'tickers';
                     this.tickerCategoryFilter = cat || 'ALL';
                     this.renderModal();
+                };
+            });
+
+            // Universe Scope Toggle (Major ~666 vs All Symbols)
+            modal.querySelectorAll('.mt5-universe-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const u = e.currentTarget.getAttribute('data-universe') || 'MAJOR';
+                    this.tickerUniverseMode = u;
+                    this.tickerVisibleCount = 100;
+                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                    this.updateTickerListView(modal, this.getTheme(), server);
                 };
             });
 
