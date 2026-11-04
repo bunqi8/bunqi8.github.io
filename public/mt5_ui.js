@@ -496,6 +496,13 @@
             modal.style.display = 'flex';
             this.renderModal();
 
+            // Background status sync for Parquet engine
+            if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.pollBridgeStatus === 'function') {
+                window.MT5ParquetIndex.pollBridgeStatus().then(() => {
+                    if (this.isOpen && this.activeTab === 'parquet') this.renderModal();
+                }).catch(() => {});
+            }
+
             // Auto-heal on open: if any bridge is offline/unknown or 0 accounts, proactively trigger auto-discovery and account sync!
             if (window.MT5API) {
                 const endpoints = window.MT5API.getEndpoints() || [];
@@ -1928,7 +1935,12 @@
         }
 
         getParquetHtml(theme) {
-            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') || (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') || 'bnq-ii';
+            let hfAuthor = 'bnq-ii';
+            if (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') {
+                hfAuthor = window.MT5ParquetIndex.author;
+            } else if (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') {
+                hfAuthor = window.HF_AUTHOR;
+            }
             const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
             const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
 
@@ -4884,8 +4896,11 @@
             };
 
             const tabParquet = modal.querySelector('#mt5-tab-parquet');
-            if (tabParquet) tabParquet.onclick = () => {
+            if (tabParquet) tabParquet.onclick = async () => {
                 this.activeTab = 'parquet';
+                if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.pollBridgeStatus === 'function') {
+                    await window.MT5ParquetIndex.pollBridgeStatus();
+                }
                 this.renderModal();
             };
 
