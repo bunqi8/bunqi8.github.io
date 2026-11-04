@@ -156,7 +156,7 @@
                     const server = (this.detailsData.account && this.detailsData.account.server) || '';
                     const allSyms = this.detailsData.symbols;
                     const acctSynced = allSyms.filter(sym => {
-                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, sym.name || sym.symbol) : null;
+                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, sym.name || sym.symbol, false) : null;
                         return st && st.isAvailable;
                     }).length;
                     const acctTotal = allSyms.length;
@@ -2976,6 +2976,8 @@
             this.detailsAccountId = accountId;
             this.tickerSearchQuery = '';
             this.tickerCategoryFilter = 'ALL';
+            this.tickerSyncFilter = 'ALL';
+            this.tickerVisibleCount = 100;
             this.historySearchQuery = '';
             this.historyTypeFilter = 'ALL';
             this.historyOutcomeFilter = 'ALL';
@@ -3943,7 +3945,7 @@
 
         renderHfBadgeHtml(server, symbol, theme) {
             const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
-                ? window.MT5ParquetIndex.getTickerStatusSync(server, symbol)
+                ? window.MT5ParquetIndex.getTickerStatusSync(server, symbol, true)
                 : { isAvailable: false, isSyncing: false, isQueued: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${symbol}`, displayRange: 'Inception → Present', startDate: 'Inception', endDate: 'Present', totalChunks: 0, totalBars: 0 };
 
             let hfBadgeHtml = '';
@@ -4080,7 +4082,7 @@
             return `<div class="mt5-hf-badge-container" data-symbol="${symbol}" data-server="${server || ''}" style="display:inline-flex; align-items:center;">${hfBadgeHtml}</div>`;
         }
 
-        getTickerListHtml(symbols, theme, server) {
+        getTickerListHtml(symbols, theme, server, totalMatching = null) {
             if (!symbols || symbols.length === 0) {
                 return `
                     <div style="text-align: center; padding: 32px 16px; color: ${theme.textMuted}; font-size: 12.5px;">
@@ -4089,7 +4091,7 @@
                 `;
             }
 
-            return symbols.map(s => {
+            const rowsHtml = symbols.map(s => {
                 const cat = s.category || s.type || 'Other';
                 const digits = s.digits != null ? s.digits : 2;
                 const minLot = s.min_lot != null ? s.min_lot : 0.01;
@@ -4129,6 +4131,9 @@
                                 display: inline-flex;
                                 align-items: center;
                                 gap: 3px;
+                                background: ${theme.primary};
+                                color: #ffffff;
+                                border: none;
                             " title="Open ${s.name} on TradingView Chart">
                                 <span>📈</span> Chart
                             </button>
@@ -4136,6 +4141,47 @@
                     </div>
                 `;
             }).join('');
+
+            const total = totalMatching !== null ? totalMatching : symbols.length;
+            let paginationHtml = '';
+            if (total > symbols.length) {
+                paginationHtml = `
+                    <div id="mt5-ticker-pagination-bar" style="
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 12px 10px;
+                        margin-top: 6px;
+                        background: ${theme.cardBg};
+                        border: 1px dashed ${theme.border};
+                        border-radius: 6px;
+                        gap: 6px;
+                    ">
+                        <div style="font-size: 11px; color: ${theme.textMuted}; font-weight: 500;">
+                            Showing <strong style="color: ${theme.text};">${symbols.length.toLocaleString()}</strong> of <strong style="color: ${theme.primary};">${total.toLocaleString()}</strong> symbols
+                        </div>
+                        <button id="mt5-btn-load-more-tickers" type="button" style="
+                            background: ${theme.primary};
+                            color: #ffffff;
+                            border: none;
+                            padding: 6px 16px;
+                            border-radius: 5px;
+                            font-size: 11px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 6px;
+                            transition: opacity 0.15s ease;
+                        ">
+                            <span>⬇️</span> Load Next 100 Symbols
+                        </button>
+                    </div>
+                `;
+            }
+
+            return rowsHtml + paginationHtml;
         }
 
         updateTickerListView(modal, theme, server) {
@@ -4156,43 +4202,69 @@
                 });
             }
 
-            // Apply HF Sync Filter
+            // Apply HF Sync Filter with autoPreload=false for speed
             if (this.tickerSyncFilter === 'SYNCED') {
                 symbols = symbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
                     return st && st.isAvailable;
                 });
             } else if (this.tickerSyncFilter === 'UNSYNCED') {
                 symbols = symbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
                     return !st || !st.isAvailable;
                 });
             }
 
-            container.innerHTML = this.getTickerListHtml(symbols, theme, server);
+            this._lastFilteredSymbolsCount = symbols.length;
+            const visibleCount = this.tickerVisibleCount || 100;
+            const pageSymbols = symbols.slice(0, visibleCount);
 
-            // Re-bind chart buttons inside the updated ticker list
-            container.querySelectorAll('.mt5-btn-chart-symbol').forEach(btn => {
-                btn.onclick = (e) => {
-                    const sym = e.currentTarget.getAttribute('data-symbol');
-                    const srv = e.currentTarget.getAttribute('data-server');
-                    this.loadSymbolOnChart(sym, srv);
-                };
-            });
+            container.innerHTML = this.getTickerListHtml(pageSymbols, theme, server, symbols.length);
 
-            // Bind HF Prioritize Sync buttons
-            container.querySelectorAll('.mt5-btn-prioritize-hf').forEach(btn => {
-                btn.onclick = async (e) => {
-                    const sym = e.currentTarget.getAttribute('data-symbol');
-                    const srv = e.currentTarget.getAttribute('data-server');
-                    btn.innerHTML = '<span>⚡</span> Queuing...';
-                    btn.disabled = true;
-                    if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
-                        await window.MT5API.triggerHFSync(sym, srv);
-                        btn.innerHTML = '<span style="color:#089981;">⚡ Prioritized</span>';
+            // Scalable Event Delegation on container (binds once, never iterates thousands of buttons)
+            if (!container._hasDelegatedEvents) {
+                container._hasDelegatedEvents = true;
+
+                container.addEventListener('click', async (e) => {
+                    const chartBtn = e.target.closest('.mt5-btn-chart-symbol');
+                    if (chartBtn) {
+                        const sym = chartBtn.getAttribute('data-symbol');
+                        const srv = chartBtn.getAttribute('data-server');
+                        this.loadSymbolOnChart(sym, srv);
+                        return;
                     }
-                };
-            });
+                    const prioBtn = e.target.closest('.mt5-btn-prioritize-hf');
+                    if (prioBtn) {
+                        const sym = prioBtn.getAttribute('data-symbol');
+                        const srv = prioBtn.getAttribute('data-server');
+                        prioBtn.innerHTML = '<span>⚡</span> Queuing...';
+                        prioBtn.disabled = true;
+                        if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
+                            await window.MT5API.triggerHFSync(sym, srv);
+                            prioBtn.innerHTML = '<span style="color:#089981;">⚡ Prioritized</span>';
+                        }
+                        return;
+                    }
+                    const loadMoreBtn = e.target.closest('#mt5-btn-load-more-tickers');
+                    if (loadMoreBtn) {
+                        this.tickerVisibleCount = (this.tickerVisibleCount || 100) + 100;
+                        this.updateTickerListView(modal, theme, server);
+                        return;
+                    }
+                });
+
+                // Infinite Scroll: automatically load next page when scrolled near bottom
+                container.addEventListener('scroll', () => {
+                    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 250) {
+                        const total = this._lastFilteredSymbolsCount || 0;
+                        const cur = this.tickerVisibleCount || 100;
+                        if (cur < total) {
+                            this.tickerVisibleCount = cur + 100;
+                            this.updateTickerListView(modal, theme, server);
+                        }
+                    }
+                }, { passive: true });
+            }
 
             // Update category pills active state
             modal.querySelectorAll('.mt5-cat-pill').forEach(pill => {
@@ -4211,7 +4283,7 @@
             // Update HF sync filter buttons active state and live counts
             const allSymbols = this.detailsData.symbols || [];
             const syncedCount = allSymbols.filter(s => {
-                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
                 return st && st.isAvailable;
             }).length;
             const totalCount = allSymbols.length;
@@ -4423,15 +4495,22 @@
             }
             if (this.tickerSyncFilter === 'SYNCED') {
                 filteredSymbols = filteredSymbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
                     return st && st.isAvailable;
                 });
             } else if (this.tickerSyncFilter === 'UNSYNCED') {
                 filteredSymbols = filteredSymbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
                     return !st || !st.isAvailable;
                 });
             }
+
+            const syncedSymbolsCount = symbols.filter(s => {
+                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
+                return st && st.isAvailable;
+            }).length;
+            const unsyncedSymbolsCount = symbols.length - syncedSymbolsCount;
+            const syncedSymbolsPercent = symbols.length > 0 ? Math.round((syncedSymbolsCount / symbols.length) * 100) : 0;
 
             // History metrics - strictly separate real closed market trades from capital deposits
             const hasOutDeals = history.some(h => h.entry === 'OUT');
@@ -4818,13 +4897,7 @@
                             ">
                                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                     <span style="font-weight: 700; color: #ff9800;">🤗 HF Archival (@${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}):</span>
-                                    <span id="mt5-hf-summary-count" style="color: ${theme.text}; font-weight: 600;">${symbols.filter(s => {
-                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
-                                        return st && st.isAvailable;
-                                    }).length} / ${symbols.length} Synced (${symbols.length > 0 ? Math.round((symbols.filter(s => {
-                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
-                                        return st && st.isAvailable;
-                                    }).length / symbols.length) * 100) : 0}%)</span>
+                                    <span id="mt5-hf-summary-count" style="color: ${theme.text}; font-weight: 600;">${syncedSymbolsCount} / ${symbols.length} Synced (${syncedSymbolsPercent}%)</span>
                                     <span id="mt5-hf-global-status" style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">
                                         ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.total_symbols))
                                             ? `• Fleet: ${window.MT5ParquetIndex.bridgeStatus.completed_symbols || 0} / ${window.MT5ParquetIndex.bridgeStatus.total_symbols} (${Math.round(((window.MT5ParquetIndex.bridgeStatus.completed_symbols || 0) / window.MT5ParquetIndex.bridgeStatus.total_symbols) * 100)}%)`
@@ -4856,10 +4929,7 @@
                                         font-size: 9.5px;
                                         font-weight: 600;
                                         cursor: pointer;
-                                    ">✓ Synced (${symbols.filter(s => {
-                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
-                                        return st && st.isAvailable;
-                                    }).length})</button>
+                                    ">✓ Synced (${syncedSymbolsCount})</button>
                                     <button class="mt5-sync-filter-btn" data-sync-filter="UNSYNCED" style="
                                         background: ${this.tickerSyncFilter === 'UNSYNCED' ? '#f44336' : theme.pillBg};
                                         color: ${this.tickerSyncFilter === 'UNSYNCED' ? '#ffffff' : theme.textMuted};
@@ -4869,10 +4939,7 @@
                                         font-size: 9.5px;
                                         font-weight: 600;
                                         cursor: pointer;
-                                    ">⚪ Unsynced (${symbols.length - symbols.filter(s => {
-                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
-                                        return st && st.isAvailable;
-                                    }).length})</button>
+                                    ">⚪ Unsynced (${unsyncedSymbolsCount})</button>
                                 </div>
                             </div>
 
@@ -4935,7 +5002,11 @@
                                 display: flex;
                                 flex-direction: column;
                             ">
-                                ${this.getTickerListHtml(filteredSymbols, theme, acc.server)}
+                                ${(() => {
+                                    const visibleCount = this.tickerVisibleCount || 100;
+                                    const pageSymbols = filteredSymbols.slice(0, visibleCount);
+                                    return this.getTickerListHtml(pageSymbols, theme, acc.server, filteredSymbols.length);
+                                })()}
                             </div>
                         </div>
                     ` : ''}
@@ -5158,6 +5229,7 @@
                 pill.onclick = (e) => {
                     const cat = e.currentTarget.getAttribute('data-cat') || 'ALL';
                     this.tickerCategoryFilter = cat;
+                    this.tickerVisibleCount = 100;
                     const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     this.updateTickerListView(modal, this.getTheme(), server);
                 };
@@ -5168,12 +5240,13 @@
                 btn.onclick = (e) => {
                     const filter = e.currentTarget.getAttribute('data-sync-filter') || 'ALL';
                     this.tickerSyncFilter = filter;
+                    this.tickerVisibleCount = 100;
                     const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     this.updateTickerListView(modal, this.getTheme(), server);
                 };
             });
 
-            // Search input (Tickers tab) -> instant live filter with smooth typing
+            // Search input (Tickers tab) -> instant live filter with smooth typing & debounce
             const searchIn = modal.querySelector('#mt5-ticker-search-in');
             if (searchIn) {
                 ['keydown', 'keyup'].forEach(evt => {
@@ -5183,8 +5256,12 @@
                 });
                 searchIn.oninput = (e) => {
                     this.tickerSearchQuery = e.target.value;
-                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
-                    this.updateTickerListView(modal, this.getTheme(), server);
+                    this.tickerVisibleCount = 100;
+                    if (this._tickerSearchTimeout) clearTimeout(this._tickerSearchTimeout);
+                    this._tickerSearchTimeout = setTimeout(() => {
+                        const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                        this.updateTickerListView(modal, this.getTheme(), server);
+                    }, 80);
                 };
             }
 
