@@ -142,6 +142,54 @@
                 modal.querySelectorAll('.mt5-hf-uploaded-mb, #mt5-hf-uploaded-mb').forEach(mb => {
                     mb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
                 });
+
+                // Update live archival summary bar in Tickers tab if visible
+                const summaryCount = modal.querySelector('#mt5-hf-summary-count');
+                if (summaryCount && s.total_symbols) {
+                    const pct = Math.round(((s.completed_symbols || 0) / s.total_symbols) * 100);
+                    summaryCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols} Synced (${pct}%)`;
+                }
+                const summaryStatus = modal.querySelector('#mt5-hf-summary-status');
+                if (summaryStatus) {
+                    if (s.is_syncing) {
+                        summaryStatus.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${s.current_symbol || ''} (${s.current_chunk || '1m'})`;
+                        summaryStatus.style.color = '#2196f3';
+                    } else {
+                        summaryStatus.textContent = '• Inception to Present';
+                        summaryStatus.style.color = '#4caf50';
+                    }
+                }
+
+                // If on tickers tab, refresh row sync badges in-place for active syncing symbol
+                if (this.viewMode === 'details' && this.detailsSubTab === 'tickers' && s.current_symbol) {
+                    const activeRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${s.current_symbol}"]`);
+                    if (activeRow && s.is_syncing) {
+                        const syncingPill = activeRow.querySelector('.mt5-hf-syncing-pill');
+                        if (syncingPill) {
+                            syncingPill.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span><span>Syncing ${s.current_chunk || '1m'}...</span>`;
+                        }
+                    }
+                }
+            });
+
+            // Listen to background-loaded manifests to update date ranges in-place
+            window.addEventListener('mt5_manifest_loaded', (e) => {
+                const detail = e.detail;
+                if (!detail || !detail.symbol) return;
+                const modal = document.getElementById(this.modalId);
+                if (!modal || modal.style.display === 'none') return;
+                const row = modal.querySelector(`.mt5-ticker-row[data-symbol="${detail.symbol}"]`);
+                if (row) {
+                    const server = detail.server || (this.detailsData && this.detailsData.account ? this.detailsData.account.server : '');
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, detail.symbol) : null;
+                    if (st && st.displayRange) {
+                        const badge = row.querySelector('.mt5-date-range-badge');
+                        if (badge) {
+                            badge.textContent = st.displayRange;
+                            badge.title = `Historical Inception: ${st.startDate}\nPresent: ${st.endDate}\nTotal Chunks: ${st.totalChunks}\nTotal Bars: ${st.totalBars.toLocaleString()}`;
+                        }
+                    }
+                }
             });
         }
 
@@ -3830,23 +3878,63 @@
                 // Query Hugging Face dataset status across Bridge & Community authors
                 const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
                     ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name)
-                    : { isAvailable: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${s.name}` };
+                    : { isAvailable: false, isSyncing: false, isQueued: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${s.name}`, displayRange: 'Inception → Present', startDate: 'Inception', endDate: 'Present', totalChunks: 0, totalBars: 0 };
 
                 let hfBadgeHtml = '';
-                if (hfStatus.isAvailable) {
+                if (hfStatus.isSyncing) {
+                    hfBadgeHtml = `
+                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                            <span class="mt5-hf-syncing-pill" style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                                padding: 2px 7px;
+                                border-radius: 4px;
+                                font-size: 9.5px;
+                                font-weight: 700;
+                                background: rgba(33, 150, 243, 0.16);
+                                color: #2196f3;
+                                border: 1px solid rgba(33, 150, 243, 0.45);
+                                white-space: nowrap;
+                            " title="Bridge is actively archiving ${s.name} to Hugging Face (@${hfStatus.primaryAuthor})&#10;Currently archiving: ${hfStatus.currentChunk || '1m'}">
+                                <span style="display: inline-block; animation: mt5spin 1.2s linear infinite;">🔄</span>
+                                <span>Syncing ${hfStatus.currentChunk || '1m'}...</span>
+                            </span>
+                        </div>
+                    `;
+                } else if (hfStatus.isQueued) {
+                    hfBadgeHtml = `
+                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                            <span style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 3px;
+                                padding: 2px 6px;
+                                border-radius: 4px;
+                                font-size: 9px;
+                                font-weight: 600;
+                                background: rgba(255, 152, 0, 0.15);
+                                color: #ff9800;
+                                border: 1px solid rgba(255, 152, 0, 0.4);
+                                white-space: nowrap;
+                            " title="In Bridge priority queue - next in line for Parquet archival!">
+                                <span>⏳</span>
+                                <span>Queued</span>
+                            </span>
+                        </div>
+                    `;
+                } else if (hfStatus.isAvailable) {
                     const matching = hfStatus.matchingAuthors || [];
                     const primaryUrl = matching[0]?.url || `https://huggingface.co/datasets/${hfStatus.primaryAuthor}/${hfStatus.repoName}`;
                     const authorsStr = matching.map(m => m.author).join(', ') || hfStatus.primaryAuthor;
-                    const rangeText = (hfStatus.manifest && hfStatus.manifest.inception_date) 
-                        ? `From: ${hfStatus.manifest.inception_date} to Present` 
-                        : 'Inception to Present';
+                    const fallbackAuthors = matching.length > 1 ? `Fallback Authors: ${matching.slice(1).map(m => m.author).join(', ')}&#10;` : '';
 
-                    const tooltipText = `Hugging Face Parquet Archival&#10;✓ Available on: ${authorsStr}&#10;Repo: ${hfStatus.repoName}&#10;Coverage: ${rangeText}&#10;Click to open Hugging Face dataset in new tab ↗`;
+                    const tooltipText = `Hugging Face Parquet Archival&#10;✓ Synced to Bridge: @${hfStatus.primaryAuthor}&#10;${fallbackAuthors}• Inception Date: ${hfStatus.startDate}&#10;• Present Date: ${hfStatus.endDate}&#10;• Archived Chunks: ${hfStatus.totalChunks}&#10;• Total Archived Bars: ${hfStatus.totalBars.toLocaleString()}&#10;Click to open Hugging Face dataset in new tab ↗`;
 
                     const multiCount = matching.length > 1 ? `<span style="font-size: 8.5px; opacity: 0.85; margin-left: 2px;">(+${matching.length - 1})</span>` : '';
 
                     hfBadgeHtml = `
-                        <div style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; flex-wrap: wrap;">
                             <a href="${primaryUrl}" target="_blank" rel="noopener noreferrer" class="mt5-hf-pill" style="
                                 display: inline-flex;
                                 align-items: center;
@@ -3867,6 +3955,19 @@
                                 ${multiCount}
                                 <span style="font-size: 8.5px; opacity: 0.85;">↗</span>
                             </a>
+                            <span class="mt5-date-range-badge" style="
+                                font-size: 9px;
+                                padding: 1.5px 6px;
+                                border-radius: 3px;
+                                background: rgba(76, 175, 80, 0.12);
+                                color: #4caf50;
+                                border: 1px solid rgba(76, 175, 80, 0.3);
+                                font-family: monospace;
+                                font-weight: 600;
+                                white-space: nowrap;
+                            " title="${tooltipText}">
+                                ${hfStatus.displayRange}
+                            </span>
                             ${matching.length > 1 ? matching.slice(1).map(m => `
                                 <a href="${m.url}" target="_blank" rel="noopener noreferrer" style="
                                     display: inline-flex;
@@ -3888,7 +3989,7 @@
                         </div>
                     `;
                 } else {
-                    const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload`;
+                    const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload from inception to present`;
                     hfBadgeHtml = `
                         <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${s.name}" data-server="${server || ''}" style="
                             display: inline-flex;
@@ -3906,13 +4007,13 @@
                             transition: all 0.12s ease;
                         " title="${fallbackTooltip}">
                             <span style="opacity: 0.6;">⚪</span>
-                            <span>Sync to HF</span>
+                            <span>Sync to HF ⚡</span>
                         </button>
                     `;
                 }
 
                 return `
-                    <div class="mt5-ticker-row" style="
+                    <div class="mt5-ticker-row" data-symbol="${s.name}" data-server="${server || ''}" style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
@@ -3970,6 +4071,19 @@
                 });
             }
 
+            // Apply HF Sync Filter
+            if (this.tickerSyncFilter === 'SYNCED') {
+                symbols = symbols.filter(s => {
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                    return st && st.isAvailable;
+                });
+            } else if (this.tickerSyncFilter === 'UNSYNCED') {
+                symbols = symbols.filter(s => {
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                    return !st || !st.isAvailable;
+                });
+            }
+
             container.innerHTML = this.getTickerListHtml(symbols, theme, server);
 
             // Re-bind chart buttons inside the updated ticker list
@@ -4006,6 +4120,38 @@
                     pill.style.background = theme.pillBg;
                     pill.style.color = theme.textMuted;
                     pill.style.borderColor = theme.border;
+                }
+            });
+
+            // Update HF sync filter buttons active state and live counts
+            const allSymbols = this.detailsData.symbols || [];
+            const syncedCount = allSymbols.filter(s => {
+                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name) : null;
+                return st && st.isAvailable;
+            }).length;
+            const totalCount = allSymbols.length;
+            const syncPct = totalCount > 0 ? Math.round((syncedCount / totalCount) * 100) : 0;
+
+            const sumCountEl = modal.querySelector('#mt5-hf-summary-count');
+            if (sumCountEl) {
+                sumCountEl.textContent = `${syncedCount} / ${totalCount} Synced (${syncPct}%)`;
+            }
+
+            modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
+                const sf = btn.getAttribute('data-sync-filter');
+                if (sf === (this.tickerSyncFilter || 'ALL')) {
+                    btn.style.background = sf === 'SYNCED' ? '#4caf50' : (sf === 'UNSYNCED' ? '#f44336' : theme.primary);
+                    btn.style.color = '#ffffff';
+                    btn.style.borderColor = btn.style.background;
+                } else {
+                    btn.style.background = theme.pillBg;
+                    btn.style.color = theme.textMuted;
+                    btn.style.borderColor = theme.border;
+                }
+                if (sf === 'SYNCED') {
+                    btn.textContent = `✓ Synced (${syncedCount})`;
+                } else if (sf === 'UNSYNCED') {
+                    btn.textContent = `⚪ Unsynced (${totalCount - syncedCount})`;
                 }
             });
         }
@@ -4188,6 +4334,17 @@
                     const descMatch = s.description && s.description.toUpperCase().includes(q);
                     const catMatch = (s.category || s.type || '').toUpperCase().includes(q);
                     return nameMatch || descMatch || catMatch;
+                });
+            }
+            if (this.tickerSyncFilter === 'SYNCED') {
+                filteredSymbols = filteredSymbols.filter(s => {
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                    return st && st.isAvailable;
+                });
+            } else if (this.tickerSyncFilter === 'UNSYNCED') {
+                filteredSymbols = filteredSymbols.filter(s => {
+                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                    return !st || !st.isAvailable;
                 });
             }
 
@@ -4561,6 +4718,74 @@
                     <!-- Tab 1: Market Watch & Tickers -->
                     ${this.detailsSubTab === 'tickers' ? `
                         <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <!-- Hugging Face Parquet Archival Summary & Quick Filters -->
+                            <div class="mt5-hf-summary-bar" style="
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                padding: 6px 10px;
+                                background: ${theme.cardBg};
+                                border: 1px solid ${theme.border};
+                                border-radius: 6px;
+                                font-size: 11px;
+                                flex-wrap: wrap;
+                                gap: 8px;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <span style="font-weight: 700; color: #ff9800;">🤗 HF Archival (@${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}):</span>
+                                    <span id="mt5-hf-summary-count" style="color: ${theme.text}; font-weight: 600;">${symbols.filter(s => {
+                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                                        return st && st.isAvailable;
+                                    }).length} / ${symbols.length} Synced (${symbols.length > 0 ? Math.round((symbols.filter(s => {
+                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                                        return st && st.isAvailable;
+                                    }).length / symbols.length) * 100) : 0}%)</span>
+                                    <span id="mt5-hf-summary-status" style="font-size: 10px; color: ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.is_syncing)) ? '#2196f3' : '#4caf50'};">
+                                        ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.is_syncing))
+                                            ? `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${window.MT5ParquetIndex.bridgeStatus.current_symbol || ''} (${window.MT5ParquetIndex.bridgeStatus.current_chunk || '1m'})`
+                                            : '• Inception to Present'}
+                                    </span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <button class="mt5-sync-filter-btn" data-sync-filter="ALL" style="
+                                        background: ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? theme.primary : theme.pillBg};
+                                        color: ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? theme.primary : theme.border};
+                                        padding: 2px 7px;
+                                        border-radius: 4px;
+                                        font-size: 9.5px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                    ">ALL</button>
+                                    <button class="mt5-sync-filter-btn" data-sync-filter="SYNCED" style="
+                                        background: ${this.tickerSyncFilter === 'SYNCED' ? '#4caf50' : theme.pillBg};
+                                        color: ${this.tickerSyncFilter === 'SYNCED' ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${this.tickerSyncFilter === 'SYNCED' ? '#4caf50' : theme.border};
+                                        padding: 2px 7px;
+                                        border-radius: 4px;
+                                        font-size: 9.5px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                    ">✓ Synced (${symbols.filter(s => {
+                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                                        return st && st.isAvailable;
+                                    }).length})</button>
+                                    <button class="mt5-sync-filter-btn" data-sync-filter="UNSYNCED" style="
+                                        background: ${this.tickerSyncFilter === 'UNSYNCED' ? '#f44336' : theme.pillBg};
+                                        color: ${this.tickerSyncFilter === 'UNSYNCED' ? '#ffffff' : theme.textMuted};
+                                        border: 1px solid ${this.tickerSyncFilter === 'UNSYNCED' ? '#f44336' : theme.border};
+                                        padding: 2px 7px;
+                                        border-radius: 4px;
+                                        font-size: 9.5px;
+                                        font-weight: 600;
+                                        cursor: pointer;
+                                    ">⚪ Unsynced (${symbols.length - symbols.filter(s => {
+                                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
+                                        return st && st.isAvailable;
+                                    }).length})</button>
+                                </div>
+                            </div>
+
                             <!-- Search & Category Filters -->
                             <div style="display: flex; flex-direction: column; gap: 5px;">
                                 <div style="position: relative;">
@@ -4843,6 +5068,16 @@
                 pill.onclick = (e) => {
                     const cat = e.currentTarget.getAttribute('data-cat') || 'ALL';
                     this.tickerCategoryFilter = cat;
+                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
+                    this.updateTickerListView(modal, this.getTheme(), server);
+                };
+            });
+
+            // HF Sync Filter Buttons (Tickers tab) -> ALL, SYNCED, UNSYNCED
+            modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const filter = e.currentTarget.getAttribute('data-sync-filter') || 'ALL';
+                    this.tickerSyncFilter = filter;
                     const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
                     this.updateTickerListView(modal, this.getTheme(), server);
                 };

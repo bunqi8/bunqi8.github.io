@@ -184,6 +184,8 @@
             await Promise.all(authors.map(a => this.fetchAuthorDatasets(a)));
         },
 
+        _manifestsInFlight: new Map(),
+
         getTickerStatusSync(server, symbol) {
             const repoName = this.getRepoName(server, symbol);
             const authors = this.getAllAuthors();
@@ -211,14 +213,82 @@
             const repoKey = `${cleanServer}_${cleanSym}`;
             const cachedManifest = manifestCache.get(repoKey)?.manifest;
 
+            // Check live bridge sync state from WebSocket
+            const bs = this.bridgeStatus || {};
+            const isSyncing = Boolean(
+                bs.is_syncing && 
+                bs.current_symbol && 
+                cleanSym.toUpperCase() === String(bs.current_symbol).toUpperCase() &&
+                (!bs.current_server || cleanServer.toLowerCase() === sanitizeHfName(bs.current_server).toLowerCase())
+            );
+            const currentChunk = isSyncing ? (bs.current_chunk || '1m') : null;
+            const isQueued = Boolean(bs.priority_queue && bs.priority_queue.some(q => String(q).toUpperCase() === cleanSym.toUpperCase()));
+            const isBridgeSynced = Boolean(bs.synced_keys && bs.synced_keys.includes(repoKey));
+
+            const isAvailable = matching.length > 0 || !!cachedManifest || isBridgeSynced;
+
+            // Trigger background manifest preload if available on HF but manifest not yet cached
+            if (isAvailable && !cachedManifest && !this._manifestsInFlight.has(repoKey)) {
+                this.getManifest(server, symbol).then(mf => {
+                    if (mf) {
+                        window.dispatchEvent(new CustomEvent('mt5_manifest_loaded', { detail: { server, symbol, repoKey, manifest: mf } }));
+                    }
+                }).catch(() => {});
+            }
+
+            // Calculate precise inception & present date range
+            const todayStr = new Date().toISOString().split('T')[0];
+            let startDate = 'Inception';
+            let endDate = todayStr;
+            let totalChunks = 0;
+            let totalBars = 0;
+
+            if (cachedManifest) {
+                if (cachedManifest.inception_date) {
+                    startDate = cachedManifest.inception_date;
+                }
+                if (cachedManifest['1m']) {
+                    const mKeys = Object.keys(cachedManifest['1m']).sort();
+                    if (mKeys.length > 0) {
+                        if (!cachedManifest.inception_date) startDate = `${mKeys[0]}-01`;
+                        const lastChunk = cachedManifest['1m'][mKeys[mKeys.length - 1]];
+                        if (lastChunk && lastChunk.to) {
+                            try {
+                                endDate = new Date(lastChunk.to * 1000).toISOString().split('T')[0];
+                            } catch (_) {
+                                endDate = `${mKeys[mKeys.length - 1]}-28`;
+                            }
+                        }
+                    }
+                    totalChunks += mKeys.length;
+                    totalBars += Object.values(cachedManifest['1m']).reduce((sum, c) => sum + (c.bars || 0), 0);
+                }
+                if (cachedManifest['1D']) {
+                    totalChunks += Object.keys(cachedManifest['1D']).length;
+                }
+            } else if (matching.length > 0 && matching[0].lastModified) {
+                try {
+                    endDate = new Date(matching[0].lastModified).toISOString().split('T')[0];
+                } catch (_) {}
+            }
+
             return {
-                isAvailable: matching.length > 0 || !!cachedManifest,
+                isAvailable,
+                isSyncing,
+                currentChunk,
+                isQueued,
+                isBridgeSynced,
                 matchingAuthors: matching,
                 primaryAuthor: this.author,
                 hasOnPrimary: matching.some(m => m.isPrimary),
                 manifest: cachedManifest,
                 repoName,
-                repoKey
+                repoKey,
+                startDate,
+                endDate,
+                displayRange: (startDate === 'Inception' && endDate === todayStr) ? `Inception → Present (${todayStr})` : `${startDate} → ${endDate}`,
+                totalChunks,
+                totalBars
             };
         },
 
@@ -238,28 +308,40 @@
                 return cached.manifest;
             }
 
-            const repoName = this.getRepoName(server, symbol);
-            const authors = this.getAllAuthors();
-
-            // Multi-Namespace Search: Check primary author first, then discovery authors
-            for (const author of authors) {
-                if (!author || author === 'deep776') continue;
-                const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
-                try {
-                    const res = await fetch(manifestUrl, { cache: 'no-cache' });
-                    if (res.ok) {
-                        const manifest = await res.json();
-                        manifest._author = author;
-                        manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
-                        console.log(`[MT5Parquet] ✓ Loaded manifest from ${author}/${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
-                        return manifest;
-                    }
-                } catch (err) {
-                    console.debug(`[MT5Parquet] ${author}/${repoName} manifest probe note:`, err.message);
-                }
+            if (this._manifestsInFlight.has(repoKey)) {
+                return this._manifestsInFlight.get(repoKey);
             }
 
-            return null;
+            const p = (async () => {
+                const repoName = this.getRepoName(server, symbol);
+                const authors = this.getAllAuthors();
+
+                // Multi-Namespace Search: Check primary author first, then discovery authors
+                for (const author of authors) {
+                    if (!author || author === 'deep776') continue;
+                    const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
+                    try {
+                        const res = await fetch(manifestUrl, { cache: 'no-cache' });
+                        if (res.ok) {
+                            const manifest = await res.json();
+                            manifest._author = author;
+                            manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
+                            console.log(`[MT5Parquet] ✓ Loaded manifest from ${author}/${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
+                            return manifest;
+                        }
+                    } catch (err) {
+                        console.debug(`[MT5Parquet] ${author}/${repoName} manifest probe note:`, err.message);
+                    }
+                }
+                return null;
+            })();
+
+            this._manifestsInFlight.set(repoKey, p);
+            try {
+                return await p;
+            } finally {
+                this._manifestsInFlight.delete(repoKey);
+            }
         },
 
         recordComboOpened(server, symbol) {
