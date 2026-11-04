@@ -140,7 +140,7 @@ const SyncManager = {
         });
     },
 
-        async garbageCollectCache() {
+    async garbageCollectCache() {
         await this.init();
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction('parquetFiles', 'readwrite');
@@ -150,22 +150,101 @@ const SyncManager = {
             const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
             const now = Date.now();
             let deletedCount = 0;
+
+            let comboOpenedMap = {};
+            try {
+                comboOpenedMap = JSON.parse(localStorage.getItem('mt5_combo_last_opened') || '{}');
+            } catch (_) {}
             
             req.onsuccess = (e) => {
                 const cursor = e.target.result;
                 if (cursor) {
+                    const url = cursor.value.url || '';
                     const lastAccessed = cursor.value.lastAccessed || 0; 
-                    if (now - lastAccessed > SEVEN_DAYS_MS) {
+                    let isExpired = (now - lastAccessed > SEVEN_DAYS_MS);
+
+                    // Cross-check Server + Ticker combo activity
+                    if (!isExpired && url.includes('MT5_')) {
+                        const match = url.match(/MT5_([A-Za-z0-9_-]+)_([A-Za-z0-9_-]+)/);
+                        if (match) {
+                            const comboKey = `${match[1]}_${match[2]}`;
+                            const comboLast = comboOpenedMap[comboKey];
+                            if (comboLast && (now - comboLast > SEVEN_DAYS_MS)) {
+                                isExpired = true;
+                            }
+                        }
+                    }
+
+                    if (isExpired) {
                         cursor.delete();
                         deletedCount++;
                     }
                     cursor.continue();
                 } else {
                     if (deletedCount > 0) {
-                        console.log(`[SyncManager] Garbage collected ${deletedCount} unused Parquet files older than 7 days.`);
+                        console.log(`[SyncManager] Garbage collected ${deletedCount} unused Parquet files older than 1 week (7 days).`);
                     }
-                    resolve();
+                    resolve(deletedCount);
                 }
+            };
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    async getParquetStorageStats() {
+        await this.init();
+        return new Promise((resolve) => {
+            const tx = this.db.transaction('parquetFiles', 'readonly');
+            const store = tx.objectStore('parquetFiles');
+            const req = store.openCursor();
+            
+            const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            let totalBytes = 0;
+            let fileCount = 0;
+            let expiredCount = 0;
+            let expiredBytes = 0;
+
+            req.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    fileCount++;
+                    const buf = cursor.value.buffer;
+                    const byteLen = buf ? (buf.byteLength || buf.length || 0) : 0;
+                    totalBytes += byteLen;
+                    const lastAcc = cursor.value.lastAccessed || 0;
+                    if (now - lastAcc > SEVEN_DAYS_MS) {
+                        expiredCount++;
+                        expiredBytes += byteLen;
+                    }
+                    cursor.continue();
+                } else {
+                    resolve({
+                        totalBytes,
+                        totalMb: (totalBytes / (1024 * 1024)).toFixed(2),
+                        fileCount,
+                        expiredCount,
+                        expiredMb: (expiredBytes / (1024 * 1024)).toFixed(2)
+                    });
+                }
+            };
+            req.onerror = () => resolve({ totalBytes: 0, totalMb: '0.00', fileCount: 0, expiredCount: 0, expiredMb: '0.00' });
+        });
+    },
+
+    async clearExpiredParquetFiles() {
+        return this.garbageCollectCache();
+    },
+
+    async clearAllParquetFiles() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('parquetFiles', 'readwrite');
+            const store = tx.objectStore('parquetFiles');
+            const req = store.clear();
+            req.onsuccess = () => {
+                console.log("[SyncManager] Successfully purged all cached Parquet files.");
+                resolve();
             };
             req.onerror = () => reject(req.error);
         });
@@ -499,6 +578,14 @@ SyncManager._syncPromise = SyncManager.init().then(() => SyncManager.syncRoot())
 setInterval(() => {
     SyncManager.syncRoot();
 }, 60000);
+
+// Schedule 7-day LRU garbage collection (startup + hourly)
+setTimeout(() => {
+    SyncManager.garbageCollectCache().catch(e => console.debug("Startup Parquet GC note:", e));
+}, 5000);
+setInterval(() => {
+    SyncManager.garbageCollectCache().catch(e => console.debug("Hourly Parquet GC note:", e));
+}, 3600000);
 
 window.addEventListener('hf_csv_updated', () => {
     if (window.FyersAPI) window.FyersAPI.clearCache();

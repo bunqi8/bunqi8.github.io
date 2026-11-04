@@ -165,7 +165,20 @@
             return null;
         },
 
+        recordComboOpened(server, symbol) {
+            try {
+                const cleanServer = sanitizeHfName(server || 'FundedNext-Server3');
+                const cleanSym = sanitizeHfName(String(symbol || '').split(':').pop());
+                const key = `${cleanServer}_${cleanSym}`;
+                const raw = localStorage.getItem('mt5_combo_last_opened') || '{}';
+                const map = JSON.parse(raw);
+                map[key] = Date.now();
+                localStorage.setItem('mt5_combo_last_opened', JSON.stringify(map));
+            } catch (_) {}
+        },
+
         async resolveParquetFiles(server, symbol, resolution, fromSec, toSec) {
+            this.recordComboOpened(server, symbol);
             const manifest = await this.getManifest(server, symbol);
             if (!manifest) return null;
 
