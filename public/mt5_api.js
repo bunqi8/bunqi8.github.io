@@ -3872,41 +3872,31 @@
                                 });
                             } else if (msg.type === 'positions') {
                                 const newPositions = msg.positions || [];
-                                // Isolate positions strictly to the accounts belonging to this specific endpoint
-                                const epAccounts = (this.accounts || []).filter(a => a.endpointId === ep.id);
-                                if (epAccounts.length > 0) {
-                                    epAccounts.forEach(acc => {
-                                        const cleanLogin = String(acc.login || '').trim();
-                                        const accPositions = newPositions.filter(p => {
-                                            const pAid = String(p.account_id || '').trim();
-                                            return pAid === String(acc.id) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
-                                        });
-                                        this.processPositionDiff(acc.id, accPositions);
-                                        acc.positions = accPositions;
+                                // Reliably update positions for EVERY account in the fleet matching p.account_id
+                                (this.accounts || []).forEach(acc => {
+                                    const cleanLogin = String(acc.login || '').trim();
+                                    const accPositions = newPositions.filter(p => {
+                                        const pAid = String(p.account_id || '').trim();
+                                        return pAid === String(acc.id) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
                                     });
-                                } else {
-                                    const activeAcc = this.getActiveAccount();
-                                    if (activeAcc && activeAcc.endpointId === ep.id) {
-                                        this.processPositionDiff(activeAcc.id, newPositions);
-                                        activeAcc.positions = newPositions;
-                                    }
-                                }
+                                    this.processPositionDiff(acc.id, accPositions);
+                                    acc.positions = accPositions;
+                                });
 
                                 const curActive = this.getActiveAccount();
                                 if (curActive) {
                                     const curLogin = String(curActive.login || '').trim();
                                     const matchingAcc = (this.accounts || []).find(a => 
-                                        a.endpointId === ep.id && 
-                                        (String(a.id) === String(curActive.id) || (curLogin && String(a.login).trim() === curLogin))
+                                        String(a.id) === String(curActive.id) || (curLogin && String(a.login).trim() === curLogin)
                                     );
                                     if (matchingAcc && matchingAcc.positions) {
                                         this.positions = matchingAcc.positions;
                                         curActive.positions = matchingAcc.positions;
-                                    } else if (curActive.endpointId === ep.id) {
+                                    } else {
                                         this.positions = curActive.positions || [];
                                     }
                                 }
-                                this.notifyPositionListeners();
+                                this.notifyPositionListeners(newPositions);
                             } else if (msg.type === 'accounts') {
                                 this.handleWebSocketAccountsUpdate(ep.id, msg);
                             } else if (msg.type === 'hf_status' || (msg.type === 'connected' && msg.hf_status)) {
@@ -4119,7 +4109,7 @@
                         if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                             this.positions = pos;
                         }
-                        this.notifyPositionListeners();
+                        this.notifyPositionListeners(pos);
                         return pos;
                     }
                 } catch (_) {}
@@ -4140,7 +4130,7 @@
                             if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
                                 this.positions = pos;
                             }
-                            this.notifyPositionListeners();
+                            this.notifyPositionListeners(pos);
                             return pos;
                         }
                     } catch (e) {}
@@ -4522,9 +4512,10 @@
             cb(this.positions);
         }
 
-        notifyPositionListeners() {
+        notifyPositionListeners(customPositions = null) {
+            const posToSend = customPositions !== null ? customPositions : this.positions;
             this.positionListeners.forEach(cb => {
-                try { cb(this.positions); } catch (_) {}
+                try { cb(posToSend); } catch (_) {}
             });
         }
 
