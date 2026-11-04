@@ -999,11 +999,13 @@ window.getCustomIndicators = function (PineJS) {
         // never fail with "unexpected study id" errors.
         const LEGACY_STUDY_ALIASES = {
             "MA Ultimate MTF v2": [
+                { name: "MA Ultimate MTF v2", id: "MA_Ultimate_MTF_v2@tv-basicstudies-1" },
                 { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2@tv-basicstudies-1" },
                 { name: "CM_Ultimate_MA_MTF_V2", id: "CM_Ultimate_MA_MTF_V2_github_bunqi8_tradingview_indicators@tv-basicstudies-1" },
                 { name: "UltimateMA", id: "UltimateMA@tv-basicstudies-1" }
             ],
             "SMC Major Swing Fibs": [
+                { name: "SMC Major Swing Fibs", id: "SMC_Major_Swing_Fibs@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.4.0)", id: "SMC_Major_Swing_Fibs_v1_4_0@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.3.1)", id: "SMC_Major_Swing_Fibs_v1_3_1@tv-basicstudies-1" },
                 { name: "SMC Major Swing Fibs (v1.3.0)", id: "SMC_Major_Swing_Fibs_v1_3_0@tv-basicstudies-1" },
@@ -1012,18 +1014,21 @@ window.getCustomIndicators = function (PineJS) {
                 { name: "SMC Major Swing Fibs (v1.0.0)", id: "SMC_Major_Swing_Fibs_v1_0_0@tv-basicstudies-1" }
             ],
             "Smart Money Concepts with Fib": [
+                { name: "Smart Money Concepts with Fib", id: "Smart_Money_Concepts_with_Fib@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.3.0)", id: "Smart_Money_Concepts_with_Fib_v2_3_0@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.2.0)", id: "Smart_Money_Concepts_with_Fib_v2_2_0@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.1.0)", id: "Smart_Money_Concepts_with_Fib_v2_1_0@tv-basicstudies-1" },
                 { name: "Smart Money Concepts with Fib (v2.0.0)", id: "Smart_Money_Concepts_with_Fib_v2_0_0@tv-basicstudies-1" }
             ],
             "Supertrend + HH/LL Flow Merged": [
+                { name: "Supertrend + HH/LL Flow Merged", id: "Supertrend_HH_LL_Flow@tv-basicstudies-1" },
                 { name: "Supertrend + HH/LL Flow Merged (v6.1.0)", id: "Supertrend_HH_LL_Flow_v6_1_0@tv-basicstudies-1" },
                 { name: "Supertrend + HH/LL Flow Merged v6.0.2", id: "Supertrend_HH_LL_Flow_v6_0_2@tv-basicstudies-1" },
                 { name: "Supertrend + HH/LL Flow Merged v6.0.2", id: "Supertrend_HH_LL_Flow_v6@tv-basicstudies-1" },
                 { name: "Supertrend + HH/LL Flow Merged (v6.0.2)", id: "Supertrend_HH_LL_Flow_v6_0_2@tv-basicstudies-1" }
             ],
             "HH/LL Flow": [
+                { name: "HH/LL Flow", id: "HH_LL_Flow@tv-basicstudies-1" },
                 { name: "HH/LL Flow (v6.1.0)", id: "HH_LL_Flow_v6_1_0@tv-basicstudies-1" },
                 { name: "HH/LL Flow v6.0.1", id: "HH_LL_Flow_v6_2@tv-basicstudies-1" },
                 { name: "HH/LL Flow (v6.0.1)", id: "HH_LL_Flow_v6_2@tv-basicstudies-1" }
@@ -1031,13 +1036,11 @@ window.getCustomIndicators = function (PineJS) {
         };
 
         const aliasList = [];
+        // seenDescriptions tracks ONLY actual descriptions currently registered in TradingView
         const seenDescriptions = new Set();
         allList.forEach(ind => {
             if (ind && ind.metainfo && ind.metainfo.description) {
-                seenDescriptions.add(ind.metainfo.description.toLowerCase());
-            }
-            if (ind && ind.name) {
-                seenDescriptions.add(ind.name.toLowerCase());
+                seenDescriptions.add(ind.metainfo.description.toLowerCase().trim());
             }
         });
 
@@ -1046,15 +1049,17 @@ window.getCustomIndicators = function (PineJS) {
             const curDesc = (ind.metainfo.description || ind.name || "").trim();
             const curName = (ind.name || curDesc).trim();
 
-            // Explicit aliases from map
             const cleanBase = curName.replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').replace(/\s+[vV]\d+(\.\d+)*/i, '').trim();
             const cleanDesc = curDesc.replace(/\s*\([vV]?\d+(\.\d+)*\)/i, '').replace(/\s+[vV]\d+(\.\d+)*/i, '').trim();
+
+            // 1. Explicit aliases from map
             const aliases = LEGACY_STUDY_ALIASES[curName] || LEGACY_STUDY_ALIASES[curDesc] || LEGACY_STUDY_ALIASES[cleanBase] || LEGACY_STUDY_ALIASES[cleanDesc];
             if (aliases && Array.isArray(aliases)) {
                 aliases.forEach(alias => {
-                    const aliasDescLower = alias.name.toLowerCase();
+                    const aliasDescLower = alias.name.toLowerCase().trim();
                     if (!seenDescriptions.has(aliasDescLower)) {
                         seenDescriptions.add(aliasDescLower);
+                        const isCanonicalBase = cleanBase && aliasDescLower === cleanBase.toLowerCase();
                         aliasList.push({
                             ...ind,
                             name: alias.name,
@@ -1063,8 +1068,8 @@ window.getCustomIndicators = function (PineJS) {
                                 id: alias.id || `${alias.name.replace(/[^a-zA-Z0-9]/g, '_')}@tv-basicstudies-1`,
                                 name: alias.name,
                                 description: alias.name,
-                                shortDescription: alias.name,
-                                is_hidden_study: true
+                                shortDescription: cleanBase || alias.name,
+                                is_hidden_study: !isCanonicalBase
                             },
                             constructor: ind.constructor
                         });
@@ -1072,8 +1077,50 @@ window.getCustomIndicators = function (PineJS) {
                 });
             }
 
-            // Auto-alias 1: If name !== description, register an alias with description = name
-            if (curName && curDesc && curName.toLowerCase() !== curDesc.toLowerCase()) {
+            // 2. Auto-alias clean canonical name (e.g. "SMC Major Swing Fibs")
+            if (cleanBase) {
+                const baseLower = cleanBase.toLowerCase();
+                if (!seenDescriptions.has(baseLower)) {
+                    seenDescriptions.add(baseLower);
+                    aliasList.push({
+                        ...ind,
+                        name: cleanBase,
+                        metainfo: {
+                            ...ind.metainfo,
+                            id: `${ind.metainfo.id || cleanBase}_alias_base@tv-basicstudies-1`,
+                            name: cleanBase,
+                            description: cleanBase,
+                            shortDescription: cleanBase,
+                            is_hidden_study: false
+                        },
+                        constructor: ind.constructor
+                    });
+                }
+            }
+
+            // 3. Auto-alias unversioned description base
+            if (cleanDesc && cleanDesc.toLowerCase() !== cleanBase.toLowerCase()) {
+                const descLower = cleanDesc.toLowerCase();
+                if (!seenDescriptions.has(descLower)) {
+                    seenDescriptions.add(descLower);
+                    aliasList.push({
+                        ...ind,
+                        name: cleanDesc,
+                        metainfo: {
+                            ...ind.metainfo,
+                            id: `${ind.metainfo.id || cleanDesc}_alias_desc@tv-basicstudies-1`,
+                            name: cleanDesc,
+                            description: cleanDesc,
+                            shortDescription: cleanDesc,
+                            is_hidden_study: false
+                        },
+                        constructor: ind.constructor
+                    });
+                }
+            }
+
+            // 4. Auto-alias raw name if different from description and not yet registered
+            if (curName) {
                 const nameLower = curName.toLowerCase();
                 if (!seenDescriptions.has(nameLower)) {
                     seenDescriptions.add(nameLower);
@@ -1085,30 +1132,8 @@ window.getCustomIndicators = function (PineJS) {
                             id: `${ind.metainfo.id || curName}_alias_name@tv-basicstudies-1`,
                             name: curName,
                             description: curName,
-                            shortDescription: ind.metainfo.shortDescription || curName,
-                            is_hidden_study: true
-                        },
-                        constructor: ind.constructor
-                    });
-                }
-            }
-
-            // Auto-alias 2: If name/desc has a version tag like (v1.3.0), register unversioned base name
-            const baseName = curName.replace(/\s*\([vV]?\d+(\.\d+)*\)/, '').trim();
-            if (baseName) {
-                const baseLower = baseName.toLowerCase();
-                if (!seenDescriptions.has(baseLower)) {
-                    seenDescriptions.add(baseLower);
-                    aliasList.push({
-                        ...ind,
-                        name: baseName,
-                        metainfo: {
-                            ...ind.metainfo,
-                            id: `${ind.metainfo.id || baseName}_alias_base@tv-basicstudies-1`,
-                            name: baseName,
-                            description: baseName,
-                            shortDescription: baseName,
-                            is_hidden_study: true
+                            shortDescription: cleanBase || curName,
+                            is_hidden_study: false
                         },
                         constructor: ind.constructor
                     });
