@@ -410,12 +410,11 @@
                 const ep = window.MT5API.getActiveEndpoint();
                 if (!ep || !ep.url) return this.bridgeStatus;
 
-                const res = await fetch(`${ep.url}/api/hf/status`, {
-                    headers: {
-                        'X-API-Key': ep.apiKey || '',
-                        'X-Shield-Token': ep.shieldToken || ''
-                    }
-                });
+                const headers = (typeof window.MT5API.getReqHeaders === 'function')
+                    ? window.MT5API.getReqHeaders(ep)
+                    : { 'X-Bridge-Key': ep.apiKey || '', 'X-Shield-Token': ep.shieldToken || '' };
+
+                const res = await fetch(`${ep.url}/api/hf/status`, { headers });
                 if (res.ok) {
                     const data = await res.json();
                     if (data && data.status) {

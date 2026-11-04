@@ -1354,7 +1354,7 @@ const Datafeed = {
         // Ensure global bars cache is initialized
         if (!window._barsCache) window._barsCache = {};
 
-        // FAST PATH: If firstDataRequest and we already have cached bars in memory (e.g. after limit expansion or reset)
+        // FAST PATH: If firstDataRequest and we already have cached bars in memory that are STILL FRESH (less than 1.5 candle periods old)
         if (firstDataRequest && window._barsCache[generalCacheKey] && window._barsCache[generalCacheKey].length > 0) {
             let cachedBars = window._barsCache[generalCacheKey];
             const maxAllowedTime = Date.now() + 300000;
@@ -1364,38 +1364,51 @@ const Datafeed = {
             }
             window._barsCache[generalCacheKey] = cachedBars;
 
-            if (window.BarLimitManager) {
-                window.BarLimitManager.setBarCount(generalCacheKey, cachedBars.length);
-                if (cachedBars.length > 0) {
-                    window.BarLimitManager.setOldestBar(generalCacheKey, Math.floor(cachedBars[0].time / 1000));
+            const lastCached = cachedBars[cachedBars.length - 1];
+            const intervalMs = (function(r) {
+                const s = String(r).toUpperCase().trim();
+                if (s === 'D' || s === '1D') return 86400 * 1000;
+                if (s === 'W' || s === '1W') return 86400 * 7 * 1000;
+                if (s === 'M' || s === '1M') return 86400 * 30 * 1000;
+                const n = parseInt(s, 10);
+                return (isNaN(n) || n <= 0 ? 60 : n * 60) * 1000;
+            })(resolution);
+            const isFresh = lastCached && ((Date.now() - lastCached.time) < (intervalMs * 1.5));
+
+            if (isFresh) {
+                if (window.BarLimitManager) {
+                    window.BarLimitManager.setBarCount(generalCacheKey, cachedBars.length);
+                    if (cachedBars.length > 0) {
+                        window.BarLimitManager.setOldestBar(generalCacheKey, Math.floor(cachedBars[0].time / 1000));
+                    }
                 }
-            }
 
-            const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
-            const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
-            const accId = acc ? acc.id : 'default';
-            const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
-            const unifiedKey = `${cleanSym}_${resolution}`;
-            if (!window._tvLastBar) window._tvLastBar = {};
-            const last = cachedBars[cachedBars.length - 1];
-            if (last) {
-                const lastBarObj = {
-                    time: last.time,
-                    open: Number(last.open),
-                    high: Number(last.high),
-                    low: Number(last.low),
-                    close: Number(last.close),
-                    volume: Number(last.volume)
-                };
-                window._tvLastBar[cacheKey] = lastBarObj;
-                window._tvLastBar[unifiedKey] = lastBarObj;
-            }
+                const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
+                const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
+                const accId = acc ? acc.id : 'default';
+                const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
+                const unifiedKey = `${cleanSym}_${resolution}`;
+                if (!window._tvLastBar) window._tvLastBar = {};
+                const last = cachedBars[cachedBars.length - 1];
+                if (last) {
+                    const lastBarObj = {
+                        time: last.time,
+                        open: Number(last.open),
+                        high: Number(last.high),
+                        low: Number(last.low),
+                        close: Number(last.close),
+                        volume: Number(last.volume)
+                    };
+                    window._tvLastBar[cacheKey] = lastBarObj;
+                    window._tvLastBar[unifiedKey] = lastBarObj;
+                }
 
-            console.log(`[datafeed] Fast cache hit for ${generalCacheKey}: returning ${cachedBars.length} bars directly.`);
-            setTimeout(() => {
-                onHistoryCallback(cachedBars, { noData: false });
-            }, 0);
-            return;
+                console.log(`[datafeed] Fast cache hit for fresh ${generalCacheKey}: returning ${cachedBars.length} bars directly.`);
+                setTimeout(() => {
+                    onHistoryCallback(cachedBars, { noData: false });
+                }, 0);
+                return;
+            }
         }
 
         // If not firstDataRequest, check if current symbol/resolution has already reached maxBarsLimit
@@ -1512,11 +1525,26 @@ const Datafeed = {
 
                 if (parquetBars.length > 0) {
                     // Parquet 0ms Hit!
-                    // If requested range extends into the recent tail (after latestParquetSec) and bridge is connected:
-                    if (rawTo > latestParquetSec && window.MT5API && window.MT5API.isConnected && targetAcc) {
+                    // Determine where the actual parquet bars end (NOT static manifest metadata)
+                    const actualLatestPqSec = Math.floor(parquetBars[parquetBars.length - 1].time / 1000);
+                    const nowSec = Math.floor(Date.now() / 1000);
+                    const isTailNeeded = (rawTo > actualLatestPqSec) || (nowSec > actualLatestPqSec) || firstDataRequest;
+
+                    if (isTailNeeded && window.MT5API && window.MT5API.isConnected && targetAcc) {
                         try {
-                            const tailFromSec = Math.max(rawFrom, latestParquetSec);
-                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, rawTo, countBack || 500, accId);
+                            const intervalSec = (function(r) {
+                                const s = String(r).toUpperCase().trim();
+                                if (s === 'D' || s === '1D') return 86400;
+                                if (s === 'W' || s === '1W') return 86400 * 7;
+                                if (s === 'M' || s === '1M') return 86400 * 30;
+                                const n = parseInt(s, 10);
+                                return isNaN(n) || n <= 0 ? 60 : n * 60;
+                            })(resolution);
+
+                            // Start stitching with a 2-candle overlap before actualLatestPqSec to guarantee zero gaps
+                            const tailFromSec = Math.max(rawFrom, actualLatestPqSec - (intervalSec * 2));
+                            const fetchToSec = Math.max(rawTo, nowSec + intervalSec);
+                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, Math.max(countBack || 500, 150), accId);
                             if (tailBars && tailBars.length > 0) {
                                 mt5Bars = window.MT5ParquetIndex.mergeBars(parquetBars, tailBars);
                             } else {
