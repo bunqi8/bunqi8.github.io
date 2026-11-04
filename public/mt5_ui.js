@@ -87,9 +87,10 @@
                             const modal = document.getElementById(this.modalId);
                             const renderedCards = modal ? modal.querySelectorAll('.mt5-account-card') : [];
                             const accounts = (window.MT5API && window.MT5API.accounts) ? window.MT5API.accounts : [];
+                            const uniqueAccountsCount = new Set(accounts.map(a => `${String(a.login || '').trim()}::${String(a.server || '').trim().toLowerCase()}`)).size;
                             const hasEmptyPlaceholder = modal ? Boolean(modal.querySelector('.mt5-modal-body div[style*="dashed"]')) : false;
                             // If account count changed, or if placeholder was showing and accounts arrived, do a full re-render
-                            if (renderedCards.length !== accounts.length || (hasEmptyPlaceholder && accounts.length > 0)) {
+                            if (renderedCards.length !== uniqueAccountsCount || (hasEmptyPlaceholder && accounts.length > 0)) {
                                 this.renderModal();
                             } else {
                                 this.updateFleetCardsInPlace();
@@ -1060,7 +1061,7 @@
                 const pnl = (Number(acc.equity || 0) - Number(acc.balance || 0));
 
                 return `
-                    <div class="mt5-account-card" data-id="${acc.id}" style="
+                    <div class="mt5-account-card" data-id="${acc.id}" data-login="${acc.login}" style="
                         background: ${theme.cardBg};
                         border: 1px solid ${cardBorder};
                         border-radius: 6px;
@@ -1074,9 +1075,9 @@
                         <!-- Row 1: Checkbox, Identity & Action Buttons -->
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
                             <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 240px;">
-                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account paused' : 'Select for multi-copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 14px; height: 14px; accent-color: ${theme.primary}; flex-shrink: 0;">
-                                <span style="font-size: 10px;" title="${isPaused ? 'Paused' : (acc.is_connected ? 'Connected' : (acc.is_verification_failed ? 'Verification Failed' : 'Needs Password / Connecting'))}">${isPaused ? '⚪' : (acc.is_connected ? '🟢' : (acc.is_verification_failed ? '🔴' : '🟡'))}</span>
-                                <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
+                                <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" data-login="${acc.login}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account paused' : 'Select for multi-copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 14px; height: 14px; accent-color: ${theme.primary}; flex-shrink: 0;">
+                                <span class="mt5-card-status-dot" data-id="${acc.id}" data-login="${acc.login}" style="font-size: 10px;" title="${isPaused ? 'Paused' : (acc.is_connected ? 'Connected' : (acc.is_verification_failed ? 'Verification Failed' : 'Needs Password / Connecting'))}">${isPaused ? '⚪' : (acc.is_connected ? '🟢' : (acc.is_verification_failed ? '🔴' : '🟡'))}</span>
+                                <span class="mt5-link-details" data-id="${acc.id}" data-login="${acc.login}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
                                 ${multiHostBadge}
@@ -1119,9 +1120,9 @@
                         <!-- Row 2: Financial Stats & Allowed Routing (Inline Dense) -->
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 10.5px; padding-top: 3px; border-top: 1px solid rgba(120,120,120,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px; font-family: monospace;">
-                                <span>Bal: <strong class="mt5-card-bal" data-id="${acc.id}" style="color: ${theme.text};">$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
-                                <span>Eq: <strong class="mt5-card-eq" data-id="${acc.id}" style="color: ${theme.success};">$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
-                                <span style="color: ${pnl >= 0 ? theme.success : theme.error}; font-weight: 600;">
+                                <span>Bal: <strong class="mt5-card-bal" data-id="${acc.id}" data-login="${acc.login}" style="color: ${theme.text};">$${Number(acc.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
+                                <span>Eq: <strong class="mt5-card-eq" data-id="${acc.id}" data-login="${acc.login}" style="color: ${pnl >= 0 ? theme.success : theme.error};">$${Number(acc.equity || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></span>
+                                <span class="mt5-card-pnl" data-id="${acc.id}" data-login="${acc.login}" style="color: ${pnl >= 0 ? theme.success : theme.error}; font-weight: 600;">
                                     ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}
                                 </span>
                                 <span style="color: ${theme.textMuted}; font-size: 9.5px;">Route: <strong style="color: ${theme.primary};">⚡ ${routedEp?.name || acc.endpointName || 'Bridge'}</strong></span>
@@ -1142,9 +1143,9 @@
                         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                             <strong style="font-size: 12px; color: ${theme.text};">Fleet Accounts (${dedupedAccounts.length})</strong>
                             <span style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace;">
-                                Bal: <strong style="color: ${theme.text};">$${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong> • 
-                                Eq: <strong style="color: ${theme.success};">$${totalEquity.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
-                                ${floatingTotal !== 0 ? ` • <span style="color: ${floatingTotal >= 0 ? theme.success : theme.error}; font-weight: 700;">${floatingTotal >= 0 ? '+' : ''}$${floatingTotal.toFixed(2)}</span>` : ''}
+                                Bal: <strong id="mt5-fleet-total-bal" style="color: ${theme.text};">$${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong> • 
+                                Eq: <strong id="mt5-fleet-total-eq" style="color: ${totalEquity >= totalBalance ? theme.success : theme.error};">$${totalEquity.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>
+                                <span id="mt5-fleet-total-pnl-wrap" style="${Math.abs(floatingTotal) >= 0.01 ? '' : 'display:none;'}"> • <span id="mt5-fleet-total-pnl" style="color: ${floatingTotal >= 0 ? theme.success : theme.error}; font-weight: 700;">${floatingTotal >= 0 ? '+' : ''}$${floatingTotal.toFixed(2)}</span></span>
                             </span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 5px;">
@@ -3347,20 +3348,81 @@
             const modal = document.getElementById(this.modalId);
             if (!modal || this.viewMode !== 'list') return;
             const accounts = window.MT5API ? window.MT5API.accounts : [];
+            const theme = this.getTheme();
+
+            // Group all accounts by physical login::server
+            const accountsByPhysicalKey = new Map();
             accounts.forEach(acc => {
-                const balEl = modal.querySelector(`.mt5-card-bal[data-id="${acc.id}"]`);
-                const eqEl = modal.querySelector(`.mt5-card-eq[data-id="${acc.id}"]`);
-                if (!balEl && !eqEl) return;
-
-                const siblings = accounts.filter(a => String(a.login) === String(acc.login) && (a.server || '').toLowerCase() === (acc.server || '').toLowerCase());
-                const bestBal = Math.max(...siblings.map(s => Number(s.balance || 0)), Number(acc.balance || 0));
-                const bestEq = Math.max(...siblings.map(s => Number(s.equity || 0)), Number(acc.equity || 0));
-                const balVal = bestBal > 0 ? bestBal : Number(acc.balance || 0);
-                const eqVal = bestEq > 0 ? bestEq : Number(acc.equity || 0);
-
-                if (balEl) balEl.textContent = `$${balVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                if (eqEl) eqEl.textContent = `$${eqVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                const key = `${String(acc.login || '').trim()}::${String(acc.server || '').trim().toLowerCase()}`;
+                if (!accountsByPhysicalKey.has(key)) {
+                    accountsByPhysicalKey.set(key, []);
+                }
+                accountsByPhysicalKey.get(key).push(acc);
             });
+
+            let grandTotalBal = 0;
+            let grandTotalEq = 0;
+
+            accountsByPhysicalKey.forEach((instances) => {
+                const bestBal = Math.max(...instances.map(i => Number(i.balance || 0)));
+                const bestEq = Math.max(...instances.map(i => Number(i.equity || 0)));
+                const anyConnected = instances.some(i => i.is_connected);
+                const primary = instances.find(i => Number(i.balance || 0) > 0) || instances[0];
+                const accId = primary ? String(primary.id) : '';
+                const accLogin = primary ? String(primary.login || '').trim() : '';
+
+                const balVal = bestBal > 0 ? bestBal : (primary ? Number(primary.balance || 0) : 0);
+                const eqVal = bestEq > 0 ? bestEq : (primary ? Number(primary.equity || 0) : 0);
+                const pnl = eqVal - balVal;
+
+                grandTotalBal += balVal;
+                grandTotalEq += eqVal;
+
+                // Match element by data-id OR data-login
+                const qBal = accLogin ? `.mt5-card-bal[data-login="${accLogin}"], .mt5-card-bal[data-id="${accId}"]` : `.mt5-card-bal[data-id="${accId}"]`;
+                const qEq = accLogin ? `.mt5-card-eq[data-login="${accLogin}"], .mt5-card-eq[data-id="${accId}"]` : `.mt5-card-eq[data-id="${accId}"]`;
+                const qPnl = accLogin ? `.mt5-card-pnl[data-login="${accLogin}"], .mt5-card-pnl[data-id="${accId}"]` : `.mt5-card-pnl[data-id="${accId}"]`;
+                const qDot = accLogin ? `.mt5-card-status-dot[data-login="${accLogin}"], .mt5-card-status-dot[data-id="${accId}"]` : `.mt5-card-status-dot[data-id="${accId}"]`;
+
+                modal.querySelectorAll(qBal).forEach(el => {
+                    el.textContent = `$${balVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                });
+                modal.querySelectorAll(qEq).forEach(el => {
+                    el.textContent = `$${eqVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    el.style.color = pnl >= 0 ? theme.success : theme.error;
+                });
+                modal.querySelectorAll(qPnl).forEach(el => {
+                    el.textContent = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+                    el.style.color = pnl >= 0 ? theme.success : theme.error;
+                });
+                modal.querySelectorAll(qDot).forEach(el => {
+                    const isPaused = window.MT5API ? window.MT5API.isAccountPaused(accId) : false;
+                    el.textContent = isPaused ? '⚪' : (anyConnected ? '🟢' : '🟡');
+                });
+            });
+
+            // Update top aggregate summary bar
+            const totalBalEl = modal.querySelector('#mt5-fleet-total-bal');
+            const totalEqEl = modal.querySelector('#mt5-fleet-total-eq');
+            const totalPnlWrap = modal.querySelector('#mt5-fleet-total-pnl-wrap');
+            const totalPnlEl = modal.querySelector('#mt5-fleet-total-pnl');
+
+            const floatingGrand = grandTotalEq - grandTotalBal;
+
+            if (totalBalEl) totalBalEl.textContent = `$${grandTotalBal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            if (totalEqEl) {
+                totalEqEl.textContent = `$${grandTotalEq.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                totalEqEl.style.color = grandTotalEq >= grandTotalBal ? theme.success : theme.error;
+            }
+            if (totalPnlEl && totalPnlWrap) {
+                if (Math.abs(floatingGrand) >= 0.01) {
+                    totalPnlWrap.style.display = 'inline';
+                    totalPnlEl.textContent = `${floatingGrand >= 0 ? '+' : ''}$${floatingGrand.toFixed(2)}`;
+                    totalPnlEl.style.color = floatingGrand >= 0 ? theme.success : theme.error;
+                } else {
+                    totalPnlWrap.style.display = 'none';
+                }
+            }
         }
 
         updateLiveDetailsFinancials() {
@@ -3400,6 +3462,35 @@
         }
 
         handleLivePositionUpdate(positions) {
+            // 1. Map open position profits directly to each account in MT5API in real time
+            if (window.MT5API && Array.isArray(window.MT5API.accounts) && Array.isArray(positions)) {
+                window.MT5API.accounts.forEach(acc => {
+                    const accId = String(acc.id || '');
+                    const accLogin = String(acc.login || '').trim();
+                    const accPos = positions.filter(p => {
+                        const pAid = String(p.account_id || '').trim();
+                        return pAid === accId || pAid === accLogin || pAid.replace(/^mt5_/, '') === accLogin;
+                    });
+                    acc.positions = accPos;
+                    if (accPos.length > 0) {
+                        const openProfit = accPos.reduce((sum, p) => sum + (Number(p.profit) || 0), 0);
+                        acc.equity = Number(acc.balance || 0) + openProfit;
+                    }
+                });
+            }
+
+            // 2. If list view is active, update fleet cards in real-time over WebSocket!
+            if (this.isOpen && this.viewMode === 'list') {
+                this.updateFleetCardsInPlace();
+            }
+
+            // 3. If details view is active, update cockpit financials in real-time over WebSocket!
+            if (this.isOpen && this.viewMode === 'details') {
+                this.updateLiveDetailsFinancials();
+            }
+
+            this.updateButtonState();
+
             const modal = document.getElementById(this.modalId);
             if (!modal) return;
 
