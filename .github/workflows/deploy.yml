@@ -47,9 +47,24 @@ jobs:
               for dep in deployments:
                   dep_id = dep.get('id')
                   env = dep.get('environment')
+                  sha = dep.get('sha', '')
                   if env != 'github-pages':
                       continue
                   
+                  # Cancel Pages-specific deployment by SHA
+                  if sha:
+                      try:
+                          c_req = urllib.request.Request(
+                              f'https://api.github.com/repos/{repo}/pages/deployments/{sha}/cancel',
+                              headers=headers,
+                              data=b'',
+                              method='POST'
+                          )
+                          urllib.request.urlopen(c_req)
+                          print(f'Cancelled pages deployment for {sha[:7]}')
+                      except Exception:
+                          pass
+
                   s_req = urllib.request.Request(f'https://api.github.com/repos/{repo}/deployments/{dep_id}/statuses', headers=headers)
                   with urllib.request.urlopen(s_req) as s_resp:
                       statuses = json.loads(s_resp.read().decode())
