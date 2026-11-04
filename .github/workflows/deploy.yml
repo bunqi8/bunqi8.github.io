@@ -57,17 +57,17 @@ jobs:
                   
                   if latest_state in ['in_progress', 'queued', 'waiting']:
                       print(f'Cancelling stuck deployment {dep_id} (state: {latest_state})...')
-                      inact_req = urllib.request.Request(
+                      fail_req = urllib.request.Request(
                           f'https://api.github.com/repos/{repo}/deployments/{dep_id}/statuses',
                           headers=headers,
-                          data=json.dumps({'state': 'inactive'}).encode(),
+                          data=json.dumps({'state': 'failure', 'description': 'Auto-cleared stuck deployment'}).encode(),
                           method='POST'
                       )
                       try:
-                          urllib.request.urlopen(inact_req)
-                          print(f'Marked deployment {dep_id} inactive')
+                          urllib.request.urlopen(fail_req)
+                          print(f'Marked deployment {dep_id} failure')
                       except Exception as e:
-                          print(f'Error marking inactive: {e}')
+                          print(f'Error marking failure: {e}')
           except Exception as e:
               print(f'Deployment cleanup note: {e}')
           "

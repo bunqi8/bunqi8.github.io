@@ -3692,19 +3692,28 @@
         }
 
         handleLivePositionUpdate(positions) {
+            if (!Array.isArray(positions)) return;
+
             // 1. Map open position profits directly to each account in MT5API in real time
-            if (window.MT5API && Array.isArray(window.MT5API.accounts) && Array.isArray(positions)) {
+            if (window.MT5API && Array.isArray(window.MT5API.accounts)) {
+                const hasAccountTags = positions.some(p => p && p.account_id);
                 window.MT5API.accounts.forEach(acc => {
-                    const accId = String(acc.id || '');
+                    const accId = String(acc.id || '').trim();
                     const accLogin = String(acc.login || '').trim();
+                    const cleanId = accId.replace(/^mt5_/, '');
+
                     const accPos = positions.filter(p => {
                         const pAid = String(p.account_id || '').trim();
-                        return pAid === accId || pAid === accLogin || pAid.replace(/^mt5_/, '') === accLogin;
+                        return pAid === accId || pAid === accLogin || pAid.replace(/^mt5_/, '') === accLogin || pAid === cleanId;
                     });
-                    acc.positions = accPos;
+
                     if (accPos.length > 0) {
+                        acc.positions = accPos;
                         const openProfit = accPos.reduce((sum, p) => sum + (Number(p.profit) || 0), 0);
                         acc.equity = Number(acc.balance || 0) + openProfit;
+                    } else if (hasAccountTags) {
+                        // Full fleet snapshot with account tags received, and this account has no positions
+                        acc.positions = [];
                     }
                 });
             }
@@ -3724,19 +3733,27 @@
             const modal = document.getElementById(this.modalId);
             if (!modal) return;
 
-            let relevantPositions = Array.isArray(positions) ? positions : [];
+            let relevantPositions = positions;
             if (this.viewMode === 'details' && this.detailsAccountId) {
                 const targetId = String(this.detailsAccountId).trim();
                 const cleanId = targetId.replace(/^mt5_/, '');
 
                 const targetAcc = (window.MT5API && Array.isArray(window.MT5API.accounts)) 
-                    ? window.MT5API.accounts.find(a => String(a.id) === targetId || String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId)
+                    ? window.MT5API.accounts.find(a => String(a.id) === targetId || String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId || String(a.login) === targetId)
                     : null;
 
-                // 1. Check if positions payload contains positions tagged with this account_id
+                const targetLogin = targetAcc ? String(targetAcc.login || '').trim() : (this.detailsData && this.detailsData.account ? String(this.detailsData.account.login || '').trim() : '');
+                const targetAccId = targetAcc ? String(targetAcc.id || '').trim() : (this.detailsData && this.detailsData.account ? String(this.detailsData.account.id || '').trim() : '');
+
+                // Filter positions tagged for this account
                 const matchingInPayload = relevantPositions.filter(p => {
                     const pAid = String(p.account_id || '').trim();
-                    return pAid === targetId || pAid === cleanId || pAid.replace(/^mt5_/, '') === cleanId;
+                    if (!pAid) return true; // untagged payload from direct account fetch
+                    return pAid === targetId || 
+                           pAid === cleanId || 
+                           pAid.replace(/^mt5_/, '') === cleanId ||
+                           (targetLogin && (pAid === targetLogin || pAid.replace(/^mt5_/, '') === targetLogin)) ||
+                           (targetAccId && (pAid === targetAccId || pAid.replace(/^mt5_/, '') === targetAccId));
                 });
 
                 if (matchingInPayload.length > 0) {
@@ -3746,7 +3763,10 @@
                 } else if (this.detailsData && Array.isArray(this.detailsData.positions) && this.detailsData.positions.length > 0) {
                     // Retain already-loaded positions: never wipe with an empty array from a different account!
                     relevantPositions = this.detailsData.positions;
-                } else if (relevantPositions.length > 0 && relevantPositions.every(p => p.account_id && String(p.account_id).trim() !== targetId && String(p.account_id).trim() !== cleanId)) {
+                } else if (relevantPositions.length > 0 && relevantPositions.every(p => {
+                    const pAid = String(p.account_id || '').trim();
+                    return pAid && pAid !== targetId && pAid !== cleanId && pAid !== targetLogin && pAid !== targetAccId;
+                })) {
                     // The payload strictly belongs to other accounts, preserve whatever detailsData has
                     relevantPositions = (this.detailsData && Array.isArray(this.detailsData.positions)) ? this.detailsData.positions : [];
                 } else {
@@ -3755,7 +3775,7 @@
 
                 if (this.detailsData) {
                     this.detailsData.positions = relevantPositions;
-                    if (targetAcc) targetAcc.positions = relevantPositions;
+                    if (targetAcc && relevantPositions.length > 0) targetAcc.positions = relevantPositions;
                 }
             }
 
