@@ -80,10 +80,13 @@
             if (newAuthor && typeof newAuthor === 'string') {
                 const clean = newAuthor.trim();
                 if (clean === 'deep776' || this.author === clean) return; // deep776 is reserved strictly for Fyers
+                const prev = this.author;
                 this.author = clean;
                 this.registerBridgeAuthor(clean);
                 try { localStorage.setItem('hf_author', this.author); } catch(_) {}
-                console.log(`[MT5Parquet] Primary author namespace updated to: ${this.author}`);
+                if (prev && prev !== clean) {
+                    console.log(`[MT5Parquet] Primary author namespace updated: ${prev} -> ${this.author}`);
+                }
             }
         },
 

@@ -144,11 +144,36 @@
                 });
 
                 // Update live archival summary bar in Tickers tab if visible
-                const summaryCount = modal.querySelector('#mt5-hf-summary-count');
-                if (summaryCount && s.total_symbols) {
-                    const pct = Math.round(((s.completed_symbols || 0) / s.total_symbols) * 100);
-                    summaryCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols} Synced (${pct}%)`;
+                const globalStatus = modal.querySelector('#mt5-hf-global-status');
+                if (globalStatus && s.total_symbols) {
+                    const globalPct = Math.round(((s.completed_symbols || 0) / s.total_symbols) * 100);
+                    globalStatus.textContent = `• Fleet: ${s.completed_symbols || 0} / ${s.total_symbols} (${globalPct}%)`;
                 }
+
+                // Re-calculate the account-specific summary count so it NEVER gets overwritten by global fleet numbers!
+                const summaryCount = modal.querySelector('#mt5-hf-summary-count');
+                if (summaryCount && this.detailsData && Array.isArray(this.detailsData.symbols)) {
+                    const server = (this.detailsData.account && this.detailsData.account.server) || '';
+                    const allSyms = this.detailsData.symbols;
+                    const acctSynced = allSyms.filter(sym => {
+                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, sym.name || sym.symbol) : null;
+                        return st && st.isAvailable;
+                    }).length;
+                    const acctTotal = allSyms.length;
+                    const acctPct = acctTotal > 0 ? Math.round((acctSynced / acctTotal) * 100) : 0;
+                    summaryCount.textContent = `${acctSynced} / ${acctTotal} Synced (${acctPct}%)`;
+
+                    // Also update filter buttons live counts
+                    modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
+                        const sf = btn.getAttribute('data-sync-filter');
+                        if (sf === 'SYNCED') {
+                            btn.textContent = `✓ Synced (${acctSynced})`;
+                        } else if (sf === 'UNSYNCED') {
+                            btn.textContent = `⚪ Unsynced (${acctTotal - acctSynced})`;
+                        }
+                    });
+                }
+
                 const summaryStatus = modal.querySelector('#mt5-hf-summary-status');
                 if (summaryStatus) {
                     if (s.is_syncing) {
@@ -160,15 +185,29 @@
                     }
                 }
 
-                // If on tickers tab, refresh row sync badges in-place for active syncing symbol
-                if (this.viewMode === 'details' && this.detailsSubTab === 'tickers' && s.current_symbol) {
-                    const activeRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${s.current_symbol}"]`);
-                    if (activeRow && s.is_syncing) {
-                        const syncingPill = activeRow.querySelector('.mt5-hf-syncing-pill');
-                        if (syncingPill) {
-                            syncingPill.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span><span>Syncing ${s.current_chunk || '1m'}...</span>`;
+                // If on tickers tab, refresh row sync badges in-place for active syncing symbol and previously syncing symbol
+                if (this.viewMode === 'details' && this.detailsSubTab === 'tickers') {
+                    const server = (this.detailsData && this.detailsData.account ? this.detailsData.account.server : '');
+                    const theme = this.getTheme();
+                    if (s.current_symbol) {
+                        const activeRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${s.current_symbol}"]`);
+                        if (activeRow) {
+                            const container = activeRow.querySelector('.mt5-hf-badge-container');
+                            if (container) {
+                                container.outerHTML = this.renderHfBadgeHtml(server, s.current_symbol, theme);
+                            }
                         }
                     }
+                    if (this._lastSyncingSymbol && this._lastSyncingSymbol !== s.current_symbol) {
+                        const prevRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${this._lastSyncingSymbol}"]`);
+                        if (prevRow) {
+                            const container = prevRow.querySelector('.mt5-hf-badge-container');
+                            if (container) {
+                                container.outerHTML = this.renderHfBadgeHtml(server, this._lastSyncingSymbol, theme);
+                            }
+                        }
+                    }
+                    this._lastSyncingSymbol = s.current_symbol;
                 }
             });
 
@@ -181,13 +220,9 @@
                 const row = modal.querySelector(`.mt5-ticker-row[data-symbol="${detail.symbol}"]`);
                 if (row) {
                     const server = detail.server || (this.detailsData && this.detailsData.account ? this.detailsData.account.server : '');
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, detail.symbol) : null;
-                    if (st && st.displayRange) {
-                        const badge = row.querySelector('.mt5-date-range-badge');
-                        if (badge) {
-                            badge.textContent = st.displayRange;
-                            badge.title = `Historical Inception: ${st.startDate}\nPresent: ${st.endDate}\nTotal Chunks: ${st.totalChunks}\nTotal Bars: ${st.totalBars.toLocaleString()}`;
-                        }
+                    const container = row.querySelector('.mt5-hf-badge-container');
+                    if (container) {
+                        container.outerHTML = this.renderHfBadgeHtml(server, detail.symbol, this.getTheme());
                     }
                 }
             });
@@ -2964,37 +2999,70 @@
                 }
             }
 
-            // Immediately pre-populate with known account info, localStorage symbols & history so user NEVER waits!
-            let existingAcc = window.MT5API ? (window.MT5API.accounts.find(a => String(a.id) === String(accountId)) || window.MT5API.getActiveAccount()) : null;
-            if (!existingAcc && window.MT5API && window.MT5API.accounts) {
-                const cleanId = String(accountId).replace(/^mt5_/, '');
-                existingAcc = window.MT5API.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+            // Cleanly resolve the target account without accidental fallback to active account
+            let existingAcc = null;
+            if (window.MT5API && Array.isArray(window.MT5API.accounts)) {
+                const cleanId = String(accountId).replace(/^mt5_/, '').trim();
+                existingAcc = window.MT5API.accounts.find(a => 
+                    String(a.id) === String(accountId) || 
+                    String(a.login).trim() === cleanId || 
+                    String(a.id).replace(/^mt5_/, '').trim() === cleanId ||
+                    (a.nickname && a.nickname.trim().toLowerCase() === String(accountId).trim().toLowerCase())
+                );
             }
-            let cachedSymbols = (window.MT5API && window.MT5API._accountSymbolsCache) ? (window.MT5API._accountSymbolsCache.get(accountId) || []) : [];
-            let storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(accountId) : [];
+            if (!existingAcc && window.MT5API) {
+                existingAcc = window.MT5API.getActiveAccount();
+            }
+
+            const targetAccountId = existingAcc ? existingAcc.id : accountId;
+            this.detailsAccountId = targetAccountId;
+
+            let cachedSymbols = [];
+            if (window.MT5API && window.MT5API._accountSymbolsCache) {
+                cachedSymbols = window.MT5API._accountSymbolsCache.get(targetAccountId) ||
+                                (existingAcc ? window.MT5API._accountSymbolsCache.get(String(existingAcc.login)) : null) ||
+                                window.MT5API._accountSymbolsCache.get(accountId) || [];
+            }
+            let storedHistory = window.MT5API ? window.MT5API.getStoredTradeHistory(targetAccountId) : [];
 
             if (cachedSymbols.length <= 2) {
                 cachedSymbols = [];
                 try {
-                    const localSyms = localStorage.getItem(`mt5_symbols_${accountId}`);
-                    if (localSyms) {
-                        const parsed = JSON.parse(localSyms);
-                        if (Array.isArray(parsed) && parsed.length > 2) {
-                            cachedSymbols = parsed;
-                            if (window.MT5API && window.MT5API._accountSymbolsCache) {
-                                window.MT5API._accountSymbolsCache.set(accountId, cachedSymbols);
+                    const keysToCheck = [
+                        `mt5_symbols_${targetAccountId}`,
+                        existingAcc ? `mt5_symbols_${existingAcc.login}` : null,
+                        `mt5_symbols_${accountId}`
+                    ].filter(Boolean);
+                    for (const k of keysToCheck) {
+                        const localSyms = localStorage.getItem(k);
+                        if (localSyms) {
+                            const parsed = JSON.parse(localSyms);
+                            if (Array.isArray(parsed) && parsed.length > 2) {
+                                cachedSymbols = parsed;
+                                if (window.MT5API && window.MT5API._accountSymbolsCache) {
+                                    window.MT5API._accountSymbolsCache.set(targetAccountId, cachedSymbols);
+                                }
+                                break;
                             }
-                        } else {
-                            localStorage.removeItem(`mt5_symbols_${accountId}`);
                         }
                     }
                 } catch (_) {}
             }
             if (storedHistory.length === 0) {
                 try {
-                    const localHist = localStorage.getItem(`mt5_history_cache_${accountId}`);
+                    const localHist = localStorage.getItem(`mt5_history_cache_${targetAccountId}`) || (existingAcc ? localStorage.getItem(`mt5_history_cache_${existingAcc.login}`) : null);
                     if (localHist) storedHistory = JSON.parse(localHist);
                 } catch (_) {}
+            }
+
+            // Initial positions: read from existingAcc.positions, or filter from MT5API.positions
+            let initialPositions = (existingAcc && Array.isArray(existingAcc.positions)) ? existingAcc.positions : [];
+            if (initialPositions.length === 0 && window.MT5API && Array.isArray(window.MT5API.positions)) {
+                const cleanLogin = existingAcc ? String(existingAcc.login).trim() : String(targetAccountId).replace(/^mt5_/, '');
+                initialPositions = window.MT5API.positions.filter(p => {
+                    const pAid = String(p.account_id || '').trim();
+                    return pAid === String(targetAccountId) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
+                });
             }
 
             const initialCategories = {};
@@ -3007,7 +3075,7 @@
             this.detailsData = {
                 account: existingAcc,
                 symbols: cachedSymbols,
-                positions: (existingAcc && existingAcc.positions) ? existingAcc.positions : [],
+                positions: initialPositions,
                 history: storedHistory,
                 categories: initialCategories,
                 lastTradeFormatted: (storedHistory && storedHistory.length > 0) ? new Date(storedHistory[0].time).toLocaleString() : (existingAcc && existingAcc.created_at ? `Account added: ${new Date(existingAcc.created_at * 1000).toLocaleDateString()}` : 'Ready'),
@@ -3034,6 +3102,18 @@
             // Render modal in 0ms!
             this.renderModal();
 
+            // Immediately fetch active positions asynchronously so the badge is guaranteed up-to-date in <50ms without waiting for full sync
+            if (window.MT5API) {
+                window.MT5API.fetchPositions(targetAccountId).then(pos => {
+                    if (Array.isArray(pos)) {
+                        if (this.detailsData && String(this.detailsAccountId) === String(targetAccountId)) {
+                            this.detailsData.positions = pos;
+                        }
+                        this.handleLivePositionUpdate(pos);
+                    }
+                }).catch(() => {});
+            }
+
             const onProgress = (step, title, detail, pct) => {
                 this.detailsProgress = { step, title, detail, pct };
                 this.updateDetailsSyncProgress(title, detail, pct);
@@ -3041,13 +3121,16 @@
 
             try {
                 if (window.MT5API) {
-                    const data = await window.MT5API.fetchAccountFullDetails(accountId, onProgress);
+                    const data = await window.MT5API.fetchAccountFullDetails(targetAccountId, onProgress);
                     if (data) {
                         this.detailsData = data;
                         if (data.account && data.account.id) {
                             this.detailsAccountId = data.account.id;
                         }
                         this._accountDetailsCache.set(this.detailsAccountId, data);
+                        if (data.positions) {
+                            this.handleLivePositionUpdate(data.positions);
+                        }
                     }
                 }
             } catch (err) {
@@ -3858,6 +3941,145 @@
             `;
         }
 
+        renderHfBadgeHtml(server, symbol, theme) {
+            const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
+                ? window.MT5ParquetIndex.getTickerStatusSync(server, symbol)
+                : { isAvailable: false, isSyncing: false, isQueued: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${symbol}`, displayRange: 'Inception → Present', startDate: 'Inception', endDate: 'Present', totalChunks: 0, totalBars: 0 };
+
+            let hfBadgeHtml = '';
+            if (hfStatus.isSyncing) {
+                hfBadgeHtml = `
+                    <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                        <span class="mt5-hf-syncing-pill" style="
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 4px;
+                            padding: 2px 7px;
+                            border-radius: 4px;
+                            font-size: 9.5px;
+                            font-weight: 700;
+                            background: rgba(33, 150, 243, 0.16);
+                            color: #2196f3;
+                            border: 1px solid rgba(33, 150, 243, 0.45);
+                            white-space: nowrap;
+                        " title="Bridge is actively archiving ${symbol} to Hugging Face (@${hfStatus.primaryAuthor})&#10;Currently archiving: ${hfStatus.currentChunk || '1m'}">
+                            <span style="display: inline-block; animation: mt5spin 1.2s linear infinite;">🔄</span>
+                            <span>Syncing ${hfStatus.currentChunk || '1m'}...</span>
+                        </span>
+                    </div>
+                `;
+            } else if (hfStatus.isQueued) {
+                hfBadgeHtml = `
+                    <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                        <span style="
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 3px;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-size: 9px;
+                            font-weight: 600;
+                            background: rgba(255, 152, 0, 0.15);
+                            color: #ff9800;
+                            border: 1px solid rgba(255, 152, 0, 0.4);
+                            white-space: nowrap;
+                        " title="In Bridge priority queue - next in line for Parquet archival!">
+                            <span>⏳</span>
+                            <span>Queued</span>
+                        </span>
+                    </div>
+                `;
+            } else if (hfStatus.isAvailable) {
+                const matching = hfStatus.matchingAuthors || [];
+                const primaryUrl = matching[0]?.url || `https://huggingface.co/datasets/${hfStatus.primaryAuthor}/${hfStatus.repoName}`;
+                const fallbackAuthors = matching.length > 1 ? `Fallback Authors: ${matching.slice(1).map(m => m.author).join(', ')}&#10;` : '';
+
+                const tooltipText = `Hugging Face Parquet Archival&#10;✓ Synced to Bridge: @${hfStatus.primaryAuthor}&#10;${fallbackAuthors}• Inception Date: ${hfStatus.startDate}&#10;• Present Date: ${hfStatus.endDate}&#10;• Archived Chunks: ${hfStatus.totalChunks}&#10;• Total Archived Bars: ${hfStatus.totalBars.toLocaleString()}&#10;Click to open Hugging Face dataset in new tab ↗`;
+
+                const multiCount = matching.length > 1 ? `<span style="font-size: 8.5px; opacity: 0.85; margin-left: 2px;">(+${matching.length - 1})</span>` : '';
+
+                hfBadgeHtml = `
+                    <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; flex-wrap: wrap;">
+                        <a href="${primaryUrl}" target="_blank" rel="noopener noreferrer" class="mt5-hf-pill" style="
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 3px;
+                            padding: 1.5px 6px;
+                            border-radius: 3px;
+                            font-size: 9.5px;
+                            font-weight: 600;
+                            text-decoration: none;
+                            background: rgba(255, 172, 51, 0.12);
+                            color: #ff9800;
+                            border: 1px solid rgba(255, 172, 51, 0.35);
+                            white-space: nowrap;
+                            transition: all 0.12s ease;
+                        " title="${tooltipText}">
+                            <span>🤗</span>
+                            <span>${matching[0]?.author || hfStatus.primaryAuthor}</span>
+                            ${multiCount}
+                            <span style="font-size: 8.5px; opacity: 0.85;">↗</span>
+                        </a>
+                        <span class="mt5-date-range-badge" style="
+                            font-size: 9px;
+                            padding: 1.5px 6px;
+                            border-radius: 3px;
+                            background: rgba(76, 175, 80, 0.12);
+                            color: #4caf50;
+                            border: 1px solid rgba(76, 175, 80, 0.3);
+                            font-family: monospace;
+                            font-weight: 600;
+                            white-space: nowrap;
+                        " title="${tooltipText}">
+                            ${hfStatus.displayRange}
+                        </span>
+                        ${matching.length > 1 ? matching.slice(1).map(m => `
+                            <a href="${m.url}" target="_blank" rel="noopener noreferrer" style="
+                                display: inline-flex;
+                                align-items: center;
+                                padding: 1.5px 5px;
+                                border-radius: 3px;
+                                font-size: 9px;
+                                font-weight: 500;
+                                text-decoration: none;
+                                background: ${theme.pillBg};
+                                color: ${theme.textMuted};
+                                border: 1px solid ${theme.border};
+                                white-space: nowrap;
+                                transition: all 0.12s ease;
+                            " title="Open fallback repository under '${m.author}' in new tab ↗">
+                                <span>${m.author} ↗</span>
+                            </a>
+                        `).join('') : ''}
+                    </div>
+                `;
+            } else {
+                const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload from inception to present`;
+                hfBadgeHtml = `
+                    <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${symbol}" data-server="${server || ''}" style="
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 3px;
+                        padding: 1.5px 6px;
+                        border-radius: 3px;
+                        font-size: 9px;
+                        font-weight: 500;
+                        background: transparent;
+                        color: ${theme.textMuted};
+                        border: 1px dashed ${theme.border};
+                        cursor: pointer;
+                        white-space: nowrap;
+                        transition: all 0.12s ease;
+                    " title="${fallbackTooltip}">
+                        <span style="opacity: 0.6;">⚪</span>
+                        <span>Sync to HF ⚡</span>
+                    </button>
+                `;
+            }
+
+            return `<div class="mt5-hf-badge-container" data-symbol="${symbol}" data-server="${server || ''}" style="display:inline-flex; align-items:center;">${hfBadgeHtml}</div>`;
+        }
+
         getTickerListHtml(symbols, theme, server) {
             if (!symbols || symbols.length === 0) {
                 return `
@@ -3875,143 +4097,6 @@
                 const stepLot = s.lot_step != null ? s.lot_step : 0.01;
                 const desc = (s.description && s.description !== s.name) ? s.description : '';
 
-                // Query Hugging Face dataset status across Bridge & Community authors
-                const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
-                    ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name)
-                    : { isAvailable: false, isSyncing: false, isQueued: false, matchingAuthors: [], primaryAuthor: 'bnq-ii', repoName: `MT5_${server || 'Server'}_${s.name}`, displayRange: 'Inception → Present', startDate: 'Inception', endDate: 'Present', totalChunks: 0, totalBars: 0 };
-
-                let hfBadgeHtml = '';
-                if (hfStatus.isSyncing) {
-                    hfBadgeHtml = `
-                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                            <span class="mt5-hf-syncing-pill" style="
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 4px;
-                                padding: 2px 7px;
-                                border-radius: 4px;
-                                font-size: 9.5px;
-                                font-weight: 700;
-                                background: rgba(33, 150, 243, 0.16);
-                                color: #2196f3;
-                                border: 1px solid rgba(33, 150, 243, 0.45);
-                                white-space: nowrap;
-                            " title="Bridge is actively archiving ${s.name} to Hugging Face (@${hfStatus.primaryAuthor})&#10;Currently archiving: ${hfStatus.currentChunk || '1m'}">
-                                <span style="display: inline-block; animation: mt5spin 1.2s linear infinite;">🔄</span>
-                                <span>Syncing ${hfStatus.currentChunk || '1m'}...</span>
-                            </span>
-                        </div>
-                    `;
-                } else if (hfStatus.isQueued) {
-                    hfBadgeHtml = `
-                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                            <span style="
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 3px;
-                                padding: 2px 6px;
-                                border-radius: 4px;
-                                font-size: 9px;
-                                font-weight: 600;
-                                background: rgba(255, 152, 0, 0.15);
-                                color: #ff9800;
-                                border: 1px solid rgba(255, 152, 0, 0.4);
-                                white-space: nowrap;
-                            " title="In Bridge priority queue - next in line for Parquet archival!">
-                                <span>⏳</span>
-                                <span>Queued</span>
-                            </span>
-                        </div>
-                    `;
-                } else if (hfStatus.isAvailable) {
-                    const matching = hfStatus.matchingAuthors || [];
-                    const primaryUrl = matching[0]?.url || `https://huggingface.co/datasets/${hfStatus.primaryAuthor}/${hfStatus.repoName}`;
-                    const authorsStr = matching.map(m => m.author).join(', ') || hfStatus.primaryAuthor;
-                    const fallbackAuthors = matching.length > 1 ? `Fallback Authors: ${matching.slice(1).map(m => m.author).join(', ')}&#10;` : '';
-
-                    const tooltipText = `Hugging Face Parquet Archival&#10;✓ Synced to Bridge: @${hfStatus.primaryAuthor}&#10;${fallbackAuthors}• Inception Date: ${hfStatus.startDate}&#10;• Present Date: ${hfStatus.endDate}&#10;• Archived Chunks: ${hfStatus.totalChunks}&#10;• Total Archived Bars: ${hfStatus.totalBars.toLocaleString()}&#10;Click to open Hugging Face dataset in new tab ↗`;
-
-                    const multiCount = matching.length > 1 ? `<span style="font-size: 8.5px; opacity: 0.85; margin-left: 2px;">(+${matching.length - 1})</span>` : '';
-
-                    hfBadgeHtml = `
-                        <div style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; flex-wrap: wrap;">
-                            <a href="${primaryUrl}" target="_blank" rel="noopener noreferrer" class="mt5-hf-pill" style="
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 3px;
-                                padding: 1.5px 6px;
-                                border-radius: 3px;
-                                font-size: 9.5px;
-                                font-weight: 600;
-                                text-decoration: none;
-                                background: rgba(255, 172, 51, 0.12);
-                                color: #ff9800;
-                                border: 1px solid rgba(255, 172, 51, 0.35);
-                                white-space: nowrap;
-                                transition: all 0.12s ease;
-                            " title="${tooltipText}">
-                                <span>🤗</span>
-                                <span>${matching[0]?.author || hfStatus.primaryAuthor}</span>
-                                ${multiCount}
-                                <span style="font-size: 8.5px; opacity: 0.85;">↗</span>
-                            </a>
-                            <span class="mt5-date-range-badge" style="
-                                font-size: 9px;
-                                padding: 1.5px 6px;
-                                border-radius: 3px;
-                                background: rgba(76, 175, 80, 0.12);
-                                color: #4caf50;
-                                border: 1px solid rgba(76, 175, 80, 0.3);
-                                font-family: monospace;
-                                font-weight: 600;
-                                white-space: nowrap;
-                            " title="${tooltipText}">
-                                ${hfStatus.displayRange}
-                            </span>
-                            ${matching.length > 1 ? matching.slice(1).map(m => `
-                                <a href="${m.url}" target="_blank" rel="noopener noreferrer" style="
-                                    display: inline-flex;
-                                    align-items: center;
-                                    padding: 1.5px 5px;
-                                    border-radius: 3px;
-                                    font-size: 9px;
-                                    font-weight: 500;
-                                    text-decoration: none;
-                                    background: ${theme.pillBg};
-                                    color: ${theme.textMuted};
-                                    border: 1px solid ${theme.border};
-                                    white-space: nowrap;
-                                    transition: all 0.12s ease;
-                                " title="Open fallback repository under '${m.author}' in new tab ↗">
-                                    <span>${m.author} ↗</span>
-                                </a>
-                            `).join('') : ''}
-                        </div>
-                    `;
-                } else {
-                    const fallbackTooltip = `Hugging Face Archival&#10;⚪ Not yet archived to Hugging Face&#10;Click to prioritize background extraction & upload from inception to present`;
-                    hfBadgeHtml = `
-                        <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${s.name}" data-server="${server || ''}" style="
-                            display: inline-flex;
-                            align-items: center;
-                            gap: 3px;
-                            padding: 1.5px 6px;
-                            border-radius: 3px;
-                            font-size: 9px;
-                            font-weight: 500;
-                            background: transparent;
-                            color: ${theme.textMuted};
-                            border: 1px dashed ${theme.border};
-                            cursor: pointer;
-                            white-space: nowrap;
-                            transition: all 0.12s ease;
-                        " title="${fallbackTooltip}">
-                            <span style="opacity: 0.6;">⚪</span>
-                            <span>Sync to HF ⚡</span>
-                        </button>
-                    `;
-                }
-
                 return `
                     <div class="mt5-ticker-row" data-symbol="${s.name}" data-server="${server || ''}" style="
                         display: flex;
@@ -4027,7 +4112,7 @@
                         <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; flex-wrap: wrap;">
                             <strong style="font-size: 12.5px; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${s.name}</strong>
                             <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: ${theme.pillBg}; color: ${theme.textMuted}; border: 1px solid ${theme.border}; font-weight: 600; white-space: nowrap;">${cat}</span>
-                            ${hfBadgeHtml}
+                            ${this.renderHfBadgeHtml(server, s.name, theme)}
                             ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
@@ -4677,7 +4762,7 @@
                             white-space: nowrap;
                             transition: all 0.12s ease;
                         ">
-                            <span>📈</span> Market Watch & Tickers (${symbols.length})
+                            <span id="mt5-tab-tickers-count"><span>📈</span> Market Watch & Tickers (${symbols.length})</span>
                         </button>
                         <button class="mt5-subtab-btn" data-subtab="positions" style="
                             background: transparent;
@@ -4740,6 +4825,11 @@
                                         const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name) : null;
                                         return st && st.isAvailable;
                                     }).length / symbols.length) * 100) : 0}%)</span>
+                                    <span id="mt5-hf-global-status" style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">
+                                        ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.total_symbols))
+                                            ? `• Fleet: ${window.MT5ParquetIndex.bridgeStatus.completed_symbols || 0} / ${window.MT5ParquetIndex.bridgeStatus.total_symbols} (${Math.round(((window.MT5ParquetIndex.bridgeStatus.completed_symbols || 0) / window.MT5ParquetIndex.bridgeStatus.total_symbols) * 100)}%)`
+                                            : ''}
+                                    </span>
                                     <span id="mt5-hf-summary-status" style="font-size: 10px; color: ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.is_syncing)) ? '#2196f3' : '#4caf50'};">
                                         ${((window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus && window.MT5ParquetIndex.bridgeStatus.is_syncing))
                                             ? `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${window.MT5ParquetIndex.bridgeStatus.current_symbol || ''} (${window.MT5ParquetIndex.bridgeStatus.current_chunk || '1m'})`
