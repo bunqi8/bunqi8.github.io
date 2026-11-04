@@ -2191,8 +2191,9 @@
                                     ${hfStatus.is_syncing ? `${hfStatus.current_symbol || 'Symbol'} (${hfStatus.current_chunk || 'chunk'})` : 'Active chart symbols sync autonomously to HF'}
                                 </span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 10px; color: ${theme.textMuted}; font-size: 9.5px;">
-                                <span>📦 Chunks Uploaded: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
+                            <div style="display: flex; align-items: center; gap: 10px; color: ${theme.textMuted}; font-size: 9.5px; flex-wrap: wrap;">
+                                <span>📊 Inception Queue: <strong style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
+                                <span>📦 Chunks: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
                                 <span>💾 Uploaded: <strong style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
                                 <span title="Local temporary files and terminal .hcc cache are purged immediately after push" style="color: #089981; font-weight: 600;">✓ 0 MB VPS Retention</span>
                             </div>
