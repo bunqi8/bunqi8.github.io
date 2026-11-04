@@ -678,6 +678,15 @@
                                 <span>⚙️</span> Bridges (${endpoints.length})
                                 <span style="width: 5px; height: 5px; border-radius: 50%; background: ${isConn ? '#00e676' : '#ffa500'}; display: inline-block;"></span>
                             </button>
+                            <button id="mt5-tab-parquet" type="button" style="
+                                background: ${this.activeTab === 'parquet' ? theme.primary : 'transparent'};
+                                color: ${this.activeTab === 'parquet' ? '#fff' : theme.textMuted};
+                                border: none; border-radius: 3px;
+                                padding: 3px 11px; font-size: 11px; font-weight: 600; cursor: pointer;
+                                display: inline-flex; align-items: center; gap: 4px; transition: all 0.12s ease;
+                            ">
+                                <span>🤗</span> Parquet Data (${discoveryAuthors.length + 1})
+                            </button>
                         </div>
 
                         <!-- Right Close Button -->
@@ -689,7 +698,7 @@
 
                     <!-- Modal Body (Compact High-Density View) -->
                     <div class="mt5-modal-body" style="padding: 10px 12px; overflow-y: auto; overflow-x: hidden; flex: 1; box-sizing: border-box; width: 100%;">
-                        ${this.activeTab === 'fleet' ? this.getFleetHtml(theme, accounts, activeAcc) : this.getSettingsHtml(theme)}
+                        ${this.activeTab === 'fleet' ? this.getFleetHtml(theme, accounts, activeAcc) : (this.activeTab === 'parquet' ? this.getParquetHtml(theme) : this.getSettingsHtml(theme))}
                     </div>
                 </div>
             `;
@@ -1913,6 +1922,131 @@
                 }
             } catch (_) {}
             return false;
+        }
+
+        getParquetHtml(theme) {
+            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') || (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') || 'bnq-ii';
+            const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
+            const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
+
+            return `
+                <div style="display: flex; flex-direction: column; gap: 9px; box-sizing: border-box; width: 100%;">
+                    <!-- Top Summary Card: Live Inception & Background Archival -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 7px;">
+                                <span style="font-size: 16px;">🤗</span>
+                                <strong style="font-size: 12px; color: ${theme.text}; letter-spacing: 0.2px;">HUGGING FACE PARQUET ARCHIVAL ENGINE</strong>
+                                <span style="font-size: 9px; padding: 2px 7px; border-radius: 3px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.25); font-weight: 700;">Zero-Cloud 0ms DuckDB Ready</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <button id="mt5-btn-sync-current-symbol" type="button" style="background: rgba(41,98,255,0.08); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.25); height: 24px; padding: 0 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Prioritize active chart symbol for immediate Parquet archival">
+                                    <span>⚡</span> Archive Chart Symbol
+                                </button>
+                                <button id="mt5-btn-refresh-hf-status" type="button" style="background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; height: 24px; padding: 0 9px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                    <span>🔄</span> Refresh Status
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Live Status Banner -->
+                        <div style="background: rgba(0,0,0,0.15); border: 1px solid ${theme.border}; border-radius: 4px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 10.5px; font-family: monospace;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
+                                    ${hfStatus.is_syncing ? '🔄 ACTIVE INCEPTION SYNC:' : '🟢 ARCHIVAL IDLE:'}
+                                </span>
+                                <span style="color: ${theme.text}; font-weight: 600;">
+                                    ${hfStatus.is_syncing ? `${hfStatus.current_symbol || 'Symbol'} (${hfStatus.current_server || 'Server'}, ${hfStatus.current_chunk || 'chunk'})` : 'Fleet automatically rotates across all symbols from inception'}
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 12px; color: ${theme.textMuted}; font-size: 10px; flex-wrap: wrap;">
+                                <span>📊 Inception Queue: <strong style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
+                                <span>📦 Chunks: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
+                                <span>💾 Uploaded: <strong style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
+                                <span title="Ephemeral local files wiped immediately on upload" style="color: #089981; font-weight: 700;">✓ 0 MB VPS Retention</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Discovery Namespaces Card -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                            <div>
+                                <strong style="font-size: 11.5px; color: ${theme.text};">Data Discovery Namespaces (Community & Public Datasets)</strong>
+                                <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">
+                                    Add Hugging Face usernames/organizations to discover and backfill Parquet historical candles from other public datasets (e.g. <code>trader-name</code>).
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="text" id="mt5-in-discovery-username" placeholder="Add HF Username (e.g. trader-data)" style="width: 210px; height: 25px; padding: 2px 10px; font-size: 10.5px; font-family: monospace; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; box-sizing: border-box;">
+                                <button id="mt5-btn-add-discovery-username" type="button" style="background: ${theme.primary}; color: #fff; border: none; height: 25px; padding: 0 11px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">➕ Add Namespace</button>
+                            </div>
+                        </div>
+
+                        <!-- Active Discovery List Chips -->
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 4px;" id="mt5-discovery-authors-list">
+                            <span style="font-size: 10px; padding: 3px 8px; border-radius: 4px; background: rgba(41,98,255,0.15); color: ${theme.primary}; border: 1px solid rgba(41,98,255,0.3); font-weight: 700; font-family: monospace; display: inline-flex; align-items: center; gap: 4px;">
+                                👑 ${hfAuthor} (Primary Publisher)
+                            </span>
+                            ${discoveryAuthors.map(author => `
+                                <span style="font-size: 10px; padding: 3px 8px; border-radius: 4px; background: ${theme.inputBg}; color: ${theme.text}; border: 1px solid ${theme.border}; font-family: monospace; display: inline-flex; align-items: center; gap: 6px;">
+                                    👥 ${author}
+                                    <button type="button" class="mt5-btn-remove-discovery-author" data-author="${author}" style="background: transparent; border: none; color: ${theme.error}; cursor: pointer; font-size: 11px; font-weight: 700; padding: 0; line-height: 1;" title="Remove this discovery namespace">✕</button>
+                                </span>
+                            `).join('')}
+                            ${discoveryAuthors.length === 0 ? `<span style="font-size: 10px; color: ${theme.textMuted}; font-style: italic;">No secondary accounts added yet. Add public/community usernames above to discover more Parquet data without passwords.</span>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Publisher & Write Token Card -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                        <div>
+                            <strong style="font-size: 11px; color: ${theme.text};">Hugging Face Write Token (VPS Publisher)</strong>
+                            <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 1px;">
+                                Allows your Cloud Bridge VPS to push newly archived candles to your public dataset repository (<code>${hfAuthor}</code>).
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                            <input type="password" id="mt5-in-hf-write-token" autocomplete="new-password" placeholder="Paste HF Token (hf_...)" style="width: 200px; height: 25px; padding: 2px 10px; font-size: 10.5px; font-family: monospace; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; box-sizing: border-box;">
+                            <button id="mt5-btn-save-hf-token" type="button" style="background: ${theme.primary}; color: #fff; border: none; height: 25px; padding: 0 11px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;">Save Token</button>
+                        </div>
+                    </div>
+
+                    <!-- Browser Storage & 1-Week Expiration Manager -->
+                    <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 14px;">🧹</span>
+                                    <strong style="font-size: 11.5px; color: ${theme.text};">Browser Parquet Cache & 1-Week Inactivity Expiration</strong>
+                                    <span style="font-size: 9px; padding: 2px 6px; border-radius: 3px; background: rgba(8,153,129,0.12); color: #089981; border: 1px solid rgba(8,153,129,0.25); font-weight: 700;">7-Day Auto-Purge Active</span>
+                                </div>
+                                <div style="font-size: 10px; color: ${theme.textMuted}; margin-top: 2px;">
+                                    To keep your browser lightweight and fast (identical to Fyers), cached Parquet files for any <code>Server + Ticker</code> combo that has not been opened in the webpage within 1 week (7 days) are automatically deleted.
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <button id="mt5-btn-clean-expired-parquet" type="button" style="background: rgba(8,153,129,0.1); color: #089981; border: 1px solid rgba(8,153,129,0.3); height: 25px; padding: 0 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;" title="Manually purge files not opened in the last 7 days">
+                                    🧹 Purge Expired (> 7 Days)
+                                </button>
+                                <button id="mt5-btn-clear-all-parquet" type="button" style="background: rgba(242,54,69,0.08); color: ${theme.error}; border: 1px solid ${theme.errorBorder}; height: 25px; padding: 0 10px; border-radius: 4px; font-size: 10.5px; font-weight: 600; cursor: pointer;" title="Clear all downloaded Parquet files from browser storage">
+                                    🗑️ Clear All Parquet Cache
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Storage Stats Bar -->
+                        <div id="mt5-parquet-storage-status" style="background: rgba(0,0,0,0.12); border: 1px solid ${theme.border}; border-radius: 4px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 10.5px; font-family: monospace;">
+                            <span id="mt5-parquet-storage-text" style="color: ${theme.text}; font-weight: 600;">
+                                📊 Calculating IndexedDB Parquet cache size...
+                            </span>
+                            <span style="color: #089981; font-weight: 600;">
+                                ✓ Self-Healing LRU Purge Enabled
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         getSettingsHtml(theme) {
@@ -4746,6 +4880,12 @@
                 this.renderModal();
             };
 
+            const tabParquet = modal.querySelector('#mt5-tab-parquet');
+            if (tabParquet) tabParquet.onclick = () => {
+                this.activeTab = 'parquet';
+                this.renderModal();
+            };
+
             const btnAddView = modal.querySelector('#mt5-btn-add-account-view');
             if (btnAddView) btnAddView.onclick = () => {
                 this.viewMode = 'add';
@@ -6094,6 +6234,51 @@
                         await window.MT5ParquetIndex.pollBridgeStatus();
                     }
                     this.renderModal();
+                };
+            }
+
+            // Parquet Storage Stats & Expiration Cleaners
+            const updateStorageDisplay = async () => {
+                const el = modal.querySelector('#mt5-parquet-storage-text');
+                if (!el) return;
+                try {
+                    if (window.SyncManager && typeof window.SyncManager.getParquetStorageStats === 'function') {
+                        const stats = await window.SyncManager.getParquetStorageStats();
+                        el.innerHTML = `💾 Browser Storage: <strong>${stats.totalMb} MB</strong> (${stats.fileCount} Parquet chunks cached) • <em>${stats.expiredCount} expired (> 7 days)</em>`;
+                    } else {
+                        el.textContent = '💾 Browser Storage: Active (IndexedDB)';
+                    }
+                } catch (_) {
+                    el.textContent = '💾 Browser Storage: Active';
+                }
+            };
+            updateStorageDisplay();
+
+            const btnCleanExpired = modal.querySelector('#mt5-btn-clean-expired-parquet');
+            if (btnCleanExpired) {
+                btnCleanExpired.onclick = async () => {
+                    btnCleanExpired.textContent = '🧹 Cleaning...';
+                    if (window.SyncManager && typeof window.SyncManager.clearExpiredParquetFiles === 'function') {
+                        const count = await window.SyncManager.clearExpiredParquetFiles();
+                        alert(`✓ Successfully purged ${count || 0} expired Parquet files older than 1 week (7 days).`);
+                    }
+                    await updateStorageDisplay();
+                    btnCleanExpired.textContent = '🧹 Purge Expired (> 7 Days)';
+                };
+            }
+
+            const btnClearAll = modal.querySelector('#mt5-btn-clear-all-parquet');
+            if (btnClearAll) {
+                btnClearAll.onclick = async () => {
+                    if (confirm("Are you sure you want to clear all locally cached Parquet data from your browser? Data will re-download automatically when opening charts.")) {
+                        btnClearAll.textContent = '🗑️ Clearing...';
+                        if (window.SyncManager && typeof window.SyncManager.clearAllParquetFiles === 'function') {
+                            await window.SyncManager.clearAllParquetFiles();
+                        }
+                        if (window.parquetCache) window.parquetCache = {};
+                        await updateStorageDisplay();
+                        btnClearAll.textContent = '🗑️ Clear All Parquet Cache';
+                    }
                 };
             }
 
