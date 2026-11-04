@@ -173,8 +173,23 @@
             const author = manifest._author || ((this.author && this.author !== 'deep776') ? this.author : 'bnq-ii');
             const repoName = this.getRepoName(server, symbol);
 
+            // Read explicit broker inception timestamp from manifest
+            const inceptionSec = manifest.inception_time || (manifest.inception_date ? Math.floor(new Date(manifest.inception_date).getTime() / 1000) : 0);
+            if (inceptionSec > 0 && toSec < inceptionSec) {
+                // Requested range is strictly before broker inception - no data exists
+                return {
+                    urls: [],
+                    isDwm,
+                    earliestSec: inceptionSec,
+                    latestSec: 0,
+                    manifest,
+                    author,
+                    beforeInception: true
+                };
+            }
+
             const urls = [];
-            let earliestSec = Infinity;
+            let earliestSec = inceptionSec > 0 ? inceptionSec : Infinity;
             let latestSec = 0;
 
             if (isDwm && manifest['1D']) {
