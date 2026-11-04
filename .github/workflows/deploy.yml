@@ -6,50 +6,91 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
+  deployments: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Unlock stuck ghost deployments
+        run: |
+          python3 -c "
+          import urllib.request, json, os
+
+          token = os.environ.get('GITHUB_TOKEN')
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'User-Agent': 'Actions-Deploy-Fix'
+          }
+
+          try:
+              req = urllib.request.Request(f'https://api.github.com/repos/{repo}/deployments?per_page=30', headers=headers)
+              with urllib.request.urlopen(req) as resp:
+                  deployments = json.loads(resp.read().decode())
+              
+              print(f'Checking {len(deployments)} deployments for stuck state...')
+              for dep in deployments:
+                  dep_id = dep.get('id')
+                  env = dep.get('environment')
+                  if env != 'github-pages':
+                      continue
+                  
+                  s_req = urllib.request.Request(f'https://api.github.com/repos/{repo}/deployments/{dep_id}/statuses', headers=headers)
+                  with urllib.request.urlopen(s_req) as s_resp:
+                      statuses = json.loads(s_resp.read().decode())
+                  latest_state = statuses[0].get('state') if statuses else 'unknown'
+                  
+                  if latest_state in ['in_progress', 'queued', 'waiting']:
+                      print(f'Cancelling stuck deployment {dep_id} (state: {latest_state})...')
+                      inact_req = urllib.request.Request(
+                          f'https://api.github.com/repos/{repo}/deployments/{dep_id}/statuses',
+                          headers=headers,
+                          data=json.dumps({'state': 'inactive'}).encode(),
+                          method='POST'
+                      )
+                      try:
+                          urllib.request.urlopen(inact_req)
+                          print(f'Marked deployment {dep_id} inactive')
+                      except Exception as e:
+                          print(f'Error marking inactive: {e}')
+          except Exception as e:
+              print(f'Deployment cleanup note: {e}')
+          "
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    needs: build
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './public'
-      - name: Inspect Pages API
-        run: |
-          mkdir -p debug_logs
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/pages > debug_logs/pages.json || true
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/deployments > debug_logs/deployments.json || true
       - name: Deploy to GitHub Pages
         id: deployment
-        continue-on-error: true
         uses: actions/deploy-pages@v4
-      - name: Capture Deploy Step Output
-        if: always()
-        run: |
-          echo "Outcome: ${{ steps.deployment.outcome }}" > debug_logs/outcome.txt
-          echo "Conclusion: ${{ steps.deployment.conclusion }}" >> debug_logs/outcome.txt
-      - name: Upload Debug Log
-        if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: debug-pages-log
-          path: debug_logs
+          token: ${{ secrets.GITHUB_TOKEN }}
+          timeout: 600000
+          error_count: 10
