@@ -188,8 +188,10 @@
         },
 
         _manifestsInFlight: new Map(),
+        _syncedKeysSet: null,
+        _lastSyncedKeysArr: null,
 
-        getTickerStatusSync(server, symbol) {
+        getTickerStatusSync(server, symbol, autoPreload = false) {
             const repoName = this.getRepoName(server, symbol);
             const authors = this.getAllAuthors();
             const matching = [];
@@ -216,8 +218,12 @@
             const repoKey = `${cleanServer}_${cleanSym}`;
             const cachedManifest = manifestCache.get(repoKey)?.manifest;
 
-            // Check live bridge sync state from WebSocket
+            // Check live bridge sync state from WebSocket using high-speed O(1) Set
             const bs = this.bridgeStatus || {};
+            if (bs.synced_keys && (!this._syncedKeysSet || this._lastSyncedKeysArr !== bs.synced_keys)) {
+                this._syncedKeysSet = new Set(bs.synced_keys);
+                this._lastSyncedKeysArr = bs.synced_keys;
+            }
             const isSyncing = Boolean(
                 bs.is_syncing && 
                 bs.current_symbol && 
@@ -226,12 +232,12 @@
             );
             const currentChunk = isSyncing ? (bs.current_chunk || '1m') : null;
             const isQueued = Boolean(bs.priority_queue && bs.priority_queue.some(q => String(q).toUpperCase() === cleanSym.toUpperCase()));
-            const isBridgeSynced = Boolean(bs.synced_keys && bs.synced_keys.includes(repoKey));
+            const isBridgeSynced = Boolean(this._syncedKeysSet && this._syncedKeysSet.has(repoKey));
 
             const isAvailable = matching.length > 0 || !!cachedManifest || isBridgeSynced;
 
-            // Trigger background manifest preload if available on HF but manifest not yet cached
-            if (isAvailable && !cachedManifest && !this._manifestsInFlight.has(repoKey)) {
+            // Scalable: ONLY trigger background manifest preload if explicitly requested for visible row, never during mass filtering!
+            if (autoPreload && isAvailable && !cachedManifest && !this._manifestsInFlight.has(repoKey)) {
                 this.getManifest(server, symbol).then(mf => {
                     if (mf) {
                         window.dispatchEvent(new CustomEvent('mt5_manifest_loaded', { detail: { server, symbol, repoKey, manifest: mf } }));
