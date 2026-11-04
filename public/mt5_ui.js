@@ -112,6 +112,34 @@
                     });
                 }
             }
+
+            // Listen to real-time Hugging Face archival status pushed over WebSocket
+            window.addEventListener('mt5_hf_status_update', (e) => {
+                const data = e.detail;
+                if (!data || !data.status) return;
+                const s = data.status;
+                const modal = document.getElementById(this.modalId);
+                if (!modal || modal.style.display === 'none') return;
+
+                modal.querySelectorAll('.mt5-hf-status-tag, #mt5-hf-status-tag').forEach(tag => {
+                    tag.style.color = s.is_syncing ? '#ff9800' : '#089981';
+                    tag.textContent = s.is_syncing ? '🔄 ACTIVE INCEPTION SYNC:' : '🟢 ARCHIVAL IDLE:';
+                });
+                modal.querySelectorAll('.mt5-hf-status-desc, #mt5-hf-status-desc').forEach(desc => {
+                    desc.textContent = s.is_syncing 
+                        ? `${s.current_symbol || 'Symbol'} (${s.current_server || 'Server'}, ${s.current_chunk || 'chunk'})` 
+                        : 'Fleet automatically rotates across all symbols from inception';
+                });
+                modal.querySelectorAll('.mt5-hf-queue-count, #mt5-hf-queue-count').forEach(q => {
+                    q.textContent = `${s.completed_symbols || 0} / ${s.total_symbols || 0} Tickers`;
+                });
+                modal.querySelectorAll('.mt5-hf-chunks-count, #mt5-hf-chunks-count').forEach(c => {
+                    c.textContent = `${s.completed_chunks || 0}`;
+                });
+                modal.querySelectorAll('.mt5-hf-uploaded-mb, #mt5-hf-uploaded-mb').forEach(mb => {
+                    mb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
+                });
+            });
         }
 
         mount() {
@@ -1967,17 +1995,18 @@
                         <!-- Live Status Banner -->
                         <div style="background: rgba(0,0,0,0.15); border: 1px solid ${theme.border}; border-radius: 4px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 10.5px; font-family: monospace;">
                             <div style="display: flex; align-items: center; gap: 6px;">
-                                <span style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
+                                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #00e676; box-shadow: 0 0 6px #00e676;" title="WebSocket Stream Connected"></span>
+                                <span id="mt5-hf-status-tag" class="mt5-hf-status-tag" style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
                                     ${hfStatus.is_syncing ? '🔄 ACTIVE INCEPTION SYNC:' : '🟢 ARCHIVAL IDLE:'}
                                 </span>
-                                <span style="color: ${theme.text}; font-weight: 600;">
+                                <span id="mt5-hf-status-desc" class="mt5-hf-status-desc" style="color: ${theme.text}; font-weight: 600;">
                                     ${hfStatus.is_syncing ? `${hfStatus.current_symbol || 'Symbol'} (${hfStatus.current_server || 'Server'}, ${hfStatus.current_chunk || 'chunk'})` : 'Fleet automatically rotates across all symbols from inception'}
                                 </span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 12px; color: ${theme.textMuted}; font-size: 10px; flex-wrap: wrap;">
-                                <span>📊 Inception Queue: <strong style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
-                                <span>📦 Chunks: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
-                                <span>💾 Uploaded: <strong style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
+                                <span>📊 Inception Queue: <strong id="mt5-hf-queue-count" class="mt5-hf-queue-count" style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
+                                <span>📦 Chunks: <strong id="mt5-hf-chunks-count" class="mt5-hf-chunks-count" style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
+                                <span>💾 Uploaded: <strong id="mt5-hf-uploaded-mb" class="mt5-hf-uploaded-mb" style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
                                 <span title="Ephemeral local files wiped immediately on upload" style="color: #089981; font-weight: 700;">✓ 0 MB VPS Retention</span>
                             </div>
                         </div>
@@ -2333,17 +2362,18 @@
                         <!-- Live Status & Progress Strip -->
                         <div style="background: rgba(0,0,0,0.12); border: 1px solid ${theme.border}; border-radius: 4px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 10px; font-family: monospace;">
                             <div style="display: flex; align-items: center; gap: 6px;">
-                                <span style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
+                                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #00e676; box-shadow: 0 0 6px #00e676;" title="WebSocket Stream Connected"></span>
+                                <span class="mt5-hf-status-tag" style="color: ${hfStatus.is_syncing ? '#ff9800' : '#089981'}; font-weight: 700;">
                                     ${hfStatus.is_syncing ? '🔄 SYNCING IN BACKGROUND:' : '🟢 ARCHIVAL IDLE:'}
                                 </span>
-                                <span style="color: ${theme.text}; font-weight: 600;">
+                                <span class="mt5-hf-status-desc" style="color: ${theme.text}; font-weight: 600;">
                                     ${hfStatus.is_syncing ? `${hfStatus.current_symbol || 'Symbol'} (${hfStatus.current_chunk || 'chunk'})` : 'Active chart symbols sync autonomously to HF'}
                                 </span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px; color: ${theme.textMuted}; font-size: 9.5px; flex-wrap: wrap;">
-                                <span>📊 Inception Queue: <strong style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
-                                <span>📦 Chunks: <strong style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
-                                <span>💾 Uploaded: <strong style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
+                                <span>📊 Inception Queue: <strong class="mt5-hf-queue-count" style="color:${theme.text};">${hfStatus.completed_symbols || 0} / ${hfStatus.total_symbols || 0} Tickers</strong></span>
+                                <span>📦 Chunks: <strong class="mt5-hf-chunks-count" style="color:${theme.text};">${hfStatus.completed_chunks || 0}</strong></span>
+                                <span>💾 Uploaded: <strong class="mt5-hf-uploaded-mb" style="color:${theme.text};">${((hfStatus.total_bytes_uploaded || 0) / (1024*1024)).toFixed(1)} MB</strong></span>
                                 <span title="Local temporary files and terminal .hcc cache are purged immediately after push" style="color: #089981; font-weight: 600;">✓ 0 MB VPS Retention</span>
                             </div>
                         </div>
