@@ -406,7 +406,7 @@ const SyncManager = {
 
     async syncRoot() {
         try {
-            console.log("[SyncManager] Fetching root HF datasets...");
+            console.debug("[SyncManager] Fetching root HF datasets...");
             const res = await fetch("https://huggingface.co/api/datasets?author=deep776");
             if (!res.ok) throw new Error("Fetch failed");
             const datasets = await res.json();

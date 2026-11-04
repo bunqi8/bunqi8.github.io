@@ -79,10 +79,20 @@
         setAuthor(newAuthor) {
             if (newAuthor && typeof newAuthor === 'string') {
                 const clean = newAuthor.trim();
-                if (clean === 'deep776') return; // deep776 is reserved strictly for Fyers
+                if (clean === 'deep776' || this.author === clean) return; // deep776 is reserved strictly for Fyers
                 this.author = clean;
+                this.registerBridgeAuthor(clean);
                 try { localStorage.setItem('hf_author', this.author); } catch(_) {}
                 console.log(`[MT5Parquet] Primary author namespace updated to: ${this.author}`);
+            }
+        },
+
+        bridgeAuthors: new Set(['bnq-ii']),
+
+        registerBridgeAuthor(author) {
+            const clean = String(author || '').trim();
+            if (clean && clean !== 'deep776') {
+                this.bridgeAuthors.add(clean);
             }
         },
 
@@ -120,9 +130,78 @@
 
         getAllAuthors() {
             const primary = (this.author && this.author !== 'deep776') ? this.author : 'bnq-ii';
-            const extra = this.getDiscoveryAuthors().filter(a => a && a !== 'deep776');
-            const set = new Set([primary, ...extra]);
-            return Array.from(set);
+            const extraBridge = Array.from(this.bridgeAuthors).filter(a => a && a !== primary && a !== 'deep776');
+            const discovery = this.getDiscoveryAuthors().filter(a => a && a !== primary && !this.bridgeAuthors.has(a) && a !== 'deep776');
+            // Bridge author is ALWAYS first, followed by sibling bridges, then backup discovery authors
+            return [primary, ...extraBridge, ...discovery];
+        },
+
+        authorDatasetsCache: new Map(),
+
+        async fetchAuthorDatasets(author, force = false) {
+            const clean = String(author || '').trim();
+            if (!clean || clean === 'deep776') return [];
+            
+            const cached = this.authorDatasetsCache.get(clean);
+            if (!force && cached && (Date.now() - cached.fetchedAt < 180000)) { // 3-minute cache
+                return cached.datasets;
+            }
+
+            try {
+                const res = await fetch(`https://huggingface.co/api/datasets?author=${encodeURIComponent(clean)}`, { cache: 'no-cache' });
+                if (res.ok) {
+                    const list = await res.json();
+                    if (Array.isArray(list)) {
+                        this.authorDatasetsCache.set(clean, { datasets: list, fetchedAt: Date.now() });
+                        return list;
+                    }
+                }
+            } catch (e) {
+                console.debug(`[MT5Parquet] Could not fetch datasets for author ${clean}:`, e);
+            }
+            return cached ? cached.datasets : [];
+        },
+
+        async preloadAllAuthorDatasets() {
+            const authors = this.getAllAuthors();
+            await Promise.all(authors.map(a => this.fetchAuthorDatasets(a)));
+        },
+
+        getTickerStatusSync(server, symbol) {
+            const repoName = this.getRepoName(server, symbol);
+            const authors = this.getAllAuthors();
+            const matching = [];
+
+            for (const author of authors) {
+                const cached = this.authorDatasetsCache.get(author);
+                if (cached && Array.isArray(cached.datasets)) {
+                    const found = cached.datasets.find(d => d.id === `${author}/${repoName}`);
+                    if (found) {
+                        matching.push({
+                            author,
+                            repoId: found.id,
+                            url: `https://huggingface.co/datasets/${found.id}`,
+                            lastModified: found.lastModified,
+                            isPrimary: (author === this.author)
+                        });
+                    }
+                }
+            }
+
+            const cleanServer = sanitizeHfName(server || 'FundedNext-Server3');
+            const cleanSym = sanitizeHfName(String(symbol || '').split(':').pop());
+            const repoKey = `${cleanServer}_${cleanSym}`;
+            const cachedManifest = manifestCache.get(repoKey)?.manifest;
+
+            return {
+                isAvailable: matching.length > 0 || !!cachedManifest,
+                matchingAuthors: matching,
+                primaryAuthor: this.author,
+                hasOnPrimary: matching.some(m => m.isPrimary),
+                manifest: cachedManifest,
+                repoName,
+                repoKey
+            };
         },
 
         getRepoName(server, symbol) {
@@ -207,7 +286,7 @@
 
             if (isDwm && manifest['1D']) {
                 for (const [decadeKey, chunk] of Object.entries(manifest['1D'])) {
-                    if (!chunk || !chunk.file || !chunk.bars || chunk.bars <= 0) continue;
+                    if (!chunk || !chunk.file || typeof chunk.file !== 'string' || chunk.file === 'undefined' || chunk.file.includes('undefined') || !chunk.bars || chunk.bars <= 0) continue;
                     const cFrom = chunk.from || 0;
                     const cTo = chunk.to || Infinity;
                     earliestSec = Math.min(earliestSec, cFrom);
@@ -219,7 +298,7 @@
                 }
             } else if (!isDwm && manifest['1m']) {
                 for (const [monthKey, chunk] of Object.entries(manifest['1m'])) {
-                    if (!chunk || !chunk.file || !chunk.bars || chunk.bars <= 0) continue;
+                    if (!chunk || !chunk.file || typeof chunk.file !== 'string' || chunk.file === 'undefined' || chunk.file.includes('undefined') || !chunk.bars || chunk.bars <= 0) continue;
                     const cFrom = chunk.from || 0;
                     const cTo = chunk.to || Infinity;
                     earliestSec = Math.min(earliestSec, cFrom);
