@@ -3861,6 +3861,16 @@
                                 }
                             } else if (msg.type === 'accounts') {
                                 this.handleWebSocketAccountsUpdate(ep.id, msg);
+                            } else if (msg.type === 'hf_status' || (msg.type === 'connected' && msg.hf_status)) {
+                                const st = msg.status || msg.hf_status;
+                                const auth = msg.author || msg.hf_author;
+                                if (window.MT5ParquetIndex && st) {
+                                    window.MT5ParquetIndex.bridgeStatus = { ...(window.MT5ParquetIndex.bridgeStatus || {}), ...st };
+                                    if (auth && auth !== 'deep776') {
+                                        window.MT5ParquetIndex.setAuthor(auth);
+                                    }
+                                    window.dispatchEvent(new CustomEvent('mt5_hf_status_update', { detail: { status: st, author: auth } }));
+                                }
                             } else if (msg.type === 'tunnel_migration' && msg.new_url) {
                                 console.log(`[MT5API] 🚀 In-band tunnel migration event received for ${ep.name}: ${msg.new_url}`);
                                 ep.url = String(msg.new_url).trim().replace(/\/+$/, '');
