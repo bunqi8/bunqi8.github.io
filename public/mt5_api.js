@@ -21,6 +21,17 @@
 
             this.accounts = [];
             this.activeAccountId = null;
+            try {
+                const cachedAccs = localStorage.getItem('mt5_accounts_cache');
+                if (cachedAccs) {
+                    const parsed = JSON.parse(cachedAccs);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        this.accounts = parsed;
+                        const firstActive = this.accounts.find(a => a.is_active && !a.is_paused);
+                        this.activeAccountId = firstActive ? firstActive.id : (this.accounts[0] ? this.accounts[0].id : null);
+                    }
+                }
+            } catch (_) {}
             this.positions = [];
             this.ws = null;
             this.activeSymbol = 'EURUSD';
@@ -63,6 +74,21 @@
                     }
                 });
             }
+        }
+
+        whenAccountsReady(timeoutMs = 6000) {
+            if (this.accounts && this.accounts.length > 0) {
+                return Promise.resolve(this.accounts);
+            }
+            if (!this._accountsReadyPromise) {
+                this._accountsReadyPromise = new Promise((resolve) => {
+                    this._resolveAccountsReady = resolve;
+                    setTimeout(() => {
+                        resolve(this.accounts || []);
+                    }, timeoutMs);
+                });
+            }
+            return this._accountsReadyPromise;
         }
 
         // Backward compatibility getters/setters for legacy single-endpoint callers
@@ -1210,6 +1236,10 @@
             const wasPreviouslyConnected = this.isConnected;
             this.accounts = allAccounts;
             this.isConnected = anyOnline;
+            if (typeof this._resolveAccountsReady === 'function') {
+                this._resolveAccountsReady(this.accounts);
+                this._resolveAccountsReady = null;
+            }
 
             // Pick active account ID: prefer active on primary endpoint, or keep current if valid, else pick first
             if (primaryActiveId && this.accounts.some(a => a.id === primaryActiveId)) {
@@ -1228,9 +1258,14 @@
             } catch (_) {}
 
             // Auto-Connect & Auto-Refresh: When connection is established/restored, auto-sync open chart & quotes!
-            if (!wasPreviouslyConnected && anyOnline) {
-                console.log(`[MT5API] ✓ Bridge Fleet Connected (${enabledEndpoints.filter(e => e.status === 'online').length} online)! Auto-syncing live chart & quotes...`);
-                this.reconnectWebSocket();
+            const prevConnectedCount = this._lastConnectedCount || 0;
+            const curConnectedCount = (this.accounts || []).filter(a => a.is_connected).length;
+            this._lastConnectedCount = curConnectedCount;
+
+            if ((!wasPreviouslyConnected && anyOnline) || (curConnectedCount > prevConnectedCount)) {
+                const onlineBridges = enabledEndpoints.filter(e => e.status === 'online').length;
+                console.log(`[MT5API] ✓ Bridge Fleet Connected (${onlineBridges} bridge online, ${curConnectedCount} accounts active)! Auto-syncing live chart & quotes...`);
+                this.ensureWebSocket();
                 this.refreshActiveChart();
             }
 
@@ -1277,6 +1312,18 @@
             }
 
             this.ensureWebSocket();
+
+            // Self-Healing Chart Recovery: If chart has no bars rendered (e.g. initial race condition), auto-refresh it
+            if (window._tvLastBar) {
+                const unifiedKey = `${cleanTicker}_${this.activeResolution || '1'}`;
+                const hasBar = !!window._tvLastBar[unifiedKey];
+                if (!hasBar && typeof chart.setSymbol === 'function') {
+                    console.log(`[MT5API] 🔄 Auto-healing blank/stalled chart for ${currentSymbol}...`);
+                    try {
+                        chart.setSymbol(currentSymbol);
+                    } catch (_) {}
+                }
+            }
         }
 
         getActiveAccount() {
@@ -3491,19 +3538,50 @@
 
                     socket.onopen = () => {
                         if (socket.readyState !== WebSocket.OPEN) return;
-                        const acc = this.getActiveAccount();
-                        const accEp = this.getEndpointForAccount(acc ? acc.id : null);
-                        const handshakeAid = (acc && accEp && accEp.id === ep.id) ? acc.id : null;
-                        const handshake = {
-                            action: 'subscribe',
-                            symbol: this.activeSymbol,
-                            resolution: this.activeResolution || '1',
-                            token: ep.apiKey,
-                            account_id: handshakeAid
-                        };
-                        try {
-                            socket.send(JSON.stringify(handshake));
-                        } catch (_) {}
+
+                        // 1. Re-subscribe all active chart / quote listeners currently registered
+                        let reSubscribedCount = 0;
+                        if (this.tickListeners && this.tickListeners.size > 0) {
+                            const subsByAcc = new Map();
+                            this.tickListeners.forEach((info) => {
+                                if (info && info.symbol) {
+                                    const epMatches = (!info.endpointId || info.endpointId === ep.id);
+                                    if (epMatches) {
+                                        const subKey = `${info.symbol}_${info.accountId || ''}`;
+                                        subsByAcc.set(subKey, { symbol: info.symbol, account_id: info.accountId });
+                                    }
+                                }
+                            });
+                            subsByAcc.forEach((sub) => {
+                                reSubscribedCount++;
+                                try {
+                                    socket.send(JSON.stringify({
+                                        action: 'subscribe',
+                                        symbol: sub.symbol,
+                                        resolution: this.activeResolution || '1',
+                                        token: ep.apiKey,
+                                        account_id: sub.account_id
+                                    }));
+                                } catch (_) {}
+                            });
+                        }
+
+                        // 2. If no existing subscriptions were sent, send primary active symbol handshake
+                        if (reSubscribedCount === 0) {
+                            const acc = this.getActiveAccount();
+                            const accEp = this.getEndpointForAccount(acc ? acc.id : null);
+                            const handshakeAid = (acc && accEp && accEp.id === ep.id) ? acc.id : null;
+                            const handshake = {
+                                action: 'subscribe',
+                                symbol: this.activeSymbol,
+                                resolution: this.activeResolution || '1',
+                                token: ep.apiKey,
+                                account_id: handshakeAid
+                            };
+                            try {
+                                socket.send(JSON.stringify(handshake));
+                            } catch (_) {}
+                        }
 
                         // Send instant ping and schedule continuous 2.5s live ping heartbeat
                         sendLivePing();
