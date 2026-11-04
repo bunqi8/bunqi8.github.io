@@ -1421,19 +1421,38 @@ const Datafeed = {
                 onHistoryCallback([], { noData: true });
                 return;
             }
+
+            // Ensure MT5 accounts are loaded before resolving target account (prevents race condition on page reload)
+            if (window.MT5API && typeof window.MT5API.whenAccountsReady === 'function') {
+                await window.MT5API.whenAccountsReady(4000);
+            }
+
             const cleanSym = symbolInfo.name.split(':').pop().toUpperCase().trim();
             let targetAcc = null;
-            if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API && window.MT5API.accounts) {
-                targetAcc = window.MT5API.accounts.find(a => {
-                    const cleanEx = window.MT5API.getCleanBrokerExchange(a);
-                    return cleanEx === symbolInfo.exchange || 
-                           (a.server && a.server.toUpperCase().includes(symbolInfo.exchange)) ||
-                           (a.nickname && a.nickname.toUpperCase().includes(symbolInfo.exchange));
-                });
+            const resolveTargetAcc = () => {
+                if (symbolInfo.exchange && symbolInfo.exchange !== 'MT5' && window.MT5API && window.MT5API.accounts) {
+                    targetAcc = window.MT5API.accounts.find(a => {
+                        const cleanEx = window.MT5API.getCleanBrokerExchange(a);
+                        return cleanEx === symbolInfo.exchange || 
+                               (a.server && a.server.toUpperCase().includes(symbolInfo.exchange)) ||
+                               (a.nickname && a.nickname.toUpperCase().includes(symbolInfo.exchange));
+                    });
+                }
+                if (!targetAcc && window.MT5API && typeof window.MT5API.getActiveAccount === 'function') {
+                    targetAcc = window.MT5API.getActiveAccount();
+                }
+                return targetAcc;
+            };
+
+            resolveTargetAcc();
+            if (!targetAcc && window.MT5API) {
+                // If accounts are still loading from network, retry up to 3.5s before giving up
+                for (let i = 0; i < 35; i++) {
+                    await new Promise(r => setTimeout(r, 100));
+                    if (resolveTargetAcc()) break;
+                }
             }
-            if (!targetAcc && window.MT5API && typeof window.MT5API.getActiveAccount === 'function') {
-                targetAcc = window.MT5API.getActiveAccount();
-            }
+
             if (!targetAcc) {
                 console.warn(`[datafeed] No viable MT5 account added or connected for ${cleanSym}.`);
                 if (firstDataRequest && typeof onErrorCallback === 'function') {
