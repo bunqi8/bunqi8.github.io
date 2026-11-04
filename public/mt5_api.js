@@ -1339,19 +1339,29 @@
             if (localVault && Array.isArray(localVault)) {
                 localVault.forEach(v => {
                     const vLogin = String(v.login || '').trim();
-                    const vServer = String(v.server || '').trim().toLowerCase();
+                    const vServer = String(v.server || '').trim();
                     if (!vLogin) return;
-                    const bridgeMatches = allAccounts.filter(a => String(a.login || '').trim() === vLogin && String(a.server || '').trim().toLowerCase() === vServer);
-                    const isRejected = Boolean(v.verification_failed);
-                    const isStaged = Boolean(v.staged_offline || v.is_verified === false);
+                    const bridgeMatches = allAccounts.filter(a => String(a.login || '').trim() === vLogin && this.isServerMatch(a.server, vServer));
 
                     if (bridgeMatches.length > 0) {
                         bridgeMatches.forEach(bm => {
+                            const isLiveConnected = Boolean(bm.is_connected || bm.is_verified);
+                            if (isLiveConnected && v.verification_failed) {
+                                v.verification_failed = false;
+                                v.last_error = null;
+                                v.is_verified = true;
+                                try {
+                                    localStorage.setItem('mt5_client_vault', JSON.stringify(localVault));
+                                } catch (_) {}
+                            }
+                            const isRejected = Boolean(v.verification_failed && !isLiveConnected);
+                            const isStaged = Boolean((v.staged_offline || v.is_verified === false) && !isLiveConnected && !isRejected);
+
                             bm.has_local_vault = true;
                             bm.is_local_vault_verified = !isStaged && !isRejected;
-                            bm.is_staged_offline = isStaged && !isRejected;
+                            bm.is_staged_offline = isStaged;
                             bm.is_verification_failed = isRejected;
-                            bm.last_error = isRejected ? (v.last_error || 'Broker rejected credentials') : bm.last_error;
+                            bm.last_error = isRejected ? (v.last_error || 'Broker rejected credentials') : (isLiveConnected ? null : bm.last_error);
                             if (isRejected && !bm.has_dpapi && !bm.has_native_vault) {
                                 bm.auth_mode = 'local_rejected';
                                 bm.auth_label = '❌ Rejected by Broker';
@@ -1678,7 +1688,27 @@
                 // 2) Account is connected on bridge but missing hardware DPAPI
                 // 3) Account is on bridge but currently disconnected/not logged in
                 const needsHealing = isStagedOffline || lacksDpapi || isDisconnected;
-                if (!needsHealing) continue;
+                if (!needsHealing) {
+                    if (matchingAcc && matchingAcc.is_connected && (vaultEntry.verification_failed || vaultEntry.staged_offline || vaultEntry.is_verified === false)) {
+                        vaultEntry.is_verified = true;
+                        vaultEntry.staged_offline = false;
+                        vaultEntry.verification_failed = false;
+                        vaultEntry.last_error = null;
+                        try {
+                            const raw = localStorage.getItem('mt5_client_vault');
+                            const vList = raw ? JSON.parse(raw) : [];
+                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && this.isServerMatch(v.server, targetServer));
+                            if (vIdx >= 0) {
+                                vList[vIdx].is_verified = true;
+                                vList[vIdx].staged_offline = false;
+                                vList[vIdx].verification_failed = false;
+                                vList[vIdx].last_error = null;
+                                localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
+                            }
+                        } catch (_) {}
+                    }
+                    continue;
+                }
 
                 if (this._autoHealAttempts.has(compositeKey)) continue;
                 this._autoHealAttempts.add(compositeKey);
@@ -1730,25 +1760,32 @@
                         }
                         this.notifyAccountListeners();
                     } else if (res && res.verified === false) {
-                        console.warn(`[MT5API] Auto-heal rejected for #${targetLogin} on '${canonicalServer}': Broker rejected vault password.`);
-                        vaultEntry.verification_failed = true;
-                        vaultEntry.last_error = res?.error || 'Broker rejected credentials';
-                        try {
-                            const raw = localStorage.getItem('mt5_client_vault');
-                            const vList = raw ? JSON.parse(raw) : [];
-                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && this.isServerMatch(v.server, targetServer));
-                            if (vIdx >= 0) {
-                                vList[vIdx].verification_failed = true;
-                                vList[vIdx].last_error = vaultEntry.last_error;
-                                localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
-                            }
-                        } catch (_) {}
+                        if (matchingAcc && matchingAcc.is_connected) {
+                            console.log(`[MT5API] Auto-heal probe notice: Account #${targetLogin} is actively connected on bridge. Preserving active status.`);
+                            vaultEntry.is_verified = true;
+                            vaultEntry.verification_failed = false;
+                            vaultEntry.last_error = null;
+                        } else {
+                            console.warn(`[MT5API] Auto-heal rejected for #${targetLogin} on '${canonicalServer}': Broker rejected vault password.`);
+                            vaultEntry.verification_failed = true;
+                            vaultEntry.last_error = res?.error || 'Broker rejected credentials';
+                            try {
+                                const raw = localStorage.getItem('mt5_client_vault');
+                                const vList = raw ? JSON.parse(raw) : [];
+                                const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && this.isServerMatch(v.server, targetServer));
+                                if (vIdx >= 0) {
+                                    vList[vIdx].verification_failed = true;
+                                    vList[vIdx].last_error = vaultEntry.last_error;
+                                    localStorage.setItem('mt5_client_vault', JSON.stringify(vList));
+                                }
+                            } catch (_) {}
 
-                        if (matchingAcc) {
-                            matchingAcc.is_verification_failed = true;
-                            matchingAcc.last_error = vaultEntry.last_error;
-                            matchingAcc.auth_mode = 'local_rejected';
-                            matchingAcc.auth_label = '❌ Rejected by Broker';
+                            if (matchingAcc) {
+                                matchingAcc.is_verification_failed = true;
+                                matchingAcc.last_error = vaultEntry.last_error;
+                                matchingAcc.auth_mode = 'local_rejected';
+                                matchingAcc.auth_label = '❌ Rejected by Broker';
+                            }
                         }
                         this.notifyAccountListeners();
                     } else {
