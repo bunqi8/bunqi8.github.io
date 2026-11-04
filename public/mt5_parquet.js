@@ -207,6 +207,7 @@
 
             if (isDwm && manifest['1D']) {
                 for (const [decadeKey, chunk] of Object.entries(manifest['1D'])) {
+                    if (!chunk || !chunk.file || !chunk.bars || chunk.bars <= 0) continue;
                     const cFrom = chunk.from || 0;
                     const cTo = chunk.to || Infinity;
                     earliestSec = Math.min(earliestSec, cFrom);
@@ -218,6 +219,7 @@
                 }
             } else if (!isDwm && manifest['1m']) {
                 for (const [monthKey, chunk] of Object.entries(manifest['1m'])) {
+                    if (!chunk || !chunk.file || !chunk.bars || chunk.bars <= 0) continue;
                     const cFrom = chunk.from || 0;
                     const cTo = chunk.to || Infinity;
                     earliestSec = Math.min(earliestSec, cFrom);

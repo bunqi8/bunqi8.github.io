@@ -3536,13 +3536,10 @@
                 const ep = this.getActiveEndpoint();
                 if (!ep || !ep.url) return;
                 const cleanSym = String(symbol || '').split(':').pop().toUpperCase().trim();
+                const headers = this.getReqHeaders(ep);
                 await fetch(`${ep.url}/api/hf/sync`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': ep.apiKey || '',
-                        'X-Shield-Token': ep.shieldToken || ''
-                    },
+                    headers,
                     body: JSON.stringify({ symbol: cleanSym, server: server || null })
                 });
             } catch (_) {}
