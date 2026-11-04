@@ -1462,8 +1462,9 @@
 
                 const matchingAcc = (this.accounts || []).find(a => 
                     Number(a.login) === targetLogin && 
-                    String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
+                    this.isServerMatch(a.server, targetServer)
                 );
+                const canonicalServer = matchingAcc && matchingAcc.server ? matchingAcc.server : targetServer;
 
                 const isStagedOffline = Boolean(vaultEntry.staged_offline || vaultEntry.is_verified === false);
                 const lacksDpapi = matchingAcc && !matchingAcc.has_dpapi;
@@ -1477,17 +1478,18 @@
                 if (this._autoHealAttempts.has(compositeKey)) continue;
                 this._autoHealAttempts.add(compositeKey);
 
-                console.log(`[MT5API] 🛡️ Auto-Healing #${targetLogin} on '${targetServer}' (staged_offline=${isStagedOffline}, lacks_dpapi=${lacksDpapi}). Probing broker...`);
+                console.log(`[MT5API] 🛡️ Auto-Healing #${targetLogin} on '${canonicalServer}' (staged_offline=${isStagedOffline}, lacks_dpapi=${lacksDpapi}). Probing broker...`);
 
                 try {
                     const rawPass = await this.decryptVaultSecret(vaultEntry.password);
                     if (!rawPass) continue;
 
-                    const res = await this.verifyAndUpdateBrokerPassword(targetLogin, targetServer, rawPass);
+                    const res = await this.verifyAndUpdateBrokerPassword(targetLogin, canonicalServer, rawPass);
                     if (res && res.verified) {
-                        console.log(`[MT5API] ✓ Auto-healed Account #${targetLogin} on '${targetServer}'! Broker verified & secured in Bridge DPAPI.`);
+                        console.log(`[MT5API] ✓ Auto-healed Account #${targetLogin} on '${canonicalServer}'! Broker verified & secured in Bridge DPAPI.`);
 
                         // Update local vault entry explicitly
+                        vaultEntry.server = canonicalServer;
                         vaultEntry.is_verified = true;
                         vaultEntry.staged_offline = false;
                         vaultEntry.verification_failed = false;
@@ -1496,8 +1498,9 @@
                         try {
                             const raw = localStorage.getItem('mt5_client_vault');
                             const vList = raw ? JSON.parse(raw) : [];
-                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer.toLowerCase());
+                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && this.isServerMatch(v.server, targetServer));
                             if (vIdx >= 0) {
+                                vList[vIdx].server = canonicalServer;
                                 vList[vIdx].is_verified = true;
                                 vList[vIdx].staged_offline = false;
                                 vList[vIdx].verification_failed = false;
@@ -1522,13 +1525,13 @@
                         }
                         this.notifyAccountListeners();
                     } else if (res && res.verified === false) {
-                        console.warn(`[MT5API] Auto-heal rejected for #${targetLogin} on '${targetServer}': Broker rejected vault password.`);
+                        console.warn(`[MT5API] Auto-heal rejected for #${targetLogin} on '${canonicalServer}': Broker rejected vault password.`);
                         vaultEntry.verification_failed = true;
                         vaultEntry.last_error = res?.error || 'Broker rejected credentials';
                         try {
                             const raw = localStorage.getItem('mt5_client_vault');
                             const vList = raw ? JSON.parse(raw) : [];
-                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && String(v.server || '').trim().toLowerCase() === targetServer.toLowerCase());
+                            const vIdx = vList.findIndex(v => Number(v.login) === targetLogin && this.isServerMatch(v.server, targetServer));
                             if (vIdx >= 0) {
                                 vList[vIdx].verification_failed = true;
                                 vList[vIdx].last_error = vaultEntry.last_error;
@@ -2192,6 +2195,18 @@
             return { endpoint_url: blob };
         }
 
+        cleanServerKey(s) {
+            if (!s || typeof s !== 'string') return '';
+            return s.toLowerCase().replace(/[\s_\-]+/g, '');
+        }
+
+        isServerMatch(s1, s2) {
+            if (!s1 || !s2) return false;
+            const k1 = this.cleanServerKey(s1);
+            const k2 = this.cleanServerKey(s2);
+            return k1 === k2 || k1.includes(k2) || k2.includes(k1);
+        }
+
         normalizePassphrase(str) {
             if (!str || typeof str !== 'string') return '';
             return str.toLowerCase().trim().replace(/[\s_\-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -2678,7 +2693,7 @@
                 // 1. Find all endpoints hosting this composite account key (login + server)
                 const matchingInstances = (this.accounts || []).filter(a => 
                     Number(a.login) === targetLogin && 
-                    String(a.server || '').trim().toLowerCase() === targetServer.toLowerCase()
+                    this.isServerMatch(a.server, targetServer)
                 );
 
                 // 2. Select primary probe bridge
@@ -2696,6 +2711,8 @@
                     return { success: false, error: 'No online bridge server is available to verify credentials with broker' };
                 }
 
+                const probeServer = (matchingInstances.length > 0 && matchingInstances[0].server) ? matchingInstances[0].server : targetServer;
+
                 // 3. Broker Verification Gate: Probe primary bridge
                 const encPayload = await this.encryptE2EPayload(cleanPass, primaryEp.apiKey);
                 const probeRes = await fetch(`${primaryEp.url}/api/accounts/verify_credentials`, {
@@ -2703,7 +2720,7 @@
                     headers: this.getReqHeaders(primaryEp),
                     body: JSON.stringify({
                         login: targetLogin,
-                        server: targetServer,
+                        server: probeServer,
                         password: encPayload
                     }),
                     signal: AbortSignal.timeout(15000)
@@ -2988,7 +3005,7 @@
                         const wsRes = await this.wsRequest(ep.id, {
                             action: 'get_symbols',
                             account_id: accId
-                        }, 3500);
+                        }, 10000);
                         if (wsRes && wsRes.symbols && wsRes.symbols.length > 0) {
                             this._accountSymbolsCache.set(accId, wsRes.symbols);
                             try {
@@ -3002,7 +3019,7 @@
                     if (ep.url) {
                         const res = await fetch(`${ep.url}/api/symbols?account_id=${encodeURIComponent(accId)}`, {
                             headers: this.getReqHeaders(ep),
-                            signal: AbortSignal.timeout(10000)
+                            signal: AbortSignal.timeout(25000)
                         });
                         if (res.ok) {
                             const data = await res.json();
