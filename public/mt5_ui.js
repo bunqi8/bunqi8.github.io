@@ -538,6 +538,9 @@
             const activeAcc = window.MT5API ? window.MT5API.getActiveAccount() : null;
             const endpoints = window.MT5API ? window.MT5API.getEndpoints() : [];
             const isConn = window.MT5API ? window.MT5API.isConnected : false;
+            const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') 
+                ? window.MT5ParquetIndex.getDiscoveryAuthors() 
+                : [];
 
             modal.innerHTML = `
                 <style>

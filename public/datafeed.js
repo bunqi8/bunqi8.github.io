@@ -382,6 +382,11 @@ async function resolveParquetUrlWithFallback(url) {
 }
 
 async function ensureParquetLoaded(url) {
+    if (!url || typeof url !== 'string' || url.endsWith('/undefined')) {
+        DFLog.warn('cache', `ensureParquetLoaded called with invalid URL: ${url}`);
+        return null;
+    }
+
     if (parquetCache[url]) {
         DFLog.debug('cache', `HIT (Memory): ${url.split('/').pop()}`);
         return parquetCache[url].vfsName;
