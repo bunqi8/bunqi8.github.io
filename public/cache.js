@@ -205,6 +205,11 @@ const SyncManager = {
             let expiredCount = 0;
             let expiredBytes = 0;
 
+            let comboOpenedMap = {};
+            try {
+                comboOpenedMap = JSON.parse(localStorage.getItem('mt5_combo_last_opened') || '{}');
+            } catch (_) {}
+
             req.onsuccess = (e) => {
                 const cursor = e.target.result;
                 if (cursor) {
@@ -213,7 +218,21 @@ const SyncManager = {
                     const byteLen = buf ? (buf.byteLength || buf.length || 0) : 0;
                     totalBytes += byteLen;
                     const lastAcc = cursor.value.lastAccessed || 0;
-                    if (now - lastAcc > SEVEN_DAYS_MS) {
+                    let isExpired = (now - lastAcc > SEVEN_DAYS_MS);
+
+                    // Cross-check Server + Ticker combo activity
+                    if (!isExpired && cursor.value.url && cursor.value.url.includes('MT5_')) {
+                        const match = cursor.value.url.match(/MT5_([A-Za-z0-9_-]+)_([A-Za-z0-9_-]+)/);
+                        if (match) {
+                            const comboKey = `${match[1]}_${match[2]}`;
+                            const comboLast = comboOpenedMap[comboKey];
+                            if (comboLast && (now - comboLast > SEVEN_DAYS_MS)) {
+                                isExpired = true;
+                            }
+                        }
+                    }
+
+                    if (isExpired) {
                         expiredCount++;
                         expiredBytes += byteLen;
                     }
