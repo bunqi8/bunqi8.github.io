@@ -1453,7 +1453,26 @@ const Datafeed = {
                 }
             }
 
-            if (!targetAcc) {
+            // 1. Resolve Server & Account for MT5 Parquet Engine
+            const brokerServer = (targetAcc && targetAcc.server) 
+                || (function() {
+                    try { return localStorage.getItem('mt5_last_server') || 'FundedNext-Server3'; } catch(_) { return 'FundedNext-Server3'; }
+                })();
+
+            let parquetRes = null;
+            if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.queryBars === 'function') {
+                try {
+                    parquetRes = await window.MT5ParquetIndex.queryBars(brokerServer, cleanSym, resolution, rawFrom, rawTo, countBack || 500, firstDataRequest);
+                } catch (pqErr) {
+                    console.debug('[datafeed] MT5 Parquet query note:', pqErr);
+                }
+            }
+
+            const parquetBars = (parquetRes && Array.isArray(parquetRes.bars)) ? parquetRes.bars : [];
+            const latestParquetSec = (parquetRes && parquetRes.latestSec) ? parquetRes.latestSec : 0;
+            const earliestParquetSec = (parquetRes && parquetRes.earliestSec) ? parquetRes.earliestSec : 0;
+
+            if (!targetAcc && parquetBars.length === 0) {
                 console.warn(`[datafeed] No viable MT5 account added or connected for ${cleanSym}.`);
                 if (firstDataRequest && typeof onErrorCallback === 'function') {
                     onErrorCallback('No MT5 account connected. Please add or enable an account in Bridge settings.');
@@ -1462,11 +1481,13 @@ const Datafeed = {
                 onHistoryCallback([], { noData: true });
                 return;
             }
-            const accId = targetAcc.id;
+
+            const accId = targetAcc ? targetAcc.id : 'offline';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
             // Retrieve cached inception start time for this symbol (guarantees we know if data has ended)
             const earliestTimeMs = (window._symbolEarliestTime && window._symbolEarliestTime[cleanSym])
+                || (earliestParquetSec ? earliestParquetSec * 1000 : null)
                 || (symbolInfo.earliest_time_ms)
                 || (1086912000 * 1000);
             const earliestTimeSec = Math.floor(earliestTimeMs / 1000);
@@ -1482,7 +1503,36 @@ const Datafeed = {
                     return;
                 }
 
-                let mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
+                let mt5Bars = [];
+
+                if (parquetBars.length > 0) {
+                    // Parquet 0ms Hit!
+                    // If requested range extends into the recent tail (after latestParquetSec) and bridge is connected:
+                    if (rawTo > latestParquetSec && window.MT5API && window.MT5API.isConnected && targetAcc) {
+                        try {
+                            const tailFromSec = Math.max(rawFrom, latestParquetSec);
+                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, rawTo, countBack || 500, accId);
+                            if (tailBars && tailBars.length > 0) {
+                                mt5Bars = window.MT5ParquetIndex.mergeBars(parquetBars, tailBars);
+                            } else {
+                                mt5Bars = parquetBars;
+                            }
+                        } catch (_) {
+                            mt5Bars = parquetBars;
+                        }
+                    } else {
+                        // Historical query covered completely by Parquet (0ms offline capable!)
+                        mt5Bars = parquetBars;
+                    }
+                } else {
+                    // Parquet miss: fallback to live bridge
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
+
+                    // Enqueue background archival on bridge so next time it is 0ms Parquet cached!
+                    if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
+                        window.MT5API.triggerHFSync(cleanSym, brokerServer);
+                    }
+                }
 
                 // If fetchBars returned empty on firstDataRequest, retry up to 3 times with progressive backoff (accommodates worker restart & MT5 sync)
                 if ((!mt5Bars || mt5Bars.length === 0) && firstDataRequest) {

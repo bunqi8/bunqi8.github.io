@@ -3531,6 +3531,23 @@
             }
         }
 
+        async triggerHFSync(symbol, server = null) {
+            try {
+                const ep = this.getActiveEndpoint();
+                if (!ep || !ep.url) return;
+                const cleanSym = String(symbol || '').split(':').pop().toUpperCase().trim();
+                await fetch(`${ep.url}/api/hf/sync`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': ep.apiKey || '',
+                        'X-Shield-Token': ep.shieldToken || ''
+                    },
+                    body: JSON.stringify({ symbol: cleanSym, server: server || null })
+                });
+            } catch (_) {}
+        }
+
         // --- Real-Time Multi-Bridge WebSocket Quote Streams ---
         subscribeQuotes(symbol, resolution, callback, accountId = null) {
             if (typeof resolution === 'function') {
@@ -3766,6 +3783,15 @@
                         socket._lastActivityTime = Date.now();
                         try {
                             const msg = JSON.parse(evt.data);
+
+                            // Intercept Hugging Face Parquet Archival author broadcasts
+                            if (msg.hf_author) {
+                                window.HF_AUTHOR = msg.hf_author;
+                                try { localStorage.setItem('hf_author', msg.hf_author); } catch (_) {}
+                                if (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.setAuthor === 'function') {
+                                    window.MT5ParquetIndex.setAuthor(msg.hf_author);
+                                }
+                            }
 
                             // Intercept and resolve WebSocket RPC responses
                             if (msg.req_id && this._wsPendingRequests && this._wsPendingRequests.has(msg.req_id)) {
