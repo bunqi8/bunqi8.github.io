@@ -3117,14 +3117,21 @@
                 } catch (_) {}
             }
 
-            // Initial positions: read from existingAcc.positions, or filter from MT5API.positions
+            // Initial positions: read from existingAcc.positions, or find in MT5API accounts
             let initialPositions = (existingAcc && Array.isArray(existingAcc.positions)) ? existingAcc.positions : [];
+            const cleanLogin = existingAcc ? String(existingAcc.login).trim() : String(targetAccountId).replace(/^mt5_/, '');
+            if (initialPositions.length === 0 && window.MT5API && Array.isArray(window.MT5API.accounts)) {
+                const foundAcc = window.MT5API.accounts.find(a => String(a.id) === String(targetAccountId) || String(a.login) === cleanLogin || String(a.id).replace(/^mt5_/, '') === cleanLogin);
+                if (foundAcc && Array.isArray(foundAcc.positions) && foundAcc.positions.length > 0) {
+                    initialPositions = foundAcc.positions;
+                }
+            }
             if (initialPositions.length === 0 && window.MT5API && Array.isArray(window.MT5API.positions)) {
-                const cleanLogin = existingAcc ? String(existingAcc.login).trim() : String(targetAccountId).replace(/^mt5_/, '');
-                initialPositions = window.MT5API.positions.filter(p => {
+                const filtered = window.MT5API.positions.filter(p => {
                     const pAid = String(p.account_id || '').trim();
                     return pAid === String(targetAccountId) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
                 });
+                if (filtered.length > 0) initialPositions = filtered;
             }
 
             const initialCategories = {};
@@ -3717,31 +3724,38 @@
             const modal = document.getElementById(this.modalId);
             if (!modal) return;
 
-            let relevantPositions = positions;
+            let relevantPositions = Array.isArray(positions) ? positions : [];
             if (this.viewMode === 'details' && this.detailsAccountId) {
-                const targetId = String(this.detailsAccountId);
+                const targetId = String(this.detailsAccountId).trim();
                 const cleanId = targetId.replace(/^mt5_/, '');
-                if (window.MT5API && Array.isArray(window.MT5API.accounts)) {
-                    const acc = window.MT5API.accounts.find(a => 
-                        String(a.id) === targetId || 
-                        String(a.login) === cleanId || 
-                        String(a.id).replace(/^mt5_/, '') === cleanId
-                    );
-                    if (acc && Array.isArray(acc.positions)) {
-                        relevantPositions = acc.positions;
-                    }
+
+                const targetAcc = (window.MT5API && Array.isArray(window.MT5API.accounts)) 
+                    ? window.MT5API.accounts.find(a => String(a.id) === targetId || String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId)
+                    : null;
+
+                // 1. Check if positions payload contains positions tagged with this account_id
+                const matchingInPayload = relevantPositions.filter(p => {
+                    const pAid = String(p.account_id || '').trim();
+                    return pAid === targetId || pAid === cleanId || pAid.replace(/^mt5_/, '') === cleanId;
+                });
+
+                if (matchingInPayload.length > 0) {
+                    relevantPositions = matchingInPayload;
+                } else if (targetAcc && Array.isArray(targetAcc.positions) && targetAcc.positions.length > 0) {
+                    relevantPositions = targetAcc.positions;
+                } else if (this.detailsData && Array.isArray(this.detailsData.positions) && this.detailsData.positions.length > 0) {
+                    // Retain already-loaded positions: never wipe with an empty array from a different account!
+                    relevantPositions = this.detailsData.positions;
+                } else if (relevantPositions.length > 0 && relevantPositions.every(p => p.account_id && String(p.account_id).trim() !== targetId && String(p.account_id).trim() !== cleanId)) {
+                    // The payload strictly belongs to other accounts, preserve whatever detailsData has
+                    relevantPositions = (this.detailsData && Array.isArray(this.detailsData.positions)) ? this.detailsData.positions : [];
+                } else {
+                    relevantPositions = [];
                 }
-                if (Array.isArray(positions) && (!relevantPositions || relevantPositions === positions)) {
-                    const filtered = positions.filter(p => {
-                        const pAid = String(p.account_id || '').trim();
-                        return pAid === targetId || pAid === cleanId || pAid.replace(/^mt5_/, '') === cleanId;
-                    });
-                    if (filtered.length > 0 || (this.detailsData && this.detailsData.account && this.detailsData.account.is_active)) {
-                        relevantPositions = filtered;
-                    }
-                }
+
                 if (this.detailsData) {
                     this.detailsData.positions = relevantPositions;
+                    if (targetAcc) targetAcc.positions = relevantPositions;
                 }
             }
 
