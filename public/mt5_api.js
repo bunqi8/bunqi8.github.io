@@ -1124,15 +1124,15 @@
                                 endpointUrl: ep.url,
                                 endpointApiKey: ep.apiKey,
                                 is_paused: isPaused,
-                                is_connected: !isPaused && ep.status === 'online',
+                                is_connected: Boolean(acc.is_connected && !isPaused && ep.status === 'online'),
                                 positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                                 has_password: Boolean(acc.has_password),
                                 has_dpapi: Boolean(acc.has_dpapi),
-                                has_native_vault: Boolean(acc.has_native_vault || acc.auth_mode === 'mt5_native_vault'),
-                                survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || acc.auth_mode === 'mt5_native_vault' || acc.has_password),
-                                is_verified: Boolean(acc.is_connected && !isPaused),
-                                auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'mt5_native_vault' : 'desktop_attached')),
-                                auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
+                                has_native_vault: Boolean(acc.has_native_vault && acc.is_connected),
+                                survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || (acc.has_native_vault && acc.is_connected)),
+                                is_verified: Boolean(acc.is_connected && !isPaused && ep.status === 'online'),
+                                auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.is_connected ? 'mt5_native_vault' : 'awaiting_credentials')),
+                                auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.is_connected ? 'Official MT5 Saved' : 'Awaiting Password'))
                             });
                         });
                     } else if (ep && ep.status !== 'unauthorized') {
@@ -1468,11 +1468,13 @@
 
                 const isStagedOffline = Boolean(vaultEntry.staged_offline || vaultEntry.is_verified === false);
                 const lacksDpapi = matchingAcc && !matchingAcc.has_dpapi;
+                const isDisconnected = matchingAcc && !matchingAcc.is_connected;
 
                 // Needs auto-healing if:
                 // 1) Password was staged offline (needs broker verification)
                 // 2) Account is connected on bridge but missing hardware DPAPI
-                const needsHealing = isStagedOffline || lacksDpapi;
+                // 3) Account is on bridge but currently disconnected/not logged in
+                const needsHealing = isStagedOffline || lacksDpapi || isDisconnected;
                 if (!needsHealing) continue;
 
                 if (this._autoHealAttempts.has(compositeKey)) continue;
@@ -3717,15 +3719,15 @@
                     endpointUrl: ep.url,
                     endpointApiKey: ep.apiKey,
                     is_paused: isPaused,
-                    is_connected: !isPaused && ep.status === 'online',
+                    is_connected: Boolean(acc.is_connected && !isPaused && ep.status === 'online'),
                     positions: (oldAcc && Array.isArray(oldAcc.positions) && oldAcc.positions.length > 0) ? oldAcc.positions : (acc.positions || []),
                     has_password: Boolean(acc.has_password),
                     has_dpapi: Boolean(acc.has_dpapi),
-                    has_native_vault: Boolean(acc.has_native_vault || acc.auth_mode === 'mt5_native_vault'),
-                    survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || acc.auth_mode === 'mt5_native_vault' || acc.has_password),
-                    is_verified: Boolean(acc.is_connected && !isPaused),
-                    auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.has_password ? 'mt5_native_vault' : 'desktop_attached')),
-                    auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.has_password ? 'Official MT5 Saved' : 'Desktop Session Attached'))
+                    has_native_vault: Boolean(acc.has_native_vault && acc.is_connected),
+                    survives_reboot: Boolean(acc.survives_reboot || acc.has_dpapi || (acc.has_native_vault && acc.is_connected)),
+                    is_verified: Boolean(acc.is_connected && !isPaused && ep.status === 'online'),
+                    auth_mode: acc.auth_mode || (acc.has_dpapi ? 'dpapi_vaulted' : (acc.is_connected ? 'mt5_native_vault' : 'awaiting_credentials')),
+                    auth_label: acc.auth_label || (acc.has_dpapi ? 'Bridge Secured (DPAPI)' : (acc.is_connected ? 'Official MT5 Saved' : 'Awaiting Password'))
                 };
             });
 

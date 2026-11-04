@@ -879,10 +879,10 @@
                 const hasBridgeNative = Boolean(
                     primary.has_native_vault ||
                     primary.auth_mode === 'mt5_native_vault' ||
-                    instances.some(i => i.has_native_vault || i.auth_mode === 'mt5_native_vault' || i.has_password)
+                    instances.some(i => i.has_native_vault || i.auth_mode === 'mt5_native_vault')
                 );
-                const hasBridgeVault = Boolean(hasBridgeDpapi || hasBridgeNative);
-                const survivesReboot = Boolean(hasBridgeDpapi || hasBridgeNative);
+                const hasBridgeVault = Boolean(hasBridgeDpapi || (hasBridgeNative && anyConnected));
+                const survivesReboot = Boolean(hasBridgeDpapi || (hasBridgeNative && anyConnected));
                 const isVerified = Boolean(anyConnected);
 
                 let vaultMode = 'session_only';
@@ -901,9 +901,9 @@
                 } else if (!hasLocalVault && hasBridgeDpapi) {
                     vaultMode = 'bridge_secured';
                     vaultLabel = isVerified ? '☁️ Bridge Secured ✓' : '☁️ Bridge Secured';
-                } else if (!hasLocalVault && hasBridgeNative) {
+                } else if (!hasLocalVault && hasBridgeNative && anyConnected) {
                     vaultMode = 'mt5_native_vault';
-                    vaultLabel = isVerified ? '🖥️ MT5 Saved ✓' : '🖥️ MT5 Saved';
+                    vaultLabel = '🖥️ MT5 Saved ✓';
                 } else if (hasLocalVault && !hasBridgeVault) {
                     if (isVaultStaged) {
                         vaultMode = 'local_staged_offline';
@@ -912,6 +912,9 @@
                         vaultMode = 'local_vaulted';
                         vaultLabel = isVerified ? '💻 Local Vaulted ✓' : '💻 Local Vaulted';
                     }
+                } else if (!anyConnected && !hasLocalVault && !hasBridgeDpapi) {
+                    vaultMode = 'awaiting_credentials';
+                    vaultLabel = '🔑 Needs Password';
                 } else {
                     vaultMode = 'session_only';
                     vaultLabel = isVerified ? '⚠️ Volatile Session ✓' : '⚠️ Session Only';
@@ -1010,7 +1013,7 @@
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
                             <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 240px;">
                                 <input type="checkbox" class="mt5-check-multi" data-id="${acc.id}" ${isChecked ? 'checked' : ''} ${isPaused ? 'disabled' : ''} title="${isPaused ? 'Account paused' : 'Select for multi-copying'}" style="cursor: ${isPaused ? 'not-allowed' : 'pointer'}; width: 14px; height: 14px; accent-color: ${theme.primary}; flex-shrink: 0;">
-                                <span style="font-size: 10px;">${isPaused ? '⚪' : '🟢'}</span>
+                                <span style="font-size: 10px;" title="${isPaused ? 'Paused' : (acc.is_connected ? 'Connected' : (acc.is_verification_failed ? 'Verification Failed' : 'Needs Password / Connecting'))}">${isPaused ? '⚪' : (acc.is_connected ? '🟢' : (acc.is_verification_failed ? '🔴' : '🟡'))}</span>
                                 <span class="mt5-link-details" data-id="${acc.id}" style="cursor: pointer; font-weight: 700; font-size: 12px; color: ${theme.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Click for full details">${acc.nickname}</span>
                                 ${isActive ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.primary}; color: #fff; font-weight: 700;">FEED</span>` : ''}
                                 ${isPaused ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: ${theme.warningSoft}; color: ${theme.warning}; font-weight: 700;">PAUSED</span>` : ''}
@@ -1018,6 +1021,8 @@
                                 ${(() => {
                                     if (acc.vault_mode === 'local_rejected' || acc.is_verification_failed) {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(244, 67, 54, 0.15); color: #f44336; border: 1px solid rgba(244, 67, 54, 0.4); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="${acc.last_error || 'Broker rejected staged password. Click Details to update.'}">❌ Pwd Rejected by Broker</span>`;
+                                    } else if (acc.vault_mode === 'awaiting_credentials' || (!acc.is_connected && !acc.has_dpapi && !acc.has_local_vault)) {
+                                        return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.15); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.4); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Awaiting Password: No valid password stored. Click Details to enter password and connect.">🔑 Needs Password</span>`;
                                     } else if (acc.vault_mode === 'dual_vaulted_staged') {
                                         return `<span style="font-size: 8.5px; padding: 1px 6px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Dual Vault: Bridge secured, but local vault password is staged offline and awaiting broker verification.">🔒 Dual (⚠️ Local Staged)</span>`;
                                     } else if (acc.vault_mode === 'dual_vaulted') {
@@ -3890,7 +3895,7 @@
                                 <span>Bridge Storage:</span>
                                 ${hasBridgeDpapi ? `
                                     <strong style="color: #089981;">☁️ Hardware DPAPI (accounts.json)</strong>
-                                ` : (hasBridgeNative ? `
+                                ` : (hasBridgeNative && anyConnected ? `
                                     <strong style="color: #00bcd4;">🖥️ MT5 Native Vault (accounts.dat)</strong>
                                 ` : `
                                     <strong style="color: #ff9800;">⚠️ Volatile Session (No Disk Password)</strong>
@@ -3927,15 +3932,15 @@
                                 ` : (isVaultStaged ? `
                                     <strong style="color: #ff9800;">🟡 Staged Offline (Awaiting Bridge)</strong>
                                 ` : `
-                                    <strong style="color: #ff9800;">🟡 Pending Handshake</strong>
+                                    <strong style="color: #ff9800;">🟡 Awaiting Credentials / Offline</strong>
                                 `))}
                             </div>
                         </div>
 
-                        <!-- Collapsible Update Password Form (auto-expanded if rejected) -->
-                        <div id="mt5-update-pwd-container" style="display: ${isVaultRejected ? 'block' : 'none'}; padding-top: 8px; border-top: 1px dashed ${theme.border};">
-                            <div style="font-size: 10px; color: ${isVaultRejected ? '#ef4444' : theme.textMuted}; margin-bottom: 6px; font-weight: ${isVaultRejected ? '600' : 'normal'};">
-                                ${isVaultRejected ? `⚠️ Staged password was rejected by broker (${acc.last_error || 'Invalid credentials'}). Enter the correct password below to verify & save:` : 'Broker Verification Gate: Tests credentials with broker first. If verified, updates Bridge DPAPI and Browser Vault. If rejected, preserves existing working credentials.'}
+                        <!-- Collapsible Update Password Form (auto-expanded if rejected or awaiting credentials) -->
+                        <div id="mt5-update-pwd-container" style="display: ${(isVaultRejected || (!acc.is_connected && !acc.has_dpapi)) ? 'block' : 'none'}; padding-top: 8px; border-top: 1px dashed ${theme.border};">
+                            <div style="font-size: 10px; color: ${isVaultRejected ? '#ef4444' : theme.textMuted}; margin-bottom: 6px; font-weight: ${(isVaultRejected || (!acc.is_connected && !acc.has_dpapi)) ? '600' : 'normal'};">
+                                ${(isVaultRejected || (!acc.is_connected && !acc.has_dpapi)) ? (isVaultRejected ? `⚠️ Staged password was rejected by broker (${acc.last_error || 'Invalid credentials'}). Enter the correct password below to verify & save:` : `⚠️ Account #${acc.login} is awaiting password to log into ${acc.server}. Enter password below to verify with broker & save:`) : 'Broker Verification Gate: Tests credentials with broker first. If verified, updates Bridge DPAPI and Browser Vault. If rejected, preserves existing working credentials.'}
                             </div>
                             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                 <div style="position: relative; display: flex; align-items: center; flex: 1; min-width: 170px;">
