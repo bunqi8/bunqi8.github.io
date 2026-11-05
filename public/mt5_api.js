@@ -3598,8 +3598,8 @@
         canonicalizeSymbol(symbol) {
             let clean = String(symbol || '').toUpperCase().trim();
             clean = clean.split(':').pop();
-            clean = clean.replace(/[\.\-\_#\+].*$/, '');
-            clean = clean.replace('.US', '').replace('.', '').replace('-', '');
+            clean = clean.replace(/(\.US|\.M|\.RAW|\.PRO|\.ECN|\.STD|\.I|_I|_SB|\+)$/i, '');
+            clean = clean.replace(/#\d+$/, '');
             const aliases = {
                 'GOLD': 'XAUUSD', 'SILVER': 'XAGUSD', 'PLATINUM': 'XPTUSD', 'PALLADIUM': 'XPDUSD',
                 'WTI': 'USOIL', 'BRENT': 'UKOIL', 'CRUDE': 'USOIL', 'OIL': 'USOIL',
