@@ -240,7 +240,7 @@
             const isQueued = Boolean(bs.priority_queue && bs.priority_queue.some(q => String(q).toUpperCase() === cleanSym.toUpperCase()));
             const isBridgeSynced = Boolean(this._syncedKeysSet && this._syncedKeysSet.has(repoKey));
 
-            const isAvailable = (!isNegativeCached) && (matching.length > 0 || !!cachedManifest || isBridgeSynced);
+            const isAvailable = (!isNegativeCached) && (matching.length > 0 || !!cachedManifest);
 
             // Scalable: ONLY trigger background manifest preload if explicitly requested for visible row, never during mass filtering!
             if (autoPreload && isAvailable && !cachedManifest && !isNegativeCached && !this._manifestsInFlight.has(repoKey)) {
@@ -341,8 +341,15 @@
                 for (const author of authors) {
                     if (!author || author === 'deep776') continue;
 
-                    // Optimization: If dataset catalog is loaded for this author, verify repository exists before firing HTTP request
-                    const authorCache = this.authorDatasetsCache.get(author);
+                    // Optimization: Ensure author dataset catalog is loaded before firing raw requests
+                    let authorCache = this.authorDatasetsCache.get(author);
+                    if (!authorCache || !authorCache.datasetMap) {
+                        try {
+                            await this.fetchAuthorDatasets(author);
+                            authorCache = this.authorDatasetsCache.get(author);
+                        } catch (_) {}
+                    }
+
                     if (authorCache && authorCache.datasetMap) {
                         const fullRepoId = `${author}/${repoName}`;
                         if (!authorCache.datasetMap.has(fullRepoId)) {
@@ -360,8 +367,8 @@
                             manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
                             console.log(`[MT5Parquet] ✓ Loaded manifest from ${author}/${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
                             return manifest;
-                        } else if (res.status === 404) {
-                            console.debug(`[MT5Parquet] Manifest not found (404) for ${author}/${repoName}`);
+                        } else {
+                            console.debug(`[MT5Parquet] Manifest not available (${res.status}) for ${author}/${repoName}`);
                         }
                     } catch (err) {
                         console.debug(`[MT5Parquet] ${author}/${repoName} manifest probe note:`, err.message);

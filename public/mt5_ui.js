@@ -4109,7 +4109,9 @@
             }
 
             if (liveStatusEl) {
-                const totalManaged = (window.MT5API ? window.MT5API.getAllManagedTickers().length : 146);
+                const totalManaged = (window.MT5API && typeof window.MT5API.getAllManagedTickers === 'function')
+                    ? window.MT5API.getAllManagedTickers().length
+                    : (s.managed_total || 146);
                 liveStatusEl.innerHTML = this.getLiveArchivalStatusHtml(s, theme, totalManaged);
 
                 if (s.rate_limited) {
