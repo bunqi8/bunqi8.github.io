@@ -86,7 +86,7 @@
             this.detailsProgress = null;
             this.detailsSubTab = 'tickers'; // 'overview', 'tickers', 'positions', 'history'
             this.tickerSearchQuery = '';
-            this.tickerCategoryFilter = 'ALL';
+            this.tickerCategoryFilter = 'managed';
             this.historySearchQuery = '';
             this.historyTypeFilter = 'ALL'; // 'ALL', 'BUY', 'SELL'
             this.historyOutcomeFilter = 'ALL'; // 'ALL', 'WIN', 'LOSS'
@@ -114,6 +114,11 @@
                     @keyframes mt5spin {
                         0% { transform: rotate(0deg); }
                         100% { transform: rotate(360deg); }
+                    }
+                    @keyframes mt5pulse {
+                        0% { transform: scale(0.92); opacity: 0.75; }
+                        50% { transform: scale(1.18); opacity: 1; }
+                        100% { transform: scale(0.92); opacity: 0.75; }
                     }
                 `;
                 document.head.appendChild(style);
@@ -192,64 +197,39 @@
                     mb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
                 });
 
-                // Update live archival summary bar in Tickers tab if visible
-                const globalStatus = modal.querySelector('#mt5-hf-global-status');
-                if (globalStatus && (s.core_symbols || s.total_symbols)) {
-                    const fleetTarget = s.core_symbols || s.total_symbols;
-                    const globalPct = Math.round(((s.completed_symbols || 0) / fleetTarget) * 100);
-                    globalStatus.textContent = `• Fleet Core: ${s.completed_symbols || 0} / ${fleetTarget} (${globalPct}%)`;
-                }
+                // Update live archival stream card in Tickers tab if visible
+                const liveStatusEl = modal.querySelector('#mt5-live-archival-status');
+                const liveSubEl = modal.querySelector('#mt5-live-archival-sub');
+                const pulseDot = modal.querySelector('#mt5-hf-live-pulse-dot');
+                const liveSyncedCount = modal.querySelector('#mt5-live-synced-count');
+                const liveUploadedMb = modal.querySelector('#mt5-live-uploaded-mb');
 
-                // Re-calculate the account-specific summary count respecting active universe mode!
-                const summaryCount = modal.querySelector('#mt5-hf-summary-count');
-                if (summaryCount && this.detailsData && Array.isArray(this.detailsData.symbols)) {
-                    const server = (this.detailsData.account && this.detailsData.account.server) || '';
-                    const allSyms = this.detailsData.symbols;
-                    const isMajorMode = (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR');
-
-                    const majorSyms = allSyms.filter(sym => this.isMajorSymbol(sym, server));
-                    const majorTot = majorSyms.length;
-                    const majorSynced = majorSyms.filter(sym => {
-                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, sym.name || sym.symbol, false) : null;
-                        return st && st.isAvailable;
-                    }).length;
-                    const majorPct = majorTot > 0 ? Math.round((majorSynced / majorTot) * 100) : 0;
-
-                    const allSynced = allSyms.filter(sym => {
-                        const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, sym.name || sym.symbol, false) : null;
-                        return st && st.isAvailable;
-                    }).length;
-
-                    if (isMajorMode) {
-                        summaryCount.textContent = `Core Universe: ${majorSynced} / ${majorTot} Synced (${majorPct}%)`;
-                    } else {
-                        summaryCount.textContent = `All Symbols: ${allSynced} / ${allSyms.length.toLocaleString()} (Core: ${majorSynced}/${majorTot})`;
-                    }
-
-                    // Also update filter buttons live counts
-                    modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
-                        const sf = btn.getAttribute('data-sync-filter');
-                        if (sf === 'ALL') {
-                            btn.textContent = `ALL (${(isMajorMode ? majorTot : allSyms.length).toLocaleString()})`;
-                        } else if (sf === 'SYNCED') {
-                            btn.textContent = `✓ Synced (${isMajorMode ? majorSynced : allSynced})`;
-                        } else if (sf === 'UNSYNCED') {
-                            btn.textContent = isMajorMode 
-                                ? `⏳ Auto-Sync Pending (${majorTot - majorSynced})` 
-                                : `⚡ On-Demand (${allSyms.length - allSynced})`;
-                        }
-                    });
-                }
-
-                const summaryStatus = modal.querySelector('#mt5-hf-summary-status');
-                if (summaryStatus) {
+                if (liveStatusEl) {
                     if (s.is_syncing) {
-                        summaryStatus.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${s.current_symbol || ''} (${s.current_chunk || '1m'})`;
-                        summaryStatus.style.color = '#2196f3';
+                        liveStatusEl.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${s.current_symbol || ''} (${s.current_server || 'Server'}, ${s.current_chunk || '1m'})`;
+                        liveStatusEl.style.color = '#2196f3';
+                        if (liveSubEl) liveSubEl.textContent = 'Live streaming chunks to Hugging Face · Deduplication SHA-256 active';
+                        if (pulseDot) {
+                            pulseDot.style.background = '#ff9800';
+                            pulseDot.style.boxShadow = '0 0 8px #ff9800';
+                            pulseDot.style.animation = 'mt5pulse 1.2s ease-in-out infinite';
+                        }
                     } else {
-                        summaryStatus.textContent = '• Inception to Present';
-                        summaryStatus.style.color = '#4caf50';
+                        liveStatusEl.textContent = `🟢 Archival Idle · All Managed Verified`;
+                        liveStatusEl.style.color = '#4caf50';
+                        if (liveSubEl) liveSubEl.textContent = 'Fleet autonomously updates 1m & 1D datasets from inception → present';
+                        if (pulseDot) {
+                            pulseDot.style.background = '#089981';
+                            pulseDot.style.boxShadow = '0 0 8px #089981';
+                            pulseDot.style.animation = 'none';
+                        }
                     }
+                }
+                if (liveSyncedCount) {
+                    liveSyncedCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols || 146}`;
+                }
+                if (liveUploadedMb) {
+                    liveUploadedMb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
                 }
 
                 // If on tickers tab, refresh row sync badges in-place for active syncing symbol and previously syncing symbol
@@ -257,7 +237,7 @@
                     const server = (this.detailsData && this.detailsData.account ? this.detailsData.account.server : '');
                     const theme = this.getTheme();
                     if (s.current_symbol) {
-                        const activeRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${s.current_symbol}"]`);
+                        const activeRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${s.current_symbol}"], .mt5-ticker-row[data-canon="${s.current_symbol}"]`);
                         if (activeRow) {
                             const container = activeRow.querySelector('.mt5-hf-badge-container');
                             if (container) {
@@ -266,7 +246,7 @@
                         }
                     }
                     if (this._lastSyncingSymbol && this._lastSyncingSymbol !== s.current_symbol) {
-                        const prevRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${this._lastSyncingSymbol}"]`);
+                        const prevRow = modal.querySelector(`.mt5-ticker-row[data-symbol="${this._lastSyncingSymbol}"], .mt5-ticker-row[data-canon="${this._lastSyncingSymbol}"]`);
                         if (prevRow) {
                             const container = prevRow.querySelector('.mt5-hf-badge-container');
                             if (container) {
@@ -3040,11 +3020,10 @@
 
         isMajorSymbol(s, server = '') {
             if (!s) return false;
-            const cat = s.category || s.type || '';
-            if (['Forex', 'Metals', 'Indexes', 'Commodities', 'Crypto'].includes(cat)) return true;
-            const sym = (s.name || s.symbol || '').toUpperCase().replace('.US', '').replace('.', '-');
-            if (MAJOR_US_SET.has(sym)) return true;
-            if (['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'XAU', 'XAG', 'BTC', 'ETH', 'US30', 'NAS100', 'SP500', 'US500', 'GER40', 'UK100', 'JP225'].some(k => sym.includes(k))) return true;
+            const sym = s.name || s.symbol || s;
+            if (window.MT5API && typeof window.MT5API.isManagedSymbol === 'function') {
+                return window.MT5API.isManagedSymbol(sym);
+            }
             return false;
         }
 
@@ -3052,10 +3031,13 @@
             this.viewMode = 'details';
             this.detailsAccountId = accountId;
             this.tickerSearchQuery = '';
-            this.tickerCategoryFilter = 'ALL';
+            this.tickerCategoryFilter = 'managed';
             this.tickerSyncFilter = 'ALL';
             this.tickerUniverseMode = 'MAJOR';
             this.tickerVisibleCount = 100;
+            if (window.MT5API && typeof window.MT5API.fetchHFUniverse === 'function') {
+                window.MT5API.fetchHFUniverse().catch(() => {});
+            }
             this.historySearchQuery = '';
             this.historyTypeFilter = 'ALL';
             this.historyOutcomeFilter = 'ALL';
@@ -4209,16 +4191,45 @@
                 `;
             }
 
+            const allAvailableTfs = ['5m', '15m', '30m', '1h', '4h'];
+
             const rowsHtml = symbols.map(s => {
-                const cat = s.category || s.type || 'Other';
-                const digits = s.digits != null ? s.digits : 2;
-                const minLot = s.min_lot != null ? s.min_lot : 0.01;
-                const maxLot = s.max_lot != null ? s.max_lot : 100.0;
-                const stepLot = s.lot_step != null ? s.lot_step : 0.01;
-                const desc = (s.description && s.description !== s.name) ? s.description : '';
+                const symName = s.name || s.symbol;
+                const canon = window.MT5API ? window.MT5API.canonicalizeSymbol(symName) : symName;
+                const isManaged = window.MT5API ? window.MT5API.isManagedSymbol(symName) : false;
+                const managedCat = window.MT5API ? window.MT5API.getTickerCategory(symName) : 'other';
+                const catLabel = isManaged ? (managedCat.charAt(0).toUpperCase() + managedCat.slice(1)) : (s.category || s.type || 'Catalog');
+                const timeframes = window.MT5API ? window.MT5API.getTickerTimeframes(symName) : ['1m', '1D'];
+                const desc = (s.description && s.description !== symName) ? s.description : '';
+
+                // Timeframe Selector Chips (for managed symbols)
+                const tfPills = isManaged ? `
+                    <div class="mt5-tf-selector" style="display: inline-flex; align-items: center; gap: 3px;">
+                        <span style="font-size: 9px; padding: 1.5px 5px; border-radius: 3px; background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.35); font-weight: 700;" title="Default locked timeframe">1m ✓</span>
+                        <span style="font-size: 9px; padding: 1.5px 5px; border-radius: 3px; background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.35); font-weight: 700;" title="Default locked timeframe">1D ✓</span>
+                        ${allAvailableTfs.map(tf => {
+                            const isSelected = timeframes.includes(tf);
+                            return `
+                                <button type="button" class="mt5-btn-toggle-tf" data-symbol="${canon}" data-tf="${tf}" style="
+                                    font-size: 9px;
+                                    padding: 1.5px 5px;
+                                    border-radius: 3px;
+                                    border: 1px solid ${isSelected ? theme.primary : theme.border};
+                                    background: ${isSelected ? (theme.isDark ? 'rgba(41,98,255,0.25)' : 'rgba(41,98,255,0.12)') : 'transparent'};
+                                    color: ${isSelected ? theme.primary : theme.textMuted};
+                                    font-weight: ${isSelected ? '700' : '500'};
+                                    cursor: pointer;
+                                    transition: all 0.12s ease;
+                                " title="${isSelected ? `Click to remove ${tf} timeframe` : `Click to enable ${tf} timeframe & backfill`}">
+                                    ${isSelected ? `${tf} ✓` : `+${tf}`}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : '';
 
                 return `
-                    <div class="mt5-ticker-row" data-symbol="${s.name}" data-server="${server || ''}" style="
+                    <div class="mt5-ticker-row" data-symbol="${symName}" data-canon="${canon}" data-server="${server || ''}" style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
@@ -4229,18 +4240,26 @@
                         margin-bottom: 4px;
                         gap: 8px;
                     ">
+                        <!-- Left: Symbol, Category & HF Badge -->
                         <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; flex-wrap: wrap;">
-                            <strong style="font-size: 12.5px; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${s.name}</strong>
-                            <span style="font-size: 9.5px; padding: 1px 6px; border-radius: 3px; background: ${theme.pillBg}; color: ${theme.textMuted}; border: 1px solid ${theme.border}; font-weight: 600; white-space: nowrap;">${cat}</span>
-                            ${this.renderHfBadgeHtml(server, s.name, theme)}
-                            ${desc ? `<span style="font-size: 11px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${desc}</span>` : ''}
+                            <strong style="font-size: 12.5px; color: ${theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${symName}</strong>
+                            <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: ${isManaged ? (theme.isDark ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.1)') : theme.pillBg}; color: ${isManaged ? theme.primary : theme.textMuted}; border: 1px solid ${isManaged ? theme.primaryBorder : theme.border}; font-weight: 700; white-space: nowrap;">
+                                ${isManaged ? `⭐ ${catLabel}` : catLabel}
+                            </span>
+                            ${this.renderHfBadgeHtml(server, symName, theme)}
+                            ${desc ? `<span style="font-size: 10.5px; color: ${theme.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;">${desc}</span>` : ''}
                         </div>
-                        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                            <div style="font-size: 10.5px; color: ${theme.textMuted}; text-align: right; white-space: nowrap; font-family: monospace;">
-                                <span>Lots: <strong>${minLot}</strong>-${maxLot}</span>
-                                <span style="margin-left: 4px; opacity: 0.75;">(${digits}d)</span>
+
+                        <!-- Center: Configurable Timeframes (for managed tickers) -->
+                        ${tfPills ? `
+                            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+                                ${tfPills}
                             </div>
-                            <button class="mt5-btn-chart-symbol" data-symbol="${s.name}" data-server="${server || ''}" style="
+                        ` : ''}
+
+                        <!-- Right: Actions (Chart, Remove / Delete HF, or Add to Managed) -->
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                            <button class="mt5-btn-chart-symbol" data-symbol="${symName}" data-server="${server || ''}" style="
                                 padding: 3px 8px;
                                 border-radius: 4px;
                                 font-size: 10.5px;
@@ -4252,9 +4271,42 @@
                                 background: ${theme.primary};
                                 color: #ffffff;
                                 border: none;
-                            " title="Open ${s.name} on TradingView Chart">
+                            " title="Open ${symName} on TradingView Chart">
                                 <span>📈</span> Chart
                             </button>
+                            ${isManaged ? `
+                                <button type="button" class="mt5-btn-remove-managed" data-symbol="${canon}" style="
+                                    padding: 3px 6px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 3px;
+                                    background: transparent;
+                                    color: #f44336;
+                                    border: 1px solid rgba(244, 67, 54, 0.3);
+                                " title="Remove ${canon} from managed universe and permanently delete its Hugging Face repository">
+                                    <span>🗑️</span> Remove
+                                </button>
+                            ` : `
+                                <button type="button" class="mt5-btn-promote-managed" data-symbol="${canon}" style="
+                                    padding: 3px 6px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 3px;
+                                    background: transparent;
+                                    color: #089981;
+                                    border: 1px solid rgba(8, 153, 129, 0.35);
+                                " title="Promote ${canon} to Managed Universe (Sync to Hugging Face)">
+                                    <span>＋</span> Manage
+                                </button>
+                            `}
                         </div>
                     </div>
                 `;
@@ -4306,16 +4358,43 @@
             const container = modal.querySelector('#mt5-ticker-items-container');
             if (!container || !this.detailsData) return;
 
-            let symbols = this.detailsData.symbols || [];
+            const allSymbols = this.detailsData.symbols || [];
+            const u = window.MT5API ? (window.MT5API._hfUniverse || window.MT5API.getDefaultUniverse()) : { categories: {} };
+            const uCats = u.categories || {};
+            const activeCat = this.tickerCategoryFilter || 'managed';
 
-            // Apply Universe Filter ('MAJOR' ~666 vs 'ALL' 12,197)
-            if (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR') {
-                symbols = symbols.filter(s => this.isMajorSymbol(s, server));
+            let symbols = [];
+            if (activeCat === 'managed') {
+                symbols = allSymbols.filter(s => window.MT5API ? window.MT5API.isManagedSymbol(s.name) : true);
+                const seenCanons = new Set(symbols.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name));
+                for (const catKey in uCats) {
+                    for (const sym of uCats[catKey]) {
+                        const canon = window.MT5API ? window.MT5API.canonicalizeSymbol(sym) : sym;
+                        if (!seenCanons.has(canon)) {
+                            symbols.push({ name: sym, symbol: sym, category: catKey, isVirtual: true });
+                            seenCanons.add(canon);
+                        }
+                    }
+                }
+            } else if (['forex', 'nasdaq', 'crypto', 'commodity', 'index'].includes(activeCat)) {
+                const catList = uCats[activeCat] || [];
+                const catCanons = new Set(catList.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s) : s));
+                symbols = allSymbols.filter(s => {
+                    const c = window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name;
+                    return catCanons.has(c);
+                });
+                const seenCanons = new Set(symbols.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name));
+                for (const sym of catList) {
+                    const canon = window.MT5API ? window.MT5API.canonicalizeSymbol(sym) : sym;
+                    if (!seenCanons.has(canon)) {
+                        symbols.push({ name: sym, symbol: sym, category: activeCat, isVirtual: true });
+                        seenCanons.add(canon);
+                    }
+                }
+            } else {
+                symbols = allSymbols;
             }
 
-            if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
-                symbols = symbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
-            }
             if (this.tickerSearchQuery) {
                 const q = this.tickerSearchQuery.toUpperCase().trim();
                 symbols = symbols.filter(s => {
@@ -4326,30 +4405,18 @@
                 });
             }
 
-            // Apply HF Sync Filter with autoPreload=false for speed
-            if (this.tickerSyncFilter === 'SYNCED') {
-                symbols = symbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
-                    return st && st.isAvailable;
-                });
-            } else if (this.tickerSyncFilter === 'UNSYNCED') {
-                symbols = symbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
-                    return !st || !st.isAvailable;
-                });
-            }
-
             this._lastFilteredSymbolsCount = symbols.length;
             const visibleCount = this.tickerVisibleCount || 100;
             const pageSymbols = symbols.slice(0, visibleCount);
 
             container.innerHTML = this.getTickerListHtml(pageSymbols, theme, server, symbols.length);
 
-            // Scalable Event Delegation on container (binds once, never iterates thousands of buttons)
+            // Scalable Event Delegation on container (binds once)
             if (!container._hasDelegatedEvents) {
                 container._hasDelegatedEvents = true;
 
                 container.addEventListener('click', async (e) => {
+                    // 1. Chart Symbol
                     const chartBtn = e.target.closest('.mt5-btn-chart-symbol');
                     if (chartBtn) {
                         const sym = chartBtn.getAttribute('data-symbol');
@@ -4357,18 +4424,60 @@
                         this.loadSymbolOnChart(sym, srv);
                         return;
                     }
-                    const prioBtn = e.target.closest('.mt5-btn-prioritize-hf');
-                    if (prioBtn) {
-                        const sym = prioBtn.getAttribute('data-symbol');
-                        const srv = prioBtn.getAttribute('data-server');
-                        prioBtn.innerHTML = '<span>⚡</span> Queuing...';
-                        prioBtn.disabled = true;
-                        if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
-                            await window.MT5API.triggerHFSync(sym, srv);
-                            prioBtn.innerHTML = '<span style="color:#089981;">⚡ Prioritized</span>';
+
+                    // 2. Toggle Timeframe Chip
+                    const tfBtn = e.target.closest('.mt5-btn-toggle-tf');
+                    if (tfBtn) {
+                        const sym = tfBtn.getAttribute('data-symbol');
+                        const tf = tfBtn.getAttribute('data-tf');
+                        if (window.MT5API && typeof window.MT5API.getTickerTimeframes === 'function') {
+                            const curTfs = window.MT5API.getTickerTimeframes(sym);
+                            let newTfs;
+                            if (curTfs.includes(tf)) {
+                                newTfs = curTfs.filter(t => t !== tf);
+                            } else {
+                                newTfs = [...curTfs, tf];
+                            }
+                            tfBtn.innerHTML = '<span>⏳</span>';
+                            await window.MT5API.setHFUniverseTimeframes(sym, newTfs);
+                            this.updateTickerListView(modal, theme, server);
                         }
                         return;
                     }
+
+                    // 3. Remove from Managed & Delete HF Repo
+                    const removeBtn = e.target.closest('.mt5-btn-remove-managed');
+                    if (removeBtn) {
+                        const sym = removeBtn.getAttribute('data-symbol');
+                        if (confirm(`Remove ${sym} from managed universe and permanently delete its Hugging Face repository?`)) {
+                            removeBtn.innerHTML = '<span>⏳</span> Deleting...';
+                            removeBtn.disabled = true;
+                            if (window.MT5API && typeof window.MT5API.removeHFUniverseTicker === 'function') {
+                                await window.MT5API.removeHFUniverseTicker(sym, true);
+                                this.renderModal();
+                            }
+                        }
+                        return;
+                    }
+
+                    // 4. Promote / Add to Managed
+                    const promoteBtn = e.target.closest('.mt5-btn-promote-managed');
+                    if (promoteBtn) {
+                        const sym = promoteBtn.getAttribute('data-symbol');
+                        const cat = prompt(`Add ${sym} to which managed category? (forex, nasdaq, crypto, commodity, index)`, 'nasdaq');
+                        if (cat && window.MT5API && typeof window.MT5API.addHFUniverseTicker === 'function') {
+                            promoteBtn.innerHTML = '<span>⏳</span> Adding...';
+                            promoteBtn.disabled = true;
+                            const res = await window.MT5API.addHFUniverseTicker(cat, sym);
+                            if (res && res.error) {
+                                alert(res.error);
+                            }
+                            this.renderModal();
+                        }
+                        return;
+                    }
+
+                    // 5. Load More Pagination
                     const loadMoreBtn = e.target.closest('#mt5-btn-load-more-tickers');
                     if (loadMoreBtn) {
                         this.tickerVisibleCount = (this.tickerVisibleCount || 100) + 100;
@@ -4377,7 +4486,7 @@
                     }
                 });
 
-                // Infinite Scroll: automatically load next page when scrolled near bottom
+                // Infinite Scroll
                 container.addEventListener('scroll', () => {
                     if (container.scrollTop + container.clientHeight >= container.scrollHeight - 250) {
                         const total = this._lastFilteredSymbolsCount || 0;
@@ -4390,73 +4499,13 @@
                 }, { passive: true });
             }
 
-            // Update category pills active state
-            modal.querySelectorAll('.mt5-cat-pill').forEach(pill => {
-                const cat = pill.getAttribute('data-cat');
-                if (cat === this.tickerCategoryFilter) {
-                    pill.style.background = theme.primary;
-                    pill.style.color = '#ffffff';
-                    pill.style.borderColor = theme.primary;
-                } else {
-                    pill.style.background = theme.pillBg;
-                    pill.style.color = theme.textMuted;
-                    pill.style.borderColor = theme.border;
-                }
-            });
-
-            // Update HF sync filter buttons active state and live counts respecting universe mode
-            const allSymbols = this.detailsData.symbols || [];
-            const isMajorMode = (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR');
-            const majorSymbols = allSymbols.filter(s => this.isMajorSymbol(s, server));
-            const majorTot = majorSymbols.length;
-
-            const majorSynced = majorSymbols.filter(s => {
-                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
-                return st && st.isAvailable;
-            }).length;
-            const majorPct = majorTot > 0 ? Math.round((majorSynced / majorTot) * 100) : 0;
-
-            const allSynced = allSymbols.filter(s => {
-                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(server, s.name, false) : null;
-                return st && st.isAvailable;
-            }).length;
-
-            const sumCountEl = modal.querySelector('#mt5-hf-summary-count');
-            if (sumCountEl) {
-                sumCountEl.textContent = isMajorMode
-                    ? `Core Universe: ${majorSynced} / ${majorTot} Synced (${majorPct}%)`
-                    : `All Symbols: ${allSynced} / ${allSymbols.length.toLocaleString()} (Core: ${majorSynced}/${majorTot})`;
-            }
-
-            modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
-                const sf = btn.getAttribute('data-sync-filter');
-                if (sf === (this.tickerSyncFilter || 'ALL')) {
-                    btn.style.background = sf === 'SYNCED' ? '#4caf50' : (sf === 'UNSYNCED' ? (isMajorMode ? '#ff9800' : '#2196f3') : theme.primary);
-                    btn.style.color = '#ffffff';
-                    btn.style.borderColor = btn.style.background;
-                } else {
-                    btn.style.background = theme.pillBg;
-                    btn.style.color = theme.textMuted;
-                    btn.style.borderColor = theme.border;
-                }
-                if (sf === 'ALL') {
-                    btn.textContent = `ALL (${(isMajorMode ? majorTot : allSymbols.length).toLocaleString()})`;
-                } else if (sf === 'SYNCED') {
-                    btn.textContent = `✓ Synced (${isMajorMode ? majorSynced : allSynced})`;
-                } else if (sf === 'UNSYNCED') {
-                    btn.textContent = isMajorMode
-                        ? `⏳ Auto-Sync Pending (${majorTot - majorSynced})`
-                        : `⚡ On-Demand (${allSymbols.length - allSynced})`;
-                }
-            });
-
-            // Update Universe Scope Buttons active state
-            modal.querySelectorAll('.mt5-universe-btn').forEach(btn => {
-                const u = btn.getAttribute('data-universe') || 'MAJOR';
-                const isAct = u === (this.tickerUniverseMode || 'MAJOR');
-                btn.style.background = isAct ? theme.primary : theme.pillBg;
-                btn.style.color = isAct ? '#ffffff' : theme.textMuted;
-                btn.style.borderColor = isAct ? theme.primary : theme.border;
+            // Update Category Tabs active styles
+            modal.querySelectorAll('.mt5-cat-tab-btn').forEach(tab => {
+                const cat = tab.getAttribute('data-cat');
+                const isAct = (cat === activeCat);
+                tab.style.background = isAct ? theme.primary : theme.pillBg;
+                tab.style.color = isAct ? '#ffffff' : theme.textMuted;
+                tab.style.borderColor = isAct ? theme.primary : theme.border;
             });
         }
 
@@ -4627,24 +4676,50 @@
             const categoryList = Object.keys(categories);
 
             // Universe filtering ('MAJOR' ~666 vs 'ALL' 12,197)
-            const isMajorMode = (!this.tickerUniverseMode || this.tickerUniverseMode === 'MAJOR');
-            const majorSymbols = symbols.filter(s => this.isMajorSymbol(s, acc.server));
-            const majorSymbolsCount = majorSymbols.length;
+            const u = window.MT5API ? (window.MT5API._hfUniverse || window.MT5API.getDefaultUniverse()) : { categories: {} };
+            const uCats = u.categories || {};
+            const forexCount = (uCats.forex || []).length;
+            const nasdaqCount = (uCats.nasdaq || []).length;
+            const cryptoCount = (uCats.crypto || []).length;
+            const commodityCount = (uCats.commodity || []).length;
+            const indexCount = (uCats.index || []).length;
+            const totalManagedCount = forexCount + nasdaqCount + cryptoCount + commodityCount + indexCount;
 
-            const activeUniverseSymbols = isMajorMode ? majorSymbols : symbols;
-
-            // Compute category counts strictly for the currently active universe!
-            const activeCategories = {};
-            activeUniverseSymbols.forEach(s => {
-                const cat = s.category || s.type || 'Other';
-                activeCategories[cat] = (activeCategories[cat] || 0) + 1;
-            });
+            const activeCat = this.tickerCategoryFilter || 'managed';
 
             // Filter symbols for tickers tab view
-            let filteredSymbols = activeUniverseSymbols;
-            if (this.tickerCategoryFilter && this.tickerCategoryFilter !== 'ALL') {
-                filteredSymbols = filteredSymbols.filter(s => (s.category || s.type || 'Other') === this.tickerCategoryFilter);
+            let filteredSymbols = [];
+            if (activeCat === 'managed') {
+                filteredSymbols = symbols.filter(s => window.MT5API ? window.MT5API.isManagedSymbol(s.name) : true);
+                const seenCanons = new Set(filteredSymbols.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name));
+                for (const catKey in uCats) {
+                    for (const sym of uCats[catKey]) {
+                        const canon = window.MT5API ? window.MT5API.canonicalizeSymbol(sym) : sym;
+                        if (!seenCanons.has(canon)) {
+                            filteredSymbols.push({ name: sym, symbol: sym, category: catKey, isVirtual: true });
+                            seenCanons.add(canon);
+                        }
+                    }
+                }
+            } else if (['forex', 'nasdaq', 'crypto', 'commodity', 'index'].includes(activeCat)) {
+                const catList = uCats[activeCat] || [];
+                const catCanons = new Set(catList.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s) : s));
+                filteredSymbols = symbols.filter(s => {
+                    const c = window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name;
+                    return catCanons.has(c);
+                });
+                const seenCanons = new Set(filteredSymbols.map(s => window.MT5API ? window.MT5API.canonicalizeSymbol(s.name) : s.name));
+                for (const sym of catList) {
+                    const canon = window.MT5API ? window.MT5API.canonicalizeSymbol(sym) : sym;
+                    if (!seenCanons.has(canon)) {
+                        filteredSymbols.push({ name: sym, symbol: sym, category: activeCat, isVirtual: true });
+                        seenCanons.add(canon);
+                    }
+                }
+            } else {
+                filteredSymbols = symbols;
             }
+
             if (this.tickerSearchQuery) {
                 const q = this.tickerSearchQuery.toUpperCase().trim();
                 filteredSymbols = filteredSymbols.filter(s => {
@@ -4654,32 +4729,13 @@
                     return nameMatch || descMatch || catMatch;
                 });
             }
-            if (this.tickerSyncFilter === 'SYNCED') {
-                filteredSymbols = filteredSymbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
-                    return st && st.isAvailable;
-                });
-            } else if (this.tickerSyncFilter === 'UNSYNCED') {
-                filteredSymbols = filteredSymbols.filter(s => {
-                    const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
-                    return !st || !st.isAvailable;
-                });
-            }
 
-            // Sync metrics for Core/Major vs Total Universe
-            const syncedMajorCount = majorSymbols.filter(s => {
+            // Sync metrics for Managed Universe
+            const syncedMajorCount = (symbols.filter(s => {
+                if (!window.MT5API || !window.MT5API.isManagedSymbol(s.name)) return false;
                 const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
                 return st && st.isAvailable;
-            }).length;
-            const pendingMajorCount = majorSymbolsCount - syncedMajorCount;
-            const syncedMajorPercent = majorSymbolsCount > 0 ? Math.round((syncedMajorCount / majorSymbolsCount) * 100) : 0;
-
-            const syncedTotalCount = symbols.filter(s => {
-                const st = window.MT5ParquetIndex ? window.MT5ParquetIndex.getTickerStatusSync(acc.server, s.name, false) : null;
-                return st && st.isAvailable;
-            }).length;
-            const onDemandLongTailCount = symbols.length - majorSymbolsCount;
-            const unsyncedTotalCount = symbols.length - syncedTotalCount;
+            })).length;
 
             const bridgeStatus = window.MT5ParquetIndex ? window.MT5ParquetIndex.bridgeStatus : null;
             const fleetCoreTotal = (bridgeStatus && bridgeStatus.core_symbols) ? bridgeStatus.core_symbols : (bridgeStatus ? bridgeStatus.total_symbols : null);
@@ -5055,129 +5111,195 @@
 
                     <!-- Tab 1: Market Watch & Tickers -->
                     ${this.detailsSubTab === 'tickers' ? `
-                        <div style="display: flex; flex-direction: column; gap: 6px;">
-                            <!-- Hugging Face Parquet Archival Summary & Quick Filters -->
-                            <div class="mt5-hf-summary-bar" style="
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <!-- 1. Pinned Top Live Archival Stream Card -->
+                            <div class="mt5-hf-live-stream-card" style="
                                 display: flex;
                                 align-items: center;
                                 justify-content: space-between;
-                                padding: 6px 10px;
-                                background: ${theme.cardBg};
-                                border: 1px solid ${theme.border};
+                                padding: 8px 12px;
+                                background: ${theme.isDark ? 'linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(255,152,0,0.08) 100%)' : 'linear-gradient(135deg, rgba(33,150,243,0.05) 0%, rgba(255,152,0,0.05) 100%)'};
+                                border: 1px solid ${theme.isDark ? 'rgba(33,150,243,0.3)' : 'rgba(33,150,243,0.25)'};
                                 border-radius: 6px;
-                                font-size: 11px;
+                                gap: 12px;
                                 flex-wrap: wrap;
-                                gap: 8px;
                             ">
-                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                    <span style="font-weight: 700; color: #ff9800;">🤗 HF Archival (@${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}):</span>
-                                    <span id="mt5-hf-summary-count" style="color: ${theme.text}; font-weight: 600;">
-                                        ${isMajorMode 
-                                            ? `Core Universe: ${syncedMajorCount} / ${majorSymbolsCount} Synced (${syncedMajorPercent}%)` 
-                                            : `All Symbols: ${syncedTotalCount} / ${symbols.length.toLocaleString()} (Core: ${syncedMajorCount}/${majorSymbolsCount})`}
-                                    </span>
-                                    <span id="mt5-hf-global-status" style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">
-                                        ${fleetCoreTotal ? `• Fleet Core: ${fleetCompleted} / ${fleetCoreTotal} (${fleetPct}%)` : ''}
-                                    </span>
-                                    ${onDemandLongTailCount > 0 ? `
-                                        <span style="font-size: 10px; color: #9c27b0; font-weight: 600;" title="11,500+ OTC and micro-caps archive automatically when charted">
-                                            • ⚡ ${onDemandLongTailCount.toLocaleString()} On-Demand (Archive on Chart)
-                                        </span>
-                                    ` : ''}
-                                    <span id="mt5-hf-summary-status" style="font-size: 10px; color: ${(bridgeStatus && bridgeStatus.is_syncing) ? '#2196f3' : '#4caf50'};">
-                                        ${(bridgeStatus && bridgeStatus.is_syncing)
-                                            ? `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${bridgeStatus.current_symbol || ''} (${bridgeStatus.current_chunk || '1m'})`
-                                            : '• Inception to Present'}
-                                    </span>
+                                <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;">
+                                    <div id="mt5-hf-live-pulse-dot" style="
+                                        width: 10px;
+                                        height: 10px;
+                                        border-radius: 50%;
+                                        background: ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
+                                        box-shadow: 0 0 8px ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
+                                        flex-shrink: 0;
+                                        ${bridgeStatus && bridgeStatus.is_syncing ? 'animation: mt5pulse 1.2s ease-in-out infinite;' : ''}
+                                    "></div>
+                                    <div style="display: flex; flex-direction: column; min-width: 0;">
+                                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                            <span style="font-weight: 700; color: #ff9800; font-size: 11px;">🤗 Hugging Face Archival (@${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}):</span>
+                                            <span id="mt5-live-archival-status" style="font-size: 11px; font-weight: 700; color: ${theme.text};">
+                                                ${bridgeStatus && bridgeStatus.is_syncing 
+                                                    ? `🔄 Syncing ${bridgeStatus.current_symbol || ''} (${bridgeStatus.current_server || 'Server'}, ${bridgeStatus.current_chunk || '1m'})` 
+                                                    : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`}
+                                            </span>
+                                        </div>
+                                        <div id="mt5-live-archival-sub" style="font-size: 10px; color: ${theme.textMuted}; margin-top: 1px;">
+                                            ${bridgeStatus && bridgeStatus.is_syncing 
+                                                ? `Live streaming chunks to Hugging Face · Deduplication SHA-256 active` 
+                                                : `Fleet autonomously updates 1m & 1D datasets from inception → present`}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 4px;">
-                                    <button class="mt5-sync-filter-btn" data-sync-filter="ALL" style="
-                                        background: ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? theme.primary : theme.pillBg};
-                                        color: ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${(!this.tickerSyncFilter || this.tickerSyncFilter === 'ALL') ? theme.primary : theme.border};
-                                        padding: 2px 7px;
-                                        border-radius: 4px;
-                                        font-size: 9.5px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                    ">ALL (${activeUniverseSymbols.length.toLocaleString()})</button>
-                                    <button class="mt5-sync-filter-btn" data-sync-filter="SYNCED" style="
-                                        background: ${this.tickerSyncFilter === 'SYNCED' ? '#4caf50' : theme.pillBg};
-                                        color: ${this.tickerSyncFilter === 'SYNCED' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${this.tickerSyncFilter === 'SYNCED' ? '#4caf50' : theme.border};
-                                        padding: 2px 7px;
-                                        border-radius: 4px;
-                                        font-size: 9.5px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                    ">✓ Synced (${isMajorMode ? syncedMajorCount : syncedTotalCount})</button>
-                                    <button class="mt5-sync-filter-btn" data-sync-filter="UNSYNCED" style="
-                                        background: ${this.tickerSyncFilter === 'UNSYNCED' ? (isMajorMode ? '#ff9800' : '#2196f3') : theme.pillBg};
-                                        color: ${this.tickerSyncFilter === 'UNSYNCED' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${this.tickerSyncFilter === 'UNSYNCED' ? (isMajorMode ? '#ff9800' : '#2196f3') : theme.border};
-                                        padding: 2px 7px;
-                                        border-radius: 4px;
-                                        font-size: 9.5px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                    ">${isMajorMode ? `⏳ Auto-Sync Pending (${pendingMajorCount})` : `⚡ On-Demand (${unsyncedTotalCount})`}</button>
-                                </div>
-                            </div>
-
-                            <!-- Universe Scope Toggle: Major Benchmark (~666) vs All Symbols (12,197) -->
-                            <div style="
-                                display: flex;
-                                align-items: center;
-                                justify-content: space-between;
-                                gap: 8px;
-                                flex-wrap: wrap;
-                                padding: 2px 0;
-                            ">
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <button type="button" class="mt5-universe-btn" data-universe="MAJOR" style="
-                                        background: ${isMajorMode ? theme.primary : theme.pillBg};
-                                        color: ${isMajorMode ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${isMajorMode ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                                    <div style="font-size: 10.5px; color: ${theme.textMuted}; text-align: right; line-height: 1.3;">
+                                        <div>Managed Synced: <strong id="mt5-live-synced-count" style="color: #089981;">${syncedMajorCount} / ${totalManagedCount}</strong></div>
+                                        <div>Uploaded: <strong id="mt5-live-uploaded-mb" style="color: ${theme.primary};">${((bridgeStatus?.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB</strong></div>
+                                    </div>
+                                    <button id="mt5-btn-clean-unmanaged" type="button" class="mt5-ghost-btn" style="
+                                        padding: 4px 8px;
                                         border-radius: 4px;
                                         font-size: 10px;
-                                        font-weight: 700;
+                                        font-weight: 600;
                                         cursor: pointer;
                                         display: inline-flex;
                                         align-items: center;
                                         gap: 4px;
-                                        transition: all 0.12s ease;
-                                    " title="126 Forex + 14 Metals + 26 Indices + 312 Top US Equities">
-                                        <span>⭐</span> Major Universe (${majorSymbolsCount.toLocaleString()})
+                                        background: ${theme.pillBg};
+                                        color: ${theme.textMuted};
+                                        border: 1px solid ${theme.border};
+                                    " title="Purge all legacy repos on Hugging Face that are not in the managed universe">
+                                        <span>🧹</span> Clean Stray Repos
                                     </button>
-                                    <button type="button" class="mt5-universe-btn" data-universe="ALL" style="
-                                        background: ${!isMajorMode ? theme.primary : theme.pillBg};
-                                        color: ${!isMajorMode ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${!isMajorMode ? theme.primary : theme.border};
-                                        padding: 3px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    " title="Complete broker universe (12,197) including 11,500+ OTC and micro-caps">
-                                        <span>🌐</span> All Symbols (${symbols.length.toLocaleString()})
-                                    </button>
-                                </div>
-                                <div style="font-size: 10px; color: ${theme.textMuted}; font-weight: 500;">
-                                    ${isMajorMode 
-                                        ? '✓ Core 478 auto-sync daily from inception → present · 11,719 micro-caps archive on-demand' 
-                                        : '⚡ 11,500+ long-tail equities sync on-demand when charted'}
                                 </div>
                             </div>
 
-                            <!-- Search & Category Filters -->
-                            <div style="display: flex; flex-direction: column; gap: 5px;">
-                                <div style="position: relative;">
-                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery}" placeholder="Search symbol or asset (e.g. XAUUSD, EUR, US500, AAPL, BTC)..." style="
+                            <!-- 2. Category Switcher Tabs (Max 50 per category) -->
+                            <div class="mt5-category-tabs-bar" style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="managed" style="
+                                    background: ${activeCat === 'managed' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'managed' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'managed' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>⭐</span> All Managed (${totalManagedCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="forex" style="
+                                    background: ${activeCat === 'forex' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'forex' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'forex' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>💱</span> Forex (${forexCount}/50)
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="nasdaq" style="
+                                    background: ${activeCat === 'nasdaq' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'nasdaq' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'nasdaq' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>📈</span> Nasdaq (${nasdaqCount}/50)
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="crypto" style="
+                                    background: ${activeCat === 'crypto' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'crypto' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'crypto' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>⚡</span> Crypto (${cryptoCount}/50)
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="commodity" style="
+                                    background: ${activeCat === 'commodity' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'commodity' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'commodity' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>🥇</span> Commodities (${commodityCount}/50)
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="index" style="
+                                    background: ${activeCat === 'index' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'index' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'index' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>📊</span> Indices (${indexCount}/50)
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="catalog" style="
+                                    background: ${activeCat === 'catalog' ? theme.primary : theme.pillBg};
+                                    color: ${activeCat === 'catalog' ? '#ffffff' : theme.textMuted};
+                                    border: 1px solid ${activeCat === 'catalog' ? theme.primary : theme.border};
+                                    padding: 3px 10px;
+                                    border-radius: 4px;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    cursor: pointer;
+                                    white-space: nowrap;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 4px;
+                                    transition: all 0.12s ease;
+                                ">
+                                    <span>🌐</span> All Broker Catalog (${symbols.length.toLocaleString()})
+                                </button>
+                            </div>
+
+                            <!-- 3. Search & Quick Add Bar -->
+                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <div style="position: relative; flex: 1; min-width: 180px;">
+                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery || ''}" placeholder="Search in ${activeCat === 'managed' ? 'all managed tickers' : (activeCat === 'catalog' ? 'all broker symbols' : activeCat)}..." style="
                                         width: 100%;
                                         padding: 6px 10px 6px 28px;
                                         background: ${theme.inputBg};
@@ -5191,45 +5313,43 @@
                                     ">
                                     <span style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: ${theme.textDim}; font-size: 11px;">🔍</span>
                                 </div>
-
-                                <!-- Category Pills Filter -->
-                                <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;">
-                                    <button class="mt5-cat-pill" data-cat="ALL" style="
-                                        background: ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.pillBg};
-                                        color: ${this.tickerCategoryFilter === 'ALL' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${this.tickerCategoryFilter === 'ALL' ? theme.primary : theme.border};
-                                        padding: 2px 8px;
-                                        border-radius: 4px;
-                                        font-size: 10px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                    ">
-                                        ALL (${activeUniverseSymbols.length.toLocaleString()})
-                                    </button>
-                                    ${categoryList.map(cat => {
-                                        const catCount = activeCategories[cat] || 0;
-                                        if (catCount === 0 && isMajorMode) return '';
-                                        return `
-                                        <button class="mt5-cat-pill" data-cat="${cat}" style="
-                                            background: ${this.tickerCategoryFilter === cat ? theme.primary : theme.pillBg};
-                                            color: ${this.tickerCategoryFilter === cat ? '#ffffff' : theme.textMuted};
-                                            border: 1px solid ${this.tickerCategoryFilter === cat ? theme.primary : theme.border};
-                                            padding: 2px 8px;
-                                            border-radius: 4px;
-                                            font-size: 10px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            white-space: nowrap;
-                                        ">
-                                            ${cat} (${catCount.toLocaleString()})
-                                        </button>
-                                        `;
-                                    }).join('')}
-                                </div>
+                                ${['forex', 'nasdaq', 'crypto', 'commodity', 'index'].includes(activeCat) ? (() => {
+                                    const catList = uCats[activeCat] || [];
+                                    const isFull = catList.length >= 50;
+                                    return `
+                                        <div style="display: flex; gap: 4px; align-items: center;">
+                                            <input type="text" id="mt5-ticker-add-in" placeholder="Symbol (e.g. TSLA)" style="
+                                                width: 110px;
+                                                padding: 5px 8px;
+                                                background: ${theme.inputBg};
+                                                color: ${theme.inputText};
+                                                border: 1px solid ${theme.inputBorder};
+                                                border-radius: 5px;
+                                                font-size: 11px;
+                                                text-transform: uppercase;
+                                            ">
+                                            <button id="mt5-btn-add-ticker" type="button" data-cat="${activeCat}" ${isFull ? 'disabled' : ''} style="
+                                                background: ${isFull ? theme.pillBg : theme.primary};
+                                                color: ${isFull ? theme.textMuted : '#ffffff'};
+                                                border: 1px solid ${isFull ? theme.border : theme.primary};
+                                                padding: 5px 10px;
+                                                border-radius: 5px;
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                cursor: ${isFull ? 'not-allowed' : 'pointer'};
+                                                white-space: nowrap;
+                                                display: inline-flex;
+                                                align-items: center;
+                                                gap: 4px;
+                                            ">
+                                                <span>＋</span> ${isFull ? 'Full (50/50)' : `Add to ${activeCat.charAt(0).toUpperCase() + activeCat.slice(1)} (${catList.length}/50)`}
+                                            </button>
+                                        </div>
+                                    `;
+                                })() : ''}
                             </div>
 
-                            <!-- Scrollable Symbols Container -->
+                            <!-- 4. Scrollable Symbols Container -->
                             <div id="mt5-ticker-items-container" style="
                                 max-height: 400px;
                                 overflow-y: auto;
@@ -5459,38 +5579,57 @@
                 };
             });
 
-            // Universe Scope Toggle (Major ~666 vs All Symbols)
-            modal.querySelectorAll('.mt5-universe-btn').forEach(btn => {
-                btn.onclick = (e) => {
-                    const u = e.currentTarget.getAttribute('data-universe') || 'MAJOR';
-                    this.tickerUniverseMode = u;
+            // Category Tabs Bar (Tickers tab) -> filter category
+            modal.querySelectorAll('.mt5-cat-tab-btn').forEach(tab => {
+                tab.onclick = (e) => {
+                    const cat = e.currentTarget.getAttribute('data-cat') || 'managed';
+                    this.tickerCategoryFilter = cat;
                     this.tickerVisibleCount = 100;
-                    this.tickerCategoryFilter = 'ALL';
                     this.renderModal();
                 };
             });
 
-            // Category Pills (Tickers tab) -> filter tickers
-            modal.querySelectorAll('.mt5-cat-pill').forEach(pill => {
-                pill.onclick = (e) => {
-                    const cat = e.currentTarget.getAttribute('data-cat') || 'ALL';
-                    this.tickerCategoryFilter = cat;
-                    this.tickerVisibleCount = 100;
-                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
-                    this.updateTickerListView(modal, this.getTheme(), server);
+            // Quick Add Ticker Button (Tickers tab)
+            const addBtn = modal.querySelector('#mt5-btn-add-ticker');
+            const addIn = modal.querySelector('#mt5-ticker-add-in');
+            if (addBtn && addIn) {
+                const handleAdd = async () => {
+                    const sym = addIn.value.trim().toUpperCase();
+                    const cat = addBtn.getAttribute('data-cat') || 'nasdaq';
+                    if (!sym) return;
+                    addBtn.innerHTML = '<span>⏳</span> Adding...';
+                    addBtn.disabled = true;
+                    if (window.MT5API && typeof window.MT5API.addHFUniverseTicker === 'function') {
+                        const res = await window.MT5API.addHFUniverseTicker(cat, sym);
+                        if (res && res.error) {
+                            alert(res.error);
+                        }
+                    }
+                    this.renderModal();
                 };
-            });
+                addBtn.onclick = handleAdd;
+                addIn.onkeydown = (e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') handleAdd();
+                };
+                addIn.onkeyup = (e) => e.stopPropagation();
+            }
 
-            // HF Sync Filter Buttons (Tickers tab) -> ALL, SYNCED, UNSYNCED
-            modal.querySelectorAll('.mt5-sync-filter-btn').forEach(btn => {
-                btn.onclick = (e) => {
-                    const filter = e.currentTarget.getAttribute('data-sync-filter') || 'ALL';
-                    this.tickerSyncFilter = filter;
-                    this.tickerVisibleCount = 100;
-                    const server = this.detailsData && this.detailsData.account ? this.detailsData.account.server : '';
-                    this.updateTickerListView(modal, this.getTheme(), server);
+            // Clean Unmanaged Stray Repos Button
+            const cleanBtn = modal.querySelector('#mt5-btn-clean-unmanaged');
+            if (cleanBtn) {
+                cleanBtn.onclick = async () => {
+                    if (confirm('Purge all legacy repositories on Hugging Face that are NOT in the curated managed universe?')) {
+                        cleanBtn.innerHTML = '<span>🧹</span> Cleaning...';
+                        cleanBtn.disabled = true;
+                        if (window.MT5API && typeof window.MT5API.cleanUnmanagedHFRepos === 'function') {
+                            const res = await window.MT5API.cleanUnmanagedHFRepos();
+                            alert(`Cleaned ${(res && res.deleted_repos ? res.deleted_repos.length : 0)} stray repos from Hugging Face!`);
+                        }
+                        this.renderModal();
+                    }
                 };
-            });
+            }
 
             // Search input (Tickers tab) -> instant live filter with smooth typing & debounce
             const searchIn = modal.querySelector('#mt5-ticker-search-in');

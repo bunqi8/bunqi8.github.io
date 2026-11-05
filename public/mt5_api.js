@@ -3594,6 +3594,203 @@
             } catch (_) {}
         }
 
+        // --- Curated HF Universe Management (Max 50 / category) ---
+        canonicalizeSymbol(symbol) {
+            let clean = String(symbol || '').toUpperCase().trim();
+            clean = clean.split(':').pop();
+            clean = clean.replace(/[\.\-\_#\+].*$/, '');
+            clean = clean.replace('.US', '').replace('.', '').replace('-', '');
+            const aliases = {
+                'GOLD': 'XAUUSD', 'SILVER': 'XAGUSD', 'PLATINUM': 'XPTUSD', 'PALLADIUM': 'XPDUSD',
+                'WTI': 'USOIL', 'BRENT': 'UKOIL', 'CRUDE': 'USOIL', 'OIL': 'USOIL',
+                'USOILCASH': 'USOIL', 'UKOILCASH': 'UKOIL', 'BRENTCASH': 'UKOIL', 'NATGAS': 'NGAS',
+                'DJI': 'US30', 'DJ30': 'US30', 'WS30': 'US30',
+                'SPX': 'US500', 'SP500': 'US500', 'SPX500': 'US500',
+                'NAS100': 'US100', 'NDX': 'US100', 'NDX100': 'US100', 'USTEC': 'US100',
+                'DAX': 'GER40', 'DE40': 'GER40', 'GER30': 'GER40',
+                'EUSTX50': 'EU50', 'FTSE': 'UK100', 'CAC': 'FRA40',
+                'NIKKEI': 'JP225', 'N225': 'JP225', 'HANGSENG': 'HK50', 'HSI': 'HK50',
+                'BTC': 'BTCUSD', 'ETH': 'ETHUSD', 'SOL': 'SOLUSD'
+            };
+            return aliases[clean] || clean;
+        }
+
+        getDefaultUniverse() {
+            return {
+                max_per_category: 50,
+                categories: {
+                    forex: [
+                        "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD", "NZDUSD",
+                        "EURGBP", "EURJPY", "EURCHF", "EURAUD", "EURCAD", "EURNZD", "EURSEK", "EURNOK",
+                        "GBPJPY", "GBPCHF", "GBPAUD", "GBPCAD", "GBPNZD",
+                        "AUDJPY", "CADJPY", "CHFJPY", "NZDJPY",
+                        "AUDCAD", "AUDNZD", "AUDCHF", "NZDCAD", "NZDCHF", "CADCHF",
+                        "USDSEK", "USDNOK", "USDMXN", "USDZAR", "USDSGD", "USDHKD", "USDCNH", "USDTRY", "USDPLN",
+                        "AUDSGD", "NZDSGD", "SGDJPY", "EURSGD", "GBPSGD", "EURHKD", "EURHUF"
+                    ],
+                    nasdaq: [
+                        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "ASML", "ADBE",
+                        "AMD", "QCOM", "NFLX", "INTC", "CSCO", "TXN", "AMAT", "MU", "CRM", "ORCL",
+                        "SPY", "QQQ", "IWM", "DIA", "SOXX", "XLK", "XLF", "XLE", "XLV", "XLI",
+                        "JPM", "V", "MA", "BAC", "WMT", "PG", "JNJ", "UNH", "HD", "DIS",
+                        "BA", "CAT", "GE", "XOM", "CVX", "LLY", "ABBV", "PFE", "COST", "KO"
+                    ],
+                    crypto: [
+                        "BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD", "XRPUSD", "ADAUSD", "DOGEUSD", "AVAXUSD",
+                        "DOTUSD", "LINKUSD", "MATICUSD", "LTCUSD", "BCHUSD", "NEARUSD", "ATOMUSD", "UNIUSD",
+                        "ICPUSD", "ETCUSD", "XLMUSD", "FILUSD"
+                    ],
+                    commodity: [
+                        "XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD",
+                        "USOIL", "UKOIL", "NGAS", "COPPER",
+                        "WHEAT", "CORN", "SOYBEAN", "COFFEE", "SUGAR"
+                    ],
+                    index: [
+                        "US30", "US500", "US100", "US2000",
+                        "GER40", "UK100", "FRA40", "EU50", "ESP35", "ITA40",
+                        "JP225", "HK50", "CHINA50", "AUS200", "VIX", "SWI20", "NTH25"
+                    ]
+                },
+                timeframes: {
+                    default: ["1m", "1D"],
+                    per_ticker: {
+                        "XAUUSD": ["1m", "5m", "15m", "1h", "1D"],
+                        "EURUSD": ["1m", "5m", "15m", "1h", "1D"],
+                        "BTCUSD": ["1m", "5m", "15m", "1h", "1D"],
+                        "US30": ["1m", "5m", "15m", "1h", "1D"],
+                        "US100": ["1m", "5m", "15m", "1h", "1D"]
+                    }
+                }
+            };
+        }
+
+        async fetchHFUniverse(force = false) {
+            if (this._hfUniverse && !force && (Date.now() - (this._lastUniverseFetch || 0) < 30000)) {
+                return this._hfUniverse;
+            }
+            try {
+                const ep = this.getActiveEndpoint();
+                if (ep && ep.url) {
+                    const headers = this.getReqHeaders(ep);
+                    const res = await fetch(`${ep.url}/api/hf/universe`, { headers });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.success) {
+                            this._hfUniverse = data;
+                            this._lastUniverseFetch = Date.now();
+                            window.dispatchEvent(new CustomEvent('mt5_universe_updated', { detail: data }));
+                            return data;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[MT5API] fetchHFUniverse error:', e);
+            }
+            if (!this._hfUniverse) {
+                this._hfUniverse = this.getDefaultUniverse();
+            }
+            return this._hfUniverse;
+        }
+
+        async addHFUniverseTicker(category, symbol, timeframes = null) {
+            const ep = this.getActiveEndpoint();
+            if (!ep || !ep.url) return { success: false, error: 'No active bridge endpoint' };
+            const clean = this.canonicalizeSymbol(symbol);
+            const headers = this.getReqHeaders(ep);
+            const res = await fetch(`${ep.url}/api/hf/universe/add`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ category: category.toLowerCase().trim(), symbol: clean, timeframes })
+            });
+            const data = await res.json();
+            if (data && data.success) {
+                await this.fetchHFUniverse(true);
+            }
+            return data;
+        }
+
+        async removeHFUniverseTicker(symbol, deleteHf = true) {
+            const ep = this.getActiveEndpoint();
+            if (!ep || !ep.url) return { success: false, error: 'No active bridge endpoint' };
+            const clean = this.canonicalizeSymbol(symbol);
+            const headers = this.getReqHeaders(ep);
+            const res = await fetch(`${ep.url}/api/hf/universe/remove`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ symbol: clean, delete_hf: deleteHf })
+            });
+            const data = await res.json();
+            if (data && data.success) {
+                await this.fetchHFUniverse(true);
+            }
+            return data;
+        }
+
+        async setHFUniverseTimeframes(symbol, timeframes) {
+            const ep = this.getActiveEndpoint();
+            if (!ep || !ep.url) return { success: false, error: 'No active bridge endpoint' };
+            const clean = this.canonicalizeSymbol(symbol);
+            const headers = this.getReqHeaders(ep);
+            const res = await fetch(`${ep.url}/api/hf/universe/timeframes`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ symbol: clean, timeframes })
+            });
+            const data = await res.json();
+            if (data && data.success) {
+                await this.fetchHFUniverse(true);
+            }
+            return data;
+        }
+
+        async cleanUnmanagedHFRepos() {
+            const ep = this.getActiveEndpoint();
+            if (!ep || !ep.url) return { success: false, error: 'No active bridge endpoint' };
+            const headers = this.getReqHeaders(ep);
+            const res = await fetch(`${ep.url}/api/hf/universe/clean_unmanaged`, {
+                method: 'POST',
+                headers
+            });
+            const data = await res.json();
+            await this.fetchHFUniverse(true);
+            return data;
+        }
+
+        isManagedSymbol(symbol) {
+            const u = this._hfUniverse || this.getDefaultUniverse();
+            const clean = this.canonicalizeSymbol(symbol);
+            const cats = u.categories || {};
+            for (const cat in cats) {
+                if (Array.isArray(cats[cat])) {
+                    if (cats[cat].some(s => this.canonicalizeSymbol(s) === clean)) return true;
+                }
+            }
+            return false;
+        }
+
+        getTickerCategory(symbol) {
+            const u = this._hfUniverse || this.getDefaultUniverse();
+            const clean = this.canonicalizeSymbol(symbol);
+            const cats = u.categories || {};
+            for (const cat in cats) {
+                if (Array.isArray(cats[cat])) {
+                    if (cats[cat].some(s => this.canonicalizeSymbol(s) === clean)) return cat;
+                }
+            }
+            return 'other';
+        }
+
+        getTickerTimeframes(symbol) {
+            const u = this._hfUniverse || this.getDefaultUniverse();
+            const clean = this.canonicalizeSymbol(symbol);
+            const tfCfg = u.timeframes || {};
+            const perTicker = tfCfg.per_ticker || {};
+            if (perTicker[clean] && Array.isArray(perTicker[clean])) {
+                return perTicker[clean];
+            }
+            return tfCfg.default || ['1m', '1D'];
+        }
+
         // --- Real-Time Multi-Bridge WebSocket Quote Streams ---
         subscribeQuotes(symbol, resolution, callback, accountId = null) {
             if (typeof resolution === 'function') {
