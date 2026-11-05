@@ -3767,6 +3767,25 @@
             return await res.json();
         }
 
+        getAllManagedTickers() {
+            const u = this._hfUniverse || this.getDefaultUniverse();
+            const cats = u.categories || {};
+            const list = [];
+            const seen = new Set();
+            for (const cat in cats) {
+                if (Array.isArray(cats[cat])) {
+                    for (const s of cats[cat]) {
+                        const c = this.canonicalizeSymbol(s);
+                        if (!seen.has(c)) {
+                            seen.add(c);
+                            list.push(c);
+                        }
+                    }
+                }
+            }
+            return list;
+        }
+
         isManagedSymbol(symbol) {
             const u = this._hfUniverse || this.getDefaultUniverse();
             const clean = this.canonicalizeSymbol(symbol);
