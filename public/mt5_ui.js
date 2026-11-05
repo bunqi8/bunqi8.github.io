@@ -121,6 +121,22 @@
                         50% { transform: scale(1.18); opacity: 1; }
                         100% { transform: scale(0.92); opacity: 0.75; }
                     }
+                    .mt5-spin-svg {
+                        animation: mt5spin 1s linear infinite;
+                        transform-origin: center;
+                        display: inline-block;
+                        vertical-align: middle;
+                    }
+                    .mt5-cat-tab-btn {
+                        transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+                        border: none !important;
+                        cursor: pointer;
+                        border-radius: 4px;
+                        font-family: inherit;
+                    }
+                    .mt5-cat-tab-btn:hover {
+                        opacity: 0.95;
+                    }
                 `;
                 document.head.appendChild(style);
             }
@@ -198,79 +214,9 @@
                     mb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
                 });
 
-                // Update live archival stream card in Tickers tab if visible
-                const liveStatusEl = modal.querySelector('#mt5-live-archival-status');
-                const liveSubEl = modal.querySelector('#mt5-live-archival-sub');
-                const pulseDot = modal.querySelector('#mt5-hf-live-pulse-dot');
+                // Update live archival stream bar in Tickers tab if visible
+                this.updateArchivalLiveProgress(s);
                 const liveSyncedCount = modal.querySelector('#mt5-live-synced-count');
-                const liveUploadedMb = modal.querySelector('#mt5-live-uploaded-mb');
-                const liveBar = modal.querySelector('#mt5-live-symbol-bar');
-                const livePctText = modal.querySelector('#mt5-live-symbol-pct-text');
-
-                if (liveStatusEl) {
-                    if (s.rate_limited) {
-                        const resetTime = s.rate_limit_reset_time;
-                        let countdownStr = '';
-                        if (resetTime) {
-                            const diffMs = resetTime - Date.now();
-                            if (diffMs > 0) {
-                                const h = Math.floor(diffMs / 3600000);
-                                const m = Math.floor((diffMs % 3600000) / 60000);
-                                countdownStr = ` &middot; Auto-resumes in ${h}h ${m}m`;
-                            }
-                        }
-                        liveStatusEl.innerHTML = `<span style="color:#ff9800; font-weight:800;">⏸️ Paused: 300 Repos/Day Limit</span>${countdownStr} <button id="mt5-btn-hf-retry-rate-limit" type="button" style="background:#2196f3; color:#fff; border:none; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; margin-left:6px;">🔄 Retry Sync Now</button>`;
-                        liveStatusEl.style.color = '#ff9800';
-                        if (pulseDot) {
-                            pulseDot.style.background = '#ff9800';
-                            pulseDot.style.boxShadow = '0 0 8px #ff9800';
-                            pulseDot.style.animation = 'none';
-                        }
-                        if (liveBar) liveBar.style.width = '0%';
-                        if (livePctText) livePctText.textContent = 'Paused';
-
-                        const retryBtn = liveStatusEl.querySelector('#mt5-btn-hf-retry-rate-limit');
-                        if (retryBtn) {
-                            retryBtn.onclick = async (e) => {
-                                e.stopPropagation();
-                                retryBtn.disabled = true;
-                                retryBtn.textContent = '⏳ Resuming...';
-                                try {
-                                    await this.api.retryHFSync();
-                                } catch (err) {
-                                    console.error('Retry sync failed:', err);
-                                    retryBtn.disabled = false;
-                                    retryBtn.textContent = '🔄 Retry Sync Now';
-                                }
-                            };
-                        }
-                    } else if (s.is_syncing) {
-                        const pct = Math.round(Number(s.symbol_pct) || 0);
-                        const fileStr = s.current_file || s.current_chunk || '1m';
-                        const chunksStr = (s.symbol_total_chunks > 0) ? `(${s.symbol_completed_chunks || 0}/${s.symbol_total_chunks} chunks)` : '';
-                        liveStatusEl.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing <strong>${s.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${fileStr}</span> &middot; <strong style="color:#00e676;">${pct}%</strong> <span style="font-size:10px; opacity:0.8;">${chunksStr}</span>`;
-                        liveStatusEl.style.color = '#2196f3';
-                        if (liveSubEl) liveSubEl.textContent = 'Live streaming chunks to Hugging Face · Deduplication SHA-256 active';
-                        if (pulseDot) {
-                            pulseDot.style.background = '#ff9800';
-                            pulseDot.style.boxShadow = '0 0 8px #ff9800';
-                            pulseDot.style.animation = 'mt5pulse 1.2s ease-in-out infinite';
-                        }
-                        if (liveBar) liveBar.style.width = `${pct}%`;
-                        if (livePctText) livePctText.textContent = `${pct}%`;
-                    } else {
-                        liveStatusEl.textContent = `🟢 Archival Idle · All Managed Verified`;
-                        liveStatusEl.style.color = '#4caf50';
-                        if (liveSubEl) liveSubEl.textContent = 'Fleet autonomously updates 1m & 1D datasets from inception → present';
-                        if (pulseDot) {
-                            pulseDot.style.background = '#089981';
-                            pulseDot.style.boxShadow = '0 0 8px #089981';
-                            pulseDot.style.animation = 'none';
-                        }
-                        if (liveBar) liveBar.style.width = '100%';
-                        if (livePctText) livePctText.textContent = '100%';
-                    }
-                }
                 if (liveSyncedCount) {
                     liveSyncedCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols || 146}`;
                 }
@@ -4089,6 +4035,154 @@
             `;
         }
 
+        getLiveArchivalStatusHtml(s, theme, totalManaged = 146) {
+            if (!s) {
+                return `<span style="color:${theme.textMuted}; font-size:11px;">Connecting to fleet archival engine...</span>`;
+            }
+            if (s.rate_limited) {
+                const resetTime = s.rate_limit_reset_time;
+                let countdownStr = '';
+                if (resetTime) {
+                    const diffMs = resetTime - Date.now();
+                    if (diffMs > 0) {
+                        const h = Math.floor(diffMs / 3600000);
+                        const m = Math.floor((diffMs % 3600000) / 60000);
+                        countdownStr = ` &middot; Auto-resumes in ${h}h ${m}m`;
+                    }
+                }
+                return `
+                    <span style="display:inline-flex; align-items:center; gap:5px; color:#f59e0b; font-weight:600; font-size:11px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span>Paused: 300 Repos/Day Limit</span>${countdownStr}
+                    </span>
+                    <button id="mt5-btn-hf-retry-rate-limit" type="button" style="
+                        display:inline-flex; align-items:center; gap:4px;
+                        background:#2962ff; color:#fff; border:none; padding:2.5px 8px;
+                        border-radius:4px; font-size:10px; font-weight:600; cursor:pointer; margin-left:6px;
+                    ">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                        Retry Now
+                    </button>
+                `;
+            }
+            if (s.is_syncing) {
+                const pct = Math.round(Number(s.symbol_pct) || 0);
+                const fileStr = s.current_file || s.current_chunk || '1m';
+                const chunksStr = (s.symbol_total_chunks > 0) ? `(${s.symbol_completed_chunks || 0}/${s.symbol_total_chunks} chunks)` : '';
+                return `
+                    <span style="display:inline-flex; align-items:center; gap:6px; color:#2962ff; font-size:11px;">
+                        <svg class="mt5-spin-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                        <span>Syncing <strong style="color:${theme.text};">${s.current_symbol || ''}</strong></span>
+                        <span style="color:${theme.textMuted};">&middot;</span>
+                        <span style="font-family:monospace; color:${theme.primary};">${fileStr}</span>
+                        <span style="color:${theme.textMuted};">&middot;</span>
+                        <strong style="color:#089981; font-family:monospace;">${pct}%</strong>
+                        ${chunksStr ? `<span style="font-size:10px; color:${theme.textMuted};">${chunksStr}</span>` : ''}
+                    </span>
+                `;
+            }
+            return `
+                <span style="display:inline-flex; align-items:center; gap:6px; color:#089981; font-size:11px; font-weight:500;">
+                    <span style="width:6px; height:6px; border-radius:50%; background:#089981; flex-shrink:0;"></span>
+                    <span>Archival Idle &middot; All ${totalManaged} Managed Verified</span>
+                </span>
+            `;
+        }
+
+        updateArchivalLiveProgress(s = null) {
+            const modal = document.getElementById(this.modalId);
+            if (!modal || modal.style.display === 'none') return;
+            if (!s && window.MT5ParquetIndex) {
+                s = window.MT5ParquetIndex.bridgeStatus || {};
+            }
+            if (!s) return;
+
+            const theme = this.getTheme();
+            const liveStatusEl = modal.querySelector('#mt5-live-archival-status');
+            const pulseDot = modal.querySelector('#mt5-hf-live-pulse-dot');
+            const liveBar = modal.querySelector('#mt5-live-symbol-bar');
+            const livePctText = modal.querySelector('#mt5-live-symbol-pct-text');
+            const liveUploadedMb = modal.querySelector('#mt5-live-uploaded-mb');
+
+            if (liveUploadedMb && s.total_bytes_uploaded !== undefined) {
+                liveUploadedMb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
+            }
+
+            if (liveStatusEl) {
+                const totalManaged = (window.MT5API ? window.MT5API.getAllManagedTickers().length : 146);
+                liveStatusEl.innerHTML = this.getLiveArchivalStatusHtml(s, theme, totalManaged);
+
+                if (s.rate_limited) {
+                    if (pulseDot) {
+                        pulseDot.style.background = '#f59e0b';
+                        pulseDot.style.boxShadow = '0 0 6px #f59e0b';
+                        pulseDot.style.animation = 'none';
+                    }
+                    if (liveBar) {
+                        liveBar.style.width = '0%';
+                        liveBar.style.background = '#f59e0b';
+                    }
+                    if (livePctText) {
+                        livePctText.textContent = 'Paused';
+                        livePctText.style.color = '#f59e0b';
+                    }
+                } else if (s.is_syncing) {
+                    const pct = Math.round(Number(s.symbol_pct) || 0);
+                    if (pulseDot) {
+                        pulseDot.style.background = '#2962ff';
+                        pulseDot.style.boxShadow = '0 0 6px #2962ff';
+                        pulseDot.style.animation = 'mt5pulse 1.2s ease-in-out infinite';
+                    }
+                    if (liveBar) {
+                        liveBar.style.width = `${pct}%`;
+                        liveBar.style.background = '#2962ff';
+                    }
+                    if (livePctText) {
+                        livePctText.textContent = `${pct}%`;
+                        livePctText.style.color = theme.primary;
+                    }
+                } else {
+                    if (pulseDot) {
+                        pulseDot.style.background = '#089981';
+                        pulseDot.style.boxShadow = '0 0 6px #089981';
+                        pulseDot.style.animation = 'none';
+                    }
+                    if (liveBar) {
+                        liveBar.style.width = '100%';
+                        liveBar.style.background = '#089981';
+                    }
+                    if (livePctText) {
+                        livePctText.textContent = '100%';
+                        livePctText.style.color = '#089981';
+                    }
+                }
+
+                // Bind Retry button click handler
+                const retryBtn = liveStatusEl.querySelector('#mt5-btn-hf-retry-rate-limit');
+                if (retryBtn) {
+                    retryBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        retryBtn.disabled = true;
+                        retryBtn.innerHTML = `<svg class="mt5-spin-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Resuming...`;
+                        try {
+                            if (window.MT5API && typeof window.MT5API.retryHFSync === 'function') {
+                                await window.MT5API.retryHFSync();
+                            }
+                            if (s) {
+                                s.rate_limited = false;
+                                s.is_syncing = true;
+                                this.updateArchivalLiveProgress(s);
+                            }
+                        } catch (err) {
+                            console.error('Retry sync failed:', err);
+                            retryBtn.disabled = false;
+                            retryBtn.textContent = 'Retry Now';
+                        }
+                    };
+                }
+            }
+        }
+
         renderHfBadgeHtml(server, symbol, theme) {
             const hfStatus = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getTickerStatusSync === 'function')
                 ? window.MT5ParquetIndex.getTickerStatusSync(server, symbol, true)
@@ -4106,16 +4200,16 @@
                         padding: 2px 7px;
                         border-radius: 4px;
                         font-size: 10px;
-                        font-weight: 700;
-                        background: rgba(33, 150, 243, 0.16);
-                        color: #2196f3;
-                        border: 1px solid rgba(33, 150, 243, 0.45);
+                        font-weight: 600;
+                        background: rgba(41, 98, 255, 0.12);
+                        color: #2962ff;
+                        border: 1px solid rgba(41, 98, 255, 0.35);
                         white-space: nowrap;
                         font-variant-numeric: tabular-nums;
                     " title="Actively streaming ${fileLabel} (${pct}%) to Hugging Face (@${hfStatus.primaryAuthor})">
-                        <span style="display: inline-block; animation: mt5spin 1.2s linear infinite;">🔄</span>
+                        <svg class="mt5-spin-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                         <span style="font-family: monospace; font-size: 9.5px;">${fileLabel}</span>
-                        <span style="background: rgba(33, 150, 243, 0.25); padding: 1px 4px; border-radius: 3px; font-weight: 800; font-size: 9.5px; color: #64b5f6;">${pct}%</span>
+                        <span style="background: rgba(41, 98, 255, 0.18); padding: 0.5px 4px; border-radius: 3px; font-weight: 700; font-size: 9.5px;">${pct}%</span>
                     </span>
                 `;
             } else if (hfStatus.isQueued) {
@@ -4123,17 +4217,17 @@
                     <span style="
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
+                        gap: 4px;
                         padding: 2px 6px;
                         border-radius: 4px;
                         font-size: 9.5px;
-                        font-weight: 600;
-                        background: rgba(255, 152, 0, 0.14);
-                        color: #ff9800;
-                        border: 1px solid rgba(255, 152, 0, 0.35);
+                        font-weight: 500;
+                        background: rgba(245, 158, 11, 0.12);
+                        color: #f59e0b;
+                        border: 1px solid rgba(245, 158, 11, 0.3);
                         white-space: nowrap;
                     " title="In Bridge priority queue">
-                        <span>⏳</span>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         <span>Queued</span>
                     </span>
                 `;
@@ -4146,20 +4240,21 @@
                     <a href="${primaryUrl}" target="_blank" rel="noopener noreferrer" class="mt5-hf-pill" style="
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
+                        gap: 3.5px;
                         padding: 2px 7px;
                         border-radius: 4px;
                         font-size: 10px;
-                        font-weight: 700;
+                        font-weight: 600;
                         text-decoration: none;
-                        background: rgba(8, 153, 129, 0.12);
+                        background: rgba(8, 153, 129, 0.1);
                         color: #089981;
-                        border: 1px solid rgba(8, 153, 129, 0.35);
+                        border: 1px solid rgba(8, 153, 129, 0.3);
                         white-space: nowrap;
                         transition: all 0.12s ease;
                     " title="${tooltipText}">
-                        <span>✓ Synced</span>
-                        <span style="font-size: 8.5px; opacity: 0.8;">↗</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span>Synced</span>
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.7; flex-shrink:0;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
                     </a>
                 `;
             } else {
@@ -4167,18 +4262,20 @@
                     <button type="button" class="mt5-btn-prioritize-hf" data-symbol="${symbol}" data-server="${server || ''}" style="
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
+                        gap: 3.5px;
                         padding: 2px 6px;
                         border-radius: 4px;
                         font-size: 9.5px;
-                        font-weight: 600;
-                        background: ${theme.pillBg};
+                        font-weight: 500;
+                        background: transparent;
                         color: ${theme.textMuted};
                         border: 1px solid ${theme.border};
                         cursor: pointer;
                         white-space: nowrap;
+                        transition: all 0.12s ease;
                     " title="Click to prioritize background Parquet sync to Hugging Face">
-                        <span>⚡ Sync</span>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                        <span>Sync</span>
                     </button>
                 `;
             }
@@ -4249,7 +4346,7 @@
                         <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; flex-wrap: wrap;">
                             <strong style="font-size: 12.5px; color: ${isUnavailable ? theme.textMuted : theme.text}; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; letter-spacing: 0.1px;">${symName}</strong>
                             <span style="font-size: 9px; padding: 1px 6px; border-radius: 3px; background: ${isManaged ? (theme.isDark ? 'rgba(41,98,255,0.2)' : 'rgba(41,98,255,0.1)') : theme.pillBg}; color: ${isManaged ? theme.primary : theme.textMuted}; border: 1px solid ${isManaged ? theme.primaryBorder : theme.border}; font-weight: 700; white-space: nowrap;">
-                                ${isManaged ? `⭐ ${catLabel}` : catLabel}
+                                ${catLabel}
                             </span>
                             ${isUnavailable ? `<span style="font-size: 8.5px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 152, 0, 0.12); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.35); font-weight: 600; white-space: nowrap;" title="Not offered on ${server || 'this broker'}">Not on Broker</span>` : ''}
                             ${this.renderHfBadgeHtml(server, symName, theme)}
@@ -4275,12 +4372,13 @@
                                     opacity: 0.45;
                                     display: inline-flex;
                                     align-items: center;
-                                    gap: 3px;
+                                    gap: 4px;
                                     background: ${theme.pillBg};
                                     color: ${theme.textMuted};
                                     border: 1px solid ${theme.border};
                                 " title="Symbol is not in the broker catalog for ${server || 'this account'}">
-                                    <span>📈</span> Chart
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                                    <span>Chart</span>
                                 </button>
                             ` : `
                                 <button class="mt5-btn-chart-symbol" data-symbol="${symName}" data-server="${server || ''}" style="
@@ -4291,12 +4389,13 @@
                                     cursor: pointer;
                                     display: inline-flex;
                                     align-items: center;
-                                    gap: 3px;
+                                    gap: 4px;
                                     background: ${theme.primary};
                                     color: #ffffff;
                                     border: none;
                                 " title="Open ${symName} on TradingView Chart">
-                                    <span>📈</span> Chart
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                                    <span>Chart</span>
                                 </button>
                             `}
                             ${isManaged ? `
@@ -4313,7 +4412,8 @@
                                     color: #f44336;
                                     border: 1px solid rgba(244, 67, 54, 0.3);
                                 " title="Remove ${canon} from managed universe and permanently delete its Hugging Face repository">
-                                    <span>🗑️</span> Remove
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    <span>Remove</span>
                                 </button>
                             ` : `
                                 <button type="button" class="mt5-btn-promote-managed" data-symbol="${canon}" style="
@@ -4329,7 +4429,8 @@
                                     color: #089981;
                                     border: 1px solid rgba(8, 153, 129, 0.35);
                                 " title="Promote ${canon} to Managed Universe (Sync to Hugging Face)">
-                                    <span>＋</span> Manage
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                    <span>Manage</span>
                                 </button>
                             `}
                         </div>
@@ -4370,7 +4471,8 @@
                             gap: 6px;
                             transition: opacity 0.15s ease;
                         ">
-                            <span>⬇️</span> Load Next 100 Symbols
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            <span>Load Next 100 Symbols</span>
                         </button>
                     </div>
                 `;
@@ -4555,9 +4657,10 @@
             modal.querySelectorAll('.mt5-cat-tab-btn').forEach(tab => {
                 const cat = tab.getAttribute('data-cat');
                 const isAct = (cat === activeCat);
-                tab.style.background = isAct ? theme.primary : theme.pillBg;
-                tab.style.color = isAct ? '#ffffff' : theme.textMuted;
-                tab.style.borderColor = isAct ? theme.primary : theme.border;
+                tab.style.background = isAct ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent';
+                tab.style.color = isAct ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted;
+                tab.style.fontWeight = isAct ? '600' : '500';
+                tab.style.boxShadow = isAct ? '0 1px 2px rgba(0,0,0,0.12)' : 'none';
             });
         }
 
@@ -5209,296 +5312,232 @@
                     <!-- Tab 1: Market Watch & Tickers -->
                     ${this.detailsSubTab === 'tickers' ? `
                         <div style="display: flex; flex-direction: column; gap: 8px;">
-                            <!-- 1. Three Distinct Top KPI Cards -->
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
-                                <!-- Total Fleet Catalog Card -->
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 9px 12px; display: flex; flex-direction: column; justify-content: space-between;">
-                                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                                        <span style="font-size: 10px; color: ${theme.textMuted}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Total Fleet Catalog</span>
-                                        <span style="font-size: 13px;">🌐</span>
+                            <!-- 1. Sleek Minimal Stat Strip -->
+                            <div style="
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                padding: 7px 12px;
+                                background: ${theme.isDark ? '#141720' : '#f4f6fa'};
+                                border: 1px solid ${theme.border};
+                                border-radius: 6px;
+                                font-size: 11px;
+                                gap: 12px;
+                                flex-wrap: wrap;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <span style="color: ${theme.textMuted}; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Fleet</span>
+                                        <strong style="color: ${theme.text}; font-family: monospace; font-size: 11.5px;">${(bridgeStatus?.catalog_total || symbols.length || 12197).toLocaleString()}</strong>
                                     </div>
-                                    <div style="font-size: 17px; font-weight: 700; color: ${theme.text}; font-family: monospace; margin-top: 3px;">
-                                        ${(bridgeStatus?.catalog_total || symbols.length || 12197).toLocaleString()}
+                                    <div style="width: 1px; height: 11px; background: ${theme.border};"></div>
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <span style="color: ${theme.textMuted}; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Universe</span>
+                                        <strong style="color: ${theme.primary}; font-family: monospace; font-size: 11.5px;">${totalManagedCount}</strong>
                                     </div>
-                                    <div style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        Across all connected broker servers
+                                    <div style="width: 1px; height: 11px; background: ${theme.border};"></div>
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <span style="color: ${theme.textMuted}; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">HF Synced</span>
+                                        <strong style="color: #089981; font-family: monospace; font-size: 11.5px;">${syncedMajorCount} / ${totalManagedCount}</strong>
+                                        <span style="font-size: 10px; color: #089981; opacity: 0.85;">(${Math.round((syncedMajorCount / (totalManagedCount || 1)) * 100)}%)</span>
+                                    </div>
+                                    <div style="width: 1px; height: 11px; background: ${theme.border};"></div>
+                                    <div style="display: flex; align-items: center; gap: 4px; color: ${theme.textMuted}; font-size: 10.5px;">
+                                        <span>@${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}</span>
                                     </div>
                                 </div>
 
-                                <!-- HF Sync Universe Card -->
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 9px 12px; display: flex; flex-direction: column; justify-content: space-between;">
-                                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                                        <span style="font-size: 10px; color: ${theme.primary}; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">HF Sync Universe</span>
-                                        <span style="font-size: 13px;">⭐</span>
-                                    </div>
-                                    <div style="font-size: 17px; font-weight: 700; color: ${theme.primary}; font-family: monospace; margin-top: 3px;">
-                                        ${totalManagedCount} Curated
-                                    </div>
-                                    <div style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        5 Categories · Max 50 per list
-                                    </div>
-                                </div>
-
-                                <!-- Fully Synced to Hugging Face Card -->
-                                <div style="background: ${theme.cardBg}; border: 1px solid ${theme.border}; border-radius: 6px; padding: 9px 12px; display: flex; flex-direction: column; justify-content: space-between;">
-                                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                                        <span style="font-size: 10px; color: #089981; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Fully Synced to HF</span>
-                                        <span style="font-size: 13px;">🤗</span>
-                                    </div>
-                                    <div style="font-size: 17px; font-weight: 700; color: #089981; font-family: monospace; margin-top: 3px;">
-                                        ${syncedMajorCount} / ${totalManagedCount} <span style="font-size: 11px; font-weight: 600; opacity: 0.9;">(${Math.round((syncedMajorCount / (totalManagedCount || 1)) * 100)}%)</span>
-                                    </div>
-                                    <div style="font-size: 9.5px; color: ${theme.textMuted}; margin-top: 2px;">
-                                        Verified Parquet on @${(window.MT5ParquetIndex && window.MT5ParquetIndex.author) || 'bnq-ii'}
-                                    </div>
+                                <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+                                    <span id="mt5-live-uploaded-mb" style="font-size: 10.5px; color: ${theme.textMuted}; font-family: monospace;">${((bridgeStatus?.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB</span>
+                                    <button id="mt5-btn-clean-unmanaged" type="button" style="
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 4px;
+                                        padding: 2.5px 7px;
+                                        border-radius: 4px;
+                                        font-size: 10.5px;
+                                        font-weight: 500;
+                                        cursor: pointer;
+                                        background: transparent;
+                                        color: ${theme.textMuted};
+                                        border: 1px solid ${theme.border};
+                                        transition: all 0.15s ease;
+                                    " title="Purge all legacy repos on Hugging Face that are not in the managed universe">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                        Clean Strays
+                                    </button>
                                 </div>
                             </div>
 
-                            <!-- 2. Pinned Top Live Archival Stream Card -->
+                            <!-- 2. Refined Live Archival Stream Bar -->
                             <div class="mt5-hf-live-stream-card" style="
                                 display: flex;
                                 flex-direction: column;
-                                padding: 8px 12px;
-                                background: ${theme.isDark ? 'linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(255,152,0,0.08) 100%)' : 'linear-gradient(135deg, rgba(33,150,243,0.05) 0%, rgba(255,152,0,0.05) 100%)'};
-                                border: 1px solid ${theme.isDark ? 'rgba(33,150,243,0.3)' : 'rgba(33,150,243,0.25)'};
+                                padding: 6px 12px;
+                                background: ${theme.isDark ? '#141720' : '#ffffff'};
+                                border: 1px solid ${theme.border};
                                 border-radius: 6px;
-                                gap: 6px;
+                                gap: 5px;
                             ">
-                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                                    <div style="display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                                    <div style="display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1;">
                                         <div id="mt5-hf-live-pulse-dot" style="
-                                            width: 9px;
-                                            height: 9px;
+                                            width: 6px;
+                                            height: 6px;
                                             border-radius: 50%;
-                                            background: ${bridgeStatus && (bridgeStatus.rate_limited || bridgeStatus.is_syncing) ? '#ff9800' : '#089981'};
-                                            box-shadow: 0 0 8px ${bridgeStatus && (bridgeStatus.rate_limited || bridgeStatus.is_syncing) ? '#ff9800' : '#089981'};
+                                            background: ${bridgeStatus && (bridgeStatus.rate_limited ? '#f59e0b' : (bridgeStatus.is_syncing ? '#2962ff' : '#089981'))};
+                                            box-shadow: 0 0 6px ${bridgeStatus && (bridgeStatus.rate_limited ? '#f59e0b' : (bridgeStatus.is_syncing ? '#2962ff' : '#089981'))};
                                             flex-shrink: 0;
                                             ${bridgeStatus && bridgeStatus.is_syncing ? 'animation: mt5pulse 1.2s ease-in-out infinite;' : ''}
                                         "></div>
-                                        <div style="display: flex; flex-direction: column; min-width: 0;">
-                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                <span style="font-weight: 700; color: #ff9800; font-size: 11px;">🤗 Hugging Face Live:</span>
-                                                <span id="mt5-live-archival-status" style="font-size: 11px; font-weight: 700; color: ${theme.text};">
-                                                    ${bridgeStatus && bridgeStatus.rate_limited
-                                                        ? `<span style="color:#ff9800; font-weight:800;">⏸️ Paused: 300 Repos/Day Limit</span>${(() => {
-                                                            const diff = (bridgeStatus.rate_limit_reset_time || 0) - Date.now();
-                                                            if (diff > 0) {
-                                                                const h = Math.floor(diff / 3600000);
-                                                                const m = Math.floor((diff % 3600000) / 60000);
-                                                                return ` &middot; Auto-resumes in ${h}h ${m}m`;
-                                                            }
-                                                            return '';
-                                                        })()} <button id="mt5-btn-hf-retry-rate-limit" type="button" class="mt5-ghost-btn" style="background:#2196f3; color:#fff; border:none; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; margin-left:6px;">🔄 Retry Sync Now</button>`
-                                                        : (bridgeStatus && bridgeStatus.is_syncing 
-                                                            ? `🔄 Syncing <strong>${bridgeStatus.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${bridgeStatus.current_file || bridgeStatus.current_chunk || '1m'}</span> &middot; <strong style="color:#00e676;">${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%</strong> <span style="font-size:10px; opacity:0.8;">${(bridgeStatus.symbol_total_chunks > 0) ? `(${bridgeStatus.symbol_completed_chunks || 0}/${bridgeStatus.symbol_total_chunks} chunks)` : ''}</span>` 
-                                                            : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`)}
-                                                </span>
-                                            </div>
+                                        <div id="mt5-live-archival-status" style="font-size: 11px; color: ${theme.text}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            ${this.getLiveArchivalStatusHtml(bridgeStatus, theme, totalManagedCount)}
                                         </div>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                                        <div style="font-size: 10px; color: ${theme.textMuted}; text-align: right; line-height: 1.2;">
-                                            Uploaded: <strong id="mt5-live-uploaded-mb" style="color: ${theme.primary};">${((bridgeStatus?.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB</strong>
-                                        </div>
-                                        <button id="mt5-btn-clean-unmanaged" type="button" class="mt5-ghost-btn" style="
-                                            padding: 3px 8px;
-                                            border-radius: 4px;
-                                            font-size: 9.5px;
-                                            font-weight: 600;
-                                            cursor: pointer;
-                                            display: inline-flex;
-                                            align-items: center;
-                                            gap: 4px;
-                                            background: ${theme.pillBg};
-                                            color: ${theme.textMuted};
-                                            border: 1px solid ${theme.border};
-                                        " title="Purge all legacy repos on Hugging Face that are not in the managed universe">
-                                            <span>🧹</span> Clean Stray Repos
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <!-- Real-time Progress Bar for Currently Syncing Symbol -->
-                                <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
-                                    <div style="flex: 1; height: 5px; background: ${theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}; border-radius: 3px; overflow: hidden;">
-                                        <div id="mt5-live-symbol-bar" style="width: ${bridgeStatus && bridgeStatus.is_syncing ? (bridgeStatus.symbol_pct || 0) : 100}%; height: 100%; background: linear-gradient(90deg, #2196f3, #00e676); transition: width 0.3s ease;"></div>
-                                    </div>
-                                    <span id="mt5-live-symbol-pct-text" style="font-size: 10px; font-weight: 800; font-family: monospace; color: #2196f3; min-width: 35px; text-align: right;">
-                                        ${bridgeStatus && bridgeStatus.is_syncing ? `${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%` : '100%'}
+                                    <span id="mt5-live-symbol-pct-text" style="font-size: 10.5px; font-weight: 700; font-family: monospace; color: ${bridgeStatus && bridgeStatus.rate_limited ? '#f59e0b' : theme.primary}; flex-shrink: 0;">
+                                        ${bridgeStatus && bridgeStatus.is_syncing ? `${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%` : (bridgeStatus && bridgeStatus.rate_limited ? 'Paused' : '100%')}
                                     </span>
+                                </div>
+                                <div style="width: 100%; height: 2px; background: ${theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}; border-radius: 2px; overflow: hidden;">
+                                    <div id="mt5-live-symbol-bar" style="width: ${bridgeStatus && bridgeStatus.is_syncing ? (bridgeStatus.symbol_pct || 0) : (bridgeStatus && bridgeStatus.rate_limited ? 0 : 100)}%; height: 100%; background: ${bridgeStatus && (bridgeStatus.rate_limited ? '#f59e0b' : (bridgeStatus.is_syncing ? '#2962ff' : '#089981'))}; transition: width 0.3s ease;"></div>
                                 </div>
                             </div>
 
-                            <!-- 3. Category Switcher Tabs (Dedicated Full-Width Row - never squished) -->
-                            <div style="width: 100%; margin-bottom: 2px;">
-                                <div class="mt5-category-tabs-bar" style="
-                                    display: flex;
-                                    gap: 5px;
-                                    overflow-x: auto;
-                                    padding-bottom: 4px;
-                                    width: 100%;
-                                    scrollbar-width: thin;
-                                    -webkit-overflow-scrolling: touch;
+                            <!-- 3. Segmented Control Category Bar (Linear / TradingView style) -->
+                            <div style="
+                                display: flex;
+                                align-items: center;
+                                background: ${theme.isDark ? '#141720' : '#edf0f5'};
+                                padding: 2.5px;
+                                border-radius: 6px;
+                                border: 1px solid ${theme.border};
+                                overflow-x: auto;
+                                scrollbar-width: none;
+                                gap: 2px;
+                            ">
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="managed" style="
+                                    background: ${activeCat === 'managed' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'managed' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'managed' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'managed' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
                                 ">
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="managed" style="
-                                        background: ${activeCat === 'managed' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'managed' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'managed' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>⭐</span> All Managed (${filterAvail ? totalAvailManaged : totalManagedCount})
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="forex" style="
-                                        background: ${activeCat === 'forex' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'forex' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'forex' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>💱</span> Forex (${filterAvail ? availForex : forexCount}/50)
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="nasdaq" style="
-                                        background: ${activeCat === 'nasdaq' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'nasdaq' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'nasdaq' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>📈</span> Nasdaq (${filterAvail ? availNasdaq : nasdaqCount}/50)
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="crypto" style="
-                                        background: ${activeCat === 'crypto' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'crypto' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'crypto' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>⚡</span> Crypto (${filterAvail ? availCrypto : cryptoCount}/50)
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="commodity" style="
-                                        background: ${activeCat === 'commodity' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'commodity' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'commodity' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>🥇</span> Commodities (${filterAvail ? availCommodity : commodityCount}/50)
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="index" style="
-                                        background: ${activeCat === 'index' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'index' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'index' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>📊</span> Indices (${filterAvail ? availIndex : indexCount}/50)
-                                    </button>
-                                    <button type="button" class="mt5-cat-tab-btn" data-cat="catalog" style="
-                                        background: ${activeCat === 'catalog' ? theme.primary : theme.pillBg};
-                                        color: ${activeCat === 'catalog' ? '#ffffff' : theme.textMuted};
-                                        border: 1px solid ${activeCat === 'catalog' ? theme.primary : theme.border};
-                                        padding: 4px 10px;
-                                        border-radius: 4px;
-                                        font-size: 10.5px;
-                                        font-weight: 700;
-                                        cursor: pointer;
-                                        white-space: nowrap;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        transition: all 0.12s ease;
-                                    ">
-                                        <span>🌐</span> Broker Catalog (${symbols.length.toLocaleString()})
-                                    </button>
-                                </div>
+                                    All Managed (${filterAvail ? totalAvailManaged : totalManagedCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="forex" style="
+                                    background: ${activeCat === 'forex' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'forex' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'forex' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'forex' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Forex (${filterAvail ? availForex : forexCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="nasdaq" style="
+                                    background: ${activeCat === 'nasdaq' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'nasdaq' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'nasdaq' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'nasdaq' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Nasdaq (${filterAvail ? availNasdaq : nasdaqCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="crypto" style="
+                                    background: ${activeCat === 'crypto' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'crypto' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'crypto' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'crypto' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Crypto (${filterAvail ? availCrypto : cryptoCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="commodity" style="
+                                    background: ${activeCat === 'commodity' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'commodity' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'commodity' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'commodity' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Commodities (${filterAvail ? availCommodity : commodityCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="index" style="
+                                    background: ${activeCat === 'index' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'index' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'index' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'index' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Indices (${filterAvail ? availIndex : indexCount})
+                                </button>
+                                <button type="button" class="mt5-cat-tab-btn" data-cat="catalog" style="
+                                    background: ${activeCat === 'catalog' ? (theme.isDark ? '#2a2e39' : '#ffffff') : 'transparent'};
+                                    color: ${activeCat === 'catalog' ? (theme.isDark ? '#ffffff' : '#131722') : theme.textMuted};
+                                    padding: 3.5px 9px;
+                                    font-size: 10.5px;
+                                    font-weight: ${activeCat === 'catalog' ? '600' : '500'};
+                                    white-space: nowrap;
+                                    box-shadow: ${activeCat === 'catalog' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none'};
+                                ">
+                                    Broker Catalog (${symbols.length.toLocaleString()})
+                                </button>
                             </div>
 
                             <!-- 4. Search, Broker Filter Toggle & Quick Add Bar -->
-                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                                 <div style="position: relative; flex: 1; min-width: 170px;">
-                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery || ''}" placeholder="Search in ${activeCat === 'managed' ? 'all managed tickers' : (activeCat === 'catalog' ? 'all broker symbols' : activeCat)}..." style="
+                                    <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery || ''}" placeholder="Search symbol or name..." style="
                                         width: 100%;
-                                        padding: 6px 10px 6px 28px;
+                                        padding: 5px 10px 5px 28px;
                                         background: ${theme.inputBg};
                                         color: ${theme.inputText};
                                         border: 1px solid ${theme.inputBorder};
                                         border-radius: 5px;
                                         font-size: 11.5px;
                                         box-sizing: border-box;
+                                        outline: none;
                                         pointer-events: auto;
                                         user-select: text;
                                     ">
-                                    <span style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: ${theme.textDim}; font-size: 11px;">🔍</span>
+                                    <svg style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; color: ${theme.textDim}; pointer-events: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                                 </div>
 
                                 <!-- Server Availability Filter Toggle Button (neatly placed on the search row) -->
                                 <button id="mt5-btn-toggle-available" type="button" style="
-                                    padding: 5px 10px;
+                                    padding: 4px 10px;
                                     border-radius: 5px;
-                                    font-size: 10.5px;
-                                    font-weight: 600;
+                                    font-size: 11px;
+                                    font-weight: ${filterAvail ? '600' : '500'};
                                     cursor: pointer;
                                     display: inline-flex;
                                     align-items: center;
-                                    gap: 5px;
-                                    background: ${filterAvail ? (theme.isDark ? 'rgba(8,153,129,0.18)' : 'rgba(8,153,129,0.12)') : theme.pillBg};
-                                    color: ${filterAvail ? '#089981' : theme.textMuted};
-                                    border: 1px solid ${filterAvail ? 'rgba(8,153,129,0.45)' : theme.border};
+                                    gap: 6px;
+                                    background: ${filterAvail ? (theme.isDark ? 'rgba(41,98,255,0.15)' : 'rgba(41,98,255,0.08)') : 'transparent'};
+                                    color: ${filterAvail ? theme.primary : theme.textMuted};
+                                    border: 1px solid ${filterAvail ? theme.primaryBorder : theme.border};
                                     white-space: nowrap;
-                                    transition: all 0.12s ease;
+                                    transition: all 0.15s ease;
                                     flex-shrink: 0;
                                 " title="Toggle: filter list to show only symbols available on ${acc.server} (${totalAvailManaged}/${totalManagedCount})">
-                                    <span>${filterAvail ? '✓' : '○'}</span>
-                                    <span>Available on ${acc.broker_name || (acc.server.includes('MetaQuotes') ? 'MetaQuotes' : (acc.server.includes('FivePercent') ? 'The5ers' : acc.server))} Only (${totalAvailManaged}/${totalManagedCount})</span>
+                                    <span style="
+                                        display: inline-block;
+                                        width: 6px;
+                                        height: 6px;
+                                        border-radius: 50%;
+                                        background: ${filterAvail ? theme.primary : theme.border};
+                                    "></span>
+                                    <span>Available on ${acc.broker_name || (acc.server.includes('MetaQuotes') ? 'MetaQuotes' : (acc.server.includes('FivePercent') ? 'The5ers' : acc.server))} (${totalAvailManaged}/${totalManagedCount})</span>
                                 </button>
                                 ${['forex', 'nasdaq', 'crypto', 'commodity', 'index'].includes(activeCat) ? (() => {
                                     const catList = uCats[activeCat] || [];
@@ -5506,8 +5545,8 @@
                                     return `
                                         <div style="display: flex; gap: 4px; align-items: center;">
                                             <input type="text" id="mt5-ticker-add-in" placeholder="Symbol (e.g. TSLA)" style="
-                                                width: 110px;
-                                                padding: 5px 8px;
+                                                width: 105px;
+                                                padding: 4px 8px;
                                                 background: ${theme.inputBg};
                                                 color: ${theme.inputText};
                                                 border: 1px solid ${theme.inputBorder};
@@ -5519,9 +5558,9 @@
                                                 background: ${isFull ? theme.pillBg : theme.primary};
                                                 color: ${isFull ? theme.textMuted : '#ffffff'};
                                                 border: 1px solid ${isFull ? theme.border : theme.primary};
-                                                padding: 5px 10px;
+                                                padding: 4px 8px;
                                                 border-radius: 5px;
-                                                font-size: 11px;
+                                                font-size: 10.5px;
                                                 font-weight: 600;
                                                 cursor: ${isFull ? 'not-allowed' : 'pointer'};
                                                 white-space: nowrap;
@@ -5529,7 +5568,8 @@
                                                 align-items: center;
                                                 gap: 4px;
                                             ">
-                                                <span>＋</span> ${isFull ? 'Full (50/50)' : `Add to ${activeCat.charAt(0).toUpperCase() + activeCat.slice(1)} (${catList.length}/50)`}
+                                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                                <span>${isFull ? 'Full (50/50)' : 'Add'}</span>
                                             </button>
                                         </div>
                                     `;
@@ -5794,7 +5834,7 @@
                     const sym = addIn.value.trim().toUpperCase();
                     const cat = addBtn.getAttribute('data-cat') || 'nasdaq';
                     if (!sym) return;
-                    addBtn.innerHTML = '<span>⏳</span> Adding...';
+                    addBtn.innerHTML = `<svg class="mt5-spin-svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Adding...`;
                     addBtn.disabled = true;
                     if (window.MT5API && typeof window.MT5API.addHFUniverseTicker === 'function') {
                         const res = await window.MT5API.addHFUniverseTicker(cat, sym);
@@ -5817,7 +5857,7 @@
             if (cleanBtn) {
                 cleanBtn.onclick = async () => {
                     if (confirm('Purge all legacy repositories on Hugging Face that are NOT in the curated managed universe?')) {
-                        cleanBtn.innerHTML = '<span>🧹</span> Cleaning...';
+                        cleanBtn.innerHTML = `<svg class="mt5-spin-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Cleaning...`;
                         cleanBtn.disabled = true;
                         if (window.MT5API && typeof window.MT5API.cleanUnmanagedHFRepos === 'function') {
                             const res = await window.MT5API.cleanUnmanagedHFRepos();
@@ -5834,16 +5874,16 @@
                 retryRateBtn.onclick = async (e) => {
                     e.stopPropagation();
                     retryRateBtn.disabled = true;
-                    retryRateBtn.textContent = '⏳ Resuming...';
+                    retryRateBtn.innerHTML = `<svg class="mt5-spin-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Resuming...`;
                     try {
                         if (window.MT5API && typeof window.MT5API.retryHFSync === 'function') {
                             await window.MT5API.retryHFSync();
                         }
-                        this.renderArchivalLiveProgress();
+                        this.updateArchivalLiveProgress();
                     } catch (err) {
                         console.error('Retry sync error:', err);
                         retryRateBtn.disabled = false;
-                        retryRateBtn.textContent = '🔄 Retry Sync Now';
+                        retryRateBtn.textContent = 'Retry Now';
                     }
                 };
             }
