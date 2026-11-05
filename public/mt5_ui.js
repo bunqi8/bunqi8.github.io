@@ -216,13 +216,6 @@
 
                 // Update live archival stream bar in Tickers tab if visible
                 this.updateArchivalLiveProgress(s);
-                const liveSyncedCount = modal.querySelector('#mt5-live-synced-count');
-                if (liveSyncedCount) {
-                    liveSyncedCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols || 146}`;
-                }
-                if (liveUploadedMb) {
-                    liveUploadedMb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
-                }
 
                 // If on tickers tab, refresh row sync badges in-place for active syncing symbol and previously syncing symbol
                 if (this.viewMode === 'details' && this.detailsSubTab === 'tickers') {
@@ -4103,9 +4096,13 @@
             const liveBar = modal.querySelector('#mt5-live-symbol-bar');
             const livePctText = modal.querySelector('#mt5-live-symbol-pct-text');
             const liveUploadedMb = modal.querySelector('#mt5-live-uploaded-mb');
+            const liveSyncedCount = modal.querySelector('#mt5-live-synced-count');
 
             if (liveUploadedMb && s.total_bytes_uploaded !== undefined) {
                 liveUploadedMb.textContent = `${((s.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB`;
+            }
+            if (liveSyncedCount) {
+                liveSyncedCount.textContent = `${s.completed_symbols || 0} / ${s.total_symbols || 146}`;
             }
 
             if (liveStatusEl) {
