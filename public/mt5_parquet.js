@@ -233,6 +233,10 @@
                 (!bs.current_server || cleanServer.toLowerCase() === sanitizeHfName(bs.current_server).toLowerCase())
             );
             const currentChunk = isSyncing ? (bs.current_chunk || '1m') : null;
+            const currentFile = isSyncing ? (bs.current_file || bs.current_chunk || '1m') : null;
+            const symbolPct = isSyncing ? (Number(bs.symbol_pct) || 0) : 0;
+            const symbolCompletedChunks = isSyncing ? (Number(bs.symbol_completed_chunks) || 0) : 0;
+            const symbolTotalChunks = isSyncing ? (Number(bs.symbol_total_chunks) || 0) : 0;
             const isQueued = Boolean(bs.priority_queue && bs.priority_queue.some(q => String(q).toUpperCase() === cleanSym.toUpperCase()));
             const isBridgeSynced = Boolean(this._syncedKeysSet && this._syncedKeysSet.has(repoKey));
 
@@ -287,6 +291,10 @@
                 isAvailable,
                 isSyncing,
                 currentChunk,
+                currentFile,
+                symbolPct,
+                symbolCompletedChunks,
+                symbolTotalChunks,
                 isQueued,
                 isBridgeSynced,
                 matchingAuthors: matching,

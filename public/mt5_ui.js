@@ -204,10 +204,15 @@
                 const pulseDot = modal.querySelector('#mt5-hf-live-pulse-dot');
                 const liveSyncedCount = modal.querySelector('#mt5-live-synced-count');
                 const liveUploadedMb = modal.querySelector('#mt5-live-uploaded-mb');
+                const liveBar = modal.querySelector('#mt5-live-symbol-bar');
+                const livePctText = modal.querySelector('#mt5-live-symbol-pct-text');
 
                 if (liveStatusEl) {
                     if (s.is_syncing) {
-                        liveStatusEl.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing ${s.current_symbol || ''} (${s.current_server || 'Server'}, ${s.current_chunk || '1m'})`;
+                        const pct = Math.round(Number(s.symbol_pct) || 0);
+                        const fileStr = s.current_file || s.current_chunk || '1m';
+                        const chunksStr = (s.symbol_total_chunks > 0) ? `(${s.symbol_completed_chunks || 0}/${s.symbol_total_chunks} chunks)` : '';
+                        liveStatusEl.innerHTML = `<span style="display:inline-block;animation:mt5spin 1.2s linear infinite;">🔄</span> Syncing <strong>${s.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${fileStr}</span> &middot; <strong style="color:#00e676;">${pct}%</strong> <span style="font-size:10px; opacity:0.8;">${chunksStr}</span>`;
                         liveStatusEl.style.color = '#2196f3';
                         if (liveSubEl) liveSubEl.textContent = 'Live streaming chunks to Hugging Face · Deduplication SHA-256 active';
                         if (pulseDot) {
@@ -215,6 +220,8 @@
                             pulseDot.style.boxShadow = '0 0 8px #ff9800';
                             pulseDot.style.animation = 'mt5pulse 1.2s ease-in-out infinite';
                         }
+                        if (liveBar) liveBar.style.width = `${pct}%`;
+                        if (livePctText) livePctText.textContent = `${pct}%`;
                     } else {
                         liveStatusEl.textContent = `🟢 Archival Idle · All Managed Verified`;
                         liveStatusEl.style.color = '#4caf50';
@@ -224,6 +231,8 @@
                             pulseDot.style.boxShadow = '0 0 8px #089981';
                             pulseDot.style.animation = 'none';
                         }
+                        if (liveBar) liveBar.style.width = '100%';
+                        if (livePctText) livePctText.textContent = '100%';
                     }
                 }
                 if (liveSyncedCount) {
@@ -4051,22 +4060,26 @@
 
             let hfBadgeHtml = '';
             if (hfStatus.isSyncing) {
+                const pct = Math.round(hfStatus.symbolPct || 0);
+                const fileLabel = hfStatus.currentFile || hfStatus.currentChunk || '1m';
                 hfBadgeHtml = `
                     <span class="mt5-hf-syncing-pill" style="
                         display: inline-flex;
                         align-items: center;
-                        gap: 3px;
+                        gap: 4px;
                         padding: 2px 7px;
                         border-radius: 4px;
                         font-size: 10px;
                         font-weight: 700;
-                        background: rgba(33, 150, 243, 0.15);
+                        background: rgba(33, 150, 243, 0.16);
                         color: #2196f3;
-                        border: 1px solid rgba(33, 150, 243, 0.4);
+                        border: 1px solid rgba(33, 150, 243, 0.45);
                         white-space: nowrap;
-                    " title="Actively streaming chunk (${hfStatus.currentChunk || '1m'}) to Hugging Face (@${hfStatus.primaryAuthor})">
+                        font-variant-numeric: tabular-nums;
+                    " title="Actively streaming ${fileLabel} (${pct}%) to Hugging Face (@${hfStatus.primaryAuthor})">
                         <span style="display: inline-block; animation: mt5spin 1.2s linear infinite;">🔄</span>
-                        <span>${hfStatus.currentChunk || '1m'}</span>
+                        <span style="font-family: monospace; font-size: 9.5px;">${fileLabel}</span>
+                        <span style="background: rgba(33, 150, 243, 0.25); padding: 1px 4px; border-radius: 3px; font-weight: 800; font-size: 9.5px; color: #64b5f6;">${pct}%</span>
                     </span>
                 `;
             } else if (hfStatus.isQueued) {
@@ -4146,7 +4159,7 @@
                 `;
             }
 
-            const allAvailableTfs = ['5m', '15m', '30m', '1h', '4h'];
+            const allAvailableTfs = ['5S', '5m', '1h'];
 
             const rowsHtml = symbols.map(s => {
                 const symName = s.name || s.symbol;
@@ -4158,11 +4171,11 @@
                 const desc = (s.description && s.description !== symName) ? s.description : '';
                 const isUnavailable = Boolean(s.isVirtual || s.isUnavailableOnServer);
 
-                // Timeframe Selector Chips (for managed symbols)
+                // Timeframe Selector Chips: Default locked 1m & Daily, selectable 5S, 5m, 1h
                 const tfPills = isManaged ? `
                     <div class="mt5-tf-selector" style="display: inline-flex; align-items: center; gap: 3px;">
                         <span style="font-size: 9px; padding: 1.5px 5px; border-radius: 3px; background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.35); font-weight: 700;" title="Default locked timeframe">1m ✓</span>
-                        <span style="font-size: 9px; padding: 1.5px 5px; border-radius: 3px; background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.35); font-weight: 700;" title="Default locked timeframe">1D ✓</span>
+                        <span style="font-size: 9px; padding: 1.5px 5px; border-radius: 3px; background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.35); font-weight: 700;" title="Default locked timeframe">Daily ✓</span>
                         ${allAvailableTfs.map(tf => {
                             const isSelected = timeframes.includes(tf);
                             return `
@@ -5208,68 +5221,86 @@
                             <!-- 2. Pinned Top Live Archival Stream Card -->
                             <div class="mt5-hf-live-stream-card" style="
                                 display: flex;
-                                align-items: center;
-                                justify-content: space-between;
-                                padding: 7px 12px;
+                                flex-direction: column;
+                                padding: 8px 12px;
                                 background: ${theme.isDark ? 'linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(255,152,0,0.08) 100%)' : 'linear-gradient(135deg, rgba(33,150,243,0.05) 0%, rgba(255,152,0,0.05) 100%)'};
                                 border: 1px solid ${theme.isDark ? 'rgba(33,150,243,0.3)' : 'rgba(33,150,243,0.25)'};
                                 border-radius: 6px;
-                                gap: 12px;
-                                flex-wrap: wrap;
+                                gap: 6px;
                             ">
-                                <div style="display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1;">
-                                    <div id="mt5-hf-live-pulse-dot" style="
-                                        width: 9px;
-                                        height: 9px;
-                                        border-radius: 50%;
-                                        background: ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
-                                        box-shadow: 0 0 8px ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
-                                        flex-shrink: 0;
-                                        ${bridgeStatus && bridgeStatus.is_syncing ? 'animation: mt5pulse 1.2s ease-in-out infinite;' : ''}
-                                    "></div>
-                                    <div style="display: flex; flex-direction: column; min-width: 0;">
-                                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                            <span style="font-weight: 700; color: #ff9800; font-size: 11px;">🤗 Hugging Face Live:</span>
-                                            <span id="mt5-live-archival-status" style="font-size: 11px; font-weight: 700; color: ${theme.text};">
-                                                ${bridgeStatus && bridgeStatus.is_syncing 
-                                                    ? `🔄 Syncing ${bridgeStatus.current_symbol || ''} (${bridgeStatus.current_server || 'Server'}, ${bridgeStatus.current_chunk || '1m'})` 
-                                                    : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`}
-                                            </span>
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1;">
+                                        <div id="mt5-hf-live-pulse-dot" style="
+                                            width: 9px;
+                                            height: 9px;
+                                            border-radius: 50%;
+                                            background: ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
+                                            box-shadow: 0 0 8px ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
+                                            flex-shrink: 0;
+                                            ${bridgeStatus && bridgeStatus.is_syncing ? 'animation: mt5pulse 1.2s ease-in-out infinite;' : ''}
+                                        "></div>
+                                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                <span style="font-weight: 700; color: #ff9800; font-size: 11px;">🤗 Hugging Face Live:</span>
+                                                <span id="mt5-live-archival-status" style="font-size: 11px; font-weight: 700; color: ${theme.text};">
+                                                    ${bridgeStatus && bridgeStatus.is_syncing 
+                                                        ? `🔄 Syncing <strong>${bridgeStatus.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${bridgeStatus.current_file || bridgeStatus.current_chunk || '1m'}</span> &middot; <strong style="color:#00e676;">${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%</strong> <span style="font-size:10px; opacity:0.8;">${(bridgeStatus.symbol_total_chunks > 0) ? `(${bridgeStatus.symbol_completed_chunks || 0}/${bridgeStatus.symbol_total_chunks} chunks)` : ''}</span>` 
+                                                        : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                                    <div style="font-size: 10px; color: ${theme.textMuted}; text-align: right; line-height: 1.2;">
-                                        Uploaded: <strong id="mt5-live-uploaded-mb" style="color: ${theme.primary};">${((bridgeStatus?.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB</strong>
+                                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                                        <div style="font-size: 10px; color: ${theme.textMuted}; text-align: right; line-height: 1.2;">
+                                            Uploaded: <strong id="mt5-live-uploaded-mb" style="color: ${theme.primary};">${((bridgeStatus?.total_bytes_uploaded || 0) / (1024 * 1024)).toFixed(1)} MB</strong>
+                                        </div>
+                                        <button id="mt5-btn-clean-unmanaged" type="button" class="mt5-ghost-btn" style="
+                                            padding: 3px 8px;
+                                            border-radius: 4px;
+                                            font-size: 9.5px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 4px;
+                                            background: ${theme.pillBg};
+                                            color: ${theme.textMuted};
+                                            border: 1px solid ${theme.border};
+                                        " title="Purge all legacy repos on Hugging Face that are not in the managed universe">
+                                            <span>🧹</span> Clean Stray Repos
+                                        </button>
                                     </div>
-                                    <button id="mt5-btn-clean-unmanaged" type="button" class="mt5-ghost-btn" style="
-                                        padding: 3px 8px;
-                                        border-radius: 4px;
-                                        font-size: 9.5px;
-                                        font-weight: 600;
-                                        cursor: pointer;
-                                        display: inline-flex;
-                                        align-items: center;
-                                        gap: 4px;
-                                        background: ${theme.pillBg};
-                                        color: ${theme.textMuted};
-                                        border: 1px solid ${theme.border};
-                                    " title="Purge all legacy repos on Hugging Face that are not in the managed universe">
-                                        <span>🧹</span> Clean Stray Repos
-                                    </button>
+                                </div>
+
+                                <!-- Real-time Progress Bar for Currently Syncing Symbol -->
+                                <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                                    <div style="flex: 1; height: 5px; background: ${theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}; border-radius: 3px; overflow: hidden;">
+                                        <div id="mt5-live-symbol-bar" style="width: ${bridgeStatus && bridgeStatus.is_syncing ? (bridgeStatus.symbol_pct || 0) : 100}%; height: 100%; background: linear-gradient(90deg, #2196f3, #00e676); transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <span id="mt5-live-symbol-pct-text" style="font-size: 10px; font-weight: 800; font-family: monospace; color: #2196f3; min-width: 35px; text-align: right;">
+                                        ${bridgeStatus && bridgeStatus.is_syncing ? `${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%` : '100%'}
+                                    </span>
                                 </div>
                             </div>
 
-                            <!-- 3. Category Switcher Tabs & Server Availability Toggle -->
-                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
-                                <div class="mt5-category-tabs-bar" style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; flex: 1;">
+                            <!-- 3. Category Switcher Tabs (Dedicated Full-Width Row - never squished) -->
+                            <div style="width: 100%; margin-bottom: 2px;">
+                                <div class="mt5-category-tabs-bar" style="
+                                    display: flex;
+                                    gap: 5px;
+                                    overflow-x: auto;
+                                    padding-bottom: 4px;
+                                    width: 100%;
+                                    scrollbar-width: thin;
+                                    -webkit-overflow-scrolling: touch;
+                                ">
                                     <button type="button" class="mt5-cat-tab-btn" data-cat="managed" style="
                                         background: ${activeCat === 'managed' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'managed' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'managed' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5284,9 +5315,9 @@
                                         background: ${activeCat === 'forex' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'forex' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'forex' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5301,9 +5332,9 @@
                                         background: ${activeCat === 'nasdaq' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'nasdaq' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'nasdaq' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5318,9 +5349,9 @@
                                         background: ${activeCat === 'crypto' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'crypto' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'crypto' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5335,9 +5366,9 @@
                                         background: ${activeCat === 'commodity' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'commodity' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'commodity' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5352,9 +5383,9 @@
                                         background: ${activeCat === 'index' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'index' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'index' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5369,9 +5400,9 @@
                                         background: ${activeCat === 'catalog' ? theme.primary : theme.pillBg};
                                         color: ${activeCat === 'catalog' ? '#ffffff' : theme.textMuted};
                                         border: 1px solid ${activeCat === 'catalog' ? theme.primary : theme.border};
-                                        padding: 3px 10px;
+                                        padding: 4px 10px;
                                         border-radius: 4px;
-                                        font-size: 10px;
+                                        font-size: 10.5px;
                                         font-weight: 700;
                                         cursor: pointer;
                                         white-space: nowrap;
@@ -5383,31 +5414,11 @@
                                         <span>🌐</span> Broker Catalog (${symbols.length.toLocaleString()})
                                     </button>
                                 </div>
-
-                                <!-- Server Availability Toggle Button -->
-                                <button id="mt5-btn-toggle-available" type="button" style="
-                                    padding: 3px 9px;
-                                    border-radius: 4px;
-                                    font-size: 10px;
-                                    font-weight: 600;
-                                    cursor: pointer;
-                                    display: inline-flex;
-                                    align-items: center;
-                                    gap: 5px;
-                                    background: ${filterAvail ? (theme.isDark ? 'rgba(8,153,129,0.18)' : 'rgba(8,153,129,0.12)') : theme.pillBg};
-                                    color: ${filterAvail ? '#089981' : theme.textMuted};
-                                    border: 1px solid ${filterAvail ? 'rgba(8,153,129,0.45)' : theme.border};
-                                    white-space: nowrap;
-                                    transition: all 0.12s ease;
-                                " title="Toggle: filter list to show only symbols available on ${acc.server} (${totalAvailManaged}/${totalManagedCount})">
-                                    <span>${filterAvail ? '✓' : '○'}</span>
-                                    <span>Available on ${acc.broker_name || (acc.server.includes('MetaQuotes') ? 'MetaQuotes' : (acc.server.includes('FivePercent') ? 'The5ers' : acc.server))} Only (${totalAvailManaged}/${totalManagedCount})</span>
-                                </button>
                             </div>
 
-                            <!-- 3. Search & Quick Add Bar -->
+                            <!-- 4. Search, Broker Filter Toggle & Quick Add Bar -->
                             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                                <div style="position: relative; flex: 1; min-width: 180px;">
+                                <div style="position: relative; flex: 1; min-width: 170px;">
                                     <input type="text" id="mt5-ticker-search-in" value="${this.tickerSearchQuery || ''}" placeholder="Search in ${activeCat === 'managed' ? 'all managed tickers' : (activeCat === 'catalog' ? 'all broker symbols' : activeCat)}..." style="
                                         width: 100%;
                                         padding: 6px 10px 6px 28px;
@@ -5422,6 +5433,27 @@
                                     ">
                                     <span style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: ${theme.textDim}; font-size: 11px;">🔍</span>
                                 </div>
+
+                                <!-- Server Availability Filter Toggle Button (neatly placed on the search row) -->
+                                <button id="mt5-btn-toggle-available" type="button" style="
+                                    padding: 5px 10px;
+                                    border-radius: 5px;
+                                    font-size: 10.5px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 5px;
+                                    background: ${filterAvail ? (theme.isDark ? 'rgba(8,153,129,0.18)' : 'rgba(8,153,129,0.12)') : theme.pillBg};
+                                    color: ${filterAvail ? '#089981' : theme.textMuted};
+                                    border: 1px solid ${filterAvail ? 'rgba(8,153,129,0.45)' : theme.border};
+                                    white-space: nowrap;
+                                    transition: all 0.12s ease;
+                                    flex-shrink: 0;
+                                " title="Toggle: filter list to show only symbols available on ${acc.server} (${totalAvailManaged}/${totalManagedCount})">
+                                    <span>${filterAvail ? '✓' : '○'}</span>
+                                    <span>Available on ${acc.broker_name || (acc.server.includes('MetaQuotes') ? 'MetaQuotes' : (acc.server.includes('FivePercent') ? 'The5ers' : acc.server))} Only (${totalAvailManaged}/${totalManagedCount})</span>
+                                </button>
                                 ${['forex', 'nasdaq', 'crypto', 'commodity', 'index'].includes(activeCat) ? (() => {
                                     const catList = uCats[activeCat] || [];
                                     const isFull = catList.length >= 50;
