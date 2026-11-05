@@ -216,7 +216,9 @@
             const cleanServer = sanitizeHfName(server || 'FundedNext-Server3');
             const cleanSym = sanitizeHfName(String(symbol || '').split(':').pop());
             const repoKey = `${cleanServer}_${cleanSym}`;
-            const cachedManifest = manifestCache.get(repoKey)?.manifest;
+            const cachedEntry = manifestCache.get(repoKey);
+            const cachedManifest = cachedEntry?.manifest;
+            const isNegativeCached = cachedEntry && cachedEntry.manifest === null;
 
             // Check live bridge sync state from WebSocket using high-speed O(1) Set
             const bs = this.bridgeStatus || {};
@@ -234,10 +236,10 @@
             const isQueued = Boolean(bs.priority_queue && bs.priority_queue.some(q => String(q).toUpperCase() === cleanSym.toUpperCase()));
             const isBridgeSynced = Boolean(this._syncedKeysSet && this._syncedKeysSet.has(repoKey));
 
-            const isAvailable = matching.length > 0 || !!cachedManifest || isBridgeSynced;
+            const isAvailable = (!isNegativeCached) && (matching.length > 0 || !!cachedManifest || isBridgeSynced);
 
             // Scalable: ONLY trigger background manifest preload if explicitly requested for visible row, never during mass filtering!
-            if (autoPreload && isAvailable && !cachedManifest && !this._manifestsInFlight.has(repoKey)) {
+            if (autoPreload && isAvailable && !cachedManifest && !isNegativeCached && !this._manifestsInFlight.has(repoKey)) {
                 this.getManifest(server, symbol).then(mf => {
                     if (mf) {
                         window.dispatchEvent(new CustomEvent('mt5_manifest_loaded', { detail: { server, symbol, repoKey, manifest: mf } }));
@@ -313,7 +315,9 @@
             const repoKey = `${cleanServer}_${cleanSym}`;
 
             const cached = manifestCache.get(repoKey);
-            if (cached && (Date.now() - cached.fetchedAt) < 300000) { // 5-min cache
+            // Cache valid manifests for 5 minutes, negative/null results for 2 minutes
+            const cacheTtl = (cached && cached.manifest) ? 300000 : 120000;
+            if (cached && (Date.now() - cached.fetchedAt) < cacheTtl) {
                 return cached.manifest;
             }
 
@@ -328,6 +332,17 @@
                 // Multi-Namespace Search: Check primary author first, then discovery authors
                 for (const author of authors) {
                     if (!author || author === 'deep776') continue;
+
+                    // Optimization: If dataset catalog is loaded for this author, verify repository exists before firing HTTP request
+                    const authorCache = this.authorDatasetsCache.get(author);
+                    if (authorCache && authorCache.datasetMap) {
+                        const fullRepoId = `${author}/${repoName}`;
+                        if (!authorCache.datasetMap.has(fullRepoId)) {
+                            // Repo definitely does not exist on HF under this author - skip network probe
+                            continue;
+                        }
+                    }
+
                     const manifestUrl = `https://huggingface.co/datasets/${author}/${repoName}/raw/main/manifest.json`;
                     try {
                         const res = await fetch(manifestUrl, { cache: 'no-cache' });
@@ -337,11 +352,15 @@
                             manifestCache.set(repoKey, { manifest, fetchedAt: Date.now() });
                             console.log(`[MT5Parquet] ✓ Loaded manifest from ${author}/${repoName}: ${Object.keys(manifest['1m'] || {}).length} 1m months, ${Object.keys(manifest['1D'] || {}).length} 1D decades`);
                             return manifest;
+                        } else if (res.status === 404) {
+                            console.debug(`[MT5Parquet] Manifest not found (404) for ${author}/${repoName}`);
                         }
                     } catch (err) {
                         console.debug(`[MT5Parquet] ${author}/${repoName} manifest probe note:`, err.message);
                     }
                 }
+                // Cache negative result so we never spam network with repeated 404 requests
+                manifestCache.set(repoKey, { manifest: null, fetchedAt: Date.now() });
                 return null;
             })();
 
