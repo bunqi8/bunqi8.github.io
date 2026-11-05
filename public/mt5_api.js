@@ -3756,6 +3756,17 @@
             return data;
         }
 
+        async retryHFSync() {
+            const ep = this.getActiveEndpoint();
+            if (!ep || !ep.url) return { success: false, error: 'No active bridge endpoint' };
+            const headers = this.getReqHeaders(ep);
+            const res = await fetch(`${ep.url}/api/hf/retry_sync`, {
+                method: 'POST',
+                headers
+            });
+            return await res.json();
+        }
+
         isManagedSymbol(symbol) {
             const u = this._hfUniverse || this.getDefaultUniverse();
             const clean = this.canonicalizeSymbol(symbol);

@@ -208,7 +208,43 @@
                 const livePctText = modal.querySelector('#mt5-live-symbol-pct-text');
 
                 if (liveStatusEl) {
-                    if (s.is_syncing) {
+                    if (s.rate_limited) {
+                        const resetTime = s.rate_limit_reset_time;
+                        let countdownStr = '';
+                        if (resetTime) {
+                            const diffMs = resetTime - Date.now();
+                            if (diffMs > 0) {
+                                const h = Math.floor(diffMs / 3600000);
+                                const m = Math.floor((diffMs % 3600000) / 60000);
+                                countdownStr = ` &middot; Auto-resumes in ${h}h ${m}m`;
+                            }
+                        }
+                        liveStatusEl.innerHTML = `<span style="color:#ff9800; font-weight:800;">⏸️ Paused: 300 Repos/Day Limit</span>${countdownStr} <button id="mt5-btn-hf-retry-rate-limit" type="button" style="background:#2196f3; color:#fff; border:none; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; margin-left:6px;">🔄 Retry Sync Now</button>`;
+                        liveStatusEl.style.color = '#ff9800';
+                        if (pulseDot) {
+                            pulseDot.style.background = '#ff9800';
+                            pulseDot.style.boxShadow = '0 0 8px #ff9800';
+                            pulseDot.style.animation = 'none';
+                        }
+                        if (liveBar) liveBar.style.width = '0%';
+                        if (livePctText) livePctText.textContent = 'Paused';
+
+                        const retryBtn = liveStatusEl.querySelector('#mt5-btn-hf-retry-rate-limit');
+                        if (retryBtn) {
+                            retryBtn.onclick = async (e) => {
+                                e.stopPropagation();
+                                retryBtn.disabled = true;
+                                retryBtn.textContent = '⏳ Resuming...';
+                                try {
+                                    await this.api.retryHFSync();
+                                } catch (err) {
+                                    console.error('Retry sync failed:', err);
+                                    retryBtn.disabled = false;
+                                    retryBtn.textContent = '🔄 Retry Sync Now';
+                                }
+                            };
+                        }
+                    } else if (s.is_syncing) {
                         const pct = Math.round(Number(s.symbol_pct) || 0);
                         const fileStr = s.current_file || s.current_chunk || '1m';
                         const chunksStr = (s.symbol_total_chunks > 0) ? `(${s.symbol_completed_chunks || 0}/${s.symbol_total_chunks} chunks)` : '';
@@ -5234,8 +5270,8 @@
                                             width: 9px;
                                             height: 9px;
                                             border-radius: 50%;
-                                            background: ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
-                                            box-shadow: 0 0 8px ${bridgeStatus && bridgeStatus.is_syncing ? '#ff9800' : '#089981'};
+                                            background: ${bridgeStatus && (bridgeStatus.rate_limited || bridgeStatus.is_syncing) ? '#ff9800' : '#089981'};
+                                            box-shadow: 0 0 8px ${bridgeStatus && (bridgeStatus.rate_limited || bridgeStatus.is_syncing) ? '#ff9800' : '#089981'};
                                             flex-shrink: 0;
                                             ${bridgeStatus && bridgeStatus.is_syncing ? 'animation: mt5pulse 1.2s ease-in-out infinite;' : ''}
                                         "></div>
@@ -5243,9 +5279,19 @@
                                             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                                 <span style="font-weight: 700; color: #ff9800; font-size: 11px;">🤗 Hugging Face Live:</span>
                                                 <span id="mt5-live-archival-status" style="font-size: 11px; font-weight: 700; color: ${theme.text};">
-                                                    ${bridgeStatus && bridgeStatus.is_syncing 
-                                                        ? `🔄 Syncing <strong>${bridgeStatus.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${bridgeStatus.current_file || bridgeStatus.current_chunk || '1m'}</span> &middot; <strong style="color:#00e676;">${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%</strong> <span style="font-size:10px; opacity:0.8;">${(bridgeStatus.symbol_total_chunks > 0) ? `(${bridgeStatus.symbol_completed_chunks || 0}/${bridgeStatus.symbol_total_chunks} chunks)` : ''}</span>` 
-                                                        : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`}
+                                                    ${bridgeStatus && bridgeStatus.rate_limited
+                                                        ? `<span style="color:#ff9800; font-weight:800;">⏸️ Paused: 300 Repos/Day Limit</span>${(() => {
+                                                            const diff = (bridgeStatus.rate_limit_reset_time || 0) - Date.now();
+                                                            if (diff > 0) {
+                                                                const h = Math.floor(diff / 3600000);
+                                                                const m = Math.floor((diff % 3600000) / 60000);
+                                                                return ` &middot; Auto-resumes in ${h}h ${m}m`;
+                                                            }
+                                                            return '';
+                                                        })()} <button id="mt5-btn-hf-retry-rate-limit" type="button" class="mt5-ghost-btn" style="background:#2196f3; color:#fff; border:none; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; margin-left:6px;">🔄 Retry Sync Now</button>`
+                                                        : (bridgeStatus && bridgeStatus.is_syncing 
+                                                            ? `🔄 Syncing <strong>${bridgeStatus.current_symbol || ''}</strong> &middot; <span style="font-family:monospace; color:#2196f3;">${bridgeStatus.current_file || bridgeStatus.current_chunk || '1m'}</span> &middot; <strong style="color:#00e676;">${Math.round(Number(bridgeStatus.symbol_pct) || 0)}%</strong> <span style="font-size:10px; opacity:0.8;">${(bridgeStatus.symbol_total_chunks > 0) ? `(${bridgeStatus.symbol_completed_chunks || 0}/${bridgeStatus.symbol_total_chunks} chunks)` : ''}</span>` 
+                                                            : `🟢 Archival Idle · All ${totalManagedCount} Managed Verified`)}
                                                 </span>
                                             </div>
                                         </div>
@@ -5778,6 +5824,26 @@
                             alert(`Cleaned ${(res && res.deleted_repos ? res.deleted_repos.length : 0)} stray repos from Hugging Face!`);
                         }
                         this.renderModal();
+                    }
+                };
+            }
+
+            // Retry HF Rate Limit Button
+            const retryRateBtn = modal.querySelector('#mt5-btn-hf-retry-rate-limit');
+            if (retryRateBtn) {
+                retryRateBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    retryRateBtn.disabled = true;
+                    retryRateBtn.textContent = '⏳ Resuming...';
+                    try {
+                        if (window.MT5API && typeof window.MT5API.retryHFSync === 'function') {
+                            await window.MT5API.retryHFSync();
+                        }
+                        this.renderArchivalLiveProgress();
+                    } catch (err) {
+                        console.error('Retry sync error:', err);
+                        retryRateBtn.disabled = false;
+                        retryRateBtn.textContent = '🔄 Retry Sync Now';
                     }
                 };
             }
