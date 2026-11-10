@@ -221,10 +221,43 @@ window.getMarketStatus = function(symbol) {
     }
 
     // 4. Global Forex, Metals, and Indices (MT5 / International)
-    // Evaluated in UTC
-    const nowUtc = new Date();
-    const dayUtc = nowUtc.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
-    const curMinsUtc = nowUtc.getUTCHours() * 60 + nowUtc.getUTCMinutes();
+    // Evaluated against America/New_York (Universal institutional benchmark that automatically handles DST)
+    const now = new Date();
+    const nyParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour12: false,
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).formatToParts(now);
+
+    let nyDay = '', nyHour = 0, nyMin = 0;
+    nyParts.forEach(p => {
+        if (p.type === 'weekday') nyDay = p.value;
+        if (p.type === 'hour') nyHour = parseInt(p.value, 10);
+        if (p.type === 'minute') nyMin = parseInt(p.value, 10);
+    });
+    const curMinsNy = nyHour * 60 + nyMin;
+
+    // Helper to dynamically convert New York time to local IST string (automatically handles winter/summer DST)
+    const nyTimeToIst = (h, m, baseDate = now) => {
+        try {
+            const nyDateStr = baseDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+            const nyNowStr = baseDate.toLocaleString('en-US', { timeZone: 'America/New_York' });
+            const utcNowStr = baseDate.toLocaleString('en-US', { timeZone: 'UTC' });
+            const diffMs = new Date(nyNowStr) - new Date(utcNowStr);
+            const [y, mo, d] = nyDateStr.split('-').map(Number);
+            const targetUtcMs = Date.UTC(y, mo - 1, d, h, m) - diffMs;
+            return new Date(targetUtcMs).toLocaleTimeString('en-US', {
+                timeZone: 'Asia/Kolkata',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        } catch (e) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+    };
 
     const isMetal = clean.includes('XAU') || clean.includes('XAG') || clean.includes('OIL');
     const isIndex = clean.includes('30') || clean.includes('100') || clean.includes('500') || clean.includes('DE40') || clean.includes('UK100');
@@ -232,42 +265,41 @@ window.getMarketStatus = function(symbol) {
     // Detect broker context: The 5%ers vs MetaQuotes-Demo vs FundedNext / FTMO / Standard Prop Firms
     const acc = (window.MT5API && typeof window.MT5API.getActiveAccount === 'function') ? window.MT5API.getActiveAccount() : null;
     const serverStr = (acc && acc.server) ? acc.server : '';
-    const brokerStr = (acc && acc.broker_name) ? acc.broker_name : '';
     const cleanBroker = (window.MT5API && typeof window.MT5API.getCleanBrokerExchange === 'function') ? window.MT5API.getCleanBrokerExchange(acc) : '';
     const is5ers = cleanBroker === 'THE 5%ERS' || serverStr.toLowerCase().includes('fivepercent');
 
     const defaultSession = '24x7';
 
     // Weekend Closure:
-    // Closes Friday 22:00 UTC
-    // Reopens Sunday (Forex: 22:00 UTC, Metals/Indices: 23:00 UTC)
-    if (dayUtc === 6) { // Saturday
+    // Closes Friday 17:00 NY (5:00 PM NY)
+    // Reopens Sunday 18:00 NY (Forex opens 17:00 NY, Metals/Indices 18:00 NY)
+    if (nyDay === 'Sat') {
         return {
             isOpen: false,
             session: defaultSession,
             timezone: 'Etc/UTC',
             market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
-            reason: 'Weekend Closed (Opens Sunday Evening UTC)'
+            reason: 'Weekend Closed (Opens Sunday Evening NY)'
         };
     }
-    if (dayUtc === 5 && curMinsUtc >= 22 * 60) { // Friday after 22:00 UTC
+    if (nyDay === 'Fri' && curMinsNy >= 17 * 60) {
         return {
             isOpen: false,
             session: defaultSession,
             timezone: 'Etc/UTC',
             market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
-            reason: 'Weekend Closed (Closes Friday 22:00 UTC)'
+            reason: 'Weekend Closed (Closes Friday 5:00 PM NY)'
         };
     }
-    if (dayUtc === 0) { // Sunday
-        const openSunMins = (isMetal || isIndex) ? (23 * 60) : (22 * 60);
-        if (curMinsUtc < openSunMins) {
+    if (nyDay === 'Sun') {
+        const openSunMins = (isMetal || isIndex) ? (18 * 60) : (17 * 60);
+        if (curMinsNy < openSunMins) {
             return {
                 isOpen: false,
                 session: defaultSession,
                 timezone: 'Etc/UTC',
                 market: isMetal ? 'METALS' : (isIndex ? 'INDICES' : 'FOREX'),
-                reason: `Weekend Closed (Opens Sunday ${Math.floor(openSunMins / 60)}:00 UTC)`
+                reason: 'Weekend Closed (Opens Sunday Evening NY)'
             };
         }
     }
@@ -276,39 +308,45 @@ window.getMarketStatus = function(symbol) {
     // Metals (Gold/Silver):
     if (isMetal) {
         if (is5ers) {
-            // The 5%ers Gold (XAUUSD) closes at 23:50 server time (02:20 IST / 20:50 UTC) and reopens at 01:05 server time (03:35 IST / 22:05 UTC)
-            if (curMinsUtc >= (20 * 60 + 50) && curMinsUtc < (22 * 60 + 5)) {
+            // The 5%ers Gold (XAUUSD): closes at 23:50 server time (16:50 NY) and reopens at 01:05 server time (18:05 NY)
+            if (curMinsNy >= (16 * 60 + 50) && curMinsNy < (18 * 60 + 5)) {
+                const startIst = nyTimeToIst(16, 50);
+                const endIst = nyTimeToIst(18, 5);
                 return {
                     isOpen: false,
                     session: defaultSession,
                     timezone: 'Etc/UTC',
                     market: 'METALS',
-                    reason: 'The 5%ers Daily Break (02:20 - 03:35 IST / Opens at 03:35 IST)'
+                    reason: `The 5%ers Daily Break (${startIst} - ${endIst} IST / Opens at ${endIst} IST)`
                 };
             }
         } else {
-            // MetaQuotes-Demo, FundedNext, FTMO, and standard brokers: 02:30 AM to 03:30 AM IST (21:00 to 22:00 UTC)
+            // MetaQuotes-Demo, FundedNext, FTMO, and standard brokers: 17:00 to 18:00 NY (5:00 PM to 6:00 PM NY)
             const brokerLabel = serverStr.toLowerCase().includes('metaquotes') ? 'MetaQuotes-Demo' : (cleanBroker || 'Broker');
-            if (curMinsUtc >= (21 * 60) && curMinsUtc < (22 * 60)) {
+            if (curMinsNy >= 17 * 60 && curMinsNy < 18 * 60) {
+                const startIst = nyTimeToIst(17, 0);
+                const endIst = nyTimeToIst(18, 0);
                 return {
                     isOpen: false,
                     session: defaultSession,
                     timezone: 'Etc/UTC',
                     market: 'METALS',
-                    reason: `${brokerLabel} Daily Break (02:30 - 03:30 IST / Opens at 03:30 IST)`
+                    reason: `${brokerLabel} Daily Break (${startIst} - ${endIst} IST / Opens at ${endIst} IST)`
                 };
             }
         }
     }
 
-    // Indices (US30, USTEC): Daily maintenance break 21:00 - 22:00 UTC
-    if (isIndex && (curMinsUtc >= 21 * 60 && curMinsUtc < 22 * 60)) {
+    // Indices (US30, USTEC): Daily maintenance break 17:00 - 18:00 NY
+    if (isIndex && (curMinsNy >= 17 * 60 && curMinsNy < 18 * 60)) {
+        const startIst = nyTimeToIst(17, 0);
+        const endIst = nyTimeToIst(18, 0);
         return {
             isOpen: false,
             session: defaultSession,
             timezone: 'Etc/UTC',
             market: 'INDICES',
-            reason: 'Daily Maintenance Break (21:00 - 22:00 UTC)'
+            reason: `Daily Maintenance Break (${startIst} - ${endIst} IST / Opens at ${endIst} IST)`
         };
     }
 
