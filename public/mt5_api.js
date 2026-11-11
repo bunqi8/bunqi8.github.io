@@ -172,6 +172,7 @@
                 this.endpoints = endpoints;
                 this.masterGistToken = cfg.masterGistToken || '';
                 this.activeEndpointId = cfg.activeEndpointId || (this.endpoints[0] ? this.endpoints[0].id : null);
+                this._dedupedOnLoad = this.deduplicateEndpoints();
                 this.multiAccountSelection = new Set(cfg.multiAccountSelection || []);
                 this.pausedAccountIds = new Set(cfg.pausedAccountIds || []);
             } catch (_) {
@@ -221,6 +222,12 @@
                         }
                     }
                     this._secretsDecrypted = true;
+                    const dedupedAfterDecrypt = this.deduplicateEndpoints();
+                    if (dedupedAfterDecrypt || this._dedupedOnLoad) {
+                        this._dedupedOnLoad = false;
+                        await this.saveConfig();
+                        this.notifyAccountListeners();
+                    }
                 } catch (e) {
                     console.warn('[MT5API] Error decrypting config secrets:', e);
                 }
@@ -558,33 +565,210 @@
             return this.getReqHeaders(this.getActiveEndpoint());
         }
 
+        _isPlaceholderEndpointUrl(url) {
+            const clean = String(url || '').trim().toLowerCase();
+            return !clean || clean === 'https://discovering-endpoint' || clean.startsWith('https://discovering-endpoint/');
+        }
+
+        _normalizeEndpointBaseUrl(url) {
+            const clean = String(url || '').trim().replace(/\/+$/, '');
+            if (this._isPlaceholderEndpointUrl(clean)) return '';
+            const withoutShield = clean.replace(/\/gw_[^/]+$/i, '');
+            try {
+                const parsed = new URL(withoutShield);
+                const pathPart = parsed.pathname.replace(/\/+$/, '');
+                return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${pathPart}`;
+            } catch (_) {
+                return withoutShield.toLowerCase();
+            }
+        }
+
+        _extractShieldFromUrl(url) {
+            const clean = String(url || '').trim().replace(/\/+$/, '');
+            if (!clean) return '';
+            try {
+                const parsed = new URL(clean);
+                const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
+                if (pathPart && !pathPart.includes('/')) {
+                    return pathPart;
+                }
+            } catch (_) {}
+            return '';
+        }
+
+        _isGenericBridgeName(name) {
+            const clean = String(name || '').trim().toLowerCase();
+            return !clean || /^(primary bridge|mt5 bridge|cloud bridge|bridge server \d+)$/.test(clean);
+        }
+
+        _usesDynamicDiscovery(ep) {
+            if (!ep) return false;
+            const url = String(ep.url || '').toLowerCase();
+            return Boolean((ep.gistId && String(ep.gistId).trim()) || url.includes('.trycloudflare.com') || this._isPlaceholderEndpointUrl(url));
+        }
+
+        findMatchingEndpoint({ url = '', gistId = '', name = '' } = {}) {
+            const cleanGist = String(gistId || '').trim();
+            const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
+            const baseUrl = this._normalizeEndpointBaseUrl(cleanUrl);
+            const cleanName = String(name || '').trim();
+            const hasExplicitName = !this._isGenericBridgeName(cleanName);
+            const eps = this.endpoints || [];
+
+            if (cleanGist) {
+                const byGist = eps.find(e => e.gistId && String(e.gistId).trim() === cleanGist);
+                if (byGist) return byGist;
+            }
+
+            if (baseUrl) {
+                const byUrl = eps.find(e => {
+                    const eBase = this._normalizeEndpointBaseUrl(e.url);
+                    return eBase && eBase === baseUrl;
+                });
+                if (byUrl) return byUrl;
+            }
+
+            // Re-pairing a rotated cloud/Gist bridge (tunnel URL and Gist ID both changed, same bridge_id name)
+            const incomingIsDynamic = this._usesDynamicDiscovery({ url: cleanUrl, gistId: cleanGist });
+            if (hasExplicitName && incomingIsDynamic) {
+                const targetName = cleanName.toLowerCase();
+                const byDynamicName = eps.find(e =>
+                    (e.name || '').trim().toLowerCase() === targetName && this._usesDynamicDiscovery(e)
+                );
+                if (byDynamicName) return byDynamicName;
+            }
+
+            return null;
+        }
+
+        _mergeEndpointFields(target, { name, url, apiKey, shieldToken, gistId, gistToken, enabled } = {}) {
+            if (!target) return target;
+            const cleanName = String(name || '').trim();
+            if (cleanName && (!this._isGenericBridgeName(cleanName) || this._isGenericBridgeName(target.name))) {
+                target.name = cleanName;
+            }
+            const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
+            if (cleanUrl && !this._isPlaceholderEndpointUrl(cleanUrl)) {
+                target.url = cleanUrl;
+            }
+            const cleanKey = String(apiKey || '').trim();
+            if (cleanKey) target.apiKey = cleanKey;
+
+            const autoShield = String(shieldToken || '').trim() || this._extractShieldFromUrl(cleanUrl);
+            if (autoShield) target.shieldToken = autoShield;
+
+            const cleanGist = String(gistId || '').trim();
+            if (cleanGist) target.gistId = cleanGist;
+
+            const cleanToken = String(gistToken || '').trim();
+            if (cleanToken) target.gistToken = cleanToken;
+
+            if (enabled !== undefined) target.enabled = enabled !== false;
+            return target;
+        }
+
+        deduplicateEndpoints() {
+            const list = Array.isArray(this.endpoints) ? this.endpoints : [];
+            if (list.length <= 1) return false;
+
+            const rank = (ep) => (
+                (ep.status === 'online' ? 4 : 0) +
+                (ep.id === this.activeEndpointId ? 2 : 0) +
+                (ep.enabled !== false ? 1 : 0)
+            );
+
+            const kept = [];
+            let removed = false;
+            for (const ep of list) {
+                const epGist = String(ep.gistId || '').trim();
+                const epBase = this._normalizeEndpointBaseUrl(ep.url);
+                const match = kept.find(k => {
+                    const kGist = String(k.gistId || '').trim();
+                    const kBase = this._normalizeEndpointBaseUrl(k.url);
+                    if (epGist && kGist && epGist === kGist) return true;
+                    if (epBase && kBase && epBase === kBase) return true;
+                    return false;
+                });
+
+                if (!match) {
+                    kept.push(ep);
+                    continue;
+                }
+
+                removed = true;
+                const keepIncoming = rank(ep) > rank(match);
+                const winner = keepIncoming ? ep : match;
+                const loser = keepIncoming ? match : ep;
+
+                this._mergeEndpointFields(winner, {
+                    name: loser.name,
+                    url: loser.url,
+                    apiKey: loser.apiKey,
+                    shieldToken: loser.shieldToken,
+                    gistId: loser.gistId,
+                    gistToken: loser.gistToken,
+                    enabled: winner.enabled !== false || loser.enabled !== false,
+                });
+                if (this.activeEndpointId === loser.id) {
+                    this.activeEndpointId = winner.id;
+                }
+                if (keepIncoming) {
+                    const idx = kept.indexOf(match);
+                    if (idx >= 0) kept[idx] = winner;
+                }
+            }
+
+            if (removed) {
+                this.endpoints = kept;
+            }
+            return removed;
+        }
+
         addEndpoint({ name, url, apiKey, shieldToken = '', gistId = '', gistToken = '', enabled = true }) {
             const cleanUrl = (url || '').trim().replace(/\/+$/, '');
             if (!cleanUrl) return { success: false, error: 'Endpoint URL is required' };
             const cleanKey = (apiKey || '').trim();
-            const cleanName = (name || '').trim() || `Bridge Server ${this.endpoints.length + 1}`;
-            const id = 'ep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+            const cleanGistId = (gistId || '').trim();
+            const cleanGistToken = (gistToken || '').trim();
+            const autoShield = (shieldToken || '').trim() || this._extractShieldFromUrl(cleanUrl);
+            const fallbackName = `Bridge Server ${this.endpoints.length + 1}`;
+            const cleanName = (name || '').trim() || fallbackName;
 
-            // Auto-extract shield token from URL path if provided as e.g. https://...trycloudflare.com/gw_secret
-            let autoShield = (shieldToken || '').trim();
-            if (!autoShield) {
-                try {
-                    const parsed = new URL(cleanUrl);
-                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
-                    if (pathPart && !pathPart.includes('/')) {
-                        autoShield = pathPart;
-                    }
-                } catch (_) {}
+            const existing = this.findMatchingEndpoint({
+                url: cleanUrl,
+                gistId: cleanGistId,
+                name: (name || '').trim(),
+            });
+
+            if (existing) {
+                this._mergeEndpointFields(existing, {
+                    name: (name || '').trim(),
+                    url: cleanUrl,
+                    apiKey: cleanKey,
+                    shieldToken: autoShield,
+                    gistId: cleanGistId,
+                    gistToken: cleanGistToken,
+                    enabled,
+                });
+                if (!this.activeEndpointId) {
+                    this.activeEndpointId = existing.id;
+                }
+                this.deduplicateEndpoints();
+                this.saveConfig();
+                this.syncAccounts(true);
+                this.ensureWebSocket();
+                return { success: true, endpoint: existing, updatedExisting: true };
             }
 
+            const id = 'ep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
             const newEp = {
                 id,
                 name: cleanName,
                 url: cleanUrl,
                 apiKey: cleanKey,
                 shieldToken: autoShield,
-                gistId: (gistId || '').trim(),
-                gistToken: (gistToken || '').trim(),
+                gistId: cleanGistId,
+                gistToken: cleanGistToken,
                 enabled: enabled !== false,
                 status: 'unknown',
                 ping: 0
@@ -597,7 +781,7 @@
             this.saveConfig();
             this.syncAccounts(true);
             this.ensureWebSocket();
-            return { success: true, endpoint: newEp };
+            return { success: true, endpoint: newEp, updatedExisting: false };
         }
 
         updateEndpoint(id, updates = {}) {
@@ -613,13 +797,8 @@
 
             // Auto-detect shield token from URL path if not explicitly set
             if (!ep.shieldToken && ep.url) {
-                try {
-                    const parsed = new URL(ep.url);
-                    const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
-                    if (pathPart && !pathPart.includes('/')) {
-                        ep.shieldToken = pathPart;
-                    }
-                } catch (_) {}
+                const extracted = this._extractShieldFromUrl(ep.url);
+                if (extracted) ep.shieldToken = extracted;
             }
 
             this.saveConfig();

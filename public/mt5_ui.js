@@ -1541,54 +1541,67 @@
                 }
             }
 
-            // Also synchronize directly into active/saved endpoint in window.MT5API in real time
-            if (window.MT5API && Array.isArray(window.MT5API.endpoints) && window.MT5API.endpoints.length > 0) {
-                let targetEp = null;
-                if (this.editingEndpointId) {
-                    targetEp = window.MT5API.endpoints.find(e => e.id === this.editingEndpointId);
-                }
-                if (!targetEp && extracted.gistId) {
-                    targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === extracted.gistId);
-                }
-                if (!targetEp && extracted.name) {
-                    targetEp = window.MT5API.endpoints.find(e => (e.name || '').toLowerCase() === (extracted.name || '').toLowerCase());
-                }
-                if (!targetEp && window.MT5API.endpoints.length === 1) {
-                    targetEp = window.MT5API.endpoints[0];
-                }
-
-                if (targetEp) {
-                    let epUpdated = false;
-                    if (extracted.url && targetEp.url !== extracted.url) {
-                        targetEp.url = extracted.url;
-                        epUpdated = true;
-                    }
-                    if (extracted.apiKey && targetEp.apiKey !== extracted.apiKey) {
-                        targetEp.apiKey = extracted.apiKey;
-                        epUpdated = true;
-                    }
-                    if (extracted.shieldToken && targetEp.shieldToken !== extracted.shieldToken) {
-                        targetEp.shieldToken = extracted.shieldToken;
-                        epUpdated = true;
-                    }
-                    if (extracted.gistId && targetEp.gistId !== extracted.gistId) {
-                        targetEp.gistId = extracted.gistId;
-                        epUpdated = true;
-                    }
-                    if (extracted.gistToken && targetEp.gistToken !== extracted.gistToken) {
-                        targetEp.gistToken = extracted.gistToken;
-                        epUpdated = true;
-                    }
-                    if (epUpdated) {
-                        window.MT5API.saveConfig();
-                        window.MT5API.testSingleEndpoint(targetEp.id).then(() => {
-                            if (this.isOpen) this.renderModal();
-                        });
-                    }
-                }
+            // Also synchronize directly into matching saved/editing endpoint in window.MT5API without clobbering other bridges
+            const matchedEp = this._resolveAndSyncMatchedEndpoint({
+                url: extracted.url,
+                gistId: extracted.gistId,
+                name: extracted.name,
+                apiKey: extracted.apiKey,
+                shieldToken: extracted.shieldToken,
+                gistToken: extracted.gistToken,
+            });
+            if (matchedEp) {
+                window.MT5API.testSingleEndpoint(matchedEp.id).then(() => {
+                    if (this.isOpen && !this.showAddBridgeForm) this.renderModal();
+                });
             }
 
             return updatedFields;
+        }
+
+        _resolveAndSyncMatchedEndpoint({ url = '', gistId = '', name = '', apiKey = '', shieldToken = '', gistToken = '' } = {}) {
+            if (!window.MT5API || !Array.isArray(window.MT5API.endpoints) || window.MT5API.endpoints.length === 0) {
+                return null;
+            }
+            let targetEp = null;
+            if (this.editingEndpointId) {
+                targetEp = window.MT5API.endpoints.find(e => e.id === this.editingEndpointId) || null;
+            } else if (typeof window.MT5API.findMatchingEndpoint === 'function') {
+                targetEp = window.MT5API.findMatchingEndpoint({ url, gistId, name });
+            } else if (gistId) {
+                targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === gistId) || null;
+            }
+            if (!targetEp && apiKey && (!url || window.MT5API._isPlaceholderEndpointUrl?.(url) || window.MT5API._usesDynamicDiscovery?.({ url, gistId }))) {
+                targetEp = window.MT5API.endpoints.find(e => e.apiKey && e.apiKey === apiKey) || null;
+            }
+            if (!targetEp) return null;
+
+            let updated = false;
+            if (url && !window.MT5API._isPlaceholderEndpointUrl?.(url) && targetEp.url !== url) {
+                targetEp.url = url;
+                updated = true;
+            }
+            if (apiKey && targetEp.apiKey !== apiKey) {
+                targetEp.apiKey = apiKey;
+                updated = true;
+            }
+            if (shieldToken && targetEp.shieldToken !== shieldToken) {
+                targetEp.shieldToken = shieldToken;
+                updated = true;
+            }
+            if (gistId && targetEp.gistId !== gistId) {
+                targetEp.gistId = gistId;
+                updated = true;
+            }
+            if (gistToken && targetEp.gistToken !== gistToken) {
+                targetEp.gistToken = gistToken;
+                updated = true;
+            }
+            if (updated) {
+                targetEp.status = 'unknown';
+                window.MT5API.saveConfig();
+            }
+            return targetEp;
         }
 
         async decodeQrFromImage(imageFileOrBlob) {
@@ -1927,27 +1940,14 @@
                                 }
                             }
 
-                            // Automatically synchronize credentials into saved bridge endpoint in MT5API config
-                            if (window.MT5API && Array.isArray(window.MT5API.endpoints)) {
-                                let targetEp = null;
-                                if (this.editingEndpointId) {
-                                    targetEp = window.MT5API.endpoints.find(e => e.id === this.editingEndpointId);
-                                }
-                                if (!targetEp && res.gistId) {
-                                    targetEp = window.MT5API.endpoints.find(e => e.gistId && e.gistId === res.gistId);
-                                }
-                                if (!targetEp && window.MT5API.endpoints.length === 1) {
-                                    targetEp = window.MT5API.endpoints[0];
-                                }
-
-                                if (targetEp) {
-                                    targetEp.apiKey = res.apiKey;
-                                    if (res.pat) targetEp.gistToken = res.pat;
-                                    if (res.gistId) targetEp.gistId = res.gistId;
-                                    targetEp.status = 'unknown';
-                                    window.MT5API.saveConfig();
-                                    console.log(`[SmartPaste] Synchronized 3 QR credentials into saved bridge '${targetEp.name}'. Discovering fresh endpoint from GitHub Gist...`);
-                                }
+                            // Synchronize credentials into matching existing bridge if already registered
+                            const targetEp = this._resolveAndSyncMatchedEndpoint({
+                                gistId: res.gistId || '',
+                                apiKey: res.apiKey || '',
+                                gistToken: res.pat || '',
+                            });
+                            if (targetEp) {
+                                console.log(`[SmartPaste] Synchronized 3 QR credentials into saved bridge '${targetEp.name}'. Discovering fresh endpoint from GitHub Gist...`);
                             }
 
                             // Highlight inputs
@@ -2091,13 +2091,17 @@
             return false;
         }
 
+        getActiveHfAuthor() {
+            const idxAuthor = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.author === 'string')
+                ? window.MT5ParquetIndex.author.trim() : '';
+            if (idxAuthor && idxAuthor !== 'deep776') return idxAuthor;
+            const globalAuthor = typeof window.HF_AUTHOR === 'string' ? window.HF_AUTHOR.trim() : '';
+            if (globalAuthor && globalAuthor !== 'deep776') return globalAuthor;
+            return 'bnq-ii';
+        }
+
         getParquetHtml(theme) {
-            let hfAuthor = 'bnq-ii';
-            if (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') {
-                hfAuthor = window.MT5ParquetIndex.author;
-            } else if (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') {
-                hfAuthor = window.HF_AUTHOR;
-            }
+            const hfAuthor = this.getActiveHfAuthor();
             const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
             const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
 
@@ -2229,7 +2233,7 @@
             const enabledEndpoints = endpoints.filter(e => e.enabled);
             const onlineEndpoints = endpoints.filter(e => e.enabled && e.status === 'online');
             const hasMasterToken = window.MT5API ? window.MT5API.hasMasterGistToken() : false;
-            const hfAuthor = (window.MT5ParquetIndex && window.MT5ParquetIndex.author && window.MT5ParquetIndex.author !== 'deep776') || (window.HF_AUTHOR && window.HF_AUTHOR !== 'deep776') || 'bnq-ii';
+            const hfAuthor = this.getActiveHfAuthor();
             const discoveryAuthors = (window.MT5ParquetIndex && typeof window.MT5ParquetIndex.getDiscoveryAuthors === 'function') ? window.MT5ParquetIndex.getDiscoveryAuthors() : [];
             const hfStatus = (window.MT5ParquetIndex && window.MT5ParquetIndex.bridgeStatus) || {};
 
@@ -7014,21 +7018,23 @@
                                 setTimeout(() => btnVerify.click(), 150);
                             }
 
-                            // If this bridge was already registered, update its URL & shieldToken in storage immediately
-                            if (window.MT5API && Array.isArray(window.MT5API.endpoints)) {
-                                let matchingEp = window.MT5API.endpoints.find(e => (gistId && e.gistId === gistId) || (apiKey && e.apiKey === apiKey));
-                                if (!matchingEp && window.MT5API.endpoints.length === 1) {
-                                    matchingEp = window.MT5API.endpoints[0];
+                            // If this bridge already exists (matched by editing ID, Gist ID, URL, or bridge_id name), sync it without wiping form inputs
+                            const matchingEp = this._resolveAndSyncMatchedEndpoint({
+                                url: res.decryptedUrl,
+                                gistId,
+                                name: res.bridgeName || (inName ? inName.value.trim() : ''),
+                                apiKey: res.autoHealedKey || apiKey,
+                                shieldToken: res.shieldToken || '',
+                                gistToken: gistToken || '',
+                            });
+                            if (matchingEp) {
+                                const btnAdd = modal.querySelector('#mt5-btn-add-endpoint');
+                                if (btnAdd) {
+                                    btnAdd.innerHTML = '<span>🔄</span> Update Existing Bridge';
                                 }
-                                if (matchingEp && res.decryptedUrl) {
-                                    matchingEp.url = res.decryptedUrl;
-                                    if (res.shieldToken) matchingEp.shieldToken = res.shieldToken;
-                                    if (apiKey) matchingEp.apiKey = apiKey;
-                                    window.MT5API.saveConfig();
-                                    window.MT5API.testSingleEndpoint(matchingEp.id).then(() => {
-                                        this.renderModal();
-                                    });
-                                }
+                                window.MT5API.testSingleEndpoint(matchingEp.id).then(() => {
+                                    if (this.isOpen && !this.showAddBridgeForm) this.renderModal();
+                                });
                             }
                         } else if (res.decryptError) {
                             if (statusGist) {
