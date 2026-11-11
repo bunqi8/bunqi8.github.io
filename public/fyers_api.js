@@ -1552,7 +1552,12 @@ class FyersEngine {
         if (receiver && !existingUrl) {
             const randomPart = (typeof crypto !== "undefined" && crypto.randomUUID)
                 ? crypto.randomUUID().replace(/-/g, "")
-                : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+                : (() => {
+                    if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
+                        throw new Error('Secure Web Crypto CSPRNG required for E2EE channel creation.');
+                    }
+                    return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+                })();
             receiver.channelId = `tv_${randomPart}`;
             receiver.webhookUuid = receiver.channelId;
             receiver.webhookUrl = `https://ntfy.sh/${receiver.channelId}`;

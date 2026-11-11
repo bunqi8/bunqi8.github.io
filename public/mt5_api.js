@@ -120,7 +120,7 @@
 
         get apiKey() {
             const active = this.getActiveEndpoint();
-            return active ? active.apiKey : 'CHANGE_THIS_BRIDGE_API_KEY';
+            return active ? active.apiKey : '';
         }
 
         set apiKey(val) {
@@ -146,7 +146,7 @@
                             id: 'ep_migrated',
                             name: 'Primary Bridge',
                             url: ep,
-                            apiKey: cfg.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY',
+                            apiKey: cfg.apiKey || '',
                             enabled: true,
                             status: 'unknown',
                             ping: 0
@@ -161,7 +161,7 @@
                             id: 'ep_localhost',
                             name: 'Localhost Bridge',
                             url: 'http://localhost:8000',
-                            apiKey: 'CHANGE_THIS_BRIDGE_API_KEY',
+                            apiKey: '',
                             enabled: true,
                             status: 'unknown',
                             ping: 0
@@ -365,7 +365,7 @@
                 const clean = decryptedUrl.trim().replace(/\/+$/, '');
                 const changed = clean !== ep.url;
                 if (changed) {
-                    console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} URL: ${ep.url} -> ${clean}`);
+                    console.log(`[MT5API] 🔄 Auto-Discovery: Updated ${ep.name} endpoint URL from Gist.`);
                     ep.url = clean;
                 }
                 if (vaultData.shield_token && vaultData.shield_token !== ep.shieldToken) {
@@ -373,7 +373,7 @@
                 }
                 if (vaultData.shield_date) ep.shieldDate = vaultData.shield_date;
                 if (vaultData.autoHealedKey && vaultData.autoHealedKey !== ep.apiKey) {
-                    console.log(`[MT5API] Auto-healed bridge ${ep.name} API key OCR typos: ${ep.apiKey} -> ${vaultData.autoHealedKey}`);
+                    console.log(`[MT5API] Auto-healed bridge ${ep.name} API key OCR typos.`);
                     ep.apiKey = vaultData.autoHealedKey;
                 }
                 if (changed || (vaultData.shield_token && vaultData.shield_token !== ep.shieldToken)) {
@@ -523,7 +523,7 @@
         getReqHeaders(endpointObj) {
             const ep = endpointObj || this.getActiveEndpoint();
             const h = { 'Content-Type': 'application/json' };
-            let key = ep ? ep.apiKey : (this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY');
+            let key = ep ? ep.apiKey : (this.apiKey || '');
             if (key && (key.startsWith('enc:v1:') || key.startsWith('b64:v1:'))) {
                 console.warn('[MT5API] getReqHeaders called with un-decrypted API key ciphertext! Omitting auth header.');
                 key = '';
@@ -561,7 +561,7 @@
         addEndpoint({ name, url, apiKey, shieldToken = '', gistId = '', gistToken = '', enabled = true }) {
             const cleanUrl = (url || '').trim().replace(/\/+$/, '');
             if (!cleanUrl) return { success: false, error: 'Endpoint URL is required' };
-            const cleanKey = (apiKey || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+            const cleanKey = (apiKey || '').trim();
             const cleanName = (name || '').trim() || `Bridge Server ${this.endpoints.length + 1}`;
             const id = 'ep_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
@@ -743,7 +743,7 @@
         async testEndpointDetails({ url, apiKey, shieldToken = '' }) {
             const cleanUrl = (url || '').trim().replace(/\/+$/, '');
             if (!cleanUrl) return { success: false, skipped: true, error: 'Endpoint URL is required' };
-            const cleanKey = (apiKey || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+            const cleanKey = (apiKey || '').trim();
 
             let autoShield = (shieldToken || '').trim();
             if (!autoShield) {
@@ -1243,7 +1243,7 @@
                             const syncRes = await this.syncEndpointFromGist(ep.id, false);
                             if (syncRes && syncRes.success) {
                                 if (syncRes.changed) {
-                                    console.log(`[MT5API] ✨ Discovered rotated tunnel URL for '${ep.name}': ${ep.url}. Retrying accounts fetch...`);
+                                    console.log(`[MT5API] ✨ Discovered rotated tunnel URL for '${ep.name}'. Retrying accounts fetch...`);
                                 }
                                 const retryStart = performance.now();
                                 try {
@@ -2257,7 +2257,8 @@
 
         // End-to-End (E2E) In-Transit Payload Encryption Subsystem (AES-GCM-256 via Bridge Secret)
         async deriveE2EKey(apiKey) {
-            const secret = (apiKey || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+            const secret = (apiKey || this.apiKey || '').trim();
+            if (!secret) return null;
             if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) return null;
             try {
                 const rawKey = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
@@ -2277,24 +2278,21 @@
         async encryptE2EPayload(plaintext, apiKey) {
             if (!plaintext) return '';
             if (typeof plaintext === 'string' && plaintext.startsWith('e2e:v1:')) return plaintext;
-            try {
-                const key = await this.deriveE2EKey(apiKey);
-                if (!key) return plaintext;
-                const iv = new Uint8Array(12);
-                window.crypto.getRandomValues(iv);
-                const encoded = new TextEncoder().encode(plaintext);
-                const ciphertext = await window.crypto.subtle.encrypt(
-                    { name: 'AES-GCM', iv },
-                    key,
-                    encoded
-                );
-                const ivB64 = btoa(String.fromCharCode(...iv));
-                const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
-                return `e2e:v1:${ivB64}:${ctB64}`;
-            } catch (e) {
-                console.warn('[MT5API] E2E payload encryption fallback:', e);
-                return plaintext;
+            const key = await this.deriveE2EKey(apiKey);
+            if (!key) {
+                throw new Error('Bridge API key required for E2E encryption.');
             }
+            const iv = new Uint8Array(12);
+            window.crypto.getRandomValues(iv);
+            const encoded = new TextEncoder().encode(plaintext);
+            const ciphertext = await window.crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv },
+                key,
+                encoded
+            );
+            const ivB64 = btoa(String.fromCharCode(...iv));
+            const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+            return `e2e:v1:${ivB64}:${ctB64}`;
         }
 
         async decryptE2EPayload(payload, apiKey) {
@@ -2332,7 +2330,8 @@
 
         async derivePBKDF2Key(secret, salt) {
             if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) return null;
-            const sec = (secret || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+            const sec = (secret || this.apiKey || '').trim();
+            if (!sec) return null;
             const keyMaterial = await window.crypto.subtle.importKey(
                 'raw',
                 new TextEncoder().encode(sec),
@@ -2517,7 +2516,7 @@
                     apiKey: data.k || ''
                 };
             } catch (err) {
-                return { success: false, error: 'Incorrect 2-word passphrase. Please check BRIDGE_INFO.txt on your Desktop.' };
+                return { success: false, error: 'Incorrect 4-word Diceware passphrase. Please check BRIDGE_INFO.txt on your Desktop.' };
             }
         }
 
@@ -2741,7 +2740,11 @@
                         const basePct = 20 + Math.floor((i / targets.length) * 60);
                         report(2, `Sending encrypted configuration to ${ep.name}...`, basePct);
 
-                        const bridgeApiKey = ep.apiKey || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY';
+                        const bridgeApiKey = ep.apiKey || this.apiKey || '';
+                        if (!bridgeApiKey) {
+                            errors.push(`${ep.name}: Bridge API key required for E2E credential encryption.`);
+                            continue;
+                        }
                         const encryptedPasswordForBridge = await this.encryptE2EPayload(accountData.password, bridgeApiKey);
                         const payload = {
                             ...accountData,
@@ -2860,7 +2863,11 @@
                         if (!ep || !ep.url) continue;
 
                         try {
-                            const bridgeApiKey = ep.apiKey || this.apiKey || 'CHANGE_THIS_BRIDGE_API_KEY';
+                            const bridgeApiKey = ep.apiKey || this.apiKey || '';
+                            if (!bridgeApiKey) {
+                                errors.push(`${ep.name}: Bridge API key required for E2E credential encryption.`);
+                                continue;
+                            }
                             const encryptedPasswordForBridge = await this.encryptE2EPayload(password, bridgeApiKey);
                             const payload = {
                                 ...accountData,
@@ -4137,7 +4144,7 @@
                                     window.dispatchEvent(new CustomEvent('mt5_hf_status_update', { detail: { status: st, author: auth } }));
                                 }
                             } else if (msg.type === 'tunnel_migration' && msg.new_url) {
-                                console.log(`[MT5API] 🚀 In-band tunnel migration event received for ${ep.name}: ${msg.new_url}`);
+                                console.log(`[MT5API] 🚀 In-band tunnel migration event received for ${ep.name}.`);
                                 ep.url = String(msg.new_url).trim().replace(/\/+$/, '');
                                 this.saveConfig();
                                 this.reconnectWebSocket(ep.id);

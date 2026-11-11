@@ -1767,7 +1767,7 @@
                             border-radius: 6px;
                             border: 1px solid rgba(120, 123, 134, 0.14);
                         ">
-                            This QR code is end-to-end encrypted. Enter the <strong>2-Word Passphrase</strong> shown in <code style="
+                            This QR code is end-to-end encrypted. Enter the <strong>4-Word Diceware Passphrase</strong> shown in <code style="
                                 font-size: 11px;
                                 font-family: monospace;
                                 background: rgba(120,123,134,0.18);
@@ -1788,9 +1788,9 @@
                                 color: ${theme.textDim || textMutedColor};
                                 text-transform: uppercase;
                                 letter-spacing: 0.5px;
-                            ">2-Word Passphrase</label>
+                            ">4-Word Diceware Passphrase</label>
                             <div style="position: relative; display: flex; align-items: center;">
-                                <input id="mt5-qr-input-passphrase" type="text" placeholder="e.g. shadow-dragon" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="
+                                <input id="mt5-qr-input-passphrase" type="text" placeholder="e.g. alpha-bravo-charlie-delta" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="
                                     width: 100%;
                                     height: 38px;
                                     background: ${inputBgColor};
@@ -1962,7 +1962,7 @@
                             const pasteBadge = modal.querySelector('#mt5-paste-badge');
                             const pasteHint = modal.querySelector('#mt5-paste-hint');
                             if (pasteBadge) {
-                                pasteBadge.innerText = '✓ 2-Word QR Decrypted (3 Fields)';
+                                pasteBadge.innerText = '✓ 4-Word QR Decrypted (3 Fields)';
                                 pasteBadge.style.display = 'inline-block';
                                 pasteBadge.style.background = 'rgba(0,200,83,0.15)';
                                 pasteBadge.style.color = '#00c853';
@@ -2586,11 +2586,11 @@
                                 <span style="font-size: 16px; flex-shrink: 0;">📋</span>
                                 <div style="min-width: 0;">
                                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                        <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};">Instant Setup (2-Word QR Code or OCR)</span>
+                                        <span style="font-size: 11px; font-weight: 700; color: ${theme.primary};">Instant Setup (4-Word Diceware QR or OCR)</span>
                                         <span id="mt5-paste-badge" style="display: none; font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(8,153,129,0.15); color: #089981; border: 1px solid rgba(8,153,129,0.3); font-weight: 600;">✓ Extracted</span>
                                     </div>
                                     <div style="font-size: 9.5px; color: ${theme.textMuted}; line-height: 1.3; margin-top: 1px;" id="mt5-paste-hint">
-                                        Press <strong>Ctrl+V</strong> anywhere, drop <strong>BRIDGE_QR.png</strong>, or paste text. Decrypts with 2-word passphrase.
+                                        Press <strong>Ctrl+V</strong> anywhere, drop <strong>BRIDGE_QR.png</strong>, or paste text. Decrypts with 4-word Diceware passphrase.
                                     </div>
                                 </div>
                             </div>
@@ -2691,7 +2691,7 @@
                                     <label style="font-size: 10.5px; font-weight: 600; color: ${theme.text};">API Key (Password)</label>
                                 </div>
                                 <div style="position: relative; display: flex; align-items: center; width: 100%; height: 28px;">
-                                    <input type="password" id="mt5-in-new-key" value="CHANGE_THIS_BRIDGE_API_KEY" placeholder="API Key" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                                    <input type="password" id="mt5-in-new-key" value="" placeholder="API Key (from BRIDGE_INFO.txt)" style="width: 100%; height: 28px; box-sizing: border-box; padding: 4px 28px 4px 8px; background: ${theme.inputBg}; color: ${theme.inputText}; border: 1px solid ${theme.inputBorder}; border-radius: 4px; font-size: 11px; font-family: monospace;">
                                     <button type="button" class="mt5-btn-toggle-key-eye" style="position: absolute; right: 4px; height: 20px; width: 20px; background: transparent; border: none; cursor: pointer; font-size: 11px; opacity: 0.7; display: flex; align-items: center; justify-content: center;" title="Show/Hide">👁️</button>
                                 </div>
                             </div>
@@ -6710,7 +6710,7 @@
                     extractedText = await this.decodeQrFromImage(imageBlob);
                     if (extractedText && extractedText.startsWith('qr:v1:')) {
                         if (pasteHint) {
-                            pasteHint.innerHTML = `<span style="color: #00c853;">🔑 Encrypted 2-Word QR detected! Opening unlock prompt...</span>`;
+                            pasteHint.innerHTML = `<span style="color: #00c853;">🔑 Encrypted 4-Word Diceware QR detected! Opening unlock prompt...</span>`;
                         }
                         await this.promptAndUnlockQR(modal, extractedText);
                         await this.wipeClipboardSafely();
@@ -7269,7 +7269,7 @@
                 btnAddEp.onclick = async () => {
                     const name = (modal.querySelector('#mt5-in-new-name').value || '').trim();
                     let url = (modal.querySelector('#mt5-in-new-url').value || '').trim();
-                    const apiKey = (modal.querySelector('#mt5-in-new-key').value || 'CHANGE_THIS_BRIDGE_API_KEY').trim();
+                    const apiKey = (modal.querySelector('#mt5-in-new-key').value || '').trim();
                     const shieldToken = (modal.querySelector('#mt5-in-new-shield-token')?.value || '').trim();
                     const gistId = (modal.querySelector('#mt5-in-new-gist-id')?.value || '').trim();
                     const gistToken = (modal.querySelector('#mt5-in-new-gist-token')?.value || '').trim();
