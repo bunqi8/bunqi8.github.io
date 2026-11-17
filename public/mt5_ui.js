@@ -7987,6 +7987,201 @@
                 }, 3500);
             }
         }
+
+        ensureBannerStyles() {
+            if (!document.getElementById('mt5-banner-keyframes')) {
+                const st = document.createElement('style');
+                st.id = 'mt5-banner-keyframes';
+                st.textContent = `
+                    @keyframes mt5Pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.6); opacity: 0.4; } }
+                    @keyframes mt5BannerSlideDown { from { opacity: 0; transform: translateX(-50%) translateY(-14px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+                `;
+                document.head.appendChild(st);
+            }
+        }
+
+        showChartConnectingBanner(acc = null) {
+            this.ensureBannerStyles();
+            const target = acc || (window.MT5API ? window.MT5API.getActiveAccount() : null);
+            const login = target ? (target.login || target.id || '') : '';
+            const server = target ? (target.server || target.broker_name || 'MT5 Broker') : 'MT5 Broker';
+            const nick = target ? (target.nickname || `Account #${login}`) : 'Account';
+
+            let banner = document.getElementById('mt5-chart-connecting-banner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'mt5-chart-connecting-banner';
+                document.body.appendChild(banner);
+            }
+
+            banner.style.cssText = `
+                position: fixed;
+                top: 52px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(15, 23, 42, 0.94);
+                color: #ffffff;
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                border: 1px solid rgba(255, 152, 0, 0.5);
+                border-radius: 28px;
+                padding: 7px 18px 7px 14px;
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), 0 0 18px rgba(255, 152, 0, 0.2);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 12px;
+                pointer-events: auto;
+                animation: mt5BannerSlideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: all 0.3s ease;
+            `;
+
+            banner.innerHTML = `
+                <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:rgba(255,152,0,0.2); border:1px solid rgba(255,152,0,0.6); position:relative; flex-shrink:0;">
+                    <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ff9800; animation:mt5Pulse 1.2s ease-in-out infinite;"></span>
+                </span>
+                <div style="display:flex; flex-direction:column; gap:1px;">
+                    <span style="font-weight:700; color:#fff; display:flex; align-items:center; gap:6px;">
+                        Connecting to ${nick} <span style="font-size:10px; color:rgba(255,255,255,0.6); font-weight:400; font-family:monospace;">#${login} • ${server}</span>
+                    </span>
+                    <span style="font-size:10.5px; color:rgba(255,255,255,0.8);">
+                        Initializing MT5 broker session & downloading candles... Chart will auto-heal once live.
+                    </span>
+                </div>
+                <button id="mt5-banner-btn-close" style="background:none; border:none; color:rgba(255,255,255,0.5); cursor:pointer; font-size:13px; line-height:1; padding:2px 4px; margin-left:4px;" title="Dismiss banner">✕</button>
+            `;
+
+            const btnClose = banner.querySelector('#mt5-banner-btn-close');
+            if (btnClose) {
+                btnClose.onclick = () => {
+                    banner.style.opacity = '0';
+                    banner.style.transform = 'translateX(-50%) translateY(-10px)';
+                    setTimeout(() => banner.remove(), 250);
+                };
+            }
+        }
+
+        showChartConnectedBanner(acc = null) {
+            this.ensureBannerStyles();
+            const target = acc || (window.MT5API ? window.MT5API.getActiveAccount() : null);
+            const login = target ? (target.login || target.id || '') : '';
+            const server = target ? (target.server || target.broker_name || 'MT5 Broker') : 'MT5 Broker';
+            const nick = target ? (target.nickname || `Account #${login}`) : 'Account';
+
+            let banner = document.getElementById('mt5-chart-connecting-banner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'mt5-chart-connecting-banner';
+                banner.style.cssText = `
+                    position: fixed;
+                    top: 52px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(15, 23, 42, 0.94);
+                    color: #ffffff;
+                    backdrop-filter: blur(14px);
+                    -webkit-backdrop-filter: blur(14px);
+                    border-radius: 28px;
+                    padding: 7px 18px 7px 14px;
+                    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4), 0 0 18px rgba(8, 153, 129, 0.25);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-size: 12px;
+                    pointer-events: auto;
+                    transition: all 0.3s ease;
+                `;
+                document.body.appendChild(banner);
+            }
+
+            banner.style.border = '1px solid rgba(8, 153, 129, 0.6)';
+            banner.style.boxShadow = '0 10px 28px rgba(0, 0, 0, 0.4), 0 0 18px rgba(8, 153, 129, 0.25)';
+
+            banner.innerHTML = `
+                <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:rgba(8,153,129,0.2); border:1px solid rgba(8,153,129,0.6); color:#10b981; font-size:11px; font-weight:800; flex-shrink:0;">
+                    ✓
+                </span>
+                <div style="display:flex; flex-direction:column; gap:1px;">
+                    <span style="font-weight:700; color:#10b981; display:flex; align-items:center; gap:6px;">
+                        ${nick} Connected! <span style="font-size:10px; color:rgba(255,255,255,0.6); font-weight:400; font-family:monospace;">#${login} • ${server}</span>
+                    </span>
+                    <span style="font-size:10.5px; color:rgba(255,255,255,0.8);">
+                        Live broker session verified. Auto-rendered chart candles.
+                    </span>
+                </div>
+            `;
+
+            setTimeout(() => {
+                const b = document.getElementById('mt5-chart-connecting-banner');
+                if (b) {
+                    b.style.opacity = '0';
+                    b.style.transform = 'translateX(-50%) translateY(-10px)';
+                    setTimeout(() => b.remove(), 300);
+                }
+            }, 2200);
+        }
+
+        showChartConnectionErrorBanner(acc = null, errorMsg = 'Connection timed out') {
+            this.ensureBannerStyles();
+            const target = acc || (window.MT5API ? window.MT5API.getActiveAccount() : null);
+            const login = target ? (target.login || target.id || '') : '';
+            const nick = target ? (target.nickname || `Account #${login}`) : 'Account';
+
+            let banner = document.getElementById('mt5-chart-connecting-banner');
+            if (!banner) return;
+
+            banner.style.border = '1px solid rgba(242, 54, 69, 0.55)';
+            banner.style.boxShadow = '0 10px 28px rgba(0, 0, 0, 0.4), 0 0 18px rgba(242, 54, 69, 0.25)';
+
+            banner.innerHTML = `
+                <span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:rgba(242,54,69,0.2); border:1px solid rgba(242,54,69,0.6); color:#f23645; font-size:11px; font-weight:800; flex-shrink:0;">
+                    ✕
+                </span>
+                <div style="display:flex; flex-direction:column; gap:1px;">
+                    <span style="font-weight:700; color:#f87171; display:flex; align-items:center; gap:6px;">
+                        ${nick} Connection Issue
+                    </span>
+                    <span style="font-size:10.5px; color:rgba(255,255,255,0.8);">
+                        ${errorMsg}
+                    </span>
+                </div>
+                <button id="mt5-banner-btn-open-settings" style="background:#2962ff; color:#fff; border:none; padding:4px 9px; border-radius:4px; font-size:10.5px; font-weight:700; cursor:pointer; margin-left:6px;">Settings</button>
+                <button id="mt5-banner-btn-close" style="background:none; border:none; color:rgba(255,255,255,0.5); cursor:pointer; font-size:13px; line-height:1; padding:2px 4px; margin-left:2px;" title="Dismiss banner">✕</button>
+            `;
+
+            const btnSettings = banner.querySelector('#mt5-banner-btn-open-settings');
+            if (btnSettings) {
+                btnSettings.onclick = () => {
+                    banner.remove();
+                    if (window.MT5UI) window.MT5UI.openModal('fleet');
+                };
+            }
+            const btnClose = banner.querySelector('#mt5-banner-btn-close');
+            if (btnClose) {
+                btnClose.onclick = () => banner.remove();
+            }
+            setTimeout(() => {
+                const b = document.getElementById('mt5-chart-connecting-banner');
+                if (b) {
+                    b.style.opacity = '0';
+                    b.style.transform = 'translateX(-50%) translateY(-10px)';
+                    setTimeout(() => b.remove(), 300);
+                }
+            }, 6000);
+        }
+
+        hideChartConnectingBanner() {
+            const banner = document.getElementById('mt5-chart-connecting-banner');
+            if (banner) {
+                banner.style.opacity = '0';
+                banner.style.transform = 'translateX(-50%) translateY(-10px)';
+                setTimeout(() => banner.remove(), 250);
+            }
+        }
     }
 
     // Export singleton

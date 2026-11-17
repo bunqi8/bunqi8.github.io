@@ -1538,6 +1538,15 @@ const Datafeed = {
                 return;
             }
 
+            if (targetAcc && !targetAcc.is_connected && parquetBars.length === 0) {
+                if (window.MT5UI && typeof window.MT5UI.showChartConnectingBanner === 'function') {
+                    window.MT5UI.showChartConnectingBanner(targetAcc);
+                }
+                if (window.MT5API && typeof window.MT5API.startAccountConnectingWatcher === 'function') {
+                    window.MT5API.startAccountConnectingWatcher(targetAcc.id);
+                }
+            }
+
             const accId = targetAcc ? targetAcc.id : 'offline';
             const cacheKey = `MT5_${accId}_${cleanSym}_${resolution}`;
 
@@ -1635,6 +1644,17 @@ const Datafeed = {
                 // If still empty on firstDataRequest, NEVER poison the chart with noData: true! Report retryable status via onErrorCallback.
                 if (firstDataRequest && (!mt5Bars || mt5Bars.length === 0)) {
                     console.warn(`[datafeed] MT5 bridge returned 0 bars for ${cleanSym} on firstDataRequest. Reporting synchronizing state rather than poisoning noData.`);
+
+                    // Visual clue on chart: if target account is connecting / handshaking, show banner & launch auto-healer
+                    if (targetAcc && !targetAcc.is_connected) {
+                        if (window.MT5UI && typeof window.MT5UI.showChartConnectingBanner === 'function') {
+                            window.MT5UI.showChartConnectingBanner(targetAcc);
+                        }
+                        if (window.MT5API && typeof window.MT5API.startAccountConnectingWatcher === 'function') {
+                            window.MT5API.startAccountConnectingWatcher(targetAcc.id);
+                        }
+                    }
+
                     if (typeof onErrorCallback === 'function') {
                         onErrorCallback('MT5 terminal synchronizing data, please retry');
                         return;
@@ -1651,6 +1671,9 @@ const Datafeed = {
                 }
 
                 if (mt5Bars && mt5Bars.length > 0) {
+                    if (window.MT5UI && typeof window.MT5UI.hideChartConnectingBanner === 'function') {
+                        window.MT5UI.hideChartConnectingBanner();
+                    }
                     // Filter out any invalid bars or future anomalies (allowing 5 min buffer)
                     const maxAllowedTime = Date.now() + 300000;
                     const isDwm = String(resolution).toUpperCase().includes('D') || 

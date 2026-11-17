@@ -1661,6 +1661,21 @@
             const hasBar = !!(window._tvLastBar && window._tvLastBar[unifiedKey]);
             if (!hasBar || forceReset) {
                 console.log(`[MT5API] 🔄 Auto-healing chart for ${currentSymbol} via resetData()...`);
+                if (forceReset) {
+                    if (window._barsCache) {
+                        for (const k in window._barsCache) {
+                            if (k.toUpperCase().includes(cleanTicker)) delete window._barsCache[k];
+                        }
+                    }
+                    if (window._tvLastBar) {
+                        for (const k in window._tvLastBar) {
+                            if (k.toUpperCase().includes(cleanTicker)) delete window._tvLastBar[k];
+                        }
+                    }
+                    if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                        try { window.tvWidget.resetCache(); } catch (_) {}
+                    }
+                }
                 try {
                     if (typeof chart.resetData === 'function') {
                         chart.resetData();
@@ -1669,6 +1684,62 @@
                     }
                 } catch (_) {}
             }
+        }
+
+        startAccountConnectingWatcher(accountId = null) {
+            const targetId = accountId || this.activeAccountId;
+            const findAcc = () => (this.accounts || []).find(a => String(a.id) === String(targetId) || String(a.login) === String(targetId));
+            let acc = findAcc();
+            if (!acc) return;
+
+            if (acc.is_connected) {
+                if (window.MT5UI && typeof window.MT5UI.showChartConnectedBanner === 'function') {
+                    window.MT5UI.showChartConnectedBanner(acc);
+                }
+                return;
+            }
+
+            if (window.MT5UI && typeof window.MT5UI.showChartConnectingBanner === 'function') {
+                window.MT5UI.showChartConnectingBanner(acc);
+            }
+
+            if (this._accountConnectingWatcherTimer) {
+                clearInterval(this._accountConnectingWatcherTimer);
+                this._accountConnectingWatcherTimer = null;
+            }
+
+            let attempts = 0;
+            const maxAttempts = 18; // 18 * 2.5s = 45s max
+            this._accountConnectingWatcherTimer = setInterval(async () => {
+                attempts++;
+                try {
+                    await this.syncAccounts(true);
+                } catch (_) {}
+
+                acc = findAcc();
+                const isNowConnected = Boolean(acc && acc.is_connected);
+                const isFailed = Boolean(acc && (acc.is_verification_failed || acc.auth_mode === 'local_rejected'));
+
+                if (isNowConnected) {
+                    clearInterval(this._accountConnectingWatcherTimer);
+                    this._accountConnectingWatcherTimer = null;
+                    console.log(`[MT5API] ✨ Auto-healer: Account #${acc.login} (${acc.server}) is now CONNECTED! Auto-refreshing chart feed...`);
+                    if (window.MT5UI && typeof window.MT5UI.showChartConnectedBanner === 'function') {
+                        window.MT5UI.showChartConnectedBanner(acc);
+                    }
+                    this.refreshActiveChart(true);
+                    this.notifyAccountListeners();
+                    return;
+                }
+
+                if (isFailed || attempts >= maxAttempts) {
+                    clearInterval(this._accountConnectingWatcherTimer);
+                    this._accountConnectingWatcherTimer = null;
+                    if (window.MT5UI && typeof window.MT5UI.showChartConnectionErrorBanner === 'function') {
+                        window.MT5UI.showChartConnectionErrorBanner(acc, isFailed ? (acc.last_error || 'Broker rejected credentials') : 'Connection timed out. Check MT5 terminal.');
+                    }
+                }
+            }, 2500);
         }
 
         getActiveAccount() {
@@ -2009,6 +2080,14 @@
 
                 if (!skipChartSwitch) {
                     this.switchChartFeedToAccount(id);
+                }
+
+                // If target account is still initializing its broker session, show chart clue and start auto-healer
+                if (targetAcc && !targetAcc.is_connected) {
+                    if (window.MT5UI && typeof window.MT5UI.showChartConnectingBanner === 'function') {
+                        window.MT5UI.showChartConnectingBanner(targetAcc);
+                    }
+                    this.startAccountConnectingWatcher(id);
                 }
 
                 report(5, `✓ Active Feed Switched!`, `Connected to ${accName} (${brokerName}). Live chart feed ready.`, 100);
@@ -2972,6 +3051,17 @@
                     }, successfulTargets);
                     await this.syncAccounts(true);
                     report(5, 'Account connected and verified successfully!', 100);
+
+                    // If newly added account is currently initializing its terminal handshake, show visual clue & auto-heal
+                    const targetLogin = Number(accountData.login);
+                    const newlyAdded = (this.accounts || []).find(a => Number(a.login) === targetLogin) || this.getActiveAccount();
+                    if (newlyAdded && !newlyAdded.is_connected) {
+                        if (window.MT5UI && typeof window.MT5UI.showChartConnectingBanner === 'function') {
+                            window.MT5UI.showChartConnectingBanner(newlyAdded);
+                        }
+                        this.startAccountConnectingWatcher(newlyAdded.id);
+                    }
+
                     return { success: true, account: lastSuccessAccount, targets: successfulTargets };
                 }
 
@@ -4468,6 +4558,9 @@
             });
 
             // Merge with accounts from other endpoints
+            const prevActive = this.getActiveAccount();
+            const wasPrevActiveConnected = Boolean(prevActive && prevActive.is_connected);
+
             const otherAccounts = (this.accounts || []).filter(a => a.endpointId !== ep.id);
             this.accounts = [...otherAccounts, ...updatedEpAccounts];
             this.isConnected = true;
@@ -4495,6 +4588,21 @@
             try {
                 localStorage.setItem('mt5_accounts_cache', JSON.stringify(this.accounts));
             } catch (_) {}
+
+            const isNowActiveConnected = Boolean(curActive && curActive.is_connected);
+
+            // Auto-heal chart if active feed account transitioned to connected via WebSocket broadcast
+            if (!wasPrevActiveConnected && isNowActiveConnected && curActive) {
+                console.log(`[MT5API] ✨ WebSocket pushed live connection for #${curActive.login} (${curActive.server})! Auto-healing chart...`);
+                if (this._accountConnectingWatcherTimer) {
+                    clearInterval(this._accountConnectingWatcherTimer);
+                    this._accountConnectingWatcherTimer = null;
+                }
+                if (window.MT5UI && typeof window.MT5UI.showChartConnectedBanner === 'function') {
+                    window.MT5UI.showChartConnectedBanner(curActive);
+                }
+                this.refreshActiveChart(true);
+            }
 
             this.notifyAccountListeners();
         }
