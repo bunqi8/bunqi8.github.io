@@ -88,13 +88,20 @@ style.innerHTML = `
     .oc-close { cursor: pointer; color: #787b86; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
     .oc-close:hover { color: #131722; }
     
-    .oc-expiries-strip { flex-shrink: 0; display: flex; overflow-x: auto; padding: 16px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; }
-    .oc-expiries-strip::-webkit-scrollbar { display: none; }
-    .oc-base-strip { flex-shrink: 0; display: flex; overflow-x: auto; padding: 12px 24px 0 24px; gap: 8px; border-bottom: 1px solid #f0f3fa; }
-    .oc-base-strip::-webkit-scrollbar { display: none; }
-    .oc-base-btn { padding: 6px 12px; font-size: 14px; font-weight: 500; color: #787b86; cursor: pointer; border-radius: 4px; transition: 0.1s; border: none; background: transparent; }
+    .oc-strip-wrapper { position: relative; width: 100%; min-width: 0; display: flex; align-items: center; }
+    .oc-expiries-strip { flex: 1 1 auto; min-width: 0; display: flex; overflow-x: auto; overflow-y: hidden; padding: 16px 24px 10px 24px; border-bottom: 1px solid #e0e3eb; align-items: center; gap: 16px; min-height: 60px; scrollbar-width: thin; scrollbar-color: rgba(120, 123, 134, 0.25) transparent; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; cursor: grab; }
+    .oc-base-strip { flex: 1 1 auto; min-width: 0; display: flex; overflow-x: auto; overflow-y: hidden; padding: 12px 24px 8px 24px; gap: 8px; border-bottom: 1px solid #f0f3fa; scrollbar-width: thin; scrollbar-color: rgba(120, 123, 134, 0.25) transparent; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; cursor: grab; }
+    .oc-expiries-strip::-webkit-scrollbar, .oc-base-strip::-webkit-scrollbar { height: 4px; }
+    .oc-expiries-strip::-webkit-scrollbar-track, .oc-base-strip::-webkit-scrollbar-track { background: transparent; }
+    .oc-expiries-strip::-webkit-scrollbar-thumb, .oc-base-strip::-webkit-scrollbar-thumb { background: rgba(120, 123, 134, 0.25); border-radius: 4px; }
+    .oc-expiries-strip::-webkit-scrollbar-thumb:hover, .oc-base-strip::-webkit-scrollbar-thumb:hover { background: rgba(120, 123, 134, 0.45); }
+    .oc-base-btn { flex-shrink: 0; white-space: nowrap; padding: 6px 12px; font-size: 14px; font-weight: 500; color: #787b86; cursor: pointer; border-radius: 4px; transition: 0.1s; border: none; background: transparent; user-select: none; }
     .oc-base-btn:hover { background: #f0f3fa; color: #131722; }
     .oc-base-btn.active { color: #2962FF; background: #e3f2fd; }
+    .oc-scroll-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; width: 26px; height: 26px; border-radius: 50%; background: rgba(255, 255, 255, 0.95); border: 1px solid #d1d4dc; box-shadow: 0 2px 6px rgba(0,0,0,0.15); display: none; align-items: center; justify-content: center; cursor: pointer; color: #131722; font-size: 16px; font-weight: 700; line-height: 1; padding: 0; transition: background 0.15s, transform 0.15s, box-shadow 0.15s; }
+    .oc-scroll-btn:hover { background: #f0f3fa; transform: translateY(-50%) scale(1.1); box-shadow: 0 3px 8px rgba(0,0,0,0.22); }
+    .oc-scroll-btn.oc-scroll-left { left: 4px; }
+    .oc-scroll-btn.oc-scroll-right { right: 4px; }
     
     .oc-month-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
     .oc-month-label { font-size: 12px; color: #131722; font-weight: 500; min-height: 14px; margin-bottom: 2px; }
@@ -152,6 +159,7 @@ style.innerHTML = `
 
     /* Mobile Responsive Optimization */
     @media (max-width: 768px) {
+        .oc-scroll-btn { display: none !important; }
         .oc-backdrop { padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
         .oc-modal { width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; border-radius: 0 !important; }
         .oc-header { padding: 12px 16px !important; }
@@ -162,6 +170,100 @@ style.innerHTML = `
     }
 `;
 document.head.appendChild(style);
+
+function enableHorizontalScrollAndDrag(el, leftBtn = null, rightBtn = null) {
+    if (!el || el._hasScrollAttached) return;
+    el._hasScrollAttached = true;
+
+    // 1. Mouse wheel translation: translates vertical wheel scroll (deltaY) into horizontal scrolling
+    el.addEventListener('wheel', (e) => {
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (delta !== 0 && el.scrollWidth > el.clientWidth) {
+            el.scrollLeft += delta;
+            e.preventDefault();
+            updateScrollButtons();
+        }
+    }, { passive: false });
+
+    // 2. Desktop Click-and-Drag Panning (Touch-like experience on mouse desktop)
+    let isDown = false;
+    let startX = 0;
+    let scrollLeft = 0;
+    let dragDistance = 0;
+
+    el.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDown = true;
+        dragDistance = 0;
+        startX = e.pageX - el.offsetLeft;
+        scrollLeft = el.scrollLeft;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDown) return;
+        const x = e.pageX - el.offsetLeft;
+        const walk = (x - startX) * 1.25;
+        dragDistance += Math.abs(walk);
+        if (dragDistance > 4) {
+            el.style.cursor = 'grabbing';
+            el.style.userSelect = 'none';
+        }
+        el.scrollLeft = scrollLeft - walk;
+        updateScrollButtons();
+    });
+
+    const endDrag = () => {
+        if (!isDown) return;
+        isDown = false;
+        el.style.cursor = 'grab';
+        el.style.removeProperty('user-select');
+    };
+
+    window.addEventListener('mouseup', endDrag);
+
+    // Suppress child button clicks if user dragged more than 6px
+    el.addEventListener('click', (e) => {
+        if (dragDistance > 6) {
+            e.preventDefault();
+            e.stopPropagation();
+            dragDistance = 0;
+        }
+    }, true);
+
+    // 3. Scroll Buttons (Left / Right)
+    function updateScrollButtons() {
+        if (!leftBtn || !rightBtn) return;
+        const maxScroll = el.scrollWidth - el.clientWidth;
+        if (maxScroll <= 4) {
+            leftBtn.style.display = 'none';
+            rightBtn.style.display = 'none';
+            return;
+        }
+        leftBtn.style.display = el.scrollLeft > 6 ? 'flex' : 'none';
+        rightBtn.style.display = el.scrollLeft < (maxScroll - 6) ? 'flex' : 'none';
+    }
+
+    el._updateScrollButtons = updateScrollButtons;
+
+    if (leftBtn && rightBtn) {
+        leftBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            el.scrollBy({ left: -220, behavior: 'smooth' });
+        });
+        rightBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            el.scrollBy({ left: 220, behavior: 'smooth' });
+        });
+        el.addEventListener('scroll', updateScrollButtons, { passive: true });
+        if (window.ResizeObserver) {
+            const ro = new ResizeObserver(updateScrollButtons);
+            ro.observe(el);
+        }
+        setTimeout(updateScrollButtons, 150);
+    }
+}
 
 function buildModal() {
     modalOverlay = document.createElement('div');
@@ -181,9 +283,17 @@ function buildModal() {
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </div>
             </div>
-            <div class="oc-base-strip" id="oc_base_strip"></div>
-            <div class="oc-expiries-strip" id="oc_expiries_strip">
-                <span style="font-size:13px; color:#787b86;">Loading expiries...</span>
+            <div class="oc-strip-wrapper">
+                <button class="oc-scroll-btn oc-scroll-left" id="oc_base_scroll_left" type="button" aria-label="Scroll left">‹</button>
+                <div class="oc-base-strip" id="oc_base_strip"></div>
+                <button class="oc-scroll-btn oc-scroll-right" id="oc_base_scroll_right" type="button" aria-label="Scroll right">›</button>
+            </div>
+            <div class="oc-strip-wrapper">
+                <button class="oc-scroll-btn oc-scroll-left" id="oc_exp_scroll_left" type="button" aria-label="Scroll left">‹</button>
+                <div class="oc-expiries-strip" id="oc_expiries_strip">
+                    <span style="font-size:13px; color:#787b86;">Loading expiries...</span>
+                </div>
+                <button class="oc-scroll-btn oc-scroll-right" id="oc_exp_scroll_right" type="button" aria-label="Scroll right">›</button>
             </div>
             <div class="oc-table-top-header">
                 <div class="oc-col">Calls</div>
@@ -201,6 +311,16 @@ function buildModal() {
         </div>
 `;
     document.body.appendChild(modalOverlay);
+
+    const baseStrip = modalOverlay.querySelector('#oc_base_strip');
+    const baseLeftBtn = modalOverlay.querySelector('#oc_base_scroll_left');
+    const baseRightBtn = modalOverlay.querySelector('#oc_base_scroll_right');
+    enableHorizontalScrollAndDrag(baseStrip, baseLeftBtn, baseRightBtn);
+
+    const expStrip = modalOverlay.querySelector('#oc_expiries_strip');
+    const expLeftBtn = modalOverlay.querySelector('#oc_exp_scroll_left');
+    const expRightBtn = modalOverlay.querySelector('#oc_exp_scroll_right');
+    enableHorizontalScrollAndDrag(expStrip, expLeftBtn, expRightBtn);
     
     modalOverlay.addEventListener('click', (e) => {
         if (e.target === modalOverlay) window.closeOptionsChainModal();
@@ -305,12 +425,16 @@ window.openOptionsChainModal = function() {
         if (filtered.length > 0) selectExpiry(filtered[filtered.length - 1]);
     }
     
-    // Smoothly scroll the active tab into view after rendering
+    // Smoothly scroll the active tab into view and update scroll buttons after rendering
     setTimeout(() => {
         const activeTab = document.querySelector('#oc_base_strip .oc-base-btn.active');
         if (activeTab) {
             activeTab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         }
+        const baseStrip = document.getElementById('oc_base_strip');
+        const expStrip = document.getElementById('oc_expiries_strip');
+        if (baseStrip && baseStrip._updateScrollButtons) baseStrip._updateScrollButtons();
+        if (expStrip && expStrip._updateScrollButtons) expStrip._updateScrollButtons();
     }, 100);
 };
 
@@ -567,6 +691,15 @@ function updateExpiryStrip() {
     if (window.checkGlobalGoldenPeriod) {
         window.checkGlobalGoldenPeriod();
     }
+
+    setTimeout(() => {
+        const activeBtn = baseStrip.querySelector('.oc-base-btn.active');
+        if (activeBtn) {
+            activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+        if (baseStrip._updateScrollButtons) baseStrip._updateScrollButtons();
+        if (strip._updateScrollButtons) strip._updateScrollButtons();
+    }, 50);
 }
 
 window.checkGlobalGoldenPeriod = function() {
