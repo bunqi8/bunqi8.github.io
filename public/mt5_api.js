@@ -3819,7 +3819,7 @@
             if (!acc) return [];
             const targetAccId = acc ? acc.id : null;
             const ep = this.getEndpointForAccount(targetAccId);
-            if (!ep || !ep.enabled || ep.status !== 'online') return [];
+            if (!ep || !ep.enabled || ep.status === 'unauthorized') return [];
 
             // 1. Try WebSocket RPC first
             if (ep) {
@@ -3835,6 +3835,7 @@
                     }, 3500);
 
                     if (wsRes && wsRes.success && Array.isArray(wsRes.bars)) {
+                        ep.status = 'online';
                         if (wsRes.earliest_time_ms) {
                             if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
                             window._symbolEarliestTime[cleanSym] = wsRes.earliest_time_ms;
@@ -3860,6 +3861,7 @@
                 const res = await fetch(url, { headers: this.getReqHeaders(ep) });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
+                ep.status = 'online';
                 if (data.earliest_time_ms) {
                     if (!window._symbolEarliestTime) window._symbolEarliestTime = {};
                     window._symbolEarliestTime[cleanSym] = data.earliest_time_ms;
@@ -4155,6 +4157,15 @@
             this.startFallbackTickPolling();
 
             // Direct subscription strictly to the specific bridge endpoint hosting this account
+            const getCleanToken = (endpoint) => {
+                if (!endpoint) return '';
+                let k = endpoint.apiKey || '';
+                if (k.startsWith('enc:v1:') || k.startsWith('b64:v1:')) {
+                    try { k = this.decryptSecret(k) || ''; } catch (_) {}
+                }
+                return k;
+            };
+
             if (targetEp) {
                 const targetSocket = this.wsSockets.get(targetEp.id);
                 if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
@@ -4163,18 +4174,21 @@
                             action: 'subscribe',
                             symbol: this.activeSymbol,
                             resolution: this.activeResolution || '1',
+                            token: getCleanToken(targetEp),
                             account_id: targetAcc ? targetAcc.id : null
                         }));
                     } catch (_) {}
                 }
             } else {
-                this.wsSockets.forEach((socket) => {
+                this.wsSockets.forEach((socket, epId) => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
+                        const ep = (this.endpoints || []).find(e => e.id === epId);
                         try {
                             socket.send(JSON.stringify({
                                 action: 'subscribe',
                                 symbol: this.activeSymbol,
                                 resolution: this.activeResolution || '1',
+                                token: getCleanToken(ep),
                                 account_id: targetAcc ? targetAcc.id : null
                             }));
                         } catch (_) {}
@@ -4215,7 +4229,7 @@
                         }
                         if (!targetAcc) targetAcc = this.getActiveAccount();
                         const ep = this.getEndpointForAccount(targetAcc ? targetAcc.id : null);
-                        if (!ep || !ep.url || !ep.enabled || ep.status !== 'online') continue;
+                        if (!ep || !ep.url || !ep.enabled || ep.status === 'unauthorized') continue;
 
                         const accParam = targetAcc ? `&account_id=${encodeURIComponent(targetAcc.id)}` : '';
                         const url = `${ep.url}/api/tick?symbol=${encodeURIComponent(target.symbol)}&resolution=${encodeURIComponent(this.activeResolution || '1')}${accParam}`;
@@ -4223,6 +4237,7 @@
                         if (res.ok) {
                             const data = await res.json();
                             if (data && data.success) {
+                                ep.status = 'online';
                                 this._lastTickReceivedTime = Date.now();
                                 const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
                                 this.tickListeners.forEach((info, cb) => {
@@ -4238,14 +4253,8 @@
         }
 
         ensureWebSocket() {
-            // Only connect WebSockets to endpoints that are enabled, online or standby, NOT unauthorized,
-            // AND actually have added, unpaused accounts!
-            const enabledEndpoints = (this.endpoints || []).filter(e => 
-                e.enabled && 
-                e.status !== 'unauthorized' && 
-                e.status !== 'offline' &&
-                (this.accounts || []).some(a => (a.endpointId === e.id || a.endpointUrl === e.url) && !this.isAccountPaused(a.id))
-            );
+            // Connect WebSockets to all enabled bridge endpoints that are not unauthorized
+            const enabledEndpoints = (this.endpoints || []).filter(e => e && e.enabled && e.status !== 'unauthorized');
             if (enabledEndpoints.length === 0) return;
 
             enabledEndpoints.forEach(ep => {
@@ -4274,6 +4283,11 @@
                         wsUrl += (wsUrl.includes('?') ? '&' : '?') + `shield_token=${encodeURIComponent(shield)}`;
                     }
 
+                    let rawKey = ep.apiKey || '';
+                    if (rawKey.startsWith('enc:v1:') || rawKey.startsWith('b64:v1:')) {
+                        try { rawKey = this.decryptSecret(rawKey) || ''; } catch (_) {}
+                    }
+
                     socket = new WebSocket(wsUrl);
                     this.wsSockets.set(ep.id, socket);
                     if (ep.id === this.activeEndpointId || !this.ws) {
@@ -4284,7 +4298,7 @@
                     const sendLivePing = () => {
                         if (socket.readyState === WebSocket.OPEN) {
                             try {
-                                socket.send(JSON.stringify({ action: 'ping', t: performance.now() }));
+                                socket.send(JSON.stringify({ action: 'ping', token: rawKey, t: performance.now() }));
                             } catch (_) {}
                         }
                     };

@@ -1577,7 +1577,7 @@ const Datafeed = {
                     const nowSec = Math.floor(Date.now() / 1000);
                     const isTailNeeded = (rawTo > actualLatestPqSec) || (nowSec > actualLatestPqSec) || firstDataRequest;
 
-                    if (isTailNeeded && window.MT5API && window.MT5API.isConnected && targetAcc) {
+                    if (isTailNeeded && window.MT5API && targetAcc) {
                         try {
                             const intervalSec = (function(r) {
                                 const s = String(r).toUpperCase().trim();
@@ -1594,7 +1594,11 @@ const Datafeed = {
                             const missingGapSec = Math.max(0, fetchToSec - tailFromSec);
                             const estimatedMissingBars = Math.ceil(missingGapSec / intervalSec) + 50;
                             const neededCount = Math.min(10000, Math.max(countBack || 500, estimatedMissingBars, 250));
-                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
+                            let tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
+                            if ((!tailBars || tailBars.length === 0) && firstDataRequest) {
+                                await new Promise(r => setTimeout(r, 400));
+                                tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
+                            }
                             if (tailBars && tailBars.length > 0) {
                                 mt5Bars = window.MT5ParquetIndex.mergeBars(parquetBars, tailBars);
                             } else {
