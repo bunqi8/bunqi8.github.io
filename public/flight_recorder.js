@@ -301,8 +301,47 @@
 
                     // Update HUD display
                     this.updateHUD(snapshot);
+
+                    // Proactive Emergency Circuit-Breaker:
+                    // If V8 heap exceeds 82% of limit (>3,400 MB) or 3,500 MB,
+                    // proactively clear caches and reset sockets to prevent browser tab kill
+                    if (snapshot.mem && (snapshot.mem.pctOfLimit >= 82 || snapshot.mem.usedMB >= 3500)) {
+                        this.triggerEmergencyMemoryPurge(snapshot.mem);
+                    }
                 } catch (_) {}
             }, HEARTBEAT_INTERVAL_MS);
+        }
+
+        triggerEmergencyMemoryPurge(mem) {
+            const now = Date.now();
+            if (this._lastEmergencyPurge && (now - this._lastEmergencyPurge < 60000)) return;
+            this._lastEmergencyPurge = now;
+
+            console.warn(`[FlightRecorder] 🚨 EMERGENCY CIRCUIT-BREAKER: Memory reached ${mem.usedMB} MB (${mem.pctOfLimit}% limit). Executing defensive purge...`);
+
+            this.recordError({
+                type: 'emergency_circuit_breaker',
+                message: `Defensive memory purge triggered at ${mem.usedMB} MB (${mem.pctOfLimit}% limit)`,
+                time: now
+            });
+
+            // 1. Purge stale in-memory bar caches
+            if (window._barsCache) {
+                const keys = Object.keys(window._barsCache);
+                for (let i = 0; i < keys.length; i++) {
+                    delete window._barsCache[keys[i]];
+                }
+            }
+
+            // 2. Reset TradingView widget cache
+            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
+                try { window.tvWidget.resetCache(); } catch (_) {}
+            }
+
+            // 3. Clean up MT5 client sockets & timers
+            if (window.MT5API && typeof window.MT5API.reconnectWebSocket === 'function') {
+                try { window.MT5API.reconnectWebSocket(); } catch (_) {}
+            }
         }
 
         // ==========================================

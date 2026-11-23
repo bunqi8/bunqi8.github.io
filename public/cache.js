@@ -405,9 +405,13 @@ const SyncManager = {
     },
 
     async syncRoot() {
+        if (this._isRootSyncing) return;
+        this._isRootSyncing = true;
         try {
             console.debug("[SyncManager] Fetching root HF datasets...");
-            const res = await fetch("https://huggingface.co/api/datasets?author=deep776");
+            const res = await fetch("https://huggingface.co/api/datasets?author=deep776", {
+                signal: AbortSignal.timeout(12000)
+            });
             if (!res.ok) throw new Error("Fetch failed");
             const datasets = await res.json();
             
@@ -559,15 +563,13 @@ const SyncManager = {
             
             // Fire background garbage collection 10 seconds after sync finishes so it doesn't block the UI
             setTimeout(() => {
-                this.garbageCollectCache().catch(e => console.error("GC failed", e));
+                this.garbageCollectCache().catch(e => console.debug("GC failed", e));
             }, 10000);
             
         } catch (e) {
-            console.error("[SyncManager] Root sync failed", e);
-            const cachedExpiries = await this.getAllExpiries();
-            if (cachedExpiries.length === 0) {
-                alert("Network Error: Could not connect to HuggingFace dataset (Proxy/Connection failed). The chart cannot load without data.");
-            }
+            console.warn("[SyncManager] Root sync failed (offline/network)", e.message || e);
+        } finally {
+            this._isRootSyncing = false;
         }
     },
     

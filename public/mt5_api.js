@@ -323,6 +323,11 @@
                 return { success: false, reason: 'Gist ID not configured for this bridge' };
             }
 
+            if (ep._isGistSyncing) {
+                return { success: false, reason: 'Gist sync already in progress' };
+            }
+            ep._isGistSyncing = true;
+
             try {
                 const url = `https://api.github.com/gists/${ep.gistId.trim()}?t=${Date.now()}`;
                 const headers = {
@@ -392,10 +397,13 @@
                         await this.testSingleEndpoint(ep.id);
                     }
                 }
+                ep._gistErrBackoff = 10000;
                 return { success: true, url: clean, changed };
             } catch (err) {
                 console.warn(`[MT5API] Gist sync failed for ${ep.name}:`, err);
                 return { success: false, error: err.message };
+            } finally {
+                ep._isGistSyncing = false;
             }
         }
 
@@ -1265,9 +1273,13 @@
                         const lastActivity = sock._lastActivityTime || sock._connectedAt || now;
                         const silenceSec = (now - lastActivity) / 1000;
 
-                        // If socket has been completely silent (no ticks, no pongs) for > 8s:
-                        if (silenceSec > 8) {
+                        // If socket has been completely silent (no ticks, no pongs) for > 45s:
+                        if (silenceSec > 45) {
                             console.warn(`[MT5API] ⚠️ Zombie socket detected for '${ep.name}' (${Math.round(silenceSec)}s silence). Forcing self-healing reconnect...`);
+                            if (sock._pingTimer) {
+                                clearInterval(sock._pingTimer);
+                                sock._pingTimer = null;
+                            }
                             try {
                                 sock.onclose = null;
                                 sock.onerror = null;
@@ -1279,6 +1291,10 @@
                         }
                     } else if (sock.readyState === WebSocket.CLOSING || sock.readyState === WebSocket.CLOSED) {
                         // Clean up closed socket and reconnect
+                        if (sock._pingTimer) {
+                            clearInterval(sock._pingTimer);
+                            sock._pingTimer = null;
+                        }
                         this.wsSockets.delete(ep.id);
                         if (this.ws === sock) this.ws = null;
                         this.ensureWebSocket();
@@ -1409,14 +1425,17 @@
                     ep.ping = Math.round(performance.now() - start);
                     ep.status = 'online';
                     ep.error = null;
+                    ep._gistErrBackoff = 10000;
                     ep.hasAccounts = Array.isArray(data.accounts) && data.accounts.length > 0;
                     return { ep, data };
                 } catch (err) {
                     // AUTO-HEAL: If endpoint has Gist configured and fetch failed (e.g. rotated tunnel URL),
-                    // automatically check Gist for the newly generated URL and retry immediately!
+                    // automatically check Gist for the newly generated URL with exponential backoff
                     const now = Date.now();
-                    if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > 4000))) {
+                    const backoffMs = ep._gistErrBackoff || 15000;
+                    if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > backoffMs))) {
                         ep._lastGistAutoCheck = now;
+                        ep._gistErrBackoff = Math.min(300000, Math.round(backoffMs * 1.5));
                         try {
                             console.log(`[MT5API] 🔍 Endpoint '${ep.name}' unreachable (${err.message}). Auto-checking Gist for rotated tunnel URL...`);
                             const syncRes = await this.syncEndpointFromGist(ep.id, false);
@@ -4322,10 +4341,14 @@
                         // 3. Immediately sync positions & floating PnL on connection
                         this.fetchPositions().catch(() => {});
 
+                        ep._reconnectAttempts = 0;
+                        ep._gistErrBackoff = 10000;
+
                         // Send instant ping and schedule continuous 2.5s live ping heartbeat
                         sendLivePing();
-                        if (pingTimer) clearInterval(pingTimer);
-                        pingTimer = setInterval(sendLivePing, 2500);
+                        if (socket._pingTimer) clearInterval(socket._pingTimer);
+                        socket._pingTimer = setInterval(sendLivePing, 2500);
+                        pingTimer = socket._pingTimer;
                     };
 
                     socket.onmessage = (evt) => {
@@ -4423,6 +4446,10 @@
                     };
 
                     socket.onclose = () => {
+                        if (socket._pingTimer) {
+                            clearInterval(socket._pingTimer);
+                            socket._pingTimer = null;
+                        }
                         if (pingTimer) {
                             clearInterval(pingTimer);
                             pingTimer = null;
@@ -4441,19 +4468,35 @@
                             });
                         }
 
-                        // Auto-discover via bridge Gist if WebSocket dropped unexpectedly (e.g. tunnel rotation)
-                        if (ep.gistId) {
-                            setTimeout(() => {
-                                this.syncEndpointFromGist(ep.id, true).then(() => {
+                        // Deduplicate and backoff reconnect timers
+                        if (ep._reconnectTimer) {
+                            clearTimeout(ep._reconnectTimer);
+                            ep._reconnectTimer = null;
+                        }
+
+                        ep._reconnectAttempts = (ep._reconnectAttempts || 0) + 1;
+                        // Progressive backoff: 2.5s, 4s, 6s, 10s, 15s, up to 45s max
+                        const delayMs = Math.min(45000, Math.round(2500 * Math.pow(1.5, Math.min(ep._reconnectAttempts - 1, 7))));
+
+                        ep._reconnectTimer = setTimeout(() => {
+                            ep._reconnectTimer = null;
+                            if (!ep.enabled) return;
+
+                            const now = Date.now();
+                            const gistInterval = Math.min(300000, 20000 * Math.pow(1.5, Math.min(ep._reconnectAttempts - 1, 6)));
+
+                            if (ep.gistId && (!ep._lastGistAutoCheck || (now - ep._lastGistAutoCheck > gistInterval))) {
+                                ep._lastGistAutoCheck = now;
+                                this.syncEndpointFromGist(ep.id, false).then(() => {
                                     this.syncAccounts(true);
                                     if (ep.enabled) this.ensureWebSocket();
+                                }).catch(() => {
+                                    if (ep.enabled) this.ensureWebSocket();
                                 });
-                            }, 2500);
-                        } else {
-                            setTimeout(() => {
+                            } else {
                                 if (ep.enabled) this.ensureWebSocket();
-                            }, 2500);
-                        }
+                            }
+                        }, delayMs);
                     };
 
                     socket.onerror = () => {
@@ -4475,9 +4518,20 @@
                 });
                 this._wsPendingRequests.clear();
             }
+            (this.endpoints || []).forEach(ep => {
+                if (ep && ep._reconnectTimer) {
+                    clearTimeout(ep._reconnectTimer);
+                    ep._reconnectTimer = null;
+                }
+            });
             this.wsSockets.forEach((sock) => {
+                if (sock._pingTimer) {
+                    clearInterval(sock._pingTimer);
+                    sock._pingTimer = null;
+                }
                 try {
                     sock.onclose = null;
+                    sock.onerror = null;
                     sock.close();
                 } catch (_) {}
             });

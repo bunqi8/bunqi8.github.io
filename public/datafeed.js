@@ -1591,7 +1591,10 @@ const Datafeed = {
                             // Start stitching with a 2-candle overlap before actualLatestPqSec to guarantee zero gaps
                             const tailFromSec = Math.max(rawFrom, actualLatestPqSec - (intervalSec * 2));
                             const fetchToSec = Math.max(rawTo, nowSec + intervalSec);
-                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, Math.max(countBack || 500, 150), accId);
+                            const missingGapSec = Math.max(0, fetchToSec - tailFromSec);
+                            const estimatedMissingBars = Math.ceil(missingGapSec / intervalSec) + 50;
+                            const neededCount = Math.min(10000, Math.max(countBack || 500, estimatedMissingBars, 250));
+                            const tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
                             if (tailBars && tailBars.length > 0) {
                                 mt5Bars = window.MT5ParquetIndex.mergeBars(parquetBars, tailBars);
                             } else {
@@ -1606,7 +1609,8 @@ const Datafeed = {
                     }
                 } else {
                     // Parquet miss: fallback to live bridge
-                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, countBack || 500, accId);
+                    const fallbackCount = firstDataRequest ? Math.max(countBack || 500, 2000) : (countBack || 500);
+                    mt5Bars = await window.MT5API.fetchBars(cleanSym, resolution, rawFrom, rawTo, fallbackCount, accId);
 
                     // Enqueue background archival on bridge so next time it is 0ms Parquet cached!
                     if (window.MT5API && typeof window.MT5API.triggerHFSync === 'function') {
