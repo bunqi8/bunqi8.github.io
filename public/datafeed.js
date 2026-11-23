@@ -1402,6 +1402,16 @@ const Datafeed = {
             }
             window._barsCache[generalCacheKey] = cachedBars;
 
+            // Invalidate cache if an abnormal data gap (>3.5 calendar days) exists inside cached bars
+            let hasCacheGap = false;
+            for (let i = Math.max(0, cachedBars.length - 2000); i < cachedBars.length - 1; i++) {
+                const diffMs = cachedBars[i + 1].time - cachedBars[i].time;
+                if (diffMs > (86400 * 3.5 * 1000)) {
+                    hasCacheGap = true;
+                    break;
+                }
+            }
+
             const lastCached = cachedBars[cachedBars.length - 1];
             const intervalMs = (function(r) {
                 const s = String(r).toUpperCase().trim();
@@ -1413,7 +1423,10 @@ const Datafeed = {
             })(resolution);
             const isFresh = lastCached && ((Date.now() - lastCached.time) < (intervalMs * 1.5));
 
-            if (isFresh) {
+            if (hasCacheGap) {
+                console.log(`[datafeed] Detected data gap inside cached bars for ${generalCacheKey}. Purging stale cache for fresh Parquet+Live stitch.`);
+                delete window._barsCache[generalCacheKey];
+            } else if (isFresh) {
                 if (window.BarLimitManager) {
                     window.BarLimitManager.setBarCount(generalCacheKey, cachedBars.length);
                     if (cachedBars.length > 0) {
@@ -1575,7 +1588,7 @@ const Datafeed = {
                     // Determine where the actual parquet bars end (NOT static manifest metadata)
                     const actualLatestPqSec = Math.floor(parquetBars[parquetBars.length - 1].time / 1000);
                     const nowSec = Math.floor(Date.now() / 1000);
-                    const isTailNeeded = (rawTo > actualLatestPqSec) || (nowSec > actualLatestPqSec) || firstDataRequest;
+                    const isTailNeeded = firstDataRequest || (rawTo > actualLatestPqSec);
 
                     if (isTailNeeded && window.MT5API && targetAcc) {
                         try {
@@ -1588,15 +1601,16 @@ const Datafeed = {
                                 return isNaN(n) || n <= 0 ? 60 : n * 60;
                             })(resolution);
 
-                            // Start stitching with a 2-candle overlap before actualLatestPqSec to guarantee zero gaps
-                            const tailFromSec = Math.max(rawFrom, actualLatestPqSec - (intervalSec * 2));
+                            // Start stitching directly from the end of Parquet (minus 2 candles overlap) to guarantee zero gap
+                            // NEVER clamp to rawFrom, which skips un-archived trading days between Parquet and the viewport
+                            const tailFromSec = actualLatestPqSec - (intervalSec * 2);
                             const fetchToSec = Math.max(rawTo, nowSec + intervalSec);
                             const missingGapSec = Math.max(0, fetchToSec - tailFromSec);
                             const estimatedMissingBars = Math.ceil(missingGapSec / intervalSec) + 50;
-                            const neededCount = Math.min(10000, Math.max(countBack || 500, estimatedMissingBars, 250));
+                            const neededCount = Math.min(50000, Math.max(countBack || 500, estimatedMissingBars, 250));
                             let tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
                             if ((!tailBars || tailBars.length === 0) && firstDataRequest) {
-                                await new Promise(r => setTimeout(r, 400));
+                                await new Promise(r => setTimeout(r, 500));
                                 tailBars = await window.MT5API.fetchBars(cleanSym, resolution, tailFromSec, fetchToSec, neededCount, accId);
                             }
                             if (tailBars && tailBars.length > 0) {

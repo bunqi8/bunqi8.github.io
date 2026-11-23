@@ -3824,6 +3824,7 @@
             // 1. Try WebSocket RPC first
             if (ep) {
                 try {
+                    const wsTimeout = (Number(count) > 1000 || (to && from && (to - from) > 86400 * 2)) ? 8000 : 3500;
                     const wsRes = await this.wsRequest(ep.id, {
                         action: 'get_bars',
                         symbol: cleanSym,
@@ -3832,7 +3833,7 @@
                         from: from ? Math.floor(from) : null,
                         to: to ? Math.ceil(to) : null,
                         account_id: targetAccId
-                    }, 3500);
+                    }, wsTimeout);
 
                     if (wsRes && wsRes.success && Array.isArray(wsRes.bars)) {
                         ep.status = 'online';
