@@ -344,6 +344,16 @@ async function fetchCsvExpiries(baseTicker) {
             await window.SyncManager.syncCsvExpiries([baseTicker]);
             csvExpiries = await window.SyncManager.getCsvExpiries(baseTicker);
         }
+        if (csvExpiries && csvExpiries.length > 0) {
+            const dateMap = new Map();
+            for (const item of csvExpiries) {
+                const existing = dateMap.get(item.dateStr);
+                if (!existing || item.dateObjValue > existing.dateObjValue) {
+                    dateMap.set(item.dateStr, item);
+                }
+            }
+            csvExpiries = Array.from(dateMap.values()).sort((a,b) => a.dateObjValue - b.dateObjValue);
+        }
         window.CSV_EXPIRIES_CACHE[baseTicker] = csvExpiries || [];
         window._csv_fetching[baseTicker] = false;
         return window.CSV_EXPIRIES_CACHE[baseTicker];
@@ -538,8 +548,16 @@ function updateExpiryStrip() {
     }
 
     const csvExpiries = window.CSV_EXPIRIES_CACHE[window.ACTIVE_BASE_TICKER] || [];
-    let combined = [...filteredExpiries];
-    const actualDateStrs = new Set(filteredExpiries.map(e => e.dateStr));
+    const seenDateStrs = new Set();
+    let combined = [];
+    
+    // Add all downloaded actual expiries first
+    for (const exp of filteredExpiries) {
+        if (!seenDateStrs.has(exp.dateStr)) {
+            seenDateStrs.add(exp.dateStr);
+            combined.push(exp);
+        }
+    }
     
     const now = Date.now();
     let nextFutureDateObj = null;
@@ -550,11 +568,14 @@ function updateExpiryStrip() {
         }
     }
     
+    // Add CSV placeholder dummy expiries (deduplicated by dateStr)
     for (const ce of csvExpiries) {
-        if (!actualDateStrs.has(ce.dateStr)) {
+        if (!seenDateStrs.has(ce.dateStr)) {
             if (ce.dateObjValue <= now) {
+                seenDateStrs.add(ce.dateStr);
                 combined.push(ce);
             } else if (ce.dateObjValue === nextFutureDateObj) {
+                seenDateStrs.add(ce.dateStr);
                 combined.push(ce);
             }
         }
@@ -570,9 +591,8 @@ function updateExpiryStrip() {
             if (!exp.expiryCode && ce.expiryCode) exp.expiryCode = ce.expiryCode;
             if (!exp.expiryType && ce.expiryType) exp.expiryType = ce.expiryType;
             if (now >= ce.dateObjValue) {
-                const nextMidnightUTC = new Date(ce.dateObjValue);
-                nextMidnightUTC.setUTCHours(24, 0, 0, 0);
-                if (now < nextMidnightUTC.getTime()) {
+                // Golden period: session ended, within 24 hours of market close
+                if (now < (ce.dateObjValue + 86400000)) {
                     exp.isGolden = true;
                 }
             }
@@ -591,15 +611,15 @@ function updateExpiryStrip() {
     const nowMs = Date.now();
     let liveTargetId = null;
     for (const exp of combined) {
-        // An expiry is 'live' only if it is a placeholder/dummy that has NOT been downloaded yet
-        if (exp.isDummy && (exp.dateObjValue + 86400000) > nowMs) {
+        // An expiry is 'live' only if it is a placeholder/dummy that has NOT expired yet (upcoming or active today)
+        if (exp.isDummy && exp.dateObjValue > nowMs) {
             liveTargetId = exp.id;
             break;
         }
     }
     
     for (const exp of combined) {
-        exp.isLiveTarget = (exp.id === liveTargetId);
+        exp.isLiveTarget = Boolean(liveTargetId && exp.id === liveTargetId);
     }
     
     // Update Title & Index button
@@ -722,9 +742,7 @@ window.checkGlobalGoldenPeriod = function() {
             
             for (const ce of csvs) {
                 if (now >= ce.dateObjValue) {
-                    const nextMidnightUTC = new Date(ce.dateObjValue);
-                    nextMidnightUTC.setUTCHours(24, 0, 0, 0);
-                    if (now < nextMidnightUTC.getTime()) {
+                    if (now < (ce.dateObjValue + 86400000)) {
                         if (!downloadedDates.has(ce.dateStr)) {
                             hasMissing = true;
                             anyMissing = true;

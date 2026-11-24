@@ -71,7 +71,7 @@ const SyncManager = {
                 if (!res.ok) continue;
                 const text = await res.text();
                 const lines = text.trim().split('\n').slice(1);
-                const csvExpiries = [];
+                const expiryByDateStr = new Map();
                 for (const line of lines) {
                     const parts = line.split(',');
                     if (parts.length < 2) continue;
@@ -89,7 +89,7 @@ const SyncManager = {
                         if (year !== currentYear && year > 2000) {
                             monthLabel += " '" + (year % 100).toString().padStart(2, '0');
                         }
-                        csvExpiries.push({
+                        const item = {
                             id: `dummy_${bt}_${yyyymmdd}`,
                             baseTicker: bt,
                             dateStr: yyyymmdd,
@@ -99,9 +99,14 @@ const SyncManager = {
                             isDummy: true,
                             expiryType: parts[3] ? parts[3].trim() : '',
                             expiryCode: parts[4] ? parts[4].trim() : ''
-                        });
+                        };
+                        const existing = expiryByDateStr.get(yyyymmdd);
+                        if (!existing || item.dateObjValue > existing.dateObjValue) {
+                            expiryByDateStr.set(yyyymmdd, item);
+                        }
                     }
                 }
+                const csvExpiries = Array.from(expiryByDateStr.values());
                 csvExpiries.sort((a,b) => a.dateObjValue - b.dateObjValue);
                 await this.saveCsvExpiries(bt, csvExpiries);
                 window.dispatchEvent(new CustomEvent('hf_csv_updated', { detail: bt }));
