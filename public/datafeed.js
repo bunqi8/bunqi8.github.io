@@ -2080,6 +2080,18 @@ const Datafeed = {
             if (!window._mt5ResetCallbacks) window._mt5ResetCallbacks = new Map();
             window._mt5ResetCallbacks.set(subscriberUID, onResetCacheNeededCallback);
 
+            let lastRealtimeCallTime = 0;
+            let realtimeThrottleTimer = null;
+
+            const flushRealtimeCallback = (bar) => {
+                if (realtimeThrottleTimer) {
+                    clearTimeout(realtimeThrottleTimer);
+                    realtimeThrottleTimer = null;
+                }
+                lastRealtimeCallTime = performance.now();
+                onRealtimeCallback({ ...bar });
+            };
+
             const getResolutionMs = (res) => {
                 const r = String(res).toUpperCase();
                 if (r === 'D' || r === '1D') return 86400 * 1000;
@@ -2243,7 +2255,7 @@ const Datafeed = {
                             lastBar.low = Number(p.low);
                             lastBar.close = Number(p.close);
                             lastBar.volume = Number(p.volume);
-                            onRealtimeCallback({ ...lastBar });
+                            flushRealtimeCallback(lastBar);
                         }
                     }
 
@@ -2272,7 +2284,7 @@ const Datafeed = {
                                         .filter(b => b.time > lastBar.time && b.time < targetBarTime && !isNaN(b.close))
                                         .sort((a, b) => a.time - b.time);
                                     for (const gb of validGapBars) {
-                                        onRealtimeCallback({ ...gb });
+                                        flushRealtimeCallback(gb);
                                         lastBar = { ...gb };
                                         window._tvLastBar[unifiedKey] = lastBar;
                                         window._tvLastBar[cacheKey] = lastBar;
@@ -2299,7 +2311,7 @@ const Datafeed = {
                     };
                     window._tvLastBar[unifiedKey] = lastBar;
                     window._tvLastBar[cacheKey] = lastBar;
-                    onRealtimeCallback({ ...lastBar });
+                    flushRealtimeCallback(lastBar);
                     return;
                 }
 
@@ -2334,7 +2346,27 @@ const Datafeed = {
                     return;
                 }
 
-                onRealtimeCallback({ ...lastBar });
+                // High-Frequency Realtime Repaint Throttle (250ms):
+                // TradingView Charting Library recalculates the entire series and runs active indicator studies on each callback.
+                // Throttling updates to the active forming candle to 250ms prevents V8 heap churn and worker bridge saturation
+                // while keeping live on-chart ticking completely fluid and real-time.
+                const now = performance.now();
+                if (now - lastRealtimeCallTime >= 250) {
+                    flushRealtimeCallback(lastBar);
+                } else if (!realtimeThrottleTimer) {
+                    realtimeThrottleTimer = setTimeout(() => {
+                        realtimeThrottleTimer = null;
+                        lastRealtimeCallTime = performance.now();
+                        onRealtimeCallback({ ...lastBar });
+                    }, 250);
+                }
+            };
+
+            mt5Cb._cleanup = () => {
+                if (realtimeThrottleTimer) {
+                    clearTimeout(realtimeThrottleTimer);
+                    realtimeThrottleTimer = null;
+                }
             };
 
             window.MT5API.subscribeQuotes(cleanSym, resolution, mt5Cb, accId);
@@ -2365,6 +2397,18 @@ const Datafeed = {
         };
         const tfMs = getFyersResolutionMs(resolution);
         
+        let lastFyersRealtimeCallTime = 0;
+        let fyersRealtimeThrottleTimer = null;
+
+        const flushFyersRealtimeCallback = (bar) => {
+            if (fyersRealtimeThrottleTimer) {
+                clearTimeout(fyersRealtimeThrottleTimer);
+                fyersRealtimeThrottleTimer = null;
+            }
+            lastFyersRealtimeCallTime = performance.now();
+            onRealtimeCallback({ ...bar });
+        };
+
         const cb = (tick) => {
             let alignedTick = { ...tick };
             const cacheKey = `${fyersSymbol}_${resolution}`;
@@ -2399,7 +2443,7 @@ const Datafeed = {
                     volume: alignedTick.volume || 0
                 };
                 window._tvLastBar[cacheKey] = lastBar;
-                onRealtimeCallback({ ...lastBar });
+                flushFyersRealtimeCallback(lastBar);
                 return;
             }
             
@@ -2418,6 +2462,7 @@ const Datafeed = {
                     volume: alignedTick.volume || 0
                 };
                 window._tvLastBar[cacheKey] = lastBar;
+                flushFyersRealtimeCallback(lastBar);
             } else {
                 // Update forming candle (never drop)
                 if (isDWM) {
@@ -2441,7 +2486,24 @@ const Datafeed = {
                 window.WatchlistUI.onLivePrice(fyersSymbol, fPrice, alignedTick.daily_open || null, alignedTick.change !== undefined ? alignedTick.change : null);
             }
             
-            onRealtimeCallback({ ...lastBar });
+            // High-Frequency Realtime Repaint Throttle (250ms)
+            const now = performance.now();
+            if (now - lastFyersRealtimeCallTime >= 250) {
+                flushFyersRealtimeCallback(lastBar);
+            } else if (!fyersRealtimeThrottleTimer) {
+                fyersRealtimeThrottleTimer = setTimeout(() => {
+                    fyersRealtimeThrottleTimer = null;
+                    lastFyersRealtimeCallTime = performance.now();
+                    onRealtimeCallback({ ...lastBar });
+                }, 250);
+            }
+        };
+
+        cb._cleanup = () => {
+            if (fyersRealtimeThrottleTimer) {
+                clearTimeout(fyersRealtimeThrottleTimer);
+                fyersRealtimeThrottleTimer = null;
+            }
         };
         window._tvSubscribers.set(subscriberUID, { symbol: fyersSymbol, cb });
         window.FyersAPI.subscribe(fyersSymbol, cb, onResetCacheNeededCallback);
@@ -2452,6 +2514,9 @@ const Datafeed = {
         if (window._mt5Subscribers && window._mt5Subscribers.has(subscriberUID)) {
             const sub = window._mt5Subscribers.get(subscriberUID);
             const cb = (sub && sub.cb) ? sub.cb : sub;
+            if (cb && typeof cb._cleanup === 'function') {
+                cb._cleanup();
+            }
             if (window.MT5API && cb) {
                 window.MT5API.unsubscribeQuotes(cb);
             }
@@ -2463,7 +2528,10 @@ const Datafeed = {
         }
         if (window._tvSubscribers && window._tvSubscribers.has(subscriberUID)) {
             const sub = window._tvSubscribers.get(subscriberUID);
-            if (window.FyersAPI) window.FyersAPI.unsubscribe(sub.symbol, sub.cb);
+            if (sub && sub.cb && typeof sub.cb._cleanup === 'function') {
+                sub.cb._cleanup();
+            }
+            if (window.FyersAPI && sub) window.FyersAPI.unsubscribe(sub.symbol, sub.cb);
             window._tvSubscribers.delete(subscriberUID);
         }
     }

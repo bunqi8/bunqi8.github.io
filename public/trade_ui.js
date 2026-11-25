@@ -249,12 +249,20 @@
                 });
             }
 
-            // Bind to live ticks from broker
+            // Bind to live ticks from broker with change detection and 150ms UI throttle
             this._mt5TickHandler = (tick) => {
                 if (tick && tick.bid && tick.ask) {
-                    this.currentBid = Number(tick.bid);
-                    this.currentAsk = Number(tick.ask);
-                    this.updatePrices();
+                    const b = Number(tick.bid);
+                    const a = Number(tick.ask);
+                    if (this.currentBid === b && this.currentAsk === a) return;
+                    this.currentBid = b;
+                    this.currentAsk = a;
+
+                    const now = performance.now();
+                    if (!this._lastPriceUiUpdate || (now - this._lastPriceUiUpdate >= 150)) {
+                        this._lastPriceUiUpdate = now;
+                        this.updatePrices();
+                    }
                 }
             };
             if (window.MT5API && window.MT5API.isMt5Symbol(this.currentSymbol)) {
@@ -262,6 +270,7 @@
             }
 
             // Periodic sync interval (prices, symbol, toolbar button, chart lines, launcher)
+            // Throttled to 2000ms to preserve idle event loop and prevent high-frequency DOM churn
             setInterval(() => {
                 this.detectSymbolChange();
                 this.renderOnChartWidget();
@@ -269,7 +278,7 @@
                 this.renderBottomLauncherBar();
                 this.updatePrices();
                 this.syncNativeChartLines();
-            }, 600);
+            }, 2000);
 
             // Bind Bottom Resizer Drag Events
             this.bindBottomPanelResizer();
@@ -4751,6 +4760,16 @@
                 ? window.PaperTrading.getPositions() 
                 : (this.positions || []);
             const posCount = curPositions.length;
+
+            const curPosCountAttr = bar.getAttribute('data-pos-count');
+            const curOpenAttr = bar.getAttribute('data-is-open');
+            const curThemeAttr = bar.getAttribute('data-theme-dark');
+            if (curPosCountAttr === String(posCount) && curOpenAttr === String(this.isBottomPanelOpen) && curThemeAttr === String(theme.isDark)) {
+                return;
+            }
+            bar.setAttribute('data-pos-count', String(posCount));
+            bar.setAttribute('data-is-open', String(this.isBottomPanelOpen));
+            bar.setAttribute('data-theme-dark', String(theme.isDark));
 
             bar.style.cssText = `
                 position: fixed;

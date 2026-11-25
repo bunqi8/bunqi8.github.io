@@ -248,10 +248,14 @@
             let mt5Accounts = 0;
             if (window.MT5API) {
                 if (Array.isArray(window.MT5API.endpoints)) {
-                    mt5Conns = window.MT5API.endpoints.filter(e => e && e.connected).length;
+                    mt5Conns = window.MT5API.endpoints.filter(e => {
+                        if (!e || !e.enabled) return false;
+                        const sock = window.MT5API.wsSockets ? window.MT5API.wsSockets.get(e.id) : null;
+                        return (sock && sock.readyState === WebSocket.OPEN) || e.status === 'online';
+                    }).length;
                 }
                 if (Array.isArray(window.MT5API.accounts)) {
-                    mt5Accounts = window.MT5API.accounts.filter(a => a && a.is_connected).length;
+                    mt5Accounts = window.MT5API.accounts.filter(a => a && (a.is_connected || a.connected)).length;
                 }
             }
 
@@ -302,46 +306,184 @@
                     // Update HUD display
                     this.updateHUD(snapshot);
 
-                    // Proactive Emergency Circuit-Breaker:
-                    // If V8 heap exceeds 82% of limit (>3,400 MB) or 3,500 MB,
-                    // proactively clear caches and reset sockets to prevent browser tab kill
-                    if (snapshot.mem && (snapshot.mem.pctOfLimit >= 82 || snapshot.mem.usedMB >= 3500)) {
-                        this.triggerEmergencyMemoryPurge(snapshot.mem);
+                    // Multi-Tier Proactive Auto-Healer & Circuit-Breaker:
+                    // Stage 1 (Memory >= 2200 MB / ~52% limit): Defensive cache & stream reset
+                    // Stage 2 (Memory >= 2800 MB / ~67% limit): Deep flush & bridge socket reconnection
+                    // Stage 3 (Memory >= 3400 MB / ~82% limit): Orderly state preservation & auto-reload before browser OOM kill
+                    if (snapshot.mem) {
+                        if (snapshot.mem.pctOfLimit >= 82 || snapshot.mem.usedMB >= 3400) {
+                            this.triggerStage3AutoReloadCircuitBreaker(snapshot.mem);
+                        } else if (snapshot.mem.pctOfLimit >= 67 || snapshot.mem.usedMB >= 2800) {
+                            this.triggerStage2DeepPurge(snapshot.mem);
+                        } else if (snapshot.mem.pctOfLimit >= 52 || snapshot.mem.usedMB >= 2200) {
+                            this.triggerStage1DefensivePurge(snapshot.mem);
+                        }
                     }
                 } catch (_) {}
             }, HEARTBEAT_INTERVAL_MS);
         }
 
-        triggerEmergencyMemoryPurge(mem) {
+        triggerStage1DefensivePurge(mem) {
             const now = Date.now();
-            if (this._lastEmergencyPurge && (now - this._lastEmergencyPurge < 60000)) return;
-            this._lastEmergencyPurge = now;
+            if (this._lastStage1Purge && (now - this._lastStage1Purge < 90000)) return;
+            this._lastStage1Purge = now;
 
-            console.warn(`[FlightRecorder] 🚨 EMERGENCY CIRCUIT-BREAKER: Memory reached ${mem.usedMB} MB (${mem.pctOfLimit}% limit). Executing defensive purge...`);
+            console.warn(`[FlightRecorder] ⚡ Tier-1 Proactive Auto-Heal: Memory at ${mem.usedMB} MB (${mem.pctOfLimit}% limit). Executing defensive cache & stream cleanup...`);
 
             this.recordError({
-                type: 'emergency_circuit_breaker',
-                message: `Defensive memory purge triggered at ${mem.usedMB} MB (${mem.pctOfLimit}% limit)`,
+                type: 'auto_heal_stage1',
+                message: `Tier-1 Memory Hygiene triggered at ${mem.usedMB} MB (${mem.pctOfLimit}% limit)`,
                 time: now
             });
 
-            // 1. Purge stale in-memory bar caches
+            // 1. Purge historical caches for all symbols except the active chart symbol
+            let activeSym = '';
+            try {
+                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                    activeSym = (window.tvWidget.activeChart().symbol() || '').replace(/[^A-Za-z0-9_]/g, '');
+                }
+            } catch (_) {}
+
             if (window._barsCache) {
                 const keys = Object.keys(window._barsCache);
                 for (let i = 0; i < keys.length; i++) {
-                    delete window._barsCache[keys[i]];
+                    const k = keys[i];
+                    if (!activeSym || !k.includes(activeSym)) {
+                        delete window._barsCache[k];
+                    }
                 }
             }
 
-            // 2. Reset TradingView widget cache
-            if (window.tvWidget && typeof window.tvWidget.resetCache === 'function') {
-                try { window.tvWidget.resetCache(); } catch (_) {}
+            // 2. Request TradingView to rerequest active series data (flushes stale barset)
+            try {
+                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                    const chart = window.tvWidget.activeChart();
+                    if (chart && typeof chart.resetData === 'function') {
+                        chart.resetData();
+                    }
+                }
+            } catch (_) {}
+
+            // 3. Trigger reset callbacks in datafeed
+            if (window._mt5ResetCallbacks) {
+                window._mt5ResetCallbacks.forEach(cb => { try { cb(); } catch (_) {} });
+            }
+            if (window._tvResetCache) {
+                try { window._tvResetCache(); } catch (_) {}
             }
 
-            // 3. Clean up MT5 client sockets & timers
+            if (window.gc) {
+                try { window.gc(); } catch (_) {}
+            }
+        }
+
+        triggerStage2DeepPurge(mem) {
+            const now = Date.now();
+            if (this._lastStage2Purge && (now - this._lastStage2Purge < 90000)) return;
+            this._lastStage2Purge = now;
+
+            console.warn(`[FlightRecorder] 🚨 Tier-2 Auto-Heal Deep Purge: Memory at ${mem.usedMB} MB (${mem.pctOfLimit}% limit). Flushing sockets and resetting engine buffers...`);
+
+            this.recordError({
+                type: 'auto_heal_stage2',
+                message: `Tier-2 Deep Purge triggered at ${mem.usedMB} MB (${mem.pctOfLimit}% limit)`,
+                time: now
+            });
+
+            this.triggerStage1DefensivePurge(mem);
+
+            // Reconnect MT5 WebSockets to flush buffered frames
             if (window.MT5API && typeof window.MT5API.reconnectWebSocket === 'function') {
                 try { window.MT5API.reconnectWebSocket(); } catch (_) {}
             }
+            if (window.FyersAPI && typeof window.FyersAPI.reconnectWebSocket === 'function') {
+                try { window.FyersAPI.reconnectWebSocket(); } catch (_) {}
+            }
+
+            this.showToast(`⚡ Auto-Healer: Deep memory purge executed (${mem.usedMB} MB)`);
+        }
+
+        triggerStage3AutoReloadCircuitBreaker(mem) {
+            if (this._stage3ReloadTriggered) return;
+            this._stage3ReloadTriggered = true;
+
+            console.error(`[FlightRecorder] 🚨🚨 CRITICAL CIRCUIT-BREAKER: Memory reached ${mem.usedMB} MB (${mem.pctOfLimit}% limit). Executing orderly auto-reload to protect session state against Chrome OOM kill...`);
+
+            this.recordError({
+                type: 'auto_heal_stage3_reload',
+                message: `Critical Circuit-Breaker: Orderly session refresh triggered at ${mem.usedMB} MB (${mem.pctOfLimit}% limit)`,
+                time: Date.now()
+            });
+
+            // 1. Mark session as orderly with autoHealReload flag so autopsy modal knows this was intentional
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_SESSION);
+                if (raw) {
+                    const sess = JSON.parse(raw);
+                    sess.orderlyShutdown = true;
+                    sess.autoHealReload = true;
+                    sess.shutdownTime = Date.now();
+                    sess.finalMem = mem;
+                    localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(sess));
+                }
+            } catch (_) {}
+
+            // 2. Persist chart layout & state
+            if (window.tvWidget && typeof window.tvWidget.saveChartToServer === 'function') {
+                try { window.tvWidget.saveChartToServer(); } catch (_) {}
+            }
+
+            // 3. Save emergency checkpoint to IndexedDB and export file
+            try {
+                this.exportAndDownloadLog('auto_heal_checkpoint', false);
+            } catch (_) {}
+
+            // 4. Show visual countdown overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'tv-auto-heal-notice';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                max-width: 420px;
+                background: rgba(19, 23, 34, 0.96);
+                border: 1px solid #3b82f6;
+                box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+                border-radius: 8px;
+                padding: 14px 18px;
+                z-index: 9999999;
+                color: #ffffff;
+                font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+            `;
+            overlay.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <span style="font-size: 18px;">⚡</span>
+                    <span style="font-size: 13.5px; font-weight: 700; color: #60a5fa;">Session Auto-Healer Active</span>
+                </div>
+                <div style="font-size: 12px; line-height: 1.5; color: #cbd5e1; margin-bottom: 10px;">
+                    V8 memory reached <strong>${mem.usedMB} MB</strong>. Performing a seamless, state-preserving refresh in <span id="tv-auto-heal-countdown" style="color: #60a5fa; font-weight: 700;">3</span>s to prevent browser tab crash. All drawings and layouts are saved.
+                </div>
+                <div style="height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                    <div style="height: 100%; background: #3b82f6; width: 100%;"></div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            let remainingSec = 3;
+            const cdInterval = setInterval(() => {
+                remainingSec--;
+                const cdEl = document.getElementById('tv-auto-heal-countdown');
+                if (cdEl) cdEl.textContent = String(remainingSec);
+                if (remainingSec <= 0) {
+                    clearInterval(cdInterval);
+                    window.location.reload();
+                }
+            }, 1000);
+        }
+
+        // Backward compatibility
+        triggerEmergencyMemoryPurge(mem) {
+            this.triggerStage1DefensivePurge(mem);
         }
 
         // ==========================================
@@ -476,6 +618,15 @@
                 // 3. Last heartbeat was recorded in the past
                 const wasAbnormal = prevSession.orderlyShutdown === false && 
                                    (prevSession.uptimeSec && prevSession.uptimeSec >= 25);
+
+                if (prevSession.autoHealReload) {
+                    const finalMB = prevSession.finalMem ? prevSession.finalMem.usedMB : '3400';
+                    console.log(`[FlightRecorder] ✓ Session successfully auto-healed after reaching ${finalMB} MB. Continuing streaming seamlessly.`);
+                    setTimeout(() => {
+                        this.showToast(`⚡ Session Auto-Healed: Memory refreshed cleanly at ${finalMB} MB.`);
+                    }, 2000);
+                    return;
+                }
 
                 if (wasAbnormal && prevTimeline.length > 0) {
                     const autopsy = this.generateAutopsyReport(prevSession, prevTimeline, prevErrors);
