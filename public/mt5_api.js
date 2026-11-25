@@ -4849,7 +4849,7 @@
                         comment
                     }, 5000);
                     if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined || wsRes.order !== undefined)) {
-                        await this.fetchPositions(targetAcc);
+                        this.fetchPositions(targetAcc).catch(() => {});
                         return wsRes;
                     }
                 } catch (wsErr) {
@@ -4875,7 +4875,7 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions(targetAcc);
+                this.fetchPositions(targetAcc).catch(() => {});
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };
@@ -4898,7 +4898,7 @@
                         tp: Number(tp)
                     }, 4500);
                     if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined)) {
-                        await this.fetchPositions(targetAcc);
+                        this.fetchPositions(targetAcc).catch(() => {});
                         return wsRes;
                     }
                 } catch (wsErr) {
@@ -4918,7 +4918,7 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions(targetAcc);
+                this.fetchPositions(targetAcc).catch(() => {});
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };
@@ -4940,7 +4940,7 @@
                         lots: lots ? Number(lots) : null
                     }, 4500);
                     if (wsRes && (wsRes.success !== undefined || wsRes.ticket !== undefined)) {
-                        await this.fetchPositions(targetAcc);
+                        this.fetchPositions(targetAcc).catch(() => {});
                         return wsRes;
                     }
                 } catch (wsErr) {
@@ -4959,7 +4959,7 @@
                     })
                 });
                 const data = await res.json();
-                await this.fetchPositions(targetAcc);
+                this.fetchPositions(targetAcc).catch(() => {});
                 return data;
             } catch (e) {
                 return { success: false, error: e.message };

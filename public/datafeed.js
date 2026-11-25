@@ -807,21 +807,24 @@ const TVFocusTracker = (function () {
             return hasFocus && !isIdle;
         },
         getAdaptiveThrottleMs() {
-            if (typeof document !== 'undefined' && document.hidden) {
-                return 1000; // Tab hidden/minimized/screen off: 1fps background sync
-            }
             const pMem = (typeof window !== 'undefined' && window.performance) ? window.performance.memory : null;
             const usedMB = pMem ? (pMem.usedJSHeapSize / (1024 * 1024)) : 0;
-            if (usedMB >= 2200) {
+            const isIdle = (Date.now() - lastActivityTime) >= IDLE_THRESHOLD_MS;
+
+            if (typeof document !== 'undefined' && document.hidden) {
+                // Background tab: keep indicators & strategies fed at 10 Hz while memory is healthy,
+                // step down to gentle eco mode only if heap grows or user has been idle overnight.
+                return (usedMB >= 1200 || isIdle) ? 400 : 100;
+            }
+            if (usedMB >= 2000) {
                 return 250; // Elevated heap protection: 4fps cap
             }
-            if (this.isFocusedAndActive()) {
-                return 0; // Active & focused: 0ms raw tick-by-tick MT5 feel
+            if (isIdle && (typeof document === 'undefined' || typeof document.hasFocus !== 'function' || !document.hasFocus())) {
+                return 300; // Unattended idle overnight
             }
-            if (typeof document !== 'undefined' && typeof document.hasFocus === 'function' && !document.hasFocus() && (Date.now() - lastActivityTime) < IDLE_THRESHOLD_MS) {
-                return 100; // Visible on secondary monitor while working elsewhere: 10fps
-            }
-            return 300; // Unattended / idle overnight: eco throttle
+            // Active / visible viewing (including multi-monitor or interacting with side panels):
+            // 0ms raw tick-by-tick dispatch so chart, indicators, and strategies receive every tick instantly.
+            return 0;
         },
         onResume(cb) {
             resumeCallbacks.add(cb);
@@ -904,6 +907,25 @@ function createAdaptiveRealtimeDispatcher(onRealtimeCallback) {
             unlistenResume();
         }
     };
+}
+
+/** Synchronously updates global latest price caches so downstream indicators/UI always see live ticks immediately. */
+function syncGlobalLivePrice(symbolInfo, cleanSym, price) {
+    if (!price || isNaN(price) || price <= 0) return;
+    if (!window._tvLatestMarketPrice) window._tvLatestMarketPrice = {};
+    const p = Number(price);
+    window._tvCurrentLastPrice = p;
+    if (cleanSym) window._tvLatestMarketPrice[cleanSym] = p;
+    if (symbolInfo) {
+        if (symbolInfo.name) {
+            const up = symbolInfo.name.toUpperCase();
+            window._tvLatestMarketPrice[up] = p;
+            window._tvLatestMarketPrice[up.replace(/^[A-Z0-9_-]+:/, '')] = p;
+        }
+        if (symbolInfo.ticker) {
+            window._tvLatestMarketPrice[symbolInfo.ticker.toUpperCase()] = p;
+        }
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -2298,6 +2320,8 @@ const Datafeed = {
                 const price = Number(tick.last && tick.last > 0 ? tick.last : tick.bid);
                 if (!price || isNaN(price)) return;
 
+                syncGlobalLivePrice(symbolInfo, cleanSym, price);
+
                 // Safely update TradeUI and Watchlist without disrupting chart streaming
                 try {
                     if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
@@ -2600,13 +2624,15 @@ const Datafeed = {
                 lastBar.volume = alignedTick.volume || lastBar.volume;
             }
             
+            const fLivePrice = alignedTick.close || (lastBar && lastBar.close);
+            syncGlobalLivePrice(symbolInfo, fyersSymbol, fLivePrice);
+
             if (window.TradeUIInstance && typeof window.TradeUIInstance.onLivePriceUpdate === 'function') {
-                window.TradeUIInstance.onLivePriceUpdate(alignedTick.close || (lastBar && lastBar.close), fyersSymbol, alignedTick.bid, alignedTick.ask);
+                window.TradeUIInstance.onLivePriceUpdate(fLivePrice, fyersSymbol, alignedTick.bid, alignedTick.ask);
             }
 
             if (window.WatchlistUI && typeof window.WatchlistUI.onLivePrice === 'function') {
-                const fPrice = alignedTick.close || (lastBar && lastBar.close);
-                window.WatchlistUI.onLivePrice(fyersSymbol, fPrice, alignedTick.daily_open || null, alignedTick.change !== undefined ? alignedTick.change : null);
+                window.WatchlistUI.onLivePrice(fyersSymbol, fLivePrice, alignedTick.daily_open || null, alignedTick.change !== undefined ? alignedTick.change : null);
             }
             
             fyersDispatcher.dispatch(lastBar, isNewBar);

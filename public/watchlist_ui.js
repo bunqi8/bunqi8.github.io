@@ -584,8 +584,10 @@
                     direction: Number(price) > prevPrice ? 'up' : (Number(price) < prevPrice ? 'down' : (existing.direction || 'none'))
                 };
 
-                this.updateRowPrice(targetSym);
-                this.updateRowAvailability(targetSym);
+                if (this.isOpen && (typeof document === 'undefined' || !document.hidden)) {
+                    this.updateRowPrice(targetSym);
+                    this.updateRowAvailability(targetSym);
+                }
             };
 
             updateSymbolKey(sym);
@@ -755,10 +757,10 @@
 
             if (priceEl) {
                 priceEl.textContent = this.formatPrice(q.price);
-                priceEl.classList.remove('flash-up', 'flash-down');
-                void priceEl.offsetWidth;
-                if (q.direction && q.direction !== 'none') {
-                    priceEl.classList.add(q.direction === 'up' ? 'flash-up' : 'flash-down');
+                if (q.direction && q.direction !== 'none' && q.price !== q.prevPrice) {
+                    priceEl.classList.remove('flash-up', 'flash-down');
+                    const cls = q.direction === 'up' ? 'flash-up' : 'flash-down';
+                    requestAnimationFrame(() => priceEl.classList.add(cls));
                 }
             }
 

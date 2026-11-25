@@ -249,35 +249,10 @@
                 });
             }
 
-            // Bind to live ticks from broker: update on every display frame (rAF) when focused, throttle when backgrounded
+            // Bind to live ticks from broker: execute SL/TP immediately on raw tick, coalesce DOM writes to rAF
             this._mt5TickHandler = (tick) => {
                 if (tick && tick.bid && tick.ask) {
-                    const b = Number(tick.bid);
-                    const a = Number(tick.ask);
-                    if (this.currentBid === b && this.currentAsk === a) return;
-                    this.currentBid = b;
-                    this.currentAsk = a;
-
-                    if (document.hidden) return;
-                    const isFocused = (window.TVFocusTracker && typeof window.TVFocusTracker.isFocusedAndActive === 'function')
-                        ? window.TVFocusTracker.isFocusedAndActive()
-                        : (typeof document.hasFocus !== 'function' || document.hasFocus());
-
-                    if (isFocused) {
-                        if (!this._priceUpdateRafId) {
-                            this._priceUpdateRafId = requestAnimationFrame(() => {
-                                this._priceUpdateRafId = null;
-                                this._lastPriceUiUpdate = performance.now();
-                                this.updatePrices();
-                            });
-                        }
-                    } else {
-                        const now = performance.now();
-                        if (!this._lastPriceUiUpdate || (now - this._lastPriceUiUpdate >= 250)) {
-                            this._lastPriceUiUpdate = now;
-                            this.updatePrices();
-                        }
-                    }
+                    this._applyTickAndExecute(Number(tick.bid), Number(tick.ask));
                 }
             };
             if (window.MT5API && window.MT5API.isMt5Symbol(this.currentSymbol)) {
@@ -288,6 +263,7 @@
             // Throttled to 2000ms to preserve idle event loop and prevent high-frequency DOM churn
             setInterval(() => {
                 this.detectSymbolChange();
+                if (typeof document !== 'undefined' && document.hidden) return;
                 this.renderOnChartWidget();
                 this.injectToolbarButton();
                 this.renderBottomLauncherBar();
@@ -324,14 +300,52 @@
             this.updateChartContainerLayout();
         }
 
+        _applyTickAndExecute(bid, ask) {
+            if (!bid || !ask || isNaN(bid) || isNaN(ask)) return;
+            if (this.currentBid === bid && this.currentAsk === ask) return;
+            this.currentBid = bid;
+            this.currentAsk = ask;
+
+            // Synchronous zero-delay SL/TP & simulation execution (always runs even when tab is hidden)
+            if (window.PaperTrading) {
+                window.PaperTrading.onPriceTick(this.currentSymbol, this.currentBid, this.currentAsk);
+            }
+
+            this.schedulePriceUiUpdate();
+        }
+
+        schedulePriceUiUpdate() {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            const isActiveVisible = (window.TVFocusTracker && typeof window.TVFocusTracker.getAdaptiveThrottleMs === 'function')
+                ? (window.TVFocusTracker.getAdaptiveThrottleMs() === 0)
+                : (typeof document === 'undefined' || typeof document.hasFocus !== 'function' || document.hasFocus());
+
+            if (isActiveVisible) {
+                if (!this._priceUpdateRafId) {
+                    this._priceUpdateRafId = requestAnimationFrame(() => {
+                        this._priceUpdateRafId = null;
+                        this._lastPriceUiUpdate = performance.now();
+                        this.updatePrices();
+                    });
+                }
+            } else {
+                const now = performance.now();
+                if (!this._lastPriceUiUpdate || (now - this._lastPriceUiUpdate >= 250)) {
+                    this._lastPriceUiUpdate = now;
+                    this.updatePrices();
+                }
+            }
+        }
+
         onLivePriceUpdate(price, symbol = null, bid = null, ask = null) {
             if (!price || isNaN(price) || price <= 0) return;
             const num = Number(price);
             this.lastLiveCandlePrice = num;
 
+            let nextBid, nextAsk;
             if (bid != null && ask != null && !isNaN(bid) && !isNaN(ask) && ask >= bid) {
-                this.currentBid = Number(bid);
-                this.currentAsk = Number(ask);
+                nextBid = Number(bid);
+                nextAsk = Number(ask);
             } else {
                 const isNifty = this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY');
                 const isGold = this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD');
@@ -352,10 +366,10 @@
                     spreadStep = num > 500 ? 0.50 : 0.05;
                 }
 
-                this.currentBid = num;
-                this.currentAsk = Number((num + spreadStep).toFixed(5));
+                nextBid = num;
+                nextAsk = Number((num + spreadStep).toFixed(5));
             }
-            this.updatePrices();
+            this._applyTickAndExecute(nextBid, nextAsk);
         }
 
         getChartPrice() {

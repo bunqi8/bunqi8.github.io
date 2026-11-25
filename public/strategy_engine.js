@@ -242,7 +242,7 @@
             if (this.debounceTimer) clearTimeout(this.debounceTimer);
             this.debounceTimer = setTimeout(() => {
                 StrategyEngine.calculateAndEmit(this);
-            }, 80);
+            }, 20);
         }
     }
 
