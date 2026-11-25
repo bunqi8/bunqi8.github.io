@@ -355,21 +355,21 @@
             }
 
             // 2. Request TradingView to rerequest active series data (flushes stale barset)
-            try {
-                if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
-                    const chart = window.tvWidget.activeChart();
-                    if (chart && typeof chart.resetData === 'function') {
-                        chart.resetData();
-                    }
-                }
-            } catch (_) {}
+            // Defer series reset while user is actively focused unless memory crosses 2,600 MB,
+            // and never invoke onResetCacheNeededCallback directly (which can unhook real-time streaming).
+            const isUserFocused = (window.TVFocusTracker && typeof window.TVFocusTracker.isFocusedAndActive === 'function')
+                ? window.TVFocusTracker.isFocusedAndActive()
+                : (!document.hidden && (typeof document.hasFocus !== 'function' || document.hasFocus()));
 
-            // 3. Trigger reset callbacks in datafeed
-            if (window._mt5ResetCallbacks) {
-                window._mt5ResetCallbacks.forEach(cb => { try { cb(); } catch (_) {} });
-            }
-            if (window._tvResetCache) {
-                try { window._tvResetCache(); } catch (_) {}
+            if (!isUserFocused || mem.usedMB >= 2600) {
+                try {
+                    if (window.tvWidget && typeof window.tvWidget.activeChart === 'function') {
+                        const chart = window.tvWidget.activeChart();
+                        if (chart && typeof chart.resetData === 'function') {
+                            chart.resetData();
+                        }
+                    }
+                } catch (_) {}
             }
 
             if (window.gc) {

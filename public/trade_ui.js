@@ -249,7 +249,7 @@
                 });
             }
 
-            // Bind to live ticks from broker with change detection and 150ms UI throttle
+            // Bind to live ticks from broker: update on every display frame (rAF) when focused, throttle when backgrounded
             this._mt5TickHandler = (tick) => {
                 if (tick && tick.bid && tick.ask) {
                     const b = Number(tick.bid);
@@ -258,10 +258,25 @@
                     this.currentBid = b;
                     this.currentAsk = a;
 
-                    const now = performance.now();
-                    if (!this._lastPriceUiUpdate || (now - this._lastPriceUiUpdate >= 150)) {
-                        this._lastPriceUiUpdate = now;
-                        this.updatePrices();
+                    if (document.hidden) return;
+                    const isFocused = (window.TVFocusTracker && typeof window.TVFocusTracker.isFocusedAndActive === 'function')
+                        ? window.TVFocusTracker.isFocusedAndActive()
+                        : (typeof document.hasFocus !== 'function' || document.hasFocus());
+
+                    if (isFocused) {
+                        if (!this._priceUpdateRafId) {
+                            this._priceUpdateRafId = requestAnimationFrame(() => {
+                                this._priceUpdateRafId = null;
+                                this._lastPriceUiUpdate = performance.now();
+                                this.updatePrices();
+                            });
+                        }
+                    } else {
+                        const now = performance.now();
+                        if (!this._lastPriceUiUpdate || (now - this._lastPriceUiUpdate >= 250)) {
+                            this._lastPriceUiUpdate = now;
+                            this.updatePrices();
+                        }
                     }
                 }
             };
