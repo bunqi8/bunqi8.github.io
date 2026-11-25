@@ -1377,11 +1377,7 @@
                         if (data && data.success) {
                             this._lastTickReceivedTime = Date.now();
                             const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
-                            this.tickListeners.forEach((info, cb) => {
-                                if (info && info.endpointId && ep && info.endpointId !== ep.id) return;
-                                if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) return;
-                                try { cb(tickMsg); } catch (_) {}
-                            });
+                            this._dispatchTickToListeners(tickMsg, ep ? ep.id : null);
                         }
                     }
                 }
@@ -4202,6 +4198,17 @@
             this.tickListeners.delete(callback);
         }
 
+        /** Dispatches a live tick to matching listeners, filtering by bridge, account, and symbol when specified. */
+        _dispatchTickToListeners(tickMsg, endpointId) {
+            const msgSym = tickMsg && tickMsg.symbol ? String(tickMsg.symbol).split(':').pop().toUpperCase().trim() : '';
+            this.tickListeners.forEach((info, cb) => {
+                if (info && info.endpointId && endpointId && info.endpointId !== endpointId) return;
+                if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) return;
+                if (msgSym && info && info.symbol && info.symbol !== msgSym) return;
+                try { cb(tickMsg); } catch (_) {}
+            });
+        }
+
         startFallbackTickPolling() {
             if (this._fallbackTickTimer) return;
             this._fallbackTickTimer = setInterval(async () => {
@@ -4241,11 +4248,7 @@
                                 ep.status = 'online';
                                 this._lastTickReceivedTime = Date.now();
                                 const tickMsg = { type: 'tick', endpointId: ep ? ep.id : null, ...data };
-                                this.tickListeners.forEach((info, cb) => {
-                                    if (info && info.endpointId && ep && info.endpointId !== ep.id) return;
-                                    if (tickMsg.account_id && info && info.accountId && String(tickMsg.account_id) !== String(info.accountId)) return;
-                                    try { cb(tickMsg); } catch (_) {}
-                                });
+                                this._dispatchTickToListeners(tickMsg, ep ? ep.id : null);
                             }
                         }
                     } catch (_) {}
@@ -4400,17 +4403,7 @@
                             } else if (msg.type === 'tick') {
                                 this._lastTickReceivedTime = Date.now();
                                 msg.endpointId = ep.id;
-                                this.tickListeners.forEach((info, cb) => {
-                                    if (info && info.endpointId && info.endpointId !== ep.id) {
-                                        // Ignore ticks from other bridges to avoid price crosstalk
-                                        return;
-                                    }
-                                    if (msg.account_id && info && info.accountId && String(msg.account_id) !== String(info.accountId)) {
-                                        // Ignore ticks from other accounts on the same bridge
-                                        return;
-                                    }
-                                    try { cb(msg); } catch (_) {}
-                                });
+                                this._dispatchTickToListeners(msg, ep.id);
                             } else if (msg.type === 'positions') {
                                 const newPositions = msg.positions || [];
                                 // Reliably update positions for EVERY account in the fleet matching p.account_id

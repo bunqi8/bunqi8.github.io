@@ -867,6 +867,10 @@ function createAdaptiveRealtimeDispatcher(onRealtimeCallback) {
     return {
         dispatch(bar, forceImmediate = false) {
             if (disposed || !bar) return;
+            if (pendingBar && bar.time > pendingBar.time) {
+                flushPending();
+            }
+
             const throttleMs = forceImmediate ? 0 : TVFocusTracker.getAdaptiveThrottleMs();
 
             if (throttleMs <= 0) {

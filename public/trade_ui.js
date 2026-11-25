@@ -252,6 +252,11 @@
             // Bind to live ticks from broker: execute SL/TP immediately on raw tick, coalesce DOM writes to rAF
             this._mt5TickHandler = (tick) => {
                 if (tick && tick.bid && tick.ask) {
+                    if (tick.symbol && !this._isMatchingSymbol(tick.symbol)) {
+                        this.detectSymbolChange();
+                        if (!this._isMatchingSymbol(tick.symbol)) return;
+                    }
+                    this._hasBrokerBidAsk = true;
                     this._applyTickAndExecute(Number(tick.bid), Number(tick.ask));
                 }
             };
@@ -300,6 +305,29 @@
             this.updateChartContainerLayout();
         }
 
+        _isMatchingSymbol(sym) {
+            if (!sym || !this.currentSymbol) return true;
+            const clean = (s) => String(s).split(':').pop().toUpperCase().trim();
+            return clean(sym) === clean(this.currentSymbol);
+        }
+
+        _computeSyntheticSpread(num, sym = null) {
+            const s = (sym || this.currentSymbol || '').toUpperCase();
+            if (s.includes('NIFTY') || s.includes('BANKNIFTY')) {
+                return 0.50 + (Math.round((num * 100) % 4) * 0.10);
+            }
+            if (s.includes('XAU') || s.includes('GOLD')) {
+                return 0.35 + (Math.round((num * 10) % 5) * 0.05);
+            }
+            if (s.includes('JPY')) {
+                return 0.012 + (Math.round((num * 100) % 4) * 0.002);
+            }
+            if (num < 10) {
+                return 0.00015 + (Math.round((num * 10000) % 4) * 0.00005);
+            }
+            return num > 500 ? 0.50 : 0.05;
+        }
+
         _applyTickAndExecute(bid, ask) {
             if (!bid || !ask || isNaN(bid) || isNaN(ask)) return;
             if (this.currentBid === bid && this.currentAsk === ask) return;
@@ -340,34 +368,25 @@
         onLivePriceUpdate(price, symbol = null, bid = null, ask = null) {
             if (!price || isNaN(price) || price <= 0) return;
             const num = Number(price);
-            this.lastLiveCandlePrice = num;
+            const hasValidBrokerQuotes = (bid != null && ask != null && !isNaN(bid) && !isNaN(ask) && Number(ask) >= Number(bid));
+            const nextBid = hasValidBrokerQuotes ? Number(bid) : num;
+            const nextAsk = hasValidBrokerQuotes ? Number(ask) : Number((num + this._computeSyntheticSpread(num, symbol)).toFixed(5));
 
-            let nextBid, nextAsk;
-            if (bid != null && ask != null && !isNaN(bid) && !isNaN(ask) && ask >= bid) {
-                nextBid = Number(bid);
-                nextAsk = Number(ask);
-            } else {
-                const isNifty = this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY');
-                const isGold = this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD');
-                const isJpy = this.currentSymbol.includes('JPY');
-                
-                let spreadStep;
-                if (isNifty) {
-                    const tickOffset = (Math.round((num * 100) % 4) * 0.10);
-                    spreadStep = 0.50 + tickOffset;
-                } else if (isGold) {
-                    const tickOffset = (Math.round((num * 10) % 5) * 0.05);
-                    spreadStep = 0.35 + tickOffset;
-                } else if (isJpy) {
-                    spreadStep = 0.012 + (Math.round((num * 100) % 4) * 0.002);
-                } else if (num < 10) {
-                    spreadStep = 0.00015 + (Math.round((num * 10000) % 4) * 0.00005);
-                } else {
-                    spreadStep = num > 500 ? 0.50 : 0.05;
+            if (symbol && !this._isMatchingSymbol(symbol)) {
+                // Sync active symbol immediately if chart just switched before the 2s poller ran
+                this.detectSymbolChange();
+                if (!this._isMatchingSymbol(symbol)) {
+                    // Inactive/secondary series: route SL/TP only under its own symbol, never overwrite active UI quotes
+                    if (window.PaperTrading) {
+                        window.PaperTrading.onPriceTick(symbol, nextBid, nextAsk);
+                    }
+                    return;
                 }
+            }
 
-                nextBid = num;
-                nextAsk = Number((num + spreadStep).toFixed(5));
+            this.lastLiveCandlePrice = num;
+            if (hasValidBrokerQuotes) {
+                this._hasBrokerBidAsk = true;
             }
             this._applyTickAndExecute(nextBid, nextAsk);
         }
@@ -441,6 +460,7 @@
                         const newSym = titleBtn.innerText.trim();
                         if (newSym && newSym !== this.currentSymbol) {
                             this.currentSymbol = newSym;
+                            this._hasBrokerBidAsk = false;
                             if (window.MT5API && window.MT5API.isMt5Symbol(newSym)) {
                                 window.MT5API.subscribeQuotes(newSym, this._mt5TickHandler);
                             }
@@ -5612,27 +5632,12 @@
         }
 
         syncPricesWithChart() {
+            if (this._hasBrokerBidAsk) return;
+            const isMt5Live = Boolean(window.MT5API && window.MT5API.isConnected && window.MT5API.isMt5Symbol(this.currentSymbol));
+            if (isMt5Live) return;
             const chartP = this.getChartPrice();
-            if (chartP && (!window.MT5API || !window.MT5API.isConnected || !this.currentSymbol.includes('USD'))) {
-                const isNifty = this.currentSymbol.includes('NIFTY') || this.currentSymbol.includes('BANKNIFTY');
-                const isGold = this.currentSymbol.includes('XAU') || this.currentSymbol.includes('GOLD');
-                const isJpy = this.currentSymbol.includes('JPY');
-                
-                let spreadStep;
-                if (isNifty) {
-                    const tickOffset = (Math.round((chartP * 100) % 4) * 0.10);
-                    spreadStep = 0.50 + tickOffset;
-                } else if (isGold) {
-                    const tickOffset = (Math.round((chartP * 10) % 5) * 0.05);
-                    spreadStep = 0.35 + tickOffset;
-                } else if (isJpy) {
-                    spreadStep = 0.012 + (Math.round((chartP * 100) % 4) * 0.002);
-                } else if (chartP < 10) {
-                    spreadStep = 0.00015 + (Math.round((chartP * 10000) % 4) * 0.00005);
-                } else {
-                    spreadStep = chartP > 500 ? 0.50 : 0.05;
-                }
-
+            if (chartP) {
+                const spreadStep = this._computeSyntheticSpread(chartP);
                 this.currentBid = chartP;
                 this.currentAsk = Number((chartP + spreadStep).toFixed(5));
             }
