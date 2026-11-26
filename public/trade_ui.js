@@ -113,6 +113,7 @@
             this.positions = [];
             this.nativeLines = new Map(); // Official TradingView line tool adapters
             this.nativeOrderLines = new Map(); // Official TradingView pending order line tool adapters
+            this._lineEpoch = 0;
 
             // Activity Log Tracking
             this.activityLogs = this.loadActivityLogs();
@@ -1278,16 +1279,22 @@
                 }
             } catch (_) {}
 
-            const currentSym = (this.currentSymbol || '').split(':').pop().toUpperCase();
-            const allPositions = (this.positions && this.positions.length > 0)
-                ? this.positions
-                : (window.PaperTrading ? window.PaperTrading.getPositions() : []);
-            const symPositions = (allPositions || []).filter(p => p.symbol && p.symbol.toUpperCase() === currentSym);
+            const currentSym = (this.currentSymbol || '').split(':').pop().toUpperCase().trim();
+            const activeBrokerKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
+            const allPositions = activeBrokerKey === 'paper'
+                ? (window.PaperTrading ? window.PaperTrading.getPositions() : [])
+                : (this.positions || []);
+            const symPositions = (allPositions || []).filter(p => {
+                const pSym = (p && p.symbol) ? String(p.symbol).split(':').pop().toUpperCase().trim() : '';
+                return pSym === currentSym;
+            });
             const activeTickets = new Set(symPositions.map(p => p.ticket));
+            const epoch = this._lineEpoch;
 
             // Remove closed lines
             for (const [ticket, data] of this.nativeLines.entries()) {
                 if (!activeTickets.has(ticket)) {
+                    data.destroyed = true;
                     try { if (data.posLine) data.posLine.remove(); } catch (_) {}
                     try { if (data.tpLine) data.tpLine.remove(); } catch (_) {}
                     try { if (data.slLine) data.slLine.remove(); } catch (_) {}
@@ -1309,6 +1316,7 @@
                         posConfigured: false,
                         tpConfigured: false,
                         slConfigured: false,
+                        destroyed: false,
                         lastPrice: null,
                         lastPnl: null,
                         lastLots: null,
@@ -1322,8 +1330,14 @@
                 if (!data.posLine && !data.creatingPos) {
                     data.creatingPos = true;
                     chart.createPositionLine().then(line => {
-                        data.posLine = line;
                         data.creatingPos = false;
+                        if (!line) return;
+                        if (data.destroyed || epoch !== this._lineEpoch || this.nativeLines.get(pos.ticket) !== data) {
+                            try { line.remove(); } catch (_) {}
+                            return;
+                        }
+                        this._markLineNonPersistent(line);
+                        data.posLine = line;
                         this.applyPositionLineProperties(line, pos, data);
                     }).catch(err => {
                         data.creatingPos = false;
@@ -1341,8 +1355,14 @@
                     if (!data.tpLine && !data.creatingTp) {
                         data.creatingTp = true;
                         chart.createOrderLine().then(line => {
-                            data.tpLine = line;
                             data.creatingTp = false;
+                            if (!line) return;
+                            if (data.destroyed || epoch !== this._lineEpoch || this.nativeLines.get(pos.ticket) !== data || !(pos.tp > 0)) {
+                                try { line.remove(); } catch (_) {}
+                                return;
+                            }
+                            this._markLineNonPersistent(line);
+                            data.tpLine = line;
                             this.applyTpOrderProperties(line, pos, data);
                         }).catch(err => {
                             data.creatingTp = false;
@@ -1366,8 +1386,14 @@
                     if (!data.slLine && !data.creatingSl) {
                         data.creatingSl = true;
                         chart.createOrderLine().then(line => {
-                            data.slLine = line;
                             data.creatingSl = false;
+                            if (!line) return;
+                            if (data.destroyed || epoch !== this._lineEpoch || this.nativeLines.get(pos.ticket) !== data || !(pos.sl > 0)) {
+                                try { line.remove(); } catch (_) {}
+                                return;
+                            }
+                            this._markLineNonPersistent(line);
+                            data.slLine = line;
                             this.applySlOrderProperties(line, pos, data);
                         }).catch(err => {
                             data.creatingSl = false;
@@ -1388,12 +1414,11 @@
             }
 
             // Synchronize active pending order lines (Limit / Stop)
-            const activeBrokerKey = window.TradingEngine ? window.TradingEngine.getActiveBrokerKey(this.currentSymbol) : 'paper';
             const allOrders = (window.PaperTrading && activeBrokerKey === 'paper') 
                 ? window.PaperTrading.getOrders() 
                 : [];
             const symOrders = (allOrders || []).filter(o => {
-                const oSym = (o.symbol || '').split(':').pop().toUpperCase();
+                const oSym = (o.symbol || '').split(':').pop().toUpperCase().trim();
                 return oSym === currentSym && (o.status === 'working' || !o.status);
             });
             const activeOrderTickets = new Set(symOrders.map(o => o.ticket));
@@ -1401,6 +1426,7 @@
             // Remove closed/cancelled order lines
             for (const [ticket, data] of this.nativeOrderLines.entries()) {
                 if (!activeOrderTickets.has(ticket)) {
+                    data.destroyed = true;
                     try { if (data.line) data.line.remove(); } catch (_) {}
                     this.nativeOrderLines.delete(ticket);
                 }
@@ -1414,6 +1440,7 @@
                         line: null,
                         creating: false,
                         configured: false,
+                        destroyed: false,
                         lastPrice: null,
                         lastLots: null,
                         lastType: null
@@ -1424,8 +1451,14 @@
                 if (!data.line && !data.creating) {
                     data.creating = true;
                     chart.createOrderLine().then(line => {
-                        data.line = line;
                         data.creating = false;
+                        if (!line) return;
+                        if (data.destroyed || epoch !== this._lineEpoch || this.nativeOrderLines.get(ord.ticket) !== data) {
+                            try { line.remove(); } catch (_) {}
+                            return;
+                        }
+                        this._markLineNonPersistent(line);
+                        data.line = line;
                         this.applyPendingOrderLineProperties(line, ord, data);
                     }).catch(err => {
                         data.creating = false;
@@ -1438,6 +1471,9 @@
                     this.applyPendingOrderLineProperties(data.line, ord, data);
                 }
             }
+
+            // Sweep any orphaned ghost LineToolPosition / LineToolOrder entities (e.g. "position | 0" leftovers)
+            this.purgeOrphanedTradingLines(chart);
         }
 
         applyPositionLineProperties(posLine, pos, data) {
@@ -1625,8 +1661,68 @@
             }
         }
 
+        _markLineNonPersistent(adapter) {
+            try {
+                const src = adapter && adapter._line;
+                if (src && typeof src.setSavingInChartEnabled === 'function') {
+                    src.setSavingInChartEnabled(false);
+                }
+            } catch (_) {}
+        }
+
+        purgeOrphanedTradingLines(chart = null) {
+            try {
+                const targetChart = chart || (window.tvWidget ? (window.tvWidget.activeChart ? window.tvWidget.activeChart() : window.tvWidget.chart()) : null);
+                const model = targetChart?._chartWidget?.model?.()?.model?.();
+                if (!model || typeof model.allLineTools !== 'function') return;
+
+                const ownedSources = new Set();
+                const ownedIds = new Set();
+                const collectAdapter = (adapter) => {
+                    const src = adapter && adapter._line;
+                    if (!src) return;
+                    ownedSources.add(src);
+                    try {
+                        if (typeof src.id === 'function') ownedIds.add(src.id());
+                    } catch (_) {}
+                };
+
+                for (const data of this.nativeLines.values()) {
+                    if (!data || data.destroyed) continue;
+                    collectAdapter(data.posLine);
+                    collectAdapter(data.tpLine);
+                    collectAdapter(data.slLine);
+                }
+                for (const data of this.nativeOrderLines.values()) {
+                    if (!data || data.destroyed) continue;
+                    collectAdapter(data.line);
+                }
+
+                const tools = model.allLineTools();
+                for (let i = 0; i < tools.length; i++) {
+                    const tool = tools[i];
+                    if (!tool) continue;
+                    const tName = tool.toolname;
+                    if (tName !== 'LineToolPosition' && tName !== 'LineToolOrder' && tName !== 'LineToolExecution') continue;
+
+                    const toolId = typeof tool.id === 'function' ? tool.id() : null;
+                    if (!ownedSources.has(tool) && (!toolId || !ownedIds.has(toolId))) {
+                        try {
+                            if (typeof model.removeSource === 'function') {
+                                model.removeSource(tool);
+                            } else if (toolId && typeof targetChart.removeEntity === 'function') {
+                                targetChart.removeEntity(toolId, { disableUndo: true });
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+        }
+
         clearAllNativeChartLines() {
+            this._lineEpoch++;
             for (const [ticket, data] of this.nativeLines.entries()) {
+                data.destroyed = true;
                 try { if (data.posLine) data.posLine.remove(); } catch (_) {}
                 try { if (data.tpLine) data.tpLine.remove(); } catch (_) {}
                 try { if (data.slLine) data.slLine.remove(); } catch (_) {}
@@ -1634,9 +1730,11 @@
             this.nativeLines.clear();
 
             for (const [ticket, data] of this.nativeOrderLines.entries()) {
+                data.destroyed = true;
                 try { if (data.line) data.line.remove(); } catch (_) {}
             }
             this.nativeOrderLines.clear();
+            this.purgeOrphanedTradingLines();
         }
 
         openProtectionModal(pos) {

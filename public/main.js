@@ -99,6 +99,61 @@ function safeSet(key, value) {
     localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
 }
 
+const TRANSIENT_TRADING_TOOL_TYPES = new Set([
+    'LineToolPosition',
+    'LineToolOrder',
+    'LineToolExecution'
+]);
+
+/** Strips ephemeral broker position/order lines from saved chart layouts so ghost "position | 0" lines never accumulate across reloads. */
+function stripTransientTradingPrimitives(rawContent) {
+    if (!rawContent) return { content: rawContent, changed: false };
+    try {
+        const wasString = typeof rawContent === 'string';
+        const parsed = wasString ? JSON.parse(rawContent) : rawContent;
+        if (!parsed || typeof parsed !== 'object') return { content: rawContent, changed: false };
+
+        let changed = false;
+        const cleanNode = (node) => {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) {
+                for (let i = 0; i < node.length; i++) cleanNode(node[i]);
+                return;
+            }
+            if (Array.isArray(node.sources)) {
+                const filtered = node.sources.filter((src) => {
+                    if (src && TRANSIENT_TRADING_TOOL_TYPES.has(src.type)) {
+                        changed = true;
+                        return false;
+                    }
+                    return true;
+                });
+                node.sources = filtered;
+            }
+            if (typeof node.content === 'string' && node.content.includes('LineTool')) {
+                const nested = stripTransientTradingPrimitives(node.content);
+                if (nested.changed) {
+                    node.content = nested.content;
+                    changed = true;
+                }
+            }
+            for (const key of Object.keys(node)) {
+                if (key !== 'sources' && node[key] && typeof node[key] === 'object') {
+                    cleanNode(node[key]);
+                }
+            }
+        };
+
+        cleanNode(parsed);
+        return {
+            content: changed ? (wasString ? JSON.stringify(parsed) : parsed) : rawContent,
+            changed
+        };
+    } catch (_) {
+        return { content: rawContent, changed: false };
+    }
+}
+
 const localSaveLoadAdapter = {
     // ==========================================================
     // CHARTS
@@ -153,6 +208,13 @@ const localSaveLoadAdapter = {
                 }
             }
             
+            if (chartData && chartData.content) {
+                const stripped = stripTransientTradingPrimitives(chartData.content);
+                if (stripped.changed) {
+                    chartData.content = stripped.content;
+                }
+            }
+
             chartData.timestamp = Math.floor(Date.now() / 1000);
             
             let charts = safeGet('charts');
@@ -184,7 +246,15 @@ const localSaveLoadAdapter = {
         return new Promise((resolve) => {
             const charts = safeGet('charts');
             const chart = charts.find(c => String(c.id) === String(chartId));
-            resolve(chart ? chart.content : null);
+            if (!chart) return resolve(null);
+            if (chart.content) {
+                const stripped = stripTransientTradingPrimitives(chart.content);
+                if (stripped.changed) {
+                    chart.content = stripped.content;
+                    safeSet('charts', charts);
+                }
+            }
+            resolve(chart.content || null);
         });
     },
 
