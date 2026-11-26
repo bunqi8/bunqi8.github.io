@@ -535,26 +535,16 @@
             return Boolean(isVmKeyword || hasVmNotCloud || isPrivateIp);
         }
 
-        getReqHeaders(endpointObj) {
-            const ep = endpointObj || this.getActiveEndpoint();
-            const h = { 'Content-Type': 'application/json' };
-            let key = ep ? ep.apiKey : (this.apiKey || '');
-            if (key && (key.startsWith('enc:v1:') || key.startsWith('b64:v1:'))) {
-                console.warn('[MT5API] getReqHeaders called with un-decrypted API key ciphertext! Omitting auth header.');
-                key = '';
-            }
-            if (key && key !== 'none') {
-                h['Authorization'] = `Bearer ${key}`;
-                h['X-Bridge-Key'] = key;
-            }
+        _getCleanSecret(val) {
+            const s = (val || '').trim();
+            if (!s || s.startsWith('enc:v1:') || s.startsWith('b64:v1:')) return '';
+            return s;
+        }
 
-            // Origin-Level Zero-Trust Shield Token
-            let shield = ep ? (ep.shieldToken || '') : '';
-            if (shield && (shield.startsWith('enc:v1:') || shield.startsWith('b64:v1:'))) {
-                shield = '';
-            }
-            // Auto-detect shield token from URL path if not explicitly provided
-            if (!shield && ep && ep.url) {
+        _getDecryptedShieldToken(ep) {
+            if (!ep) return '';
+            let shield = this._getCleanSecret(ep.shieldToken);
+            if (!shield && ep.url) {
                 try {
                     const parsed = new URL(ep.url);
                     const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
@@ -563,6 +553,20 @@
                     }
                 } catch (_) {}
             }
+            return shield;
+        }
+
+        getReqHeaders(endpointObj) {
+            const ep = endpointObj || this.getActiveEndpoint();
+            const h = { 'Content-Type': 'application/json' };
+            let key = this._getCleanSecret(ep ? ep.apiKey : (this.apiKey || ''));
+            if (key && key !== 'none') {
+                h['Authorization'] = `Bearer ${key}`;
+                h['X-Bridge-Key'] = key;
+            }
+
+            // Origin-Level Zero-Trust Shield Token
+            const shield = this._getDecryptedShieldToken(ep);
             if (shield) {
                 h['X-Shield-Token'] = shield;
             }
@@ -4150,19 +4154,15 @@
                     symbol: clean
                 });
             }
+            // Defer initial WebSocket/RPC subscription until vault secrets are decrypted so we never send enc:v1: ciphertext tokens
+            if (!this._secretsDecrypted && this._decryptPromise) {
+                this._decryptPromise.then(() => this.subscribeQuotes(symbol, resolution, null, accountId)).catch(() => {});
+                return;
+            }
             this.ensureWebSocket();
             this.startFallbackTickPolling();
 
             // Direct subscription strictly to the specific bridge endpoint hosting this account
-            const getCleanToken = (endpoint) => {
-                if (!endpoint) return '';
-                let k = endpoint.apiKey || '';
-                if (k.startsWith('enc:v1:') || k.startsWith('b64:v1:')) {
-                    try { k = this.decryptSecret(k) || ''; } catch (_) {}
-                }
-                return k;
-            };
-
             if (targetEp) {
                 const targetSocket = this.wsSockets.get(targetEp.id);
                 if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
@@ -4171,7 +4171,7 @@
                             action: 'subscribe',
                             symbol: this.activeSymbol,
                             resolution: this.activeResolution || '1',
-                            token: getCleanToken(targetEp),
+                            token: this._getCleanSecret(targetEp.apiKey),
                             account_id: targetAcc ? targetAcc.id : null
                         }));
                     } catch (_) {}
@@ -4185,7 +4185,7 @@
                                 action: 'subscribe',
                                 symbol: this.activeSymbol,
                                 resolution: this.activeResolution || '1',
-                                token: getCleanToken(ep),
+                                token: this._getCleanSecret(ep ? ep.apiKey : ''),
                                 account_id: targetAcc ? targetAcc.id : null
                             }));
                         } catch (_) {}
@@ -4257,8 +4257,20 @@
         }
 
         ensureWebSocket() {
+            // Wait for vault decryption on boot before opening WebSocket so Fail2Ban is never triggered with enc:v1: ciphertext
+            if (!this._secretsDecrypted && this._decryptPromise) {
+                if (!this._wsWaitingDecrypt) {
+                    this._wsWaitingDecrypt = true;
+                    this._decryptPromise.finally(() => {
+                        this._wsWaitingDecrypt = false;
+                        this.ensureWebSocket();
+                    });
+                }
+                return;
+            }
+
             // Connect WebSockets to all enabled bridge endpoints that are not unauthorized
-            const enabledEndpoints = (this.endpoints || []).filter(e => e && e.enabled && e.status !== 'unauthorized');
+            const enabledEndpoints = (this.endpoints || []).filter(e => e && e.enabled && e.status !== 'unauthorized' && !this._isPlaceholderEndpointUrl(e.url));
             if (enabledEndpoints.length === 0) return;
 
             enabledEndpoints.forEach(ep => {
@@ -4273,24 +4285,12 @@
                     let wsUrl = `${wsProto}//${host}/ws/quotes`;
 
                     // Origin Zero-Trust query parameter for WebSocket
-                    let shield = ep.shieldToken || '';
-                    if (!shield && ep.url) {
-                        try {
-                            const parsed = new URL(ep.url);
-                            const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '');
-                            if (pathPart && !pathPart.includes('/')) {
-                                shield = pathPart;
-                            }
-                        } catch (_) {}
-                    }
-                    if (shield && !shield.startsWith('enc:v1:')) {
+                    const shield = this._getDecryptedShieldToken(ep);
+                    if (shield) {
                         wsUrl += (wsUrl.includes('?') ? '&' : '?') + `shield_token=${encodeURIComponent(shield)}`;
                     }
 
-                    let rawKey = ep.apiKey || '';
-                    if (rawKey.startsWith('enc:v1:') || rawKey.startsWith('b64:v1:')) {
-                        try { rawKey = this.decryptSecret(rawKey) || ''; } catch (_) {}
-                    }
+                    const rawKey = this._getCleanSecret(ep.apiKey);
 
                     socket = new WebSocket(wsUrl);
                     this.wsSockets.set(ep.id, socket);
@@ -4311,6 +4311,7 @@
                         if (socket.readyState !== WebSocket.OPEN) return;
                         socket._connectedAt = Date.now();
                         socket._lastActivityTime = Date.now();
+                        const activeToken = this._getCleanSecret(ep.apiKey) || rawKey;
 
                         // 1. Re-subscribe all active chart / quote listeners currently registered
                         let reSubscribedCount = 0;
@@ -4332,7 +4333,7 @@
                                         action: 'subscribe',
                                         symbol: sub.symbol,
                                         resolution: this.activeResolution || '1',
-                                        token: ep.apiKey,
+                                        token: activeToken,
                                         account_id: sub.account_id
                                     }));
                                 } catch (_) {}
@@ -4348,7 +4349,7 @@
                                 action: 'subscribe',
                                 symbol: this.activeSymbol,
                                 resolution: this.activeResolution || '1',
-                                token: ep.apiKey,
+                                token: activeToken,
                                 account_id: handshakeAid
                             };
                             try {
@@ -4582,7 +4583,7 @@
                     socket.send(JSON.stringify({
                         ...payload,
                         req_id: reqId,
-                        token: ep.apiKey || undefined
+                        token: this._getCleanSecret(ep.apiKey) || undefined
                     }));
                 } catch (err) {
                     clearTimeout(timer);
