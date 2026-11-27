@@ -2094,7 +2094,9 @@
                     a.is_active = matchId || matchPhysical;
                 });
 
+                this.positions = (targetAcc && Array.isArray(targetAcc.positions)) ? [...targetAcc.positions] : [];
                 this.notifyAccountListeners();
+                this.notifyPositionListeners(this.positions);
                 this.reconnectWebSocket();
 
                 if (!skipChartSwitch) {
@@ -4406,32 +4408,28 @@
                                 msg.endpointId = ep.id;
                                 this._dispatchTickToListeners(msg, ep.id);
                             } else if (msg.type === 'positions') {
-                                const newPositions = msg.positions || [];
-                                // Reliably update positions for EVERY account in the fleet matching p.account_id
-                                (this.accounts || []).forEach(acc => {
-                                    const cleanLogin = String(acc.login || '').trim();
-                                    const accPositions = newPositions.filter(p => {
-                                        const pAid = String(p.account_id || '').trim();
-                                        return pAid === String(acc.id) || pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin;
-                                    });
+                                const newPositions = Array.isArray(msg.positions) ? msg.positions : [];
+                                // Reliably update positions strictly for accounts serviced by this WebSocket endpoint
+                                const epAccounts = (this.accounts || []).filter(acc => !acc.endpointId || acc.endpointId === ep.id || acc.endpointUrl === ep.url);
+                                epAccounts.forEach(acc => {
+                                    const accPositions = newPositions.filter(p => this._matchesPositionAccount(p, acc));
                                     this.processPositionDiff(acc.id, accPositions);
                                     acc.positions = accPositions;
                                 });
 
                                 const curActive = this.getActiveAccount();
                                 if (curActive) {
-                                    const curLogin = String(curActive.login || '').trim();
-                                    const matchingAcc = (this.accounts || []).find(a => 
-                                        String(a.id) === String(curActive.id) || (curLogin && String(a.login).trim() === curLogin)
-                                    );
-                                    if (matchingAcc && matchingAcc.positions) {
-                                        this.positions = matchingAcc.positions;
-                                        curActive.positions = matchingAcc.positions;
-                                    } else {
-                                        this.positions = curActive.positions || [];
+                                    const activeEp = this.getEndpointForAccount(curActive.id);
+                                    if (!activeEp || activeEp.id === ep.id) {
+                                        const activePos = newPositions.filter(p => this._matchesPositionAccount(p, curActive));
+                                        curActive.positions = activePos;
+                                        this.positions = activePos;
+                                        this.notifyPositionListeners(this.positions);
                                     }
+                                } else if (newPositions.length === 0 || epAccounts.length <= 1) {
+                                    this.positions = newPositions;
+                                    this.notifyPositionListeners(this.positions);
                                 }
-                                this.notifyPositionListeners(newPositions);
                             } else if (msg.type === 'accounts') {
                                 this.handleWebSocketAccountsUpdate(ep.id, msg);
                             } else if (msg.type === 'hf_status' || (msg.type === 'connected' && msg.hf_status)) {
@@ -4677,7 +4675,7 @@
                 if (!ep) return [];
 
                 const cleanLogin = String(accountId).replace(/^mt5_/, '');
-                const matchAcc = (a) => String(a.id) === String(accountId) || String(a.login) === cleanLogin || String(a.id).replace(/^mt5_/, '') === cleanLogin;
+                const matchAcc = (a) => String(a.id) === String(accountId) || (cleanLogin && (String(a.login) === cleanLogin || String(a.id).replace(/^mt5_/, '') === cleanLogin));
 
                 // 1. Try WebSocket RPC first
                 try {
@@ -4686,15 +4684,7 @@
                         account_id: String(accountId)
                     }, 3000);
                     if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
-                        const pos = wsRes.positions;
-                        this.processPositionDiff(accountId, pos);
-                        const acc = this.accounts.find(matchAcc);
-                        if (acc) acc.positions = pos;
-                        if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
-                            this.positions = pos;
-                        }
-                        this.notifyPositionListeners(pos);
-                        return pos;
+                        return this._applySingleAccountPositions(accountId, wsRes.positions, matchAcc);
                     }
                 } catch (_) {}
 
@@ -4707,15 +4697,8 @@
                         });
                         if (res.ok) {
                             const data = await res.json();
-                            const pos = data.positions || [];
-                            this.processPositionDiff(accountId, pos);
-                            const acc = this.accounts.find(matchAcc);
-                            if (acc) acc.positions = pos;
-                            if (!this.activeAccountId || this.activeAccountId === accountId || (acc && acc.is_active)) {
-                                this.positions = pos;
-                            }
-                            this.notifyPositionListeners(pos);
-                            return pos;
+                            const pos = Array.isArray(data.positions) ? data.positions : [];
+                            return this._applySingleAccountPositions(accountId, pos, matchAcc);
                         }
                     } catch (e) {}
                 }
@@ -4737,11 +4720,16 @@
                 try {
                     const wsRes = await this.wsRequest(ep.id, { action: 'get_positions' }, 3000);
                     if (wsRes && wsRes.success && Array.isArray(wsRes.positions)) {
-                        return wsRes.positions.map(p => ({
-                            ...p,
-                            endpointId: ep.id,
-                            endpointName: ep.name
-                        }));
+                        return {
+                            epId: ep.id,
+                            epUrl: ep.url,
+                            ok: true,
+                            positions: wsRes.positions.map(p => ({
+                                ...p,
+                                endpointId: ep.id,
+                                endpointName: ep.name
+                            }))
+                        };
                     }
                 } catch (_) {}
 
@@ -4754,23 +4742,36 @@
                         });
                         if (res.ok) {
                             const data = await res.json();
-                            return (data.positions || []).map(p => ({
-                                ...p,
-                                endpointId: ep.id,
-                                endpointName: ep.name
-                            }));
+                            return {
+                                epId: ep.id,
+                                epUrl: ep.url,
+                                ok: true,
+                                positions: (data.positions || []).map(p => ({
+                                    ...p,
+                                    endpointId: ep.id,
+                                    endpointName: ep.name
+                                }))
+                            };
                         }
                     } catch (_) {}
                 }
-                return [];
+                return { epId: ep.id, epUrl: ep.url, ok: false, positions: [] };
             });
 
             const results = await Promise.allSettled(allPromises);
+            const succeededEpIds = new Set();
+            const succeededEpUrls = new Set();
             const combinedPositions = [];
             for (const r of results) {
-                if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-                    combinedPositions.push(...r.value);
+                if (r.status === 'fulfilled' && r.value && r.value.ok) {
+                    succeededEpIds.add(r.value.epId);
+                    if (r.value.epUrl) succeededEpUrls.add(r.value.epUrl);
+                    combinedPositions.push(...r.value.positions);
                 }
+            }
+
+            if (succeededEpIds.size === 0) {
+                return this.positions || [];
             }
 
             // Deduplicate positions across multi-bridge reports by ticket
@@ -4784,31 +4785,37 @@
                 }
             }
 
-            // Distribute positions to respective accounts in this.accounts
+            // Distribute positions to accounts whose endpoints responded cleanly (preserve cache on transient failures)
             if (this.accounts) {
                 this.accounts.forEach(a => {
-                    const aId = String(a.id);
-                    const aLogin = String(a.login || '').trim();
-                    a.positions = dedupedPositions.filter(p => {
-                        const pAid = String(p.account_id || '').trim();
-                        return pAid === aId || (aLogin && (pAid === aLogin || pAid.replace(/^mt5_/, '') === aLogin));
-                    });
+                    const epResponded = (!a.endpointId && !a.endpointUrl) ||
+                        succeededEpIds.has(a.endpointId) ||
+                        (a.endpointUrl && succeededEpUrls.has(a.endpointUrl));
+                    if (!epResponded) return;
+                    const accPositions = dedupedPositions.filter(p => this._matchesPositionAccount(p, a));
+                    this.processPositionDiff(a.id, accPositions);
+                    a.positions = accPositions;
                 });
             }
 
             const activeAcc = this.getActiveAccount();
             if (activeAcc) {
-                const actId = String(activeAcc.id);
-                const actLogin = String(activeAcc.login || '').trim();
-                this.positions = dedupedPositions.filter(p => {
-                    const pAid = String(p.account_id || '').trim();
-                    return pAid === actId || (actLogin && (pAid === actLogin || pAid.replace(/^mt5_/, '') === actLogin)) || !p.account_id;
-                });
+                const activeEpResponded = (!activeAcc.endpointId && !activeAcc.endpointUrl) ||
+                    succeededEpIds.has(activeAcc.endpointId) ||
+                    (activeAcc.endpointUrl && succeededEpUrls.has(activeAcc.endpointUrl));
+                if (activeEpResponded) {
+                    const activePos = dedupedPositions.filter(p =>
+                        this._matchesPositionAccount(p, activeAcc) ||
+                        (!p.account_id && (this.accounts || []).length <= 1)
+                    );
+                    activeAcc.positions = activePos;
+                    this.positions = activePos;
+                }
             } else {
                 this.positions = dedupedPositions;
             }
-            this.notifyPositionListeners();
-            return dedupedPositions;
+            this.notifyPositionListeners(this.positions);
+            return this.positions || [];
         }
 
         async placeOrder({ symbol, type, orderType = 'market', price = 0.0, lots, sl = 0.0, tp = 0.0, comment = "TV Order", accountId = null }) {
@@ -5096,6 +5103,39 @@
             cb(this.positions);
         }
 
+        _matchesPositionAccount(pos, acc) {
+            if (!pos || !acc) return false;
+            const pAid = String(pos.account_id || '').trim();
+            if (!pAid) return false;
+            const accId = String(acc.id || '').trim();
+            const cleanId = accId.replace(/^mt5_/, '');
+            const cleanLogin = String(acc.login || '').trim();
+            return pAid === accId ||
+                (cleanId && pAid === cleanId) ||
+                (cleanLogin && (pAid === cleanLogin || pAid.replace(/^mt5_/, '') === cleanLogin));
+        }
+
+        _applySingleAccountPositions(accountId, pos, matchAcc = null) {
+            const safePos = Array.isArray(pos) ? pos : [];
+            const cleanLogin = String(accountId).replace(/^mt5_/, '');
+            const matcher = matchAcc || ((a) =>
+                String(a.id) === String(accountId) ||
+                (cleanLogin && (String(a.login) === cleanLogin || String(a.id).replace(/^mt5_/, '') === cleanLogin))
+            );
+            this.processPositionDiff(accountId, safePos);
+            const acc = (this.accounts || []).find(matcher);
+            if (acc) acc.positions = safePos;
+            const activeAcc = this.getActiveAccount();
+            const isActiveTarget = activeAcc
+                ? (matcher(activeAcc) || String(activeAcc.id) === String(accountId))
+                : (!this.activeAccountId || String(this.activeAccountId) === String(accountId));
+            if (isActiveTarget) {
+                this.positions = safePos;
+                this.notifyPositionListeners(this.positions);
+            }
+            return safePos;
+        }
+
         notifyPositionListeners(customPositions = null) {
             const posToSend = customPositions !== null ? customPositions : this.positions;
             this.positionListeners.forEach(cb => {
@@ -5108,10 +5148,11 @@
         }
 
         notifyNotificationListeners(notif) {
-            this.notificationListeners.forEach(cb => {
-                try { cb(notif); } catch (_) {}
-            });
-            if (window.MT5UI && typeof window.MT5UI.showNotification === 'function') {
+            if (this.notificationListeners.size > 0) {
+                this.notificationListeners.forEach(cb => {
+                    try { cb(notif); } catch (_) {}
+                });
+            } else if (window.MT5UI && typeof window.MT5UI.showNotification === 'function') {
                 try { window.MT5UI.showNotification(notif); } catch (_) {}
             }
         }
@@ -5141,17 +5182,21 @@
         }
 
         processPositionDiff(accountId, newPositions = []) {
-            let acc = this.accounts.find(a => String(a.id) === String(accountId));
-            if (!acc) {
-                const cleanId = String(accountId).replace(/^mt5_/, '');
-                acc = this.accounts.find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
+            const cleanId = String(accountId || '').replace(/^mt5_/, '');
+            let acc = (this.accounts || []).find(a => String(a.id) === String(accountId));
+            if (!acc && cleanId) {
+                acc = (this.accounts || []).find(a => String(a.login) === cleanId || String(a.id).replace(/^mt5_/, '') === cleanId);
             }
-            if (!acc) acc = this.getActiveAccount();
-            const targetId = acc ? acc.id : String(accountId || 'default');
-            const accName = acc ? acc.nickname : `Account #${accountId || ''}`;
+            const targetId = acc ? String(acc.id) : String(accountId || 'default');
+            const accName = acc ? (acc.nickname || `Account #${acc.login || targetId}`) : `Account #${accountId || ''}`;
 
             if (!this._accountPositionsMap) this._accountPositionsMap = new Map();
-            const prevPositions = this._accountPositionsMap.get(targetId);
+            let prevPositions = this._accountPositionsMap.get(targetId);
+            if (!prevPositions && cleanId && this._accountPositionsMap.has(cleanId)) {
+                prevPositions = this._accountPositionsMap.get(cleanId);
+                this._accountPositionsMap.delete(cleanId);
+                this._accountPositionsMap.set(targetId, prevPositions);
+            }
 
             if (!prevPositions) {
                 // Initial baseline snapshot for this specific account - DO NOT notify on first load!
@@ -5161,20 +5206,6 @@
                 });
                 this._accountPositionsMap.set(targetId, map);
                 return;
-            }
-
-            // Flap & Glitch Guard: If previous snapshot had positions, and newPositions is suddenly empty,
-            // require 2 consecutive empty snapshots before firing position closure!
-            if (prevPositions.size > 0 && newPositions.length === 0) {
-                if (!this._emptySnapshotCounters) this._emptySnapshotCounters = new Map();
-                const emptyCounter = this._emptySnapshotCounters.get(targetId) || 0;
-                if (emptyCounter < 1) {
-                    this._emptySnapshotCounters.set(targetId, emptyCounter + 1);
-                    return; // Wait for next tick to verify closure
-                }
-            }
-            if (this._emptySnapshotCounters) {
-                this._emptySnapshotCounters.delete(targetId);
             }
 
             const currentTickets = new Set();
@@ -5201,7 +5232,10 @@
                 } else {
                     // Check for SL/TP modification
                     const oldP = prevPositions.get(ticketKey);
-                    if (oldP && (Number(oldP.sl || 0) !== Number(p.sl || 0) || Number(oldP.tp || 0) !== Number(p.tp || 0))) {
+                    if (oldP && (
+                        Math.abs(Number(oldP.sl || 0) - Number(p.sl || 0)) > 1e-8 ||
+                        Math.abs(Number(oldP.tp || 0) - Number(p.tp || 0)) > 1e-8
+                    )) {
                         this.notifyNotificationListeners({
                             type: 'modified',
                             action: 'Order Modified',
